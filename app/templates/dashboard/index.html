@@ -76,6 +76,56 @@
   </div>
 </div>
 
+<!-- ── Nuts sold ── -->
+<div class="row g-3 mb-4">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h6 class="fw-semibold mb-0" style="font-size:.95rem">Продано орешков</h6>
+        <span class="text-muted" style="font-size:.78rem">подтверждённые + отгруженные + доставленные заказы</span>
+      </div>
+      <div class="row g-4 align-items-center">
+
+        <!-- Большое число -->
+        <div class="col-md-3 text-center border-end">
+          <div style="font-size:2.8rem;font-weight:800;line-height:1;color:#e67e22">
+            {{ total_nuts_sold | int | format_number }}
+          </div>
+          <div class="text-muted mt-1" style="font-size:.8rem">шт всего</div>
+          <div class="mt-2">
+            <span class="badge rounded-pill" style="background:#fff3cd;color:#856404;font-size:.82rem;padding:.4em .8em">
+              {{ nuts_this_month | int | format_number }} шт за этот месяц
+            </span>
+          </div>
+        </div>
+
+        <!-- Горизонтальные бары по продуктам -->
+        <div class="col-md-9">
+          {% if top_products %}
+            {% set max_qty = top_products[0][1] %}
+            {% for name, qty in top_products %}
+            <div class="mb-2">
+              <div class="d-flex justify-content-between mb-1" style="font-size:.82rem">
+                <span class="text-truncate me-2" style="max-width:70%">{{ name }}</span>
+                <span class="fw-semibold text-nowrap">{{ qty | int | format_number }} шт</span>
+              </div>
+              <div class="progress" style="height:8px;border-radius:4px;background:#f0f0f0">
+                <div class="progress-bar" role="progressbar"
+                     style="width:{{ (qty / max_qty * 100) | round | int }}%;background:#e67e22;border-radius:4px"
+                     aria-valuenow="{{ qty }}" aria-valuemax="{{ max_qty }}"></div>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-muted text-center py-3">Нет данных по продажам</div>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Top clients + Recent ── -->
 <div class="row g-3">
   <div class="col-lg-5">

@@ -6,7 +6,7 @@ from sqlalchemy import func
 from datetime import date, timedelta
 from app.database import get_db
 from app.auth import login_required
-from app.models import Order, Invoice, Counterparty, Contract
+from app.models import Order, OrderItem, Invoice, Counterparty, Contract, Product
 
 router = APIRouter(tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
@@ -75,6 +75,27 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         for s in ["draft", "confirmed", "shipped", "delivered", "cancelled"]
     }
 
+    _sold_orders = ["confirmed", "shipped", "delivered"]
+    total_nuts_sold = db.query(func.sum(OrderItem.quantity)).join(
+        Order, OrderItem.order_id == Order.id
+    ).filter(Order.status.in_(_sold_orders)).scalar() or 0.0
+
+    nuts_this_month = db.query(func.sum(OrderItem.quantity)).join(
+        Order, OrderItem.order_id == Order.id
+    ).filter(
+        Order.status.in_(_sold_orders),
+        Order.date >= month_start,
+    ).scalar() or 0.0
+
+    top_products = db.query(
+        Product.name,
+        func.sum(OrderItem.quantity).label("qty"),
+    ).join(OrderItem, OrderItem.product_id == Product.id).join(
+        Order, OrderItem.order_id == Order.id
+    ).filter(Order.status.in_(_sold_orders)).group_by(Product.id).order_by(
+        func.sum(OrderItem.quantity).desc()
+    ).limit(6).all()
+
     return templates.TemplateResponse(request, "dashboard/index.html", {
         "total_orders": total_orders,
         "active_orders": active_orders,
@@ -90,4 +111,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         "months_data": months_data,
         "top_clients": top_clients,
         "order_status_counts": order_status_counts,
+        "total_nuts_sold": total_nuts_sold,
+        "nuts_this_month": nuts_this_month,
+        "top_products": top_products,
     })

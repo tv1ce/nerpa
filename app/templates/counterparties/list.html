@@ -41,7 +41,14 @@
       <tbody>
         {% for cp in counterparties %}
         <tr>
-          <td class="ps-3"><a href="/counterparties/{{ cp.id }}" class="fw-semibold text-decoration-none">{{ cp.name }}</a></td>
+          <td class="ps-3">
+            <a href="/counterparties/{{ cp.id }}" class="fw-semibold text-decoration-none">
+              {{ cp.trade_name or cp.name }}
+            </a>
+            {% if cp.trade_name %}
+            <div class="text-muted" style="font-size:.78rem">{{ cp.name }}</div>
+            {% endif %}
+          </td>
           <td class="text-muted">{{ cp.inn or '—' }}</td>
           <td>{{ cp.contact_person or '—' }}</td>
           <td>{{ cp.phone or '—' }}</td>

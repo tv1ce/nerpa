@@ -43,6 +43,7 @@ from datetime import date as _date
 _templates = Jinja2Templates(directory="app/templates")
 _templates.env.filters["money"] = _fmt_money
 _templates.env.filters["date_fmt"] = _fmt_date
+_templates.env.filters["format_number"] = lambda v: f"{int(v):,}".replace(",", " ")
 # Глобальная переменная today доступна в каждом шаблоне
 _templates.env.globals["today"] = _date.today()
 

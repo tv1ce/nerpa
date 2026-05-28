@@ -47,8 +47,11 @@ def _migrate_db():
     cur = conn.cursor()
     migrations = [
         ("company_settings", "monthly_plan", "REAL DEFAULT 225000.0"),
+        ("company_settings", "logo_path",    "TEXT"),
         ("products", "min_stock",     "REAL DEFAULT 0.0"),
         ("products", "initial_stock", "REAL DEFAULT 0.0"),
+        ("invoices",  "contract_id",  "INTEGER REFERENCES contracts(id)"),
+        ("counterparties", "trade_name", "TEXT"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]

@@ -22,6 +22,7 @@ class Counterparty(Base):
     __tablename__ = "counterparties"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
+    trade_name = Column(String(200))
     short_name = Column(String(100))
     inn = Column(String(12))
     kpp = Column(String(9))
@@ -119,8 +120,11 @@ class Invoice(Base):
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
 
+    contract_id = Column(Integer, ForeignKey("contracts.id"))
+
     counterparty = relationship("Counterparty", back_populates="invoices")
     order = relationship("Order", back_populates="invoices")
+    contract = relationship("Contract")
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
 
 
@@ -153,6 +157,7 @@ class Contract(Base):
     start_date = Column(Date)
     end_date = Column(Date)
     amount = Column(Float)
+    payment_days = Column(Integer)  # дней отсрочки (для шаблонов с отсрочкой)
     file_path = Column(String(500))
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
@@ -180,6 +185,7 @@ class CompanySettings(Base):
     inn = Column(String(12))
     kpp = Column(String(9))
     ogrn = Column(String(15))
+    okpo = Column(String(15))
     legal_address = Column(String(500))
     actual_address = Column(String(500))
     phone = Column(String(50))

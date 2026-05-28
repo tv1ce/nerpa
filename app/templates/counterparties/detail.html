@@ -11,6 +11,12 @@
   <div class="col-lg-8">
     <div class="card border-0 shadow-sm p-4 mb-3">
       <div class="form-section-title">Основная информация</div>
+      {% if cp.trade_name %}
+      <div class="mb-3">
+        <span class="fw-semibold" style="font-size:1.05rem">{{ cp.trade_name }}</span>
+        <span class="text-muted ms-2" style="font-size:.85rem">{{ cp.name }}</span>
+      </div>
+      {% endif %}
       <div class="row g-2" style="font-size:.9rem">
         <div class="col-md-6"><span class="text-muted">Тип:</span> <span class="badge badge-{{ cp.type }}">{{ cp_types[cp.type] }}</span></div>
         <div class="col-md-6"><span class="text-muted">ИНН:</span> {{ cp.inn or '—' }}</div>
