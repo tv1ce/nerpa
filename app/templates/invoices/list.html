@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Счета на оплату{% endblock %}
+{% block page_title %}Счета на оплату{% endblock %}
+{% block topbar_actions %}
+  <a href="/invoices/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новый счёт</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <form class="row g-2 mb-3" method="get">
+      <div class="col-md-5">
+        <input type="text" name="q" class="form-control form-control-sm" placeholder="Номер или клиент…" value="{{ q }}">
+      </div>
+      <div class="col-md-3">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Все статусы</option>
+          {% for val, label in statuses.items() %}
+          <option value="{{ val }}" {% if status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/invoices" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">№ счёта</th>
+          <th>Клиент</th>
+          <th>Дата</th>
+          <th>Оплатить до</th>
+          <th class="text-end">Сумма с НДС, ₽</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr>
+          <td class="ps-3"><a href="/invoices/{{ inv.id }}" class="fw-semibold text-decoration-none">{{ inv.number }}</a></td>
+          <td>{{ inv.counterparty.name }}</td>
+          <td>{{ inv.date | date_fmt }}</td>
+          <td>
+            {{ inv.due_date | date_fmt }}
+            {% if inv.status == 'issued' and inv.due_date and inv.due_date < today %}
+            <span class="badge bg-danger ms-1">!</span>
+            {% endif %}
+          </td>
+          <td class="text-end fw-semibold">{{ inv.total_amount | money }}</td>
+          <td><span class="badge badge-{{ inv.status }}">{{ statuses[inv.status] }}</span></td>
+          <td class="text-end pe-3">
+            <a href="/invoices/{{ inv.id }}/pdf" class="btn btn-sm btn-outline-danger py-0" title="Скачать PDF"><i class="bi bi-file-pdf"></i></a>
+            <a href="/invoices/{{ inv.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center py-4 text-muted">Счетов не найдено</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

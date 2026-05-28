@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Контрагенты{% endblock %}
+{% block page_title %}Контрагенты{% endblock %}
+{% block topbar_actions %}
+  <a href="/counterparties/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Добавить</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <form class="row g-2 mb-3" method="get">
+      <div class="col-md-6">
+        <input type="text" name="q" class="form-control form-control-sm" placeholder="Поиск по названию…" value="{{ q }}">
+      </div>
+      <div class="col-md-3">
+        <select name="type" class="form-select form-select-sm">
+          <option value="">Все типы</option>
+          {% for val, label in cp_types.items() %}
+          <option value="{{ val }}" {% if type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/counterparties" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Название</th>
+          <th>ИНН</th>
+          <th>Контактное лицо</th>
+          <th>Телефон</th>
+          <th>Тип</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cp in counterparties %}
+        <tr>
+          <td class="ps-3"><a href="/counterparties/{{ cp.id }}" class="fw-semibold text-decoration-none">{{ cp.name }}</a></td>
+          <td class="text-muted">{{ cp.inn or '—' }}</td>
+          <td>{{ cp.contact_person or '—' }}</td>
+          <td>{{ cp.phone or '—' }}</td>
+          <td><span class="badge badge-{{ cp.type }}">{{ cp_types[cp.type] }}</span></td>
+          <td class="text-end pe-3">
+            <a href="/counterparties/{{ cp.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
+            <form method="post" action="/counterparties/{{ cp.id }}/delete" class="d-inline" data-confirm="Удалить контрагента «{{ cp.name }}»?">
+              <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center py-4 text-muted">Контрагентов не найдено</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

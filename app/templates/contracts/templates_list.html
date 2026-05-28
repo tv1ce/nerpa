@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Шаблоны документов{% endblock %}
+{% block page_title %}Шаблоны документов{% endblock %}
+{% block topbar_actions %}
+  <a href="/contracts" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К договорам</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <!-- Загрузить шаблон -->
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title">Загрузить шаблон</div>
+      <form method="post" action="/contracts/templates/upload" enctype="multipart/form-data">
+        <div class="mb-3">
+          <label class="form-label">Название шаблона *</label>
+          <input type="text" name="name" class="form-control" required placeholder="Договор поставки 2024">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Тип</label>
+          <select name="type" class="form-select">
+            <option value="contract">Договор</option>
+            <option value="invoice">Счёт</option>
+            <option value="act">Акт</option>
+            <option value="other">Другой</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Описание</label>
+          <textarea name="description" class="form-control" rows="2" placeholder="Опционально"></textarea>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Файл .docx *</label>
+          <input type="file" name="file" class="form-control" accept=".docx" required>
+        </div>
+        <button type="submit" class="btn btn-accent"><i class="bi bi-upload me-1"></i>Загрузить</button>
+      </form>
+    </div>
+
+    <div class="card border-0 shadow-sm p-3 mt-3">
+      <div class="fw-semibold mb-2" style="font-size:.9rem"><i class="bi bi-info-circle text-primary me-1"></i>Как использовать плейсхолдеры</div>
+      <div style="font-size:.8rem; color:#555; line-height: 1.7;">
+        В .docx шаблоне используйте следующие метки:<br>
+        <code>{{'{{'}}contract_number{{'}}'}}</code> — номер договора<br>
+        <code>{{'{{'}}contract_date{{'}}'}}</code> — дата договора<br>
+        <code>{{'{{'}}client_name{{'}}'}}</code> — название контрагента<br>
+        <code>{{'{{'}}client_inn{{'}}'}}</code> — ИНН контрагента<br>
+        <code>{{'{{'}}company_name{{'}}'}}</code> — ваша компания<br>
+        <code>{{'{{'}}company_director{{'}}'}}</code> — директор<br>
+        <code>{{'{{'}}contract_subject{{'}}'}}</code> — предмет договора<br>
+        <code>{{'{{'}}start_date{{'}}'}}</code> / <code>{{'{{'}}end_date{{'}}'}}</code> — даты<br>
+        <code>{{'{{'}}contract_amount{{'}}'}}</code> — сумма договора
+      </div>
+    </div>
+  </div>
+
+  <!-- Список шаблонов -->
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 fw-semibold pt-3">Загруженные шаблоны ({{ doc_templates | length }})</div>
+      <div class="table-responsive">
+        <table class="table tms-table mb-0">
+          <thead>
+            <tr><th class="ps-3">Название</th><th>Тип</th><th>Описание</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for tpl in doc_templates %}
+            <tr>
+              <td class="ps-3 fw-semibold">
+                <i class="bi bi-file-earmark-word text-primary me-1"></i>{{ tpl.name }}
+              </td>
+              <td><span class="badge bg-secondary">{{ tpl.type }}</span></td>
+              <td class="text-muted" style="font-size:.82rem">{{ tpl.description or '—' }}</td>
+              <td class="text-end pe-3">
+                <form method="post" action="/contracts/templates/{{ tpl.id }}/delete" class="d-inline" data-confirm="Удалить шаблон «{{ tpl.name }}»?">
+                  <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center py-4 text-muted">Шаблонов нет. Загрузите первый .docx шаблон.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

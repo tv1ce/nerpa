@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Выручка{% endblock %}
+{% block page_title %}Отчёт по выручке{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex gap-2">
+  <a href="/reports/revenue?period=week"  class="btn btn-sm {% if period=='week'  %}btn-accent{% else %}btn-outline-secondary{% endif %}">Неделя</a>
+  <a href="/reports/revenue?period=month" class="btn btn-sm {% if period=='month' %}btn-accent{% else %}btn-outline-secondary{% endif %}">Месяц</a>
+  <a href="/reports/revenue?period=year"  class="btn btn-sm {% if period=='year'  %}btn-accent{% else %}btn-outline-secondary{% endif %}">Год</a>
+  <form method="get" action="/reports/revenue" class="d-flex gap-1">
+    <input type="hidden" name="period" value="custom">
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}" style="width:130px">
+    <input type="date" name="date_to"   class="form-control form-control-sm" value="{{ date_to }}"   style="width:130px">
+    <button class="btn btn-sm btn-outline-secondary">Применить</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- ── Левая часть: таблица отгрузок ──────────────────────────── -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <span class="fw-semibold">Отгрузки</span>
+            <span class="text-muted ms-2" style="font-size:.82rem">
+              {{ tbl_from | date_fmt }} — {{ tbl_to | date_fmt }}
+            </span>
+          </div>
+          <span class="text-muted" style="font-size:.82rem">{{ shipments|length }} записей</span>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm tms-table mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4" style="width:35%">ЮР. Лицо</th>
+              <th class="text-end" style="width:20%">Сумма, ₽</th>
+              <th class="text-end" style="width:15%">Орешков</th>
+              <th style="width:18%">Дата отгрузки</th>
+              <th style="width:12%"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in shipments %}
+            <tr>
+              <td class="ps-4 fw-semibold" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
+                {{ row.counterparty }}
+              </td>
+              <td class="text-end text-success fw-semibold">{{ row.amount | money }}</td>
+              <td class="text-end">
+                {% if row.qty %}{{ row.qty | int }} кг{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td>{{ row.date | date_fmt }}</td>
+              <td class="text-end pe-3">
+                <a href="/orders/{{ row.id }}" class="btn btn-xs text-muted" style="font-size:.75rem; padding:1px 6px" title="Заказ">
+                  <i class="bi bi-box-seam"></i>
+                </a>
+                {% if row.invoice_id %}
+                <a href="/invoices/{{ row.invoice_id }}" class="btn btn-xs text-muted" style="font-size:.75rem; padding:1px 6px" title="Счёт">
+                  <i class="bi bi-receipt"></i>
+                </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="5" class="text-center text-muted py-4">
+                <i class="bi bi-inbox fs-3 d-block mb-2 opacity-25"></i>
+                Нет данных за выбранный период
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% if shipments %}
+          <tfoot style="background:#fff8f0; font-weight:700; border-top:2px solid #f39c12">
+            <tr>
+              <td class="ps-4" style="font-size:.9rem">Итого за период</td>
+              <td class="text-end text-success" style="font-size:.95rem">{{ total_amount | money }}</td>
+              <td class="text-end">{{ total_qty | int }} кг</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Правая часть: KPI (как в Google Sheets) ─────────────────── -->
+  <div class="col-lg-4">
+
+    <!-- Выручка за год -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="d-flex align-items-center gap-3 mb-2">
+        <div style="width:38px;height:38px;border-radius:8px;background:#fff3cd;display:flex;align-items:center;justify-content:center">
+          <i class="bi bi-graph-up-arrow text-warning"></i>
+        </div>
+        <span class="text-muted" style="font-size:.82rem">Общая выручка за год</span>
+      </div>
+      <div style="font-size:1.9rem;font-weight:700;line-height:1;color:#1e2a3a">
+        {{ revenue_year | money }} <span style="font-size:1rem;font-weight:400">₽</span>
+      </div>
+      <div class="text-muted mt-1" style="font-size:.78rem">
+        <i class="bi bi-basket2"></i> Всего орешков: <strong>{{ nuts_year | int }} кг</strong>
+      </div>
+    </div>
+
+    <!-- Текущая неделя -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="form-section-title mb-2" style="font-size:.8rem">
+        Текущая неделя ({{ week_start.strftime('%d.%m') }}–{{ week_end.strftime('%d.%m') }})
+      </div>
+
+      <div style="font-size:1.6rem;font-weight:700;color:#1e2a3a">
+        {{ revenue_week | money }} <span style="font-size:.9rem;font-weight:400">₽</span>
+      </div>
+
+      {% if week_delta_pct is not none %}
+      <div class="mt-1" style="font-size:.85rem">
+        {% if week_delta_pct >= 0 %}
+          <span class="text-success fw-semibold"><i class="bi bi-arrow-up-short"></i> +{{ week_delta_pct }}%</span>
+        {% else %}
+          <span class="text-danger fw-semibold"><i class="bi bi-arrow-down-short"></i> {{ week_delta_pct }}%</span>
+        {% endif %}
+        <span class="text-muted"> vs прошлая неделя ({{ revenue_prev_week | money }} ₽)</span>
+      </div>
+      {% else %}
+      <div class="text-muted mt-1" style="font-size:.8rem">Нет данных за прошлую неделю</div>
+      {% endif %}
+    </div>
+
+    <!-- План на месяц -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span class="fw-semibold" style="font-size:.88rem">План на месяц</span>
+        <span class="text-muted" style="font-size:.78rem">
+          <a href="/settings/" class="text-muted" title="Изменить план"><i class="bi bi-pencil-square"></i></a>
+        </span>
+      </div>
+      <div class="d-flex justify-content-between align-items-end mb-2">
+        <div>
+          <span style="font-size:1.35rem;font-weight:700;color:#198754">{{ revenue_month | money }}</span>
+          <span class="text-muted" style="font-size:.82rem"> / {{ monthly_plan | money }} ₽</span>
+        </div>
+        <span class="fw-bold fs-5
+          {% if plan_pct >= 100 %}text-success{% elif plan_pct >= 60 %}text-warning{% else %}text-danger{% endif %}">
+          {{ plan_pct }}%
+        </span>
+      </div>
+      <div class="progress" style="height:10px;border-radius:6px">
+        <div class="progress-bar
+          {% if plan_pct >= 100 %}bg-success{% elif plan_pct >= 60 %}bg-warning{% else %}bg-danger{% endif %}"
+          role="progressbar"
+          style="width: {{ [plan_pct, 100] | min }}%; transition:width .5s">
+        </div>
+      </div>
+      <div class="text-muted mt-2" style="font-size:.75rem">
+        Осталось: <strong>{{ [monthly_plan - revenue_month, 0] | max | money }} ₽</strong>
+      </div>
+    </div>
+
+    <!-- Средний заказ -->
+    <div class="card border-0 shadow-sm p-3">
+      <div class="text-muted mb-1" style="font-size:.82rem">
+        <i class="bi bi-truck"></i> Средний заказ (логистика)
+      </div>
+      <div style="font-size:1.5rem;font-weight:700;color:#1e2a3a">
+        {{ avg_order | money }} <span style="font-size:.85rem;font-weight:400">₽</span>
+      </div>
+      <div class="text-muted" style="font-size:.75rem">среднее за текущий год</div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Авто-подсветка строк с большой суммой
+document.querySelectorAll('tbody tr').forEach(tr => {
+  const amtCell = tr.children[1];
+  if (!amtCell) return;
+  const raw = amtCell.textContent.replace(/[^\d,]/g, '').replace(',', '.');
+  const val = parseFloat(raw) || 0;
+  if (val >= 50000) tr.style.background = '#fffbea';
+});
+</script>
+{% endblock %}

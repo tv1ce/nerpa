@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Дашборд{% endblock %}
+{% block page_title %}Дашборд{% endblock %}
+
+{% block content %}
+
+<!-- ── Stat cards ── -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-xl-3">
+    <div class="card stat-card h-100 p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="icon" style="background:#fff3cd"><i class="bi bi-box-seam text-warning fs-4"></i></div>
+        <div>
+          <div class="value">{{ total_orders }}</div>
+          <div class="label">Всего заказов</div>
+          <div class="text-muted" style="font-size:.75rem">{{ active_orders }} активных</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="card stat-card h-100 p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="icon" style="background:#d1e7dd"><i class="bi bi-receipt text-success fs-4"></i></div>
+        <div>
+          <div class="value">{{ revenue_this_month | money }}</div>
+          <div class="label">Выручка за месяц, ₽</div>
+          <div class="text-muted" style="font-size:.75rem">{{ unpaid_invoices }} не оплачено</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="card stat-card h-100 p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="icon" style="background:#cfe2ff"><i class="bi bi-people text-primary fs-4"></i></div>
+        <div>
+          <div class="value">{{ total_counterparties }}</div>
+          <div class="label">Контрагентов</div>
+          <div class="text-muted" style="font-size:.75rem">активных</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-xl-3">
+    <div class="card stat-card h-100 p-3">
+      <div class="d-flex align-items-center gap-3">
+        <div class="icon" style="background:#f8d7da"><i class="bi bi-currency-exchange text-danger fs-4"></i></div>
+        <div>
+          <div class="value">{{ total_revenue | money }}</div>
+          <div class="label">Общая выручка, ₽</div>
+          {% if expiring_contracts > 0 %}
+          <div class="text-warning" style="font-size:.75rem"><i class="bi bi-exclamation-triangle-fill"></i> {{ expiring_contracts }} дог. истекает</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Charts row ── -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-8">
+    <div class="chart-box">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="mb-0 fw-semibold">Выручка по месяцам, ₽</h6>
+      </div>
+      <canvas id="revenueChart" height="90"></canvas>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="chart-box h-100">
+      <h6 class="mb-3 fw-semibold">Статусы заказов</h6>
+      <canvas id="ordersChart" height="160"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- ── Top clients + Recent ── -->
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold border-0 pb-0">Топ-5 клиентов по выручке</div>
+      <div class="card-body p-0">
+        <table class="table table-sm tms-table mb-0">
+          <tbody>
+            {% for name, total in top_clients %}
+            <tr>
+              <td class="ps-3">{{ name }}</td>
+              <td class="text-end pe-3 fw-semibold">{{ total | money }} ₽</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="2" class="text-center text-muted py-3">Нет данных</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white fw-semibold border-0 pb-0 d-flex justify-content-between">
+        Последние заказы
+        <a href="/orders" class="btn btn-sm btn-outline-secondary">Все</a>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm tms-table mb-0">
+          <thead><tr><th class="ps-3">№</th><th>Клиент</th><th>Дата</th><th>Сумма</th><th>Статус</th></tr></thead>
+          <tbody>
+            {% for o in recent_orders %}
+            <tr>
+              <td class="ps-3"><a href="/orders/{{ o.id }}">{{ o.number }}</a></td>
+              <td>{{ o.counterparty.name }}</td>
+              <td>{{ o.date | date_fmt }}</td>
+              <td>{{ o.total_amount | money }} ₽</td>
+              <td><span class="badge badge-{{ o.status }}">{{ o.status }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">Заказов нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const months = {{ months_data | tojson }};
+new Chart(document.getElementById('revenueChart'), {
+  type: 'bar',
+  data: {
+    labels: months.map(m => m.month),
+    datasets: [{
+      label: 'Выручка ₽',
+      data: months.map(m => m.revenue),
+      backgroundColor: '#f39c12cc',
+      borderColor: '#f39c12',
+      borderWidth: 1,
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, ticks: { callback: v => v.toLocaleString('ru-RU') } } }
+  }
+});
+
+const sc = {{ order_status_counts | tojson }};
+new Chart(document.getElementById('ordersChart'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Черновик','Подтверждён','Отгружен','Доставлен','Отменён'],
+    datasets: [{
+      data: [sc.draft, sc.confirmed, sc.shipped, sc.delivered, sc.cancelled],
+      backgroundColor: ['#6c757d','#0d6efd','#6f42c1','#198754','#dc3545'],
+    }]
+  },
+  options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }, cutout: '65%' }
+});
+</script>
+{% endblock %}

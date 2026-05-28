@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Журнал движений{% endblock %}
+{% block page_title %}Журнал движений склада{% endblock %}
+{% block topbar_actions %}
+  <a href="/warehouse/new" class="btn btn-sm btn-accent me-1"><i class="bi bi-plus-lg me-1"></i>Новая операция</a>
+  <a href="/warehouse/"   class="btn btn-sm btn-outline-secondary"><i class="bi bi-house me-1"></i>Остатки</a>
+{% endblock %}
+
+{% block content %}
+<!-- Фильтры -->
+<div class="card border-0 shadow-sm p-3 mb-3">
+  <form method="get" action="/warehouse/journal" class="row g-2 align-items-end">
+    <div class="col-md-3">
+      <label class="form-label mb-1" style="font-size:.82rem">Товар</label>
+      <select name="product_id" class="form-select form-select-sm">
+        <option value="">Все товары</option>
+        {% for p in products %}
+        <option value="{{ p.id }}" {% if p.id == product_id %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label mb-1" style="font-size:.82rem">Тип</label>
+      <select name="mtype" class="form-select form-select-sm">
+        <option value="">Все</option>
+        {% for k, v in movement_types.items() %}
+        <option value="{{ k }}" {% if k == mtype %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label mb-1" style="font-size:.82rem">От</label>
+      <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label mb-1" style="font-size:.82rem">До</label>
+      <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+    </div>
+    <div class="col-md-3 d-flex gap-2">
+      <button class="btn btn-sm btn-accent flex-fill">Применить</button>
+      <a href="/warehouse/journal" class="btn btn-sm btn-outline-secondary">Сброс</a>
+    </div>
+  </form>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-sm tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:55px">#</th>
+          <th>Дата</th>
+          <th>Товар</th>
+          <th>Тип</th>
+          <th class="text-end">Кол-во</th>
+          <th>Причина</th>
+          <th>Заказ</th>
+          <th>Примечание</th>
+          <th style="width:40px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for mv in movements %}
+        <tr>
+          <td class="ps-4 text-muted" style="font-size:.78rem">{{ mv.id }}</td>
+          <td style="white-space:nowrap">{{ mv.date | date_fmt }}</td>
+          <td class="fw-semibold" style="max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
+            {{ mv.product.name if mv.product else '—' }}
+          </td>
+          <td>
+            {% if mv.movement_type == 'in' %}
+              <span class="badge bg-success" style="font-size:.75rem">Приход</span>
+            {% elif mv.movement_type == 'out' %}
+              <span class="badge bg-danger" style="font-size:.75rem">Расход</span>
+            {% else %}
+              <span class="badge bg-secondary" style="font-size:.75rem">Корректировка</span>
+            {% endif %}
+          </td>
+          <td class="text-end fw-semibold">
+            {% if mv.movement_type == 'in' %}
+              <span class="text-success">+{{ mv.quantity | int if mv.quantity == mv.quantity|int else mv.quantity }}</span>
+            {% elif mv.movement_type == 'out' %}
+              <span class="text-danger">−{{ mv.quantity | int if mv.quantity == mv.quantity|int else mv.quantity }}</span>
+            {% else %}
+              <span class="text-muted">{{ mv.quantity }}</span>
+            {% endif %}
+            <span class="text-muted" style="font-size:.75rem"> {{ mv.product.unit if mv.product else '' }}</span>
+          </td>
+          <td class="text-muted" style="font-size:.82rem">{{ mv.reason or '—' }}</td>
+          <td>
+            {% if mv.order %}
+            <a href="/orders/{{ mv.order_id }}" class="text-decoration-none" style="font-size:.82rem">{{ mv.order.number }}</a>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-muted" style="font-size:.78rem; max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
+            {{ mv.notes or '' }}
+          </td>
+          <td class="pe-3">
+            <form method="post" action="/warehouse/journal/{{ mv.id }}/delete"
+                  data-confirm="Удалить запись #{{ mv.id }}? Это изменит остаток!">
+              <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:.72rem">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="9" class="text-center text-muted py-5">
+            <i class="bi bi-journal-x fs-2 d-block mb-2 opacity-25"></i>
+            Нет записей по заданным фильтрам
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

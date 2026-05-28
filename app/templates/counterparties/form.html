@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% set is_new = cp is none %}
+{% block title %}{{ 'Новый контрагент' if is_new else 'Редактировать: ' + cp.name }}{% endblock %}
+{% block page_title %}{{ 'Новый контрагент' if is_new else 'Редактировать контрагента' }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/counterparties" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<form method="post" action="{{ '/counterparties/new' if is_new else '/counterparties/' + cp.id|string + '/edit' }}">
+  <div class="row g-3">
+
+    <!-- Основное -->
+    <div class="col-lg-8">
+      <div class="card border-0 shadow-sm p-4">
+        <div class="form-section-title">Основная информация</div>
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Полное наименование *</label>
+            <input type="text" name="name" class="form-control" required value="{{ cp.name if cp else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Краткое наименование</label>
+            <input type="text" name="short_name" class="form-control" value="{{ cp.short_name if cp else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Тип</label>
+            <select name="type" class="form-select">
+              {% for val, label in cp_types.items() %}
+              <option value="{{ val }}" {% if cp and cp.type == val %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">ИНН</label>
+            <input type="text" name="inn" class="form-control" maxlength="12" value="{{ cp.inn if cp else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">КПП</label>
+            <input type="text" name="kpp" class="form-control" maxlength="9" value="{{ cp.kpp if cp else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">ОГРН</label>
+            <input type="text" name="ogrn" class="form-control" maxlength="15" value="{{ cp.ogrn if cp else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Юридический адрес</label>
+            <input type="text" name="legal_address" class="form-control" value="{{ cp.legal_address if cp else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Фактический адрес</label>
+            <input type="text" name="actual_address" class="form-control" value="{{ cp.actual_address if cp else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Телефон</label>
+            <input type="text" name="phone" class="form-control" value="{{ cp.phone if cp else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Email</label>
+            <input type="email" name="email" class="form-control" value="{{ cp.email if cp else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Контактное лицо</label>
+            <input type="text" name="contact_person" class="form-control" value="{{ cp.contact_person if cp else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Примечания</label>
+            <textarea name="notes" class="form-control" rows="2">{{ cp.notes if cp else '' }}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Банк -->
+    <div class="col-lg-4">
+      <div class="card border-0 shadow-sm p-4">
+        <div class="form-section-title">Банковские реквизиты</div>
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Банк</label>
+            <input type="text" name="bank_name" class="form-control" value="{{ cp.bank_name if cp else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Расчётный счёт</label>
+            <input type="text" name="bank_account" class="form-control" maxlength="20" value="{{ cp.bank_account if cp else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">БИК</label>
+            <input type="text" name="bank_bik" class="form-control" maxlength="9" value="{{ cp.bank_bik if cp else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">К/с</label>
+            <input type="text" name="bank_corr_account" class="form-control" maxlength="20" value="{{ cp.bank_corr_account if cp else '' }}">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12">
+      <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+      <a href="/counterparties" class="btn btn-outline-secondary ms-2">Отмена</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

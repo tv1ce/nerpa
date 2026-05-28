@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% set type_labels = {"in": "Приход", "out": "Расход", "adjustment": "Корректировка"} %}
+{% block title %}{{ type_labels.get(selected_type, 'Операция') }} — Склад{% endblock %}
+{% block page_title %}{{ type_labels.get(selected_type, 'Новая операция') }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/warehouse/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К остаткам</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 justify-content-center">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm p-4">
+
+      <!-- Тип операции -->
+      <div class="d-flex gap-2 mb-4">
+        {% for key, label in movement_types.items() %}
+        <a href="/warehouse/new?mtype={{ key }}{% if selected_product %}&product_id={{ selected_product }}{% endif %}"
+           class="btn btn-sm flex-fill {% if selected_type == key %}{% if key == 'in' %}btn-success{% elif key == 'out' %}btn-danger{% else %}btn-secondary{% endif %}{% else %}btn-outline-secondary{% endif %}">
+          {% if key == 'in' %}<i class="bi bi-plus-lg me-1"></i>
+          {% elif key == 'out' %}<i class="bi bi-dash-lg me-1"></i>
+          {% else %}<i class="bi bi-arrow-left-right me-1"></i>{% endif %}
+          {{ label }}
+        </a>
+        {% endfor %}
+      </div>
+
+      <form method="post" action="/warehouse/new">
+        <input type="hidden" name="movement_type" value="{{ selected_type }}">
+
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Товар *</label>
+            <select name="product_id" class="form-select" id="productSelect" required onchange="updateBalance(this)">
+              <option value="">— выберите товар —</option>
+              {% for p in products %}
+              <option value="{{ p.id }}" {% if p.id == selected_product %}selected{% endif %}
+                data-balance="{{ balances.get(p.id, 0) }}" data-unit="{{ p.unit }}">
+                {{ p.name }}{% if p.article %} [{{ p.article }}]{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            <div id="balanceInfo" class="form-text"></div>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Количество *</label>
+            <div class="input-group">
+              <input type="number" name="quantity" class="form-control" min="0.001" step="0.001" required placeholder="0">
+              <span class="input-group-text" id="unitLabel">ед.</span>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Дата *</label>
+            <input type="date" name="mov_date" class="form-control" required value="{{ today }}">
+          </div>
+
+          <div class="col-md-8">
+            <label class="form-label">Причина</label>
+            <select name="reason" class="form-select">
+              {% for r in reasons.get(selected_type, []) %}
+              <option value="{{ r }}">{{ r }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Заказ (если есть)</label>
+            <select name="order_id" class="form-select">
+              <option value="">—</option>
+              {% for o in orders %}
+              <option value="{{ o.id }}">{{ o.number }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Примечание</label>
+            <textarea name="notes" class="form-control" rows="2" placeholder="Необязательно"></textarea>
+          </div>
+
+          <div class="col-12 pt-2">
+            <button type="submit" class="btn btn-accent w-100">
+              <i class="bi bi-check-lg me-1"></i>Записать операцию
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const balances = {{ balances | tojson }};
+function updateBalance(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const bal = opt.dataset.balance || 0;
+  const unit = opt.dataset.unit || 'ед.';
+  document.getElementById('balanceInfo').textContent = bal > 0 ? 'Текущий остаток: ' + bal + ' ' + unit : '';
+  document.getElementById('unitLabel').textContent = unit;
+}
+// Инициализация при загрузке
+window.addEventListener('load', () => {
+  const sel = document.getElementById('productSelect');
+  if (sel.value) updateBalance(sel);
+});
+</script>
+{% endblock %}

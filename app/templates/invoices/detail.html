@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Счёт {{ invoice.number }}{% endblock %}
+{% block page_title %}Счёт {{ invoice.number }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/invoices/{{ invoice.id }}/pdf" class="btn btn-danger btn-sm me-1" target="_blank">
+    <i class="bi bi-file-pdf me-1"></i>Скачать PDF
+  </a>
+  <a href="/invoices/{{ invoice.id }}/edit" class="btn btn-accent btn-sm me-1"><i class="bi bi-pencil me-1"></i>Редактировать</a>
+  <a href="/invoices" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <!-- Шапка счёта -->
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="row g-2" style="font-size:.9rem">
+        <div class="col-md-4"><span class="text-muted">Номер:</span> <strong>{{ invoice.number }}</strong></div>
+        <div class="col-md-4"><span class="text-muted">Дата:</span> {{ invoice.date | date_fmt }}</div>
+        <div class="col-md-4"><span class="text-muted">Статус:</span>
+          <span class="badge badge-{{ invoice.status }} fs-6">{{ statuses[invoice.status] }}</span>
+        </div>
+        <div class="col-md-6"><span class="text-muted">Клиент:</span> <a href="/counterparties/{{ invoice.counterparty_id }}">{{ invoice.counterparty.name }}</a></div>
+        <div class="col-md-3"><span class="text-muted">Оплатить до:</span> {{ invoice.due_date | date_fmt }}</div>
+        <div class="col-md-3"><span class="text-muted">Оплачено:</span> {{ invoice.paid_date | date_fmt }}</div>
+        {% if invoice.order %}<div class="col-12"><span class="text-muted">Заказ:</span> <a href="/orders/{{ invoice.order_id }}">{{ invoice.order.number }}</a></div>{% endif %}
+        {% if invoice.notes %}<div class="col-12"><span class="text-muted">Примечание:</span> {{ invoice.notes }}</div>{% endif %}
+      </div>
+    </div>
+
+    <!-- Позиции -->
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title">Позиции счёта</div>
+      <div class="table-responsive">
+        <table class="table tms-table mb-0">
+          <thead>
+            <tr><th>№</th><th>Наименование</th><th class="text-end">Кол-во</th><th>Ед.</th>
+                <th class="text-end">Цена</th><th class="text-end">НДС%</th><th class="text-end">Сумма</th></tr>
+          </thead>
+          <tbody>
+            {% for item in invoice.items %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ item.name }}</td>
+              <td class="text-end">{{ item.quantity }}</td>
+              <td>{{ item.unit }}</td>
+              <td class="text-end">{{ item.price | money }}</td>
+              <td class="text-end">{{ item.vat_rate | int }}%</td>
+              <td class="text-end fw-semibold">{{ item.amount | money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="table-light">
+            <tr><td colspan="6" class="text-end">Без НДС:</td><td class="text-end">{{ invoice.subtotal | money }} ₽</td></tr>
+            <tr><td colspan="6" class="text-end">НДС:</td><td class="text-end">{{ invoice.vat_amount | money }} ₽</td></tr>
+            <tr class="fw-bold"><td colspan="6" class="text-end fs-5">Итого:</td><td class="text-end fs-5">{{ invoice.total_amount | money }} ₽</td></tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <!-- Сменить статус -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2">Статус оплаты</div>
+      <form method="post" action="/invoices/{{ invoice.id }}/status">
+        <div class="mb-2">
+          <select name="status" class="form-select form-select-sm">
+            {% for val, label in statuses.items() %}
+            <option value="{{ val }}" {% if invoice.status == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-2">
+          <label class="form-label" style="font-size:.8rem">Дата оплаты</label>
+          <input type="date" name="paid_date" class="form-control form-control-sm"
+                 value="{{ invoice.paid_date.isoformat() if invoice.paid_date else '' }}">
+        </div>
+        <button class="btn btn-sm btn-accent w-100">Обновить статус</button>
+      </form>
+    </div>
+
+    <!-- Действия -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <a href="/invoices/{{ invoice.id }}/pdf" class="btn btn-danger btn-sm w-100 mb-2" target="_blank">
+        <i class="bi bi-file-pdf me-1"></i>Скачать PDF счёт
+      </a>
+    </div>
+
+    <div class="card border-0 shadow-sm p-3">
+      <form method="post" action="/invoices/{{ invoice.id }}/delete" data-confirm="Удалить счёт {{ invoice.number }}?">
+        <button class="btn btn-outline-danger btn-sm w-100"><i class="bi bi-trash me-1"></i>Удалить счёт</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

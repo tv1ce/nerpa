@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set is_new = product is none %}
+{% block title %}{{ 'Новый товар' if is_new else 'Редактировать: ' + product.name }}{% endblock %}
+{% block page_title %}{{ 'Новый товар' if is_new else 'Редактировать товар' }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/products" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm p-4">
+      <form method="post" action="{{ '/products/new' if is_new else '/products/' + product.id|string + '/edit' }}">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Наименование *</label>
+            <input type="text" name="name" class="form-control" required value="{{ product.name if product else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Артикул</label>
+            <input type="text" name="article" class="form-control" value="{{ product.article if product else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Единица измерения</label>
+            <select name="unit" class="form-select">
+              {% for u in ['кг', 'г', 'т', 'шт', 'уп', 'л', 'мл'] %}
+              <option value="{{ u }}" {% if product and product.unit == u %}selected{% endif %}>{{ u }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Цена, ₽</label>
+            <input type="number" name="price" class="form-control" step="0.01" min="0"
+                   value="{{ product.price if product else '0' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Ставка НДС, %</label>
+            <select name="vat_rate" class="form-select">
+              {% for r in [0, 10, 20] %}
+              <option value="{{ r }}" {% if product and product.vat_rate == r %}selected{% elif not product and r == 20 %}selected{% endif %}>{{ r }}%</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Описание</label>
+            <textarea name="description" class="form-control" rows="3">{{ product.description if product else '' }}</textarea>
+          </div>
+          <div class="col-12">
+            <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+            <a href="/products" class="btn btn-outline-secondary ms-2">Отмена</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

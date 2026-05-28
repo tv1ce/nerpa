@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Заказы{% endblock %}
+{% block page_title %}Заказы на поставку{% endblock %}
+{% block topbar_actions %}
+  <a href="/orders/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новый заказ</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <form class="row g-2 mb-3" method="get">
+      <div class="col-md-5">
+        <input type="text" name="q" class="form-control form-control-sm" placeholder="Номер или клиент…" value="{{ q }}">
+      </div>
+      <div class="col-md-3">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Все статусы</option>
+          {% for val, label in statuses.items() %}
+          <option value="{{ val }}" {% if status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/orders" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">№ заказа</th>
+          <th>Клиент</th>
+          <th>Дата</th>
+          <th>Доставка</th>
+          <th class="text-end">Сумма, ₽</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in orders %}
+        <tr>
+          <td class="ps-3"><a href="/orders/{{ o.id }}" class="fw-semibold text-decoration-none">{{ o.number }}</a></td>
+          <td>{{ o.counterparty.name }}</td>
+          <td>{{ o.date | date_fmt }}</td>
+          <td>{{ o.delivery_date | date_fmt }}</td>
+          <td class="text-end">{{ o.total_amount | money }}</td>
+          <td><span class="badge badge-{{ o.status }}">{{ statuses[o.status] }}</span></td>
+          <td class="text-end pe-3">
+            <a href="/orders/{{ o.id }}" class="btn btn-sm btn-outline-primary py-0"><i class="bi bi-eye"></i></a>
+            <a href="/orders/{{ o.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center py-4 text-muted">Заказов не найдено</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

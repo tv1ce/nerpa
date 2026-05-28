@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Планы продаж{% endblock %}
+{% block page_title %}Планы продаж по месяцам{% endblock %}
+{% block topbar_actions %}
+  <a href="/reports/revenue" class="btn btn-sm btn-outline-secondary"><i class="bi bi-bar-chart-line me-1"></i>Выручка</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
+    <span class="fw-semibold">Выполнение плана за 12 месяцев</span>
+    <span class="text-muted fw-normal ms-2" style="font-size:.82rem">Кликните на план, чтобы изменить</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="min-width:130px">Месяц</th>
+          <th class="text-end">План, ₽</th>
+          <th class="text-end">Факт, ₽</th>
+          <th class="text-end">Разница</th>
+          <th style="min-width:180px">Выполнение</th>
+          <th style="width:40px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in months_list %}
+        <tr class="{% if m.is_current %}table-light fw-semibold{% endif %}">
+          <td class="ps-4">
+            {% if m.is_current %}<i class="bi bi-caret-right-fill text-accent me-1" style="font-size:.7rem"></i>{% endif %}
+            {{ m.label | capitalize }}
+          </td>
+          <td class="text-end">
+            {% if m.plan %}
+              <span class="text-muted cursor-pointer plan-label" data-bs-toggle="modal" data-bs-target="#planModal"
+                    data-year="{{ m.year }}" data-month="{{ m.month }}" data-plan="{{ m.plan | int }}">
+                {{ m.plan | money }}
+              </span>
+            {% else %}
+              <span class="text-muted fst-italic cursor-pointer" data-bs-toggle="modal" data-bs-target="#planModal"
+                    data-year="{{ m.year }}" data-month="{{ m.month }}" data-plan="">
+                — задать
+              </span>
+            {% endif %}
+          </td>
+          <td class="text-end fw-semibold">{{ m.actual | money }}</td>
+          <td class="text-end">
+            {% if m.diff is not none %}
+              {% if m.diff >= 0 %}
+                <span class="text-success">+{{ m.diff | money }}</span>
+              {% else %}
+                <span class="text-danger">{{ m.diff | money }}</span>
+              {% endif %}
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if m.pct is not none %}
+              <div class="d-flex align-items-center gap-2">
+                <div class="progress flex-fill" style="height:6px; min-width:80px">
+                  <div class="progress-bar {% if m.pct >= 100 %}bg-success{% elif m.pct >= 70 %}bg-warning{% else %}bg-danger{% endif %}"
+                       style="width:{{ [m.pct, 100] | min }}%"></div>
+                </div>
+                <span style="font-size:.78rem; min-width:40px">{{ m.pct }}%</span>
+              </div>
+            {% else %}
+              <span class="text-muted" style="font-size:.82rem">— нет плана</span>
+            {% endif %}
+          </td>
+          <td class="pe-3">
+            <button class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:.72rem"
+                    data-bs-toggle="modal" data-bs-target="#planModal"
+                    data-year="{{ m.year }}" data-month="{{ m.month }}" data-plan="{{ m.plan | int if m.plan else '' }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Модалка установки плана -->
+<div class="modal fade" id="planModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="post" action="/reports/plans/set">
+        <div class="modal-header border-0 pb-0">
+          <h6 class="modal-title fw-semibold">Установить план</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="year"  id="planYear">
+          <input type="hidden" name="month" id="planMonth">
+          <p id="planMonthLabel" class="text-muted mb-3" style="font-size:.85rem"></p>
+          <div class="mb-3">
+            <label class="form-label">Плановая выручка, ₽</label>
+            <input type="number" name="plan_amount" id="planAmount" class="form-control"
+                   step="1000" min="0" required placeholder="225000">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Примечание</label>
+            <input type="text" name="notes" class="form-control" placeholder="Необязательно">
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="submit" class="btn btn-accent btn-sm w-100">Сохранить план</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const MONTH_NAMES = [
+  '', 'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'
+];
+
+document.getElementById('planModal').addEventListener('show.bs.modal', function(e) {
+  const btn = e.relatedTarget;
+  const year  = btn.dataset.year;
+  const month = btn.dataset.month;
+  const plan  = btn.dataset.plan;
+  document.getElementById('planYear').value   = year;
+  document.getElementById('planMonth').value  = month;
+  document.getElementById('planAmount').value = plan;
+  document.getElementById('planMonthLabel').textContent =
+    MONTH_NAMES[parseInt(month)] + ' ' + year;
+});
+</script>
+{% endblock %}

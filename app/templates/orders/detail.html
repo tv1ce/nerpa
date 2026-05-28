@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Заказ {{ order.number }}{% endblock %}
+{% block page_title %}Заказ {{ order.number }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/orders/{{ order.id }}/edit" class="btn btn-accent btn-sm me-1"><i class="bi bi-pencil me-1"></i>Редактировать</a>
+  <a href="/invoices/new?order_id={{ order.id }}" class="btn btn-outline-success btn-sm me-1"><i class="bi bi-receipt me-1"></i>Выставить счёт</a>
+  <a href="/orders" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <!-- Основная информация -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="row g-2" style="font-size:.9rem">
+        <div class="col-md-4"><span class="text-muted">Номер:</span> <strong>{{ order.number }}</strong></div>
+        <div class="col-md-4"><span class="text-muted">Дата:</span> {{ order.date | date_fmt }}</div>
+        <div class="col-md-4"><span class="text-muted">Статус:</span> <span class="badge badge-{{ order.status }} fs-6">{{ statuses[order.status] }}</span></div>
+        <div class="col-md-6"><span class="text-muted">Клиент:</span> <a href="/counterparties/{{ order.counterparty_id }}">{{ order.counterparty.name }}</a></div>
+        <div class="col-md-6"><span class="text-muted">Дата доставки:</span> {{ order.delivery_date | date_fmt }}</div>
+        {% if order.delivery_address %}
+        <div class="col-12"><span class="text-muted">Адрес доставки:</span> {{ order.delivery_address }}</div>
+        {% endif %}
+        {% if order.notes %}
+        <div class="col-12"><span class="text-muted">Примечание:</span> {{ order.notes }}</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Позиции -->
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title">Позиции заказа</div>
+      <div class="table-responsive">
+        <table class="table tms-table mb-0">
+          <thead>
+            <tr>
+              <th>№</th><th>Наименование</th><th class="text-end">Кол-во</th>
+              <th>Ед.</th><th class="text-end">Цена</th><th class="text-end">НДС%</th><th class="text-end">Сумма</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in order.items %}
+            <tr>
+              <td>{{ loop.index }}</td>
+              <td>{{ item.product.name }}</td>
+              <td class="text-end">{{ item.quantity }}</td>
+              <td>{{ item.product.unit }}</td>
+              <td class="text-end">{{ item.price | money }}</td>
+              <td class="text-end">{{ item.vat_rate | int }}%</td>
+              <td class="text-end fw-semibold">{{ item.amount | money }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot class="table-light fw-bold">
+            <tr>
+              <td colspan="6" class="text-end">Итого:</td>
+              <td class="text-end">{{ order.total_amount | money }} ₽</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Панель действий -->
+  <div class="col-lg-4">
+    <!-- Сменить статус -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2">Сменить статус</div>
+      <form method="post" action="/orders/{{ order.id }}/status">
+        <div class="d-flex gap-2">
+          <select name="status" class="form-select form-select-sm">
+            {% for val, label in statuses.items() %}
+            <option value="{{ val }}" {% if order.status == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <button class="btn btn-sm btn-accent">Изм.</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Связанные счета -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="d-flex justify-content-between mb-2">
+        <div class="fw-semibold" style="font-size:.9rem">Счета</div>
+        <a href="/invoices/new?order_id={{ order.id }}" class="btn btn-xs btn-outline-success" style="font-size:.75rem; padding: 2px 8px">+ Создать</a>
+      </div>
+      {% for inv in order.invoices %}
+      <div class="d-flex justify-content-between border-bottom py-1" style="font-size:.82rem">
+        <a href="/invoices/{{ inv.id }}">{{ inv.number }}</a>
+        <span>{{ inv.total_amount | money }} ₽</span>
+      </div>
+      {% else %}
+      <span class="text-muted" style="font-size:.82rem">Счетов нет</span>
+      {% endfor %}
+    </div>
+
+    <!-- Удаление -->
+    <div class="card border-0 shadow-sm p-3">
+      <form method="post" action="/orders/{{ order.id }}/delete" data-confirm="Удалить заказ {{ order.number }}? Это действие нельзя отменить.">
+        <button class="btn btn-outline-danger btn-sm w-100"><i class="bi bi-trash me-1"></i>Удалить заказ</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

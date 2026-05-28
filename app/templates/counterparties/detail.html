@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ cp.name }}{% endblock %}
+{% block page_title %}{{ cp.name }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/counterparties/{{ cp.id }}/edit" class="btn btn-accent btn-sm me-2"><i class="bi bi-pencil me-1"></i>Редактировать</a>
+  <a href="/counterparties" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="form-section-title">Основная информация</div>
+      <div class="row g-2" style="font-size:.9rem">
+        <div class="col-md-6"><span class="text-muted">Тип:</span> <span class="badge badge-{{ cp.type }}">{{ cp_types[cp.type] }}</span></div>
+        <div class="col-md-6"><span class="text-muted">ИНН:</span> {{ cp.inn or '—' }}</div>
+        <div class="col-md-6"><span class="text-muted">КПП:</span> {{ cp.kpp or '—' }}</div>
+        <div class="col-md-6"><span class="text-muted">ОГРН:</span> {{ cp.ogrn or '—' }}</div>
+        <div class="col-12"><span class="text-muted">Юр. адрес:</span> {{ cp.legal_address or '—' }}</div>
+        <div class="col-12"><span class="text-muted">Факт. адрес:</span> {{ cp.actual_address or '—' }}</div>
+        <div class="col-md-4"><span class="text-muted">Телефон:</span> {{ cp.phone or '—' }}</div>
+        <div class="col-md-4"><span class="text-muted">Email:</span> {{ cp.email or '—' }}</div>
+        <div class="col-md-4"><span class="text-muted">Контакт:</span> {{ cp.contact_person or '—' }}</div>
+        {% if cp.notes %}<div class="col-12"><span class="text-muted">Примечание:</span> {{ cp.notes }}</div>{% endif %}
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title">Банковские реквизиты</div>
+      <div class="row g-2" style="font-size:.9rem">
+        <div class="col-12"><span class="text-muted">Банк:</span> {{ cp.bank_name or '—' }}</div>
+        <div class="col-md-6"><span class="text-muted">Р/с:</span> {{ cp.bank_account or '—' }}</div>
+        <div class="col-md-3"><span class="text-muted">БИК:</span> {{ cp.bank_bik or '—' }}</div>
+        <div class="col-md-3"><span class="text-muted">К/с:</span> {{ cp.bank_corr_account or '—' }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2">Быстрые действия</div>
+      <a href="/orders/new" class="btn btn-outline-primary btn-sm w-100 mb-2"><i class="bi bi-plus me-1"></i>Создать заказ</a>
+      <a href="/invoices/new" class="btn btn-outline-success btn-sm w-100 mb-2"><i class="bi bi-plus me-1"></i>Выставить счёт</a>
+      <a href="/contracts/new" class="btn btn-outline-secondary btn-sm w-100"><i class="bi bi-plus me-1"></i>Создать договор</a>
+    </div>
+
+    <!-- Последние заказы -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2" style="font-size:.9rem">Заказы ({{ cp.orders | length }})</div>
+      {% for o in cp.orders[-5:] | reverse %}
+      <div class="d-flex justify-content-between border-bottom py-1" style="font-size:.82rem">
+        <a href="/orders/{{ o.id }}">{{ o.number }}</a>
+        <span class="badge badge-{{ o.status }}">{{ o.status }}</span>
+      </div>
+      {% else %}<span class="text-muted" style="font-size:.82rem">Заказов нет</span>{% endfor %}
+    </div>
+
+    <!-- Последние счета -->
+    <div class="card border-0 shadow-sm p-3">
+      <div class="fw-semibold mb-2" style="font-size:.9rem">Счета ({{ cp.invoices | length }})</div>
+      {% for inv in cp.invoices[-5:] | reverse %}
+      <div class="d-flex justify-content-between border-bottom py-1" style="font-size:.82rem">
+        <a href="/invoices/{{ inv.id }}">{{ inv.number }}</a>
+        <span>{{ inv.total_amount | money }} ₽</span>
+      </div>
+      {% else %}<span class="text-muted" style="font-size:.82rem">Счетов нет</span>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block page_title %}Настройки системы{% endblock %}
+
+{% block content %}
+{% if saved %}
+<div class="alert alert-success alert-dismissible fade show">
+  <i class="bi bi-check-circle me-1"></i>Настройки сохранены!
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{# Удобный макрос: берём значение поля или пустую строку #}
+{% macro cv(field, default='') %}{{ (field or default) if company else default }}{% endmacro %}
+
+<div class="row g-3">
+  <!-- Реквизиты компании -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="form-section-title">Реквизиты компании</div>
+      <form method="post" action="/settings/company">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Полное наименование</label>
+            <input type="text" name="name" class="form-control" value="{{ cv(company.name) if company else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Краткое наименование</label>
+            <input type="text" name="short_name" class="form-control" value="{{ cv(company.short_name) if company else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">ИНН</label>
+            <input type="text" name="inn" class="form-control" maxlength="12" value="{{ cv(company.inn) if company else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">КПП</label>
+            <input type="text" name="kpp" class="form-control" maxlength="9" value="{{ cv(company.kpp) if company else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">ОГРН</label>
+            <input type="text" name="ogrn" class="form-control" maxlength="15" value="{{ cv(company.ogrn) if company else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Телефон</label>
+            <input type="text" name="phone" class="form-control" value="{{ cv(company.phone) if company else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Юридический адрес</label>
+            <input type="text" name="legal_address" class="form-control" value="{{ cv(company.legal_address) if company else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Фактический адрес</label>
+            <input type="text" name="actual_address" class="form-control" value="{{ cv(company.actual_address) if company else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">План продаж на месяц, ₽</label>
+            <input type="number" name="monthly_plan" class="form-control" step="1000" min="0"
+                   value="{{ company.monthly_plan | int if company and company.monthly_plan else 225000 }}">
+          </div>
+          <div class="col-md-6 d-flex align-items-end pb-1">
+            <span class="text-muted" style="font-size:.82rem">
+              <i class="bi bi-info-circle"></i> Используется в отчёте «Выручка» для расчёта % выполнения плана
+            </span>
+          </div>
+
+          <div class="col-12 mt-1">
+            <div class="form-section-title">Подписанты (для счетов)</div>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Руководитель (ФИО)</label>
+            <input type="text" name="director" class="form-control" placeholder="Иванов И.И." value="{{ cv(company.director) if company else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Действует на основании</label>
+            <input type="text" name="director_basis" class="form-control" placeholder="Устава" value="{{ cv(company.director_basis, 'Устава') if company else 'Устава' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Бухгалтер (ФИО)</label>
+            <input type="text" name="accountant" class="form-control" placeholder="Петрова П.П." value="{{ cv(company.accountant) if company else '' }}">
+          </div>
+
+          <div class="col-12 mt-1">
+            <div class="form-section-title">Банковские реквизиты</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Банк</label>
+            <input type="text" name="bank_name" class="form-control" value="{{ cv(company.bank_name) if company else '' }}">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Расчётный счёт</label>
+            <input type="text" name="bank_account" class="form-control" maxlength="20" value="{{ cv(company.bank_account) if company else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">БИК</label>
+            <input type="text" name="bank_bik" class="form-control" maxlength="9" value="{{ cv(company.bank_bik) if company else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Корр. счёт</label>
+            <input type="text" name="bank_corr_account" class="form-control" maxlength="20" value="{{ cv(company.bank_corr_account) if company else '' }}">
+          </div>
+
+          <div class="col-12">
+            <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить реквизиты</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Пользователи -->
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title">Пользователи</div>
+      <table class="table table-sm tms-table mb-3">
+        <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th></th></tr></thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td>{{ u.username }}</td>
+            <td>{{ u.full_name }}</td>
+            <td><span class="badge bg-secondary">{{ u.role }}</span></td>
+            <td>
+              {% if u.id != request.session.get('user_id') %}
+              <form method="post" action="/settings/users/{{ u.id }}/delete" class="d-inline" data-confirm="Удалить пользователя {{ u.username }}?">
+                <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:.75rem"><i class="bi bi-trash"></i></button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <div class="form-section-title">Добавить пользователя</div>
+      <form method="post" action="/settings/users/new">
+        <div class="mb-2">
+          <input type="text" name="username" class="form-control form-control-sm" placeholder="Логин" required>
+        </div>
+        <div class="mb-2">
+          <input type="text" name="full_name" class="form-control form-control-sm" placeholder="ФИО" required>
+        </div>
+        <div class="mb-2">
+          <input type="password" name="password" class="form-control form-control-sm" placeholder="Пароль" required>
+        </div>
+        <div class="mb-3">
+          <select name="role" class="form-select form-select-sm">
+            <option value="manager">Менеджер</option>
+            <option value="viewer">Просмотр</option>
+            <option value="admin">Администратор</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-sm btn-accent w-100"><i class="bi bi-person-plus me-1"></i>Добавить</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

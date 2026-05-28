@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% set is_new = invoice is none %}
+{% block title %}{{ 'Новый счёт' if is_new else 'Редактировать счёт' }}{% endblock %}
+{% block page_title %}{{ 'Новый счёт на оплату' if is_new else 'Редактировать счёт ' + invoice.number }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/invoices" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<form method="post" action="{{ '/invoices/new' if is_new else '/invoices/' + invoice.id|string + '/edit' }}" id="inv-form">
+  <input type="hidden" name="items_json" id="items_json" value="[]">
+
+  <div class="row g-3">
+    <div class="col-lg-8">
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title">Параметры счёта</div>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Номер счёта *</label>
+            <input type="text" name="number" class="form-control" required value="{{ invoice.number if invoice else suggested_number }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Дата *</label>
+            <input type="date" name="invoice_date" class="form-control" required
+                   value="{{ invoice.date.isoformat() if invoice else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Оплатить до</label>
+            <input type="date" name="due_date" class="form-control"
+                   value="{{ invoice.due_date.isoformat() if invoice and invoice.due_date else '' }}">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Клиент *</label>
+            <select name="counterparty_id" class="form-select" required>
+              <option value="">— выберите клиента —</option>
+              {% for cp in counterparties %}
+              <option value="{{ cp.id }}"
+                {% if invoice and invoice.counterparty_id == cp.id %}selected
+                {% elif order and order.counterparty_id == cp.id %}selected{% endif %}>
+                {{ cp.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Статус</label>
+            <select name="status" class="form-select">
+              {% for val, label in statuses.items() %}
+              <option value="{{ val }}" {% if invoice and invoice.status == val %}selected{% elif not invoice and val == 'draft' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% if order %}
+          <input type="hidden" name="order_id" value="{{ order.id }}">
+          <div class="col-12">
+            <div class="alert alert-info py-2 mb-0" style="font-size:.85rem">
+              <i class="bi bi-link-45deg"></i> Счёт привязан к заказу <a href="/orders/{{ order.id }}">{{ order.number }}</a>
+            </div>
+          </div>
+          {% endif %}
+          <div class="col-12">
+            <label class="form-label">Примечания</label>
+            <textarea name="notes" class="form-control" rows="2">{{ invoice.notes if invoice else '' }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- Позиции -->
+      <div class="card border-0 shadow-sm p-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="form-section-title mb-0">Позиции</div>
+          <button type="button" class="btn btn-sm btn-accent" onclick="addItem()"><i class="bi bi-plus-lg me-1"></i>Добавить</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm" id="items-table">
+            <thead class="table-light">
+              <tr>
+                <th style="min-width:130px">Товар</th>
+                <th style="min-width:140px">Наименование</th>
+                <th style="width:75px">Кол-во</th>
+                <th style="width:55px">Ед.</th>
+                <th style="width:90px">Цена</th>
+                <th style="width:60px">НДС%</th>
+                <th style="width:90px" class="text-end">Сумма</th>
+                <th style="width:36px"></th>
+              </tr>
+            </thead>
+            <tbody id="items-tbody"></tbody>
+          </table>
+        </div>
+        <div class="text-end mt-2" style="font-size:.88rem">
+          <div>Без НДС: <strong id="total-subtotal">0,00</strong> ₽</div>
+          <div>НДС: <strong id="total-vat">0,00</strong> ₽</div>
+          <div class="fs-5 fw-bold mt-1">Итого: <span id="total-amount">0,00</span> ₽</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card border-0 shadow-sm p-3">
+        <button type="submit" class="btn btn-accent w-100 mb-2"><i class="bi bi-check-lg me-1"></i>Сохранить счёт</button>
+        <a href="/invoices" class="btn btn-outline-secondary w-100">Отмена</a>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const productsMap = {
+  {% for p in products %}
+  "{{ p.id }}": { name: "{{ p.name | replace('"', '\\"') }}", unit: "{{ p.unit }}", price: {{ p.price }}, vat_rate: {{ p.vat_rate }} },
+  {% endfor %}
+};
+const initialItems = [
+  {% if invoice %}
+    {% for item in invoice.items %}
+    { product_id: "{{ item.product_id or '' }}", name: "{{ item.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.unit }}", price: {{ item.price }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
+    {% endfor %}
+  {% elif order %}
+    {% for item in order.items %}
+    { product_id: "{{ item.product_id }}", name: "{{ item.product.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.product.unit }}", price: {{ item.price }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
+    {% endfor %}
+  {% endif %}
+];
+initItemsEditor(initialItems, productsMap);
+</script>
+{% endblock %}

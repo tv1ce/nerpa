@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Склад{% endblock %}
+{% block page_title %}Склад — Остатки{% endblock %}
+{% block topbar_actions %}
+  <a href="/warehouse/new?mtype=in"  class="btn btn-sm btn-accent me-1"><i class="bi bi-plus-lg me-1"></i>Приход</a>
+  <a href="/warehouse/new?mtype=out" class="btn btn-sm btn-outline-danger me-1"><i class="bi bi-dash-lg me-1"></i>Расход</a>
+  <a href="/warehouse/journal"       class="btn btn-sm btn-outline-secondary"><i class="bi bi-journal-text me-1"></i>Журнал</a>
+{% endblock %}
+
+{% block content %}
+
+{% if low_stock %}
+<div class="alert alert-warning alert-dismissible fade show d-flex align-items-center gap-2 mb-3">
+  <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+  <div>
+    <strong>Низкий остаток:</strong>
+    {% for p in low_stock %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endfor %}
+  </div>
+  <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<div class="row g-3">
+
+  <!-- Таблица остатков -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4 fw-semibold">
+        Текущие остатки
+        <span class="text-muted fw-normal ms-2" style="font-size:.82rem">{{ products|length }} позиций</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm tms-table mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4">Наименование</th>
+              <th>Артикул</th>
+              <th class="text-end">Ед.</th>
+              <th class="text-end">Остаток</th>
+              <th class="text-end">Мин.</th>
+              <th class="text-end" style="width:110px">Операции</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in products %}
+            {% set bal = balances.get(p.id, 0) %}
+            {% set is_low = (p.min_stock and p.min_stock > 0 and bal <= p.min_stock) %}
+            <tr class="{% if is_low %}table-warning{% endif %}">
+              <td class="ps-4 fw-semibold">
+                {% if is_low %}<i class="bi bi-exclamation-triangle-fill text-warning me-1" title="Низкий остаток"></i>{% endif %}
+                {{ p.name }}
+              </td>
+              <td class="text-muted" style="font-size:.82rem">{{ p.article or '—' }}</td>
+              <td class="text-end text-muted" style="font-size:.82rem">{{ p.unit }}</td>
+              <td class="text-end fw-bold {% if is_low %}text-danger{% elif bal > 0 %}text-success{% else %}text-muted{% endif %}" style="font-size:1rem">
+                {{ bal | int if bal == bal | int else bal }}
+              </td>
+              <td class="text-end text-muted" style="font-size:.82rem">
+                {{ p.min_stock | int if p.min_stock else '—' }}
+              </td>
+              <td class="text-end pe-3">
+                <a href="/warehouse/new?mtype=in&product_id={{ p.id }}"  class="btn btn-xs btn-outline-success py-0 px-1 me-1" title="Приход" style="font-size:.72rem"><i class="bi bi-plus"></i></a>
+                <a href="/warehouse/new?mtype=out&product_id={{ p.id }}" class="btn btn-xs btn-outline-danger  py-0 px-1 me-1" title="Расход" style="font-size:.72rem"><i class="bi bi-dash"></i></a>
+                <button class="btn btn-xs btn-outline-secondary py-0 px-1" title="Настройки"
+                  onclick="openStockModal({{ p.id }}, '{{ p.name | replace("'","\\'")|e }}', {{ p.min_stock or 0 }}, {{ p.initial_stock or 0 }})"
+                  style="font-size:.72rem"><i class="bi bi-gear"></i></button>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center text-muted py-4">Нет товаров. <a href="/products/new">Добавить товар</a></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Последние движения -->
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex justify-content-between">
+        <span class="fw-semibold">Последние операции</span>
+        <a href="/warehouse/journal" class="btn btn-xs btn-outline-secondary" style="font-size:.75rem; padding:2px 8px">Все</a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm tms-table mb-0">
+          <tbody>
+            {% for mv in recent %}
+            <tr>
+              <td class="ps-3" style="max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.82rem">
+                {{ mv.product.name if mv.product else '—' }}
+              </td>
+              <td class="text-center" style="width:60px">
+                {% if mv.movement_type == 'in' %}
+                  <span class="badge bg-success" style="font-size:.7rem">+{{ mv.quantity | int }}</span>
+                {% elif mv.movement_type == 'out' %}
+                  <span class="badge bg-danger"  style="font-size:.7rem">−{{ mv.quantity | int }}</span>
+                {% else %}
+                  <span class="badge bg-secondary" style="font-size:.7rem">≈{{ mv.quantity | int }}</span>
+                {% endif %}
+              </td>
+              <td class="text-muted pe-3" style="font-size:.75rem; width:75px">{{ mv.date | date_fmt }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-center text-muted py-3" style="font-size:.82rem">Движений нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Модалка настроек остатков -->
+<div class="modal fade" id="stockModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="post" id="stockForm">
+        <div class="modal-header border-0 pb-0">
+          <h6 class="modal-title fw-semibold">Настройки остатка</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p id="stockProductName" class="text-muted mb-3" style="font-size:.85rem"></p>
+          <div class="mb-3">
+            <label class="form-label">Начальный остаток</label>
+            <input type="number" name="initial_stock" id="initialStockInput" class="form-control" step="0.01" min="0">
+            <div class="form-text">Стартовое кол-во при постановке на учёт</div>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Минимальный остаток (порог)</label>
+            <input type="number" name="min_stock" id="minStockInput" class="form-control" step="0.01" min="0">
+            <div class="form-text">При достижении — сигнал о нехватке</div>
+          </div>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="submit" class="btn btn-accent btn-sm w-100">Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openStockModal(pid, name, minStock, initStock) {
+  document.getElementById('stockProductName').textContent = name;
+  document.getElementById('minStockInput').value = minStock;
+  document.getElementById('initialStockInput').value = initStock;
+  document.getElementById('stockForm').action = '/warehouse/product/' + pid + '/stock-settings';
+  new bootstrap.Modal(document.getElementById('stockModal')).show();
+}
+</script>
+{% endblock %}

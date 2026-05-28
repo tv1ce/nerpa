@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% set is_new = contract is none %}
+{% block title %}{{ 'Новый договор' if is_new else 'Редактировать договор' }}{% endblock %}
+{% block page_title %}{{ 'Новый договор' if is_new else 'Редактировать договор ' + contract.number }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/contracts" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<form method="post" action="{{ '/contracts/new' if is_new else '/contracts/' + contract.id|string + '/edit' }}">
+  <div class="row g-3">
+    <div class="col-lg-8">
+      <div class="card border-0 shadow-sm p-4">
+        <div class="form-section-title">Параметры договора</div>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Номер *</label>
+            <input type="text" name="number" class="form-control" required value="{{ contract.number if contract else suggested_number }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Дата *</label>
+            <input type="date" name="contract_date" class="form-control" required
+                   value="{{ contract.date.isoformat() if contract else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Статус</label>
+            <select name="status" class="form-select">
+              {% for val, label in statuses.items() %}
+              <option value="{{ val }}" {% if contract and contract.status == val %}selected{% elif not contract and val == 'draft' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Контрагент *</label>
+            <select name="counterparty_id" class="form-select" required>
+              <option value="">— выберите контрагента —</option>
+              {% for cp in counterparties %}
+              <option value="{{ cp.id }}" {% if contract and contract.counterparty_id == cp.id %}selected{% endif %}>{{ cp.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Предмет договора</label>
+            <input type="text" name="subject" class="form-control"
+                   placeholder="Поставка кондитерских орехов и смесей"
+                   value="{{ contract.subject if contract else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Начало</label>
+            <input type="date" name="start_date" class="form-control"
+                   value="{{ contract.start_date.isoformat() if contract and contract.start_date else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Окончание</label>
+            <input type="date" name="end_date" class="form-control"
+                   value="{{ contract.end_date.isoformat() if contract and contract.end_date else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Сумма договора, ₽</label>
+            <input type="number" name="amount" class="form-control" step="0.01" min="0"
+                   value="{{ contract.amount if contract and contract.amount else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Шаблон документа</label>
+            <select name="template_id" class="form-select">
+              <option value="0">— без шаблона —</option>
+              {% for tpl in doc_templates %}
+              <option value="{{ tpl.id }}" {% if contract and contract.template_id == tpl.id %}selected{% endif %}>{{ tpl.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Выберите шаблон — договор заполнится автоматически при сохранении</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Примечания</label>
+            <textarea name="notes" class="form-control" rows="3">{{ contract.notes if contract else '' }}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card border-0 shadow-sm p-3">
+        <button type="submit" class="btn btn-accent w-100 mb-2"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+        <a href="/contracts" class="btn btn-outline-secondary w-100">Отмена</a>
+        {% if doc_templates %}
+        <hr>
+        <div class="text-muted" style="font-size:.8rem">
+          <i class="bi bi-info-circle me-1"></i>
+          При выборе шаблона — файл .docx будет создан автоматически на основе данных договора и реквизитов из настроек компании.
+        </div>
+        {% else %}
+        <hr>
+        <div class="text-warning" style="font-size:.8rem">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Шаблонов не загружено. <a href="/contracts/templates/">Загрузить шаблон</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

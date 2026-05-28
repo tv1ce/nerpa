@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Договора{% endblock %}
+{% block page_title %}Договора{% endblock %}
+{% block topbar_actions %}
+  <a href="/contracts/new" class="btn btn-accent btn-sm me-1"><i class="bi bi-plus-lg me-1"></i>Новый договор</a>
+  <a href="/contracts/templates/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-code me-1"></i>Шаблоны</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <form class="row g-2 mb-3" method="get">
+      <div class="col-md-5">
+        <input type="text" name="q" class="form-control form-control-sm" placeholder="Номер или контрагент…" value="{{ q }}">
+      </div>
+      <div class="col-md-3">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Все статусы</option>
+          {% for val, label in statuses.items() %}
+          <option value="{{ val }}" {% if status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/contracts" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">№ договора</th>
+          <th>Контрагент</th>
+          <th>Предмет</th>
+          <th>Дата</th>
+          <th>Действует до</th>
+          <th class="text-end">Сумма, ₽</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in contracts %}
+        <tr>
+          <td class="ps-3"><a href="/contracts/{{ c.id }}" class="fw-semibold text-decoration-none">{{ c.number }}</a></td>
+          <td>{{ c.counterparty.name }}</td>
+          <td class="text-muted" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ c.subject or '—' }}</td>
+          <td>{{ c.date | date_fmt }}</td>
+          <td>
+            {{ c.end_date | date_fmt }}
+            {% if c.status == 'active' and c.end_date and c.end_date <= today %}
+            <span class="badge bg-danger ms-1">!</span>
+            {% endif %}
+          </td>
+          <td class="text-end">{{ c.amount | money if c.amount else '—' }}</td>
+          <td><span class="badge badge-{{ c.status }}">{{ statuses[c.status] }}</span></td>
+          <td class="text-end pe-3">
+            <a href="/contracts/{{ c.id }}" class="btn btn-sm btn-outline-primary py-0"><i class="bi bi-eye"></i></a>
+            <a href="/contracts/{{ c.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center py-4 text-muted">Договоров не найдено</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

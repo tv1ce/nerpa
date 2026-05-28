@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Договор {{ contract.number }}{% endblock %}
+{% block page_title %}Договор {{ contract.number }}{% endblock %}
+{% block topbar_actions %}
+  {% if contract.template_id %}
+  <a href="/contracts/{{ contract.id }}/generate" class="btn btn-outline-primary btn-sm me-1">
+    <i class="bi bi-arrow-clockwise me-1"></i>Перегенерировать
+  </a>
+  {% endif %}
+  {% if contract.file_path %}
+  <a href="/contracts/{{ contract.id }}/download" class="btn btn-success btn-sm me-1">
+    <i class="bi bi-download me-1"></i>Скачать .docx
+  </a>
+  {% endif %}
+  <a href="/contracts/{{ contract.id }}/edit" class="btn btn-accent btn-sm me-1"><i class="bi bi-pencil me-1"></i>Редактировать</a>
+  <a href="/contracts" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="row g-2" style="font-size:.9rem">
+        <div class="col-md-4"><span class="text-muted">Номер:</span> <strong>{{ contract.number }}</strong></div>
+        <div class="col-md-4"><span class="text-muted">Дата:</span> {{ contract.date | date_fmt }}</div>
+        <div class="col-md-4"><span class="text-muted">Статус:</span>
+          <span class="badge badge-{{ contract.status }} fs-6">{{ statuses[contract.status] }}</span>
+        </div>
+        <div class="col-12"><span class="text-muted">Контрагент:</span> <a href="/counterparties/{{ contract.counterparty_id }}">{{ contract.counterparty.name }}</a></div>
+        {% if contract.subject %}<div class="col-12"><span class="text-muted">Предмет:</span> {{ contract.subject }}</div>{% endif %}
+        <div class="col-md-4"><span class="text-muted">Начало:</span> {{ contract.start_date | date_fmt }}</div>
+        <div class="col-md-4"><span class="text-muted">Окончание:</span>
+          {{ contract.end_date | date_fmt }}
+          {% if contract.status == 'active' and contract.end_date and contract.end_date <= today %}
+          <span class="badge bg-danger ms-1">Истёк!</span>
+          {% endif %}
+        </div>
+        <div class="col-md-4"><span class="text-muted">Сумма:</span> {{ contract.amount | money if contract.amount else '—' }} ₽</div>
+        {% if contract.template %}
+        <div class="col-12"><span class="text-muted">Шаблон:</span> {{ contract.template.name }}</div>
+        {% endif %}
+        {% if contract.file_path %}
+        <div class="col-12">
+          <span class="text-muted">Файл:</span>
+          <a href="/contracts/{{ contract.id }}/download" class="text-success">
+            <i class="bi bi-file-word me-1"></i>{{ contract.file_path.split('\\')[-1].split('/')[-1] }}
+          </a>
+        </div>
+        {% endif %}
+        {% if contract.notes %}<div class="col-12"><span class="text-muted">Примечание:</span> {{ contract.notes }}</div>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    {% if not contract.file_path and contract.template_id %}
+    <div class="card border-0 shadow-sm p-3 mb-3 border-warning">
+      <div class="text-warning fw-semibold mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Файл не создан</div>
+      <a href="/contracts/{{ contract.id }}/generate" class="btn btn-outline-primary btn-sm w-100">
+        <i class="bi bi-file-earmark-plus me-1"></i>Сгенерировать .docx
+      </a>
+    </div>
+    {% endif %}
+
+    {% if contract.file_path %}
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <a href="/contracts/{{ contract.id }}/download" class="btn btn-success btn-sm w-100 mb-2">
+        <i class="bi bi-download me-1"></i>Скачать .docx
+      </a>
+      <a href="/contracts/{{ contract.id }}/generate" class="btn btn-outline-primary btn-sm w-100">
+        <i class="bi bi-arrow-clockwise me-1"></i>Перегенерировать
+      </a>
+    </div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm p-3">
+      <form method="post" action="/contracts/{{ contract.id }}/delete" data-confirm="Удалить договор {{ contract.number }}?">
+        <button class="btn btn-outline-danger btn-sm w-100"><i class="bi bi-trash me-1"></i>Удалить договор</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
