@@ -5,46 +5,48 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Табло цеха</title>
   <style>
-    /* Палитра «Карамель»: тёмный эспрессо + карамельно-золотой + кремовый, фисташка для акцента */
+    /* Палитра «Лаванда»: светлый лавандовый фон + белые карточки + фирменный фиолет #575BA6 */
     :root{
-      --bg1:#120d08; --bg2:#251a10; --gold:#E5A84B; --gold-soft:#F2C879;
-      --text:#F3E7D2; --card:#1e1610; --line:#3c2c1c;
-      --muted:#B89B79; --pist:#AECB72;
+      --bg1:#F1F0FB; --bg2:#E1DFF1; --purple:#575BA6; --lilac:#8E92D4;
+      --ink:#2E2C4A; --card:#FFFFFF; --line:#E8E6F4; --track:#ECEAF7;
+      --muted:#8A88A6; --green:#7DC242;
+      --shadow:0 1.4vh 3vh rgba(87,91,166,.12);
     }
     *{box-sizing:border-box;margin:0;padding:0}
     html,body{height:100%;overflow:hidden}
     body{
       font-family:'Fira Sans','Segoe UI',system-ui,sans-serif;
-      background:radial-gradient(circle at 22% -10%,var(--bg2),var(--bg1) 60%);
-      color:var(--text);height:100vh;display:flex;flex-direction:column;padding:2.2vh 2.6vw;
+      background:radial-gradient(circle at 22% -10%,var(--bg1),var(--bg2) 70%);
+      color:var(--ink);height:100vh;display:flex;flex-direction:column;padding:2.2vh 2.6vw;
     }
     /* ── Шапка ── */
     header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2vh}
-    .company{font-size:2.4vh;font-weight:700;letter-spacing:.5px;color:var(--gold-soft)}
+    .company{font-size:2.4vh;font-weight:800;letter-spacing:.3px;color:var(--purple)}
     .clock{text-align:right;line-height:1.1}
-    .clock .time{font-size:3.4vh;font-weight:800}
+    .clock .time{font-size:3.4vh;font-weight:800;color:var(--ink)}
     .clock .date{font-size:1.8vh;color:var(--muted)}
 
     /* ── Главный блок: отгрузка за месяц + план ── */
     .hero{
-      background:linear-gradient(135deg,rgba(229,168,75,.16),rgba(30,22,16,.7));
+      background:linear-gradient(135deg,#F2F1FC,#FFFFFF 60%);
       border:1px solid var(--line);border-radius:2.4vh;padding:3vh 3.2vw;margin-bottom:1.8vh;
-      position:relative;overflow:hidden;
+      position:relative;overflow:hidden;box-shadow:var(--shadow);
     }
     .hero .label{font-size:2.4vh;color:var(--muted);font-weight:600;margin-bottom:.6vh}
-    .hero .big{font-size:11vh;font-weight:800;line-height:.95;color:#F4B95A;
-      text-shadow:0 0 46px rgba(229,168,75,.55)}
+    .hero .big{font-size:11vh;font-weight:800;line-height:.95;
+      background:linear-gradient(90deg,var(--purple),var(--lilac));-webkit-background-clip:text;
+      background-clip:text;-webkit-text-fill-color:transparent}
     .hero .unit{font-size:3.6vh;color:var(--muted);font-weight:600;margin-left:1vw}
     .plan-wrap{margin-top:2vh}
     .plan-head{display:flex;justify-content:space-between;align-items:baseline;
-      font-size:2.1vh;margin-bottom:1vh}
-    .plan-head .pct{font-weight:800;font-size:2.8vh}
-    .bar{height:3vh;background:#190f07;border-radius:2vh;overflow:hidden;border:1px solid var(--line)}
+      font-size:2.1vh;color:var(--muted);margin-bottom:1vh}
+    .plan-head b{color:var(--ink)}
+    .plan-head .pct{font-weight:800;font-size:2.8vh;color:var(--purple)}
+    .bar{height:3vh;background:var(--track);border-radius:2vh;overflow:hidden}
     .bar > div{height:100%;border-radius:2vh;
-      background:linear-gradient(90deg,var(--gold),var(--gold-soft));
-      transition:width 1.2s cubic-bezier(.2,.8,.2,1);box-shadow:0 0 26px rgba(229,168,75,.6)}
-    .hero.done .bar > div{background:linear-gradient(90deg,var(--pist),#cfe6a0);
-      box-shadow:0 0 28px rgba(174,203,114,.6)}
+      background:linear-gradient(90deg,var(--purple),var(--lilac));
+      transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
+    .hero.done .bar > div{background:linear-gradient(90deg,var(--green),#a5d96a)}
     .celebrate{position:absolute;top:2.4vh;right:3vw;font-size:6vh;display:none}
     .hero.done .celebrate{display:block;animation:pop 1.6s ease-in-out infinite}
     @keyframes pop{0%,100%{transform:scale(1) rotate(-4deg)}50%{transform:scale(1.18) rotate(6deg)}}
@@ -52,39 +54,38 @@
     /* ── Карточки-метрики ── */
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1.6vw;margin-bottom:1.8vh}
     .stat{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
-      padding:2vh 1.6vw;text-align:center}
+      padding:2vh 1.6vw;text-align:center;box-shadow:var(--shadow)}
     .stat .v{font-size:5vh;font-weight:800;line-height:1}
     .stat .k{font-size:1.8vh;color:var(--muted);margin-top:.6vh}
-    .stat.today .v{color:var(--gold)}
-    .stat.year  .v{color:var(--gold-soft)}
-    .stat.total .v{color:var(--text)}
-    .stat.claims{background:linear-gradient(135deg,rgba(174,203,114,.16),var(--card))}
-    .stat.claims .v{color:var(--pist);font-size:6vh}
-    .stat.claims .shield{font-size:2.8vh}
+    .stat.today .v{color:var(--purple)}
+    .stat.year  .v{color:var(--lilac)}
+    .stat.total .v{color:var(--ink)}
+    .stat.claims .v{color:var(--green)}
 
     /* ── Музыкальные каналы ── */
     .music{display:flex;align-items:center;gap:1.2vw;background:var(--card);
-      border:1px solid var(--line);border-radius:1.6vh;padding:1.4vh 1.6vw;margin-bottom:1.8vh}
+      border:1px solid var(--line);border-radius:1.6vh;padding:1.4vh 1.6vw;margin-bottom:1.8vh;
+      box-shadow:var(--shadow)}
     .music .ico{font-size:3vh}
     .stations{display:flex;gap:.8vw;flex-wrap:wrap;flex:1}
     .chip{font-size:1.9vh;font-weight:600;padding:.8vh 1.4vw;border-radius:1.4vh;
-      background:#190f07;border:1px solid var(--line);color:var(--muted);cursor:pointer;
+      background:var(--track);border:1px solid var(--line);color:var(--muted);cursor:pointer;
       transition:all .2s;white-space:nowrap}
-    .chip.active{background:linear-gradient(90deg,var(--gold),var(--gold-soft));color:#1a1106;
-      border-color:transparent;box-shadow:0 0 18px rgba(229,168,75,.6)}
+    .chip.active{background:linear-gradient(90deg,var(--purple),var(--lilac));color:#fff;
+      border-color:transparent;box-shadow:0 .6vh 1.6vh rgba(87,91,166,.35)}
     .eq{display:inline-flex;gap:2px;height:2vh;align-items:flex-end;margin-left:.4vw;vertical-align:middle}
-    .eq i{width:3px;background:#1a1106;border-radius:2px;animation:eq .9s ease-in-out infinite}
+    .eq i{width:3px;background:#fff;border-radius:2px;animation:eq .9s ease-in-out infinite}
     .eq i:nth-child(2){animation-delay:.3s}.eq i:nth-child(3){animation-delay:.6s}
     @keyframes eq{0%,100%{height:30%}50%{height:100%}}
     .sound-btn{font-size:1.9vh;font-weight:700;padding:.8vh 1.4vw;border-radius:1.4vh;
-      background:var(--gold);color:#1a1106;border:none;cursor:pointer}
+      background:var(--purple);color:#fff;border:none;cursor:pointer}
 
     /* ── Лента мотивашек ── */
-    .ticker{margin-top:auto;background:rgba(229,168,75,.1);border:1px solid var(--line);
+    .ticker{margin-top:auto;background:var(--card);border:1px solid var(--line);
       border-radius:1.8vh;padding:2.4vh 3vw;text-align:center;min-height:10vh;
-      display:flex;align-items:center;justify-content:center}
-    .ticker .quote{font-size:3.2vh;font-weight:700;opacity:0;transition:opacity .8s;
-      background:linear-gradient(90deg,#fff,#ffe6b8);-webkit-background-clip:text;
+      display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
+    .ticker .quote{font-size:3.2vh;font-weight:800;opacity:0;transition:opacity .8s;
+      background:linear-gradient(90deg,var(--purple),var(--lilac));-webkit-background-clip:text;
       background-clip:text;-webkit-text-fill-color:transparent}
     .ticker .quote.show{opacity:1}
   </style>
@@ -129,7 +130,7 @@
       <div class="k">всего за всё время</div>
     </div>
     <div class="stat claims">
-      <div class="v"><span class="shield">🛡️</span> <span id="m-claims">—</span></div>
+      <div class="v" id="m-claims">—</div>
       <div class="k" id="m-claims-label">дней без рекламаций</div>
     </div>
   </div>
