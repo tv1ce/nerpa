@@ -2,6 +2,11 @@
 {% block title %}Контрагенты{% endblock %}
 {% block page_title %}Контрагенты{% endblock %}
 {% block topbar_actions %}
+  <form method="post" action="/counterparties/recalc-categories" class="d-inline me-2">
+    <button class="btn btn-sm btn-outline-secondary" title="Пересчитать категории A/B/C по сумме заказов">
+      <i class="bi bi-arrow-repeat me-1"></i>Пересчитать категории
+    </button>
+  </form>
   <a href="/counterparties/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Добавить</a>
 {% endblock %}
 
@@ -9,14 +14,30 @@
 <div class="card border-0 shadow-sm">
   <div class="card-body pb-0">
     <form class="row g-2 mb-3" method="get">
-      <div class="col-md-6">
+      <div class="col-md-5">
         <input type="text" name="q" class="form-control form-control-sm" placeholder="Поиск по названию…" value="{{ q }}">
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
+        <select name="entity_type" class="form-select form-select-sm">
+          <option value="">ООО и ИП</option>
+          {% for val, label in entity_types.items() %}
+          <option value="{{ val }}" {% if entity_type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
         <select name="type" class="form-select form-select-sm">
           <option value="">Все типы</option>
           {% for val, label in cp_types.items() %}
           <option value="{{ val }}" {% if type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="category" class="form-select form-select-sm">
+          <option value="">Все категории</option>
+          {% for cat in ['A', 'B', 'C'] %}
+          <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>Категория {{ cat }}</option>
           {% endfor %}
         </select>
       </div>
@@ -30,7 +51,8 @@
     <table class="table tms-table mb-0">
       <thead>
         <tr>
-          <th class="ps-3">Название</th>
+          <th class="ps-3" style="width:2.2rem"></th>
+          <th>Название</th>
           <th>ИНН</th>
           <th>Контактное лицо</th>
           <th>Телефон</th>
@@ -41,7 +63,14 @@
       <tbody>
         {% for cp in counterparties %}
         <tr>
-          <td class="ps-3">
+          <td class="ps-3 text-center">
+            {% if cp.category %}
+            <span class="badge bg-{{ cat_colors[cp.category] }} {% if cp.category == 'C' %}text-dark{% endif %} px-2" style="font-size:.75rem; font-weight:700; min-width:1.5rem">{{ cp.category }}</span>
+            {% else %}
+            <span class="text-muted" style="font-size:.75rem">—</span>
+            {% endif %}
+          </td>
+          <td class="ps-1">
             <a href="/counterparties/{{ cp.id }}" class="fw-semibold text-decoration-none">
               {{ cp.trade_name or cp.name }}
             </a>
@@ -52,16 +81,21 @@
           <td class="text-muted">{{ cp.inn or '—' }}</td>
           <td>{{ cp.contact_person or '—' }}</td>
           <td>{{ cp.phone or '—' }}</td>
-          <td><span class="badge badge-{{ cp.type }}">{{ cp_types[cp.type] }}</span></td>
+          <td>
+            <span class="badge badge-{{ cp.type }}">{{ cp_types[cp.type] }}</span>
+            {% if cp.entity_type %}
+            <span class="badge bg-light text-dark border ms-1" style="font-size:.72rem">{{ entity_types.get(cp.entity_type, cp.entity_type) }}</span>
+            {% endif %}
+          </td>
           <td class="text-end pe-3">
             <a href="/counterparties/{{ cp.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
-            <form method="post" action="/counterparties/{{ cp.id }}/delete" class="d-inline" data-confirm="Удалить контрагента «{{ cp.name }}»?">
+            <form method="post" action="/counterparties/{{ cp.id }}/delete" class="d-inline" data-confirm="Удалить контрагента?">
               <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button>
             </form>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center py-4 text-muted">Контрагентов не найдено</td></tr>
+        <tr><td colspan="7" class="text-center py-4 text-muted">Контрагентов не найдено</td></tr>
         {% endfor %}
       </tbody>
     </table>

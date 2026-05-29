@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Лог изменений{% endblock %}
+{% block page_title %}Лог изменений{% endblock %}
+{% block topbar_actions %}
+  <form method="get" class="d-flex gap-2">
+    <select name="entity_type" class="form-select form-select-sm" style="max-width:160px">
+      <option value="">Все сущности</option>
+      <option value="order"        {% if filter_type=='order'        %}selected{% endif %}>Заказы</option>
+      <option value="counterparty" {% if filter_type=='counterparty' %}selected{% endif %}>Контрагенты</option>
+      <option value="invoice"      {% if filter_type=='invoice'      %}selected{% endif %}>Счета</option>
+      <option value="claim"        {% if filter_type=='claim'        %}selected{% endif %}>Рекламации</option>
+    </select>
+    <button class="btn btn-sm btn-outline-secondary">Фильтр</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  {% if not logs %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-journal-check fs-2 d-block mb-2"></i>Лог пуст
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:1.2rem"></th>
+          <th>Событие</th>
+          <th>Объект</th>
+          <th>Пользователь</th>
+          <th class="text-end pe-4">Дата</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr>
+          <td class="ps-4 text-center">
+            {% if log.action == 'created' %}<i class="bi bi-plus-circle-fill text-success"></i>
+            {% elif log.action == 'status_changed' %}<i class="bi bi-arrow-left-right text-warning"></i>
+            {% elif log.action == 'category_set' %}<i class="bi bi-tag-fill text-info"></i>
+            {% elif log.action == 'updated' %}<i class="bi bi-pencil-fill text-primary"></i>
+            {% elif log.action == 'deleted' %}<i class="bi bi-trash-fill text-danger"></i>
+            {% else %}<i class="bi bi-circle text-muted"></i>{% endif %}
+          </td>
+          <td style="font-size:.88rem">{{ log.note or action_labels.get(log.action, log.action) }}</td>
+          <td class="text-muted" style="font-size:.82rem">
+            {% if log.entity_type == 'order' %}
+              <a href="/orders/{{ log.entity_id }}" class="text-muted">Заказ #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'counterparty' %}
+              <a href="/counterparties/{{ log.entity_id }}" class="text-muted">Клиент #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'invoice' %}
+              <a href="/invoices/{{ log.entity_id }}" class="text-muted">Счёт #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'claim' %}
+              <a href="/claims/{{ log.entity_id }}" class="text-muted">Рекламация #{{ log.entity_id }}</a>
+            {% else %}
+              {{ log.entity_type }} #{{ log.entity_id }}
+            {% endif %}
+          </td>
+          <td style="font-size:.82rem">{{ log.user.full_name if log.user else '—' }}</td>
+          <td class="text-end pe-4 text-muted" style="font-size:.78rem; white-space:nowrap">{{ log.created_at | date_fmt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

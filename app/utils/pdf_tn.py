@@ -54,15 +54,15 @@ def _v(txt="", bold=False, align="LEFT", sz=8):
 
 
 def _h(txt, sz=6):
-    """Hint text (6 pt grey italic)."""
-    return Paragraph(str(txt), _s(sz=sz, color=GREY))
+    """Hint text (6 pt, centred, black) — matches official form."""
+    return Paragraph(str(txt), _s(sz=sz, align="CENTER"))
 
 
 def _sh(num, title, extra=""):
-    """Section header paragraph."""
+    """Section header paragraph — bold, centred (matches official form)."""
     if extra:
-        return Paragraph(f"<b>{num}. {title}</b>  {extra}", _s(sz=8, bold=True))
-    return Paragraph(f"<b>{num}. {title}</b>", _s(sz=8, bold=True))
+        return Paragraph(f"<b>{num}. {title}</b>  {extra}", _s(sz=8, bold=True, align="CENTER"))
+    return Paragraph(f"<b>{num}. {title}</b>", _s(sz=8, bold=True, align="CENTER"))
 
 
 def _date_s(d):
@@ -116,6 +116,8 @@ def _span(row, c1, c2):
 
 
 def _org(c):
+    # Идентификационная строка: наименование + ИНН (адрес указывается в
+    # отдельных полях разделов — как в официальной форме).
     parts = []
     is_ip = (c.name or "").strip().upper().startswith("ИП")
     if is_ip:
@@ -123,14 +125,12 @@ def _org(c):
     else:
         parts.append(c.name or "")
     if c.inn: parts.append(f"ИНН {c.inn}")
-    if c.legal_address: parts.append(c.legal_address)
     return ", ".join(filter(None, parts))
 
 
 def _cporg(cp):
     parts = [cp.name or ""]
     if cp.inn: parts.append(f"ИНН {cp.inn}")
-    if cp.legal_address: parts.append(cp.legal_address)
     return ", ".join(filter(None, parts))
 
 
@@ -206,12 +206,14 @@ def generate_tn_pdf(tn: TnData) -> bytes:
     # ══════════════════════════════════════════════════════
     ann = _tbl([[
         "",
-        _h("Приложение № 4\nк Правилам перевозок грузов автомобильным транспортом\n"
-           "(в редакции постановления Правительства Российской Федерации\n"
-           "от 30 ноября 2021 г. № 2116)", sz=6),
+        Paragraph(
+            "Приложение № 4<br/>"
+            "к Правилам перевозок грузов автомобильным транспортом<br/>"
+            "(в редакции постановления Правительства Российской Федерации<br/>"
+            "от 30 ноября 2021 г. № 2116)",
+            _s(sz=6, align="RIGHT")),
     ]], [W*0.42, W*0.58],
-        extra=[("BOX",(0,0),(-1,-1),0,BLACK),   # no outer border here
-               ("ALIGN",(1,0),(1,0),"RIGHT")])
+        extra=[("BOX",(0,0),(-1,-1),0,BLACK)])   # no outer border here
     story.append(ann)
 
     story.append(Paragraph("<b>Транспортная накладная (форма)</b>",
@@ -256,36 +258,30 @@ def generate_tn_pdf(tn: TnData) -> bytes:
     # ══════════════════════════════════════════════════════
     # SECTIONS 1 + 1а  (side by side)
     # ══════════════════════════════════════════════════════
+    exp_check = Paragraph("является экспедитором&nbsp;&nbsp;&nbsp;&nbsp;□", _s(sz=7))
     s1_rows = [
-        # header
+        # row 0: headers side by side
         [_sh("1", "Грузоотправитель"),
-         _v("является экспедитором", sz=7)],
-        # sender name
-        [_v(sender_str, bold=True), ""],
-        [_h("(реквизиты, позволяющие идентифицировать Грузоотправителя)"), ""],
-        # payment basis
-        [_v(""), ""],
-        [_h("реквизиты документа, определяющего основания осуществления платежей "
-            "по договору перевозки иным лицом, отличным от грузоотправителя (при наличии)"), ""],
-        # 1а header
-        ["",
          _sh("1а", "«Заказчик услуг, связанных с перевозкой груза (при наличии)»")],
-        ["", _v("")],
-        ["", _h("(реквизиты, позволяющие идентифицировать Заказчика услуг, "
-                "связанных с перевозкой груза)")],
-        ["", _v("")],
-        ["", _h("(реквизиты договора на выполнение услуг, связанных с перевозкой груза)")],
+        # row 1: "является экспедитором □" (left only)
+        [exp_check, ""],
+        # row 2: sender name | (empty fill-in for Заказчик)
+        [_v(sender_str), _v("")],
+        # row 3: hints
+        [_h("(реквизиты, позволяющие идентифицировать Грузоотправителя)"),
+         _h("(реквизиты, позволяющие идентифицировать Заказчика услуг, "
+            "связанных с перевозкой груза)")],
+        # row 4: payment-basis fill-in | contract fill-in
+        [_v(""), _v("")],
+        # row 5: hints
+        [_h("реквизиты документа, определяющего основания осуществления платежей "
+            "по договору перевозки иным лицом, отличным от грузоотправителя (при наличии)"),
+         _h("(реквизиты договора на выполнение услуг, связанных с перевозкой груза)")],
     ]
     s1 = _tbl(s1_rows, [HW, HW], extra=[
-        _span(0, 0, 0),  # left header spans only left col
-        _span(1, 0, 1),  # sender spans both cols
-        _span(2, 0, 1),
-        _span(3, 0, 0),  # empty field left only
-        _span(4, 0, 0),
-        _vline(1, 5, 9),  # vertical divider for 1а starts at row 5
-        _lbv(0),
-        _lb(1), _lb(3),
-        _lbv(5), _lb(6), _lb(8),
+        _vline(1, 0, 5),                 # full-height divider between 1 and 1а
+        _lb(2, 0, 0), _lb(2, 1, 1),      # underlines under value fields
+        _lb(4, 0, 0), _lb(4, 1, 1),
     ])
     story.append(s1)
 
@@ -294,11 +290,11 @@ def generate_tn_pdf(tn: TnData) -> bytes:
     # ══════════════════════════════════════════════════════
     s2 = _tbl([
         [_sh("2", "Грузополучатель")],
-        [_v(cp_str, bold=True)],
+        [_v(cp_str)],
         [_h("(реквизиты, позволяющие идентифицировать Грузополучателя)")],
         [_v(tn.delivery_address or "")],
         [_h("(адрес места доставки груза)")],
-    ], [W], extra=[_lbv(0), _lb(1), _lb(3)])
+    ], [W], extra=[_lb(1), _lb(3)])
     story.append(s2)
 
     # ══════════════════════════════════════════════════════
@@ -327,7 +323,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
     ], [GW, GR], extra=[
         _span(0, 0, 1), _span(3, 0, 1), _span(4, 0, 1),
         _vline(1, 1, 2), _vline(1, 5, 6),
-        _lbv(0), _lb(1), _lb(3), _lb(5),
+        _lb(1), _lb(3), _lb(5),
     ])
     story.append(s3)
 
@@ -349,7 +345,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
         [_v("")],
         [_h("(реквизиты документа, подтверждающего об отгрузке товаров: наименование, "
             "номер, дата документа об отгрузке, наименование и ИНН продавца и покупателя)")],
-    ], [W], extra=[_lbv(0), _lb(1), _lb(3), _lb(5)])
+    ], [W], extra=[_lb(1), _lb(3), _lb(5)])
     story.append(s4)
 
     # ══════════════════════════════════════════════════════
@@ -365,7 +361,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
             "таможенных и прочих требований, установленных законодательством)"),
          _h("(температурный режим перевозки груза (при необходимости), сведения о "
             "запорно-пломбировочных устройствах, запрещение перегрузки груза)")],
-    ], [HW, HW], extra=[_span(0,0,1), _vline(1,1,4), _lbv(0), _lb(1), _lb(3)])
+    ], [HW, HW], extra=[_span(0,0,1), _vline(1,1,4), _lb(1), _lb(3)])
     story.append(s5)
 
     # ══════════════════════════════════════════════════════
@@ -376,7 +372,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
         [_v(carrier_str or ""), _v(tn.driver_name or "")],
         [_h("(реквизиты, позволяющие идентифицировать Перевозчика)"),
          _h("(реквизиты, позволяющие идентифицировать водителя(ей))")],
-    ], [HW, HW], extra=[_span(0,0,1), _vline(1,1,2), _lbv(0), _lb(1)])
+    ], [HW, HW], extra=[_span(0,0,1), _vline(1,1,2), _lb(1)])
     story.append(s6)
 
     # ══════════════════════════════════════════════════════
@@ -400,7 +396,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
     ], [VW, VR], extra=[
         _span(0,0,1), _span(3,0,1),
         _vline(1,1,2), _vline(1,4,5),
-        _lbv(0), _lb(1), _lb(3), _lb(4),
+        _lb(1), _lb(3), _lb(4),
     ])
     story.append(s7)
 
@@ -412,10 +408,10 @@ def generate_tn_pdf(tn: TnData) -> bytes:
     # Page 2 annotation
     ann2 = _tbl([[
         "",
-        _h("Продолжение приложения № 4\nОборотная сторона", sz=6),
+        Paragraph("Продолжение приложения № 4<br/>Оборотная сторона",
+                  _s(sz=6, align="RIGHT")),
     ]], [W*0.6, W*0.4],
-        extra=[("BOX",(0,0),(-1,-1),0,BLACK),
-               ("ALIGN",(1,0),(1,0),"RIGHT")])
+        extra=[("BOX",(0,0),(-1,-1),0,BLACK)])
     story.append(ann2)
     story.append(Spacer(1, 1*mm))
 
@@ -471,7 +467,6 @@ def generate_tn_pdf(tn: TnData) -> bytes:
         _span(9,0,1), _span(10,0,1),
         _span(13,0,1), _span(14,0,1),
         _vline(1, 5, 8), _vline(1, 11, 12), _vline(1, 15, 16),
-        _lbv(0),
         _lb(1), _lb(3),
         _lb(5), _lb(7),
         _lb(9),
@@ -492,7 +487,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
         [_v(""), _v("")],
         [_h("(реквизиты лица, от которого получено указание на переадресовку)"),
          _h("(при изменении получателя груза – реквизиты нового получателя)")],
-    ], [HW, HW], extra=[_span(0,0,1), _vline(1,1,4), _lbv(0), _lb(1), _lb(3)])
+    ], [HW, HW], extra=[_span(0,0,1), _vline(1,1,4), _lb(1), _lb(3)])
     story.append(s9)
 
     # ══════════════════════════════════════════════════════
@@ -527,7 +522,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
     ], [HW, HW], extra=[
         _span(0,0,1),
         _vline(1, 1, 10),
-        _lbv(0), _lb(1), _lb(3), _lb(5), _lb(7), _lb(9),
+        _lb(1), _lb(3), _lb(5), _lb(7), _lb(9),
     ])
     story.append(s10)
 
@@ -546,7 +541,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
     ], [TW, TW, TW], extra=[
         _span(0,0,2),
         _vline(1,1,2), _vline(2,1,2),
-        _lbv(0), _lb(1),
+        _lb(1),
     ])
     story.append(s11)
 
@@ -574,7 +569,7 @@ def generate_tn_pdf(tn: TnData) -> bytes:
         [_h("(порядок (механизм) расчёта (исчислений) платы) (при наличии порядка (механизма))"),
          "", "", ""],
         # Two bottom columns: Перевозчик | Грузоотправитель
-        [_v(carrier_full, bold=True), "", _v(sender_full, bold=True), ""],
+        [_v(carrier_full), "", _v(sender_full), ""],
         [_h("(реквизиты, позволяющие идентифицировать Экономического субъекта, "
             "составляющего документ о факте хозяйственной жизни со стороны Перевозчика)"),
          "",
@@ -618,7 +613,6 @@ def generate_tn_pdf(tn: TnData) -> bytes:
         # vertical dividers
         _vline(1, 1, 2), _vline(2, 1, 2), _vline(3, 1, 2),
         _vline(2, 5, 12),
-        _lbv(0),
         _lb(1), _lb(3),
         _lb(5), _lb(7), _lb(9), _lb(11),
     ])

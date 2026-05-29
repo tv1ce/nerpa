@@ -32,10 +32,14 @@
       <div class="form-section-title">Позиции заказа</div>
       <div class="table-responsive">
         <table class="table tms-table mb-0">
+          {% set ns = namespace(has_disc=false) %}
+          {% for item in order.items %}{% if item.discount_pct %}{% set ns.has_disc = true %}{% endif %}{% endfor %}
           <thead>
             <tr>
               <th>№</th><th>Наименование</th><th class="text-end">Кол-во</th>
-              <th>Ед.</th><th class="text-end">Цена</th><th class="text-end">НДС%</th><th class="text-end">Сумма</th>
+              <th>Ед.</th><th class="text-end">Цена</th>
+              {% if ns.has_disc %}<th class="text-end text-danger">Скидка</th>{% endif %}
+              <th class="text-end">НДС%</th><th class="text-end">Сумма</th>
             </tr>
           </thead>
           <tbody>
@@ -46,15 +50,46 @@
               <td class="text-end">{{ item.quantity }}</td>
               <td>{{ item.product.unit }}</td>
               <td class="text-end">{{ item.price | money }}</td>
+              {% if ns.has_disc %}
+                <td class="text-end {% if item.discount_pct %}text-danger fw-semibold{% else %}text-muted{% endif %}">
+                  {% if item.discount_pct %}{{ item.discount_pct | int if item.discount_pct == item.discount_pct | int else item.discount_pct }}%{% else %}—{% endif %}
+                </td>
+              {% endif %}
               <td class="text-end">{{ item.vat_rate | int }}%</td>
-              <td class="text-end fw-semibold">{{ item.amount | money }}</td>
+              <td class="text-end fw-semibold">
+                {% if item.discount_pct %}
+                  <div class="text-muted text-decoration-line-through" style="font-size:.78rem">{{ (item.price * item.quantity) | money }}</div>
+                {% endif %}
+                {{ item.amount | money }}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
-          <tfoot class="table-light fw-bold">
-            <tr>
-              <td colspan="6" class="text-end">Итого:</td>
-              <td class="text-end">{{ order.total_amount | money }} ₽</td>
+          {% set ns2 = namespace(gross=0, disc=0, vat=0) %}
+          {% for item in order.items %}
+            {% set ns2.gross = ns2.gross + item.price * item.quantity %}
+            {% set ns2.disc  = ns2.disc  + item.price * item.quantity * ((item.discount_pct or 0) / 100) %}
+            {% set ns2.vat   = ns2.vat   + item.amount * item.vat_rate / 100 %}
+          {% endfor %}
+          {% set colspan = 6 if ns.has_disc else 5 %}
+          <tfoot class="table-light">
+            {% if ns.has_disc %}
+            <tr class="text-muted" style="font-size:.82rem">
+              <td colspan="{{ colspan }}" class="text-end">Без скидки:</td>
+              <td class="text-end">{{ ns2.gross | money }} ₽</td>
+            </tr>
+            <tr class="text-danger" style="font-size:.82rem">
+              <td colspan="{{ colspan }}" class="text-end">Скидка:</td>
+              <td class="text-end">−{{ ns2.disc | money }} ₽</td>
+            </tr>
+            {% endif %}
+            <tr style="font-size:.82rem">
+              <td colspan="{{ colspan }}" class="text-end text-muted">НДС:</td>
+              <td class="text-end text-muted">{{ ns2.vat | money }} ₽</td>
+            </tr>
+            <tr class="fw-bold">
+              <td colspan="{{ colspan }}" class="text-end">Итого:</td>
+              <td class="text-end">{{ (order.total_amount + ns2.vat) | money }} ₽</td>
             </tr>
           </tfoot>
         </table>
@@ -95,6 +130,14 @@
       {% endfor %}
     </div>
 
+    <!-- Документы -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2" style="font-size:.9rem">Документы</div>
+      <a href="/orders/{{ order.id }}/tn" class="btn btn-outline-danger btn-sm w-100">
+        <i class="bi bi-truck me-1"></i>Транспортная накладная
+      </a>
+    </div>
+
     <!-- Удаление -->
     <div class="card border-0 shadow-sm p-3">
       <form method="post" action="/orders/{{ order.id }}/delete" data-confirm="Удалить заказ {{ order.number }}? Это действие нельзя отменить.">
@@ -103,4 +146,156 @@
     </div>
   </div>
 </div>
+
+{# ── Задачи + Комментарии ────────────────────────────────────────────────── #}
+<div class="row g-3 mt-1">
+
+  {# Задачи #}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex justify-content-between">
+        <span class="fw-semibold">Задачи
+          {% if tasks %}<span class="badge bg-secondary ms-1" style="font-size:.7rem">{{ tasks|length }}</span>{% endif %}
+        </span>
+      </div>
+      {% if tasks %}
+      <ul class="list-unstyled mb-0 px-2 pb-1">
+        {% for t in tasks %}
+        <li class="d-flex align-items-start gap-2 px-2 py-2 border-bottom {% if t.status == 'done' %}opacity-50{% endif %}">
+          <form method="post" action="/activity/tasks/{{ t.id }}/toggle" class="d-flex mt-1">
+            <input type="hidden" name="redirect_url" value="/orders/{{ order.id }}">
+            <button class="btn btn-xs p-0 border-0 bg-transparent" style="font-size:1rem; line-height:1">
+              <i class="bi {% if t.status == 'done' %}bi-check-circle-fill text-success{% else %}bi-circle text-muted{% endif %}"></i>
+            </button>
+          </form>
+          <div class="flex-grow-1 min-width-0">
+            <div class="{% if t.status == 'done' %}text-decoration-line-through text-muted{% endif %}" style="font-size:.85rem; font-weight:500">
+              <span class="badge bg-{{ priority_colors.get(t.priority,'secondary') }} me-1" style="font-size:.62rem">{{ t.priority|upper|truncate(1,true,'') }}</span>
+              {{ t.title }}
+            </div>
+            <div class="text-muted" style="font-size:.75rem">
+              {% if t.assigned_to %}{{ t.assigned_to.full_name }}{% endif %}
+              {% if t.due_date %} · {{ t.due_date | date_fmt }}{% endif %}
+            </div>
+          </div>
+          {% if request.session.get('user_role') in ('admin','manager') %}
+          <form method="post" action="/activity/tasks/{{ t.id }}/delete">
+            <input type="hidden" name="redirect_url" value="/orders/{{ order.id }}">
+            <button class="btn btn-xs p-0 border-0 bg-transparent text-muted" style="font-size:.8rem"><i class="bi bi-x-lg"></i></button>
+          </form>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      {% if request.session.get('user_role') in ('admin','manager') %}
+      <form method="post" action="/activity/tasks/new" class="px-3 py-2 border-top">
+        <input type="hidden" name="entity_type" value="order">
+        <input type="hidden" name="entity_id" value="{{ order.id }}">
+        <input type="hidden" name="redirect_url" value="/orders/{{ order.id }}">
+        <div class="d-flex gap-1 mb-1">
+          <input type="text" name="title" class="form-control form-control-sm" placeholder="Новая задача…" required>
+        </div>
+        <div class="d-flex gap-1">
+          <select name="priority" class="form-select form-select-sm" style="max-width:110px">
+            <option value="normal">Обычная</option>
+            <option value="high">Высокая</option>
+            <option value="urgent">Срочная</option>
+            <option value="low">Низкая</option>
+          </select>
+          <select name="assigned_to_id" class="form-select form-select-sm" style="max-width:140px">
+            <option value="0">— исполнитель —</option>
+            {% for u in users %}<option value="{{ u.id }}">{{ u.full_name }}</option>{% endfor %}
+          </select>
+          <input type="date" name="due_date" class="form-control form-control-sm" style="max-width:130px">
+          <button class="btn btn-sm btn-accent flex-shrink-0"><i class="bi bi-plus-lg"></i></button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Комментарии #}
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm d-flex flex-column" style="max-height:380px">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4 fw-semibold flex-shrink-0">
+        Комментарии
+        {% if comments %}<span class="badge bg-secondary ms-1" style="font-size:.7rem">{{ comments|length }}</span>{% endif %}
+      </div>
+      <div class="overflow-auto flex-grow-1 px-3 py-1">
+        {% for c in comments %}
+        <div class="d-flex gap-2 mb-3">
+          <div class="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center flex-shrink-0"
+               style="width:30px;height:30px;font-size:.72rem;font-weight:700">
+            {{ c.created_by.full_name[:2]|upper if c.created_by else '??' }}
+          </div>
+          <div class="flex-grow-1 min-width-0">
+            <div class="d-flex justify-content-between align-items-baseline">
+              <span class="fw-semibold" style="font-size:.82rem">{{ c.created_by.full_name if c.created_by else '—' }}</span>
+              <span class="text-muted" style="font-size:.72rem">{{ c.created_at | date_fmt }}</span>
+            </div>
+            <div style="font-size:.85rem; white-space:pre-wrap">{{ c.body }}</div>
+          </div>
+          {% set uid = request.session.get('user_id') %}
+          {% if request.session.get('user_role') == 'admin' or c.created_by_id == uid %}
+          <form method="post" action="/activity/comments/{{ c.id }}/delete" class="flex-shrink-0">
+            <input type="hidden" name="redirect_url" value="/orders/{{ order.id }}">
+            <button class="btn btn-xs p-0 border-0 bg-transparent text-muted"><i class="bi bi-x-lg" style="font-size:.75rem"></i></button>
+          </form>
+          {% endif %}
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-3" style="font-size:.82rem">Комментариев нет</div>
+        {% endfor %}
+      </div>
+      {% if request.session.get('user_role') in ('admin','manager') %}
+      <form method="post" action="/activity/comments/new" class="px-3 py-2 border-top flex-shrink-0">
+        <input type="hidden" name="entity_type" value="order">
+        <input type="hidden" name="entity_id" value="{{ order.id }}">
+        <input type="hidden" name="redirect_url" value="/orders/{{ order.id }}">
+        <div class="d-flex gap-2">
+          <textarea name="body" class="form-control form-control-sm" rows="2" placeholder="Написать комментарий…" required style="resize:none"></textarea>
+          <button class="btn btn-sm btn-accent align-self-end flex-shrink-0"><i class="bi bi-send"></i></button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{# ── Лог изменений ───────────────────────────────────────────────────────── #}
+{% if activity %}
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
+    <button class="btn btn-link p-0 text-dark fw-semibold text-decoration-none" type="button"
+      data-bs-toggle="collapse" data-bs-target="#activityLog" aria-expanded="false">
+      <i class="bi bi-clock-history me-1 text-muted"></i>История изменений
+      <span class="badge bg-light text-muted border ms-1" style="font-size:.7rem">{{ activity|length }}</span>
+      <i class="bi bi-chevron-down ms-1 text-muted" style="font-size:.7rem"></i>
+    </button>
+  </div>
+  <div class="collapse" id="activityLog">
+    <div class="px-4 pb-3">
+      {% for log in activity %}
+      <div class="d-flex gap-3 align-items-start mb-2">
+        <div class="flex-shrink-0 mt-1" style="width:1.1rem; text-align:center">
+          {% if log.action == 'created' %}<i class="bi bi-plus-circle-fill text-success" style="font-size:.85rem"></i>
+          {% elif log.action == 'status_changed' %}<i class="bi bi-arrow-left-right text-warning" style="font-size:.85rem"></i>
+          {% elif log.action == 'updated' %}<i class="bi bi-pencil-fill text-primary" style="font-size:.85rem"></i>
+          {% elif log.action == 'deleted' %}<i class="bi bi-trash-fill text-danger" style="font-size:.85rem"></i>
+          {% else %}<i class="bi bi-circle text-muted" style="font-size:.85rem"></i>{% endif %}
+        </div>
+        <div class="flex-grow-1">
+          <span style="font-size:.82rem">{{ log.note }}</span>
+          <span class="text-muted ms-2" style="font-size:.75rem">
+            {% if log.user %}{{ log.user.full_name }}{% endif %} · {{ log.created_at | date_fmt }}
+          </span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

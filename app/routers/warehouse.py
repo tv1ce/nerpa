@@ -7,6 +7,7 @@ from sqlalchemy import func
 from app.database import get_db
 from app.auth import login_required
 from app.models import Product, StockMovement, Order
+from app.utils import maybe_notify_low_stock
 
 router = APIRouter(prefix="/warehouse", tags=["warehouse"])
 templates = Jinja2Templates(directory="app/templates")
@@ -150,17 +151,24 @@ async def create_movement(
     notes: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
+    linked_order_id = order_id or None
     mv = StockMovement(
         product_id=product_id,
         movement_type=movement_type,
         quantity=abs(quantity),
         date=date.fromisoformat(mov_date),
         reason=reason,
-        order_id=order_id or None,
+        order_id=linked_order_id,
         notes=notes,
         created_by_id=request.session.get("user_id"),
     )
     db.add(mv)
+    if linked_order_id:
+        order = db.query(Order).filter(Order.id == linked_order_id).first()
+        if order and order.status not in ("shipped", "delivered", "cancelled"):
+            order.status = "shipped"
+    db.commit()
+    maybe_notify_low_stock(db, product_id)
     db.commit()
     return RedirectResponse(url="/warehouse/", status_code=302)
 
@@ -192,5 +200,7 @@ async def update_stock_settings(
     if p:
         p.min_stock = min_stock
         p.initial_stock = initial_stock
+        db.commit()
+        maybe_notify_low_stock(db, product_id)
         db.commit()
     return RedirectResponse(url="/warehouse/", status_code=302)

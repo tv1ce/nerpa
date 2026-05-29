@@ -49,6 +49,24 @@
           <td class="text-end">{{ o.total_amount | money }}</td>
           <td><span class="badge badge-{{ o.status }}">{{ statuses[o.status] }}</span></td>
           <td class="text-end pe-3">
+            {% if o.status in ('draft', 'confirmed') %}
+            <form method="post" action="/orders/{{ o.id }}/status" class="d-inline">
+              <input type="hidden" name="status" value="shipped">
+              <input type="hidden" name="redirect_url" value="/orders?q={{ q }}&status={{ status }}">
+              <button type="submit" class="btn btn-sm btn-warning py-0" title="Отметить отгруженным">
+                <i class="bi bi-truck"></i> Отгружен
+              </button>
+            </form>
+            {% endif %}
+            {% if o.status == 'shipped' %}
+            <form method="post" action="/orders/{{ o.id }}/status" class="d-inline">
+              <input type="hidden" name="status" value="delivered">
+              <input type="hidden" name="redirect_url" value="/orders?q={{ q }}&status={{ status }}">
+              <button type="submit" class="btn btn-sm btn-success py-0" title="Отметить доставленным">
+                <i class="bi bi-check-circle"></i> Доставлен
+              </button>
+            </form>
+            {% endif %}
             <a href="/orders/{{ o.id }}" class="btn btn-sm btn-outline-primary py-0"><i class="bi bi-eye"></i></a>
             <a href="/orders/{{ o.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
           </td>

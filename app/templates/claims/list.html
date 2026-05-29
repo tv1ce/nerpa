@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Рекламации{% endblock %}
+{% block page_title %}Рекламации{% endblock %}
+{% block topbar_actions %}
+  <a href="/claims/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Создать</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <form class="row g-2 mb-3" method="get">
+      <div class="col-md-4">
+        <select name="cp_id" class="form-select form-select-sm">
+          <option value="">Все контрагенты</option>
+          {% for cp in counterparties %}
+          <option value="{{ cp.id }}" {% if filter_cp_id == cp.id %}selected{% endif %}>{{ cp.trade_name or cp.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Все статусы</option>
+          {% for val, label in claim_statuses.items() %}
+          <option value="{{ val }}" {% if filter_status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="ctype" class="form-select form-select-sm">
+          <option value="">Все типы</option>
+          {% for val, label in claim_types.items() %}
+          <option value="{{ val }}" {% if filter_type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/claims/" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Номер</th>
+          <th>Дата</th>
+          <th>Контрагент</th>
+          <th>Тип</th>
+          <th>Статус</th>
+          <th>Заказ</th>
+          <th class="text-end pe-3">Сумма, ₽</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cl in claims %}
+        <tr>
+          <td class="ps-3 fw-semibold">
+            <a href="/claims/{{ cl.id }}" class="text-decoration-none">{{ cl.number }}</a>
+          </td>
+          <td>{{ cl.date | date_fmt }}</td>
+          <td>
+            <a href="/counterparties/{{ cl.counterparty_id }}" class="text-decoration-none text-dark">
+              {{ cl.counterparty.trade_name or cl.counterparty.name if cl.counterparty else '—' }}
+            </a>
+          </td>
+          <td class="text-muted" style="font-size:.85rem">{{ claim_types.get(cl.type, cl.type) }}</td>
+          <td>
+            <span class="badge bg-{{ status_colors.get(cl.status, 'secondary') }}">
+              {{ claim_statuses.get(cl.status, cl.status) }}
+            </span>
+          </td>
+          <td class="text-muted" style="font-size:.85rem">
+            {% if cl.order %}<a href="/orders/{{ cl.order_id }}" class="text-muted">{{ cl.order.number }}</a>{% else %}—{% endif %}
+          </td>
+          <td class="text-end pe-3 text-muted" style="font-size:.85rem">
+            {{ cl.amount | money if cl.amount else '—' }}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center py-4 text-muted">Рекламаций не найдено</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

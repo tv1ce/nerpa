@@ -3,6 +3,7 @@
 {% block page_title %}Дашборд{% endblock %}
 
 {% block content %}
+{% set status_ru = {'draft':'Черновик','confirmed':'Подтверждён','shipped':'Отгружен','delivered':'Доставлен','cancelled':'Отменён'} %}
 
 <!-- ── Stat cards ── -->
 <div class="row g-3 mb-4">
@@ -88,7 +89,7 @@
 
         <!-- Большое число -->
         <div class="col-md-3 text-center border-end">
-          <div style="font-size:2.8rem;font-weight:800;line-height:1;color:#e67e22">
+          <div style="font-size:2.8rem;font-weight:800;line-height:1;color:#F97316">
             {{ total_nuts_sold | int | format_number }}
           </div>
           <div class="text-muted mt-1" style="font-size:.8rem">шт всего</div>
@@ -111,7 +112,7 @@
               </div>
               <div class="progress" style="height:8px;border-radius:4px;background:#f0f0f0">
                 <div class="progress-bar" role="progressbar"
-                     style="width:{{ (qty / max_qty * 100) | round | int }}%;background:#e67e22;border-radius:4px"
+                     style="width:{{ (qty / max_qty * 100) | round | int }}%;background:#2563EB;border-radius:4px"
                      aria-valuenow="{{ qty }}" aria-valuemax="{{ max_qty }}"></div>
               </div>
             </div>
@@ -164,7 +165,7 @@
               <td>{{ o.counterparty.name }}</td>
               <td>{{ o.date | date_fmt }}</td>
               <td>{{ o.total_amount | money }} ₽</td>
-              <td><span class="badge badge-{{ o.status }}">{{ o.status }}</span></td>
+              <td><span class="badge badge-{{ o.status }}">{{ status_ru.get(o.status, o.status) }}</span></td>
             </tr>
             {% else %}
             <tr><td colspan="5" class="text-center text-muted py-3">Заказов нет</td></tr>
@@ -188,8 +189,8 @@ new Chart(document.getElementById('revenueChart'), {
     datasets: [{
       label: 'Выручка ₽',
       data: months.map(m => m.revenue),
-      backgroundColor: '#f39c12cc',
-      borderColor: '#f39c12',
+      backgroundColor: '#2563EBcc',
+      borderColor: '#2563EB',
       borderWidth: 1,
       borderRadius: 4,
     }]
@@ -208,7 +209,7 @@ new Chart(document.getElementById('ordersChart'), {
     labels: ['Черновик','Подтверждён','Отгружен','Доставлен','Отменён'],
     datasets: [{
       data: [sc.draft, sc.confirmed, sc.shipped, sc.delivered, sc.cancelled],
-      backgroundColor: ['#6c757d','#0d6efd','#6f42c1','#198754','#dc3545'],
+      backgroundColor: ['#94A3B8','#2563EB','#8B5CF6','#22C55E','#EF4444'],
     }]
   },
   options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }, cutout: '65%' }

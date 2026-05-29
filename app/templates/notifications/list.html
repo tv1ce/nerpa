@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Уведомления{% endblock %}
+{% block page_title %}Уведомления{% endblock %}
+{% block topbar_actions %}
+  {% if unread_count > 0 %}
+  <form method="post" action="/notifications/read-all">
+    <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-check2-all me-1"></i>Отметить все прочитанными</button>
+  </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  {% if not notifications %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-bell-slash fs-2 d-block mb-2"></i>
+    Нет уведомлений
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4" style="width:2rem"></th>
+          <th>Сообщение</th>
+          <th>Подробности</th>
+          <th class="text-end">Дата</th>
+          <th style="width:60px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for n in notifications %}
+        <tr class="{% if not n.is_read %}table-warning{% endif %}">
+          <td class="ps-4 text-center">
+            {% if not n.is_read %}
+            <i class="bi bi-circle-fill text-warning" style="font-size:.5rem" title="Не прочитано"></i>
+            {% else %}
+            <i class="bi bi-circle text-muted" style="font-size:.5rem"></i>
+            {% endif %}
+          </td>
+          <td class="fw-semibold">
+            {% if n.type == 'low_stock' %}
+            <i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>
+            {% endif %}
+            {{ n.title }}
+          </td>
+          <td class="text-muted" style="font-size:.88rem">{{ n.body or '—' }}</td>
+          <td class="text-end text-muted" style="font-size:.82rem; white-space:nowrap">{{ n.created_at | date_fmt }}</td>
+          <td class="text-end pe-3">
+            {% if not n.is_read %}
+            <form method="post" action="/notifications/{{ n.id }}/read" class="d-inline">
+              <button class="btn btn-xs btn-outline-secondary py-0 px-1" title="Прочитано" style="font-size:.72rem"><i class="bi bi-check2"></i></button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

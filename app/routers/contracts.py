@@ -21,8 +21,9 @@ GENERATED_DIR = "generated"
 
 
 def _next_contract_number(db: Session) -> str:
-    count = db.query(Contract).count() + 1
-    return f"ДГ-{date.today().year}-{count:04d}"
+    from sqlalchemy import func
+    max_id = db.query(func.max(Contract.id)).scalar() or 0
+    return str(max_id + 1)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -65,6 +66,7 @@ async def create_contract(
     start_date: str = Form(default=""),
     end_date: str = Form(default=""),
     amount: str = Form(default=""),
+    payment_days: str = Form(default=""),
     notes: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
@@ -74,7 +76,9 @@ async def create_contract(
         subject=subject, status=status,
         start_date=date.fromisoformat(start_date) if start_date else None,
         end_date=date.fromisoformat(end_date) if end_date else None,
-        amount=float(amount) if amount else None, notes=notes,
+        amount=float(amount) if amount else None,
+        payment_days=int(payment_days) if payment_days else None,
+        notes=notes,
     )
     db.add(contract)
     db.flush()
@@ -119,7 +123,8 @@ async def update_contract(
     counterparty_id: int = Form(...), template_id: int = Form(default=0),
     subject: str = Form(default=""), status: str = Form(default="draft"),
     start_date: str = Form(default=""), end_date: str = Form(default=""),
-    amount: str = Form(default=""), notes: str = Form(default=""),
+    amount: str = Form(default=""), payment_days: str = Form(default=""),
+    notes: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     contract = db.query(Contract).filter(Contract.id == contract_id).first()
@@ -130,7 +135,9 @@ async def update_contract(
     contract.subject = subject; contract.status = status
     contract.start_date = date.fromisoformat(start_date) if start_date else None
     contract.end_date = date.fromisoformat(end_date) if end_date else None
-    contract.amount = float(amount) if amount else None; contract.notes = notes
+    contract.amount = float(amount) if amount else None
+    contract.payment_days = int(payment_days) if payment_days else None
+    contract.notes = notes
     db.commit()
     return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
 

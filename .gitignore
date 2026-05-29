@@ -29,3 +29,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Generated documents
+generated/
+*.docx
+
+# User uploads
+app/static/uploads/

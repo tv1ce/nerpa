@@ -52,6 +52,12 @@ def _migrate_db():
         ("products", "initial_stock", "REAL DEFAULT 0.0"),
         ("invoices",  "contract_id",  "INTEGER REFERENCES contracts(id)"),
         ("counterparties", "trade_name", "TEXT"),
+        ("counterparties", "payment_delay_days", "INTEGER DEFAULT 2"),
+        ("counterparties", "payment_delay_type", "TEXT DEFAULT 'banking'"),
+        ("counterparties", "category",        "TEXT"),
+        ("counterparties", "category_manual", "INTEGER DEFAULT 0"),
+        ("counterparties", "entity_type",     "TEXT DEFAULT 'ooo'"),
+        ("order_items",    "discount_pct",    "REAL DEFAULT 0.0"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]

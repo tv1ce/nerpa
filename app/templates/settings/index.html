@@ -107,6 +107,29 @@
     </div>
   </div>
 
+  <!-- Логотип -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="form-section-title">Логотип компании</div>
+      <form method="post" action="/settings/logo" enctype="multipart/form-data">
+        <div class="row g-3 align-items-center">
+          {% if company and company.logo_path %}
+          <div class="col-auto">
+            <img src="/static/uploads/{{ company.logo_path.split('/')[-1] }}" style="max-height:60px; max-width:180px; object-fit:contain;" class="border rounded p-1">
+          </div>
+          {% endif %}
+          <div class="col">
+            <input type="file" name="logo" class="form-control form-control-sm" accept=".png,.jpg,.jpeg,.svg" required>
+            <div class="form-text">PNG или JPG, используется в PDF-счетах</div>
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-upload me-1"></i>Загрузить</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Пользователи -->
   <div class="col-lg-4">
     <div class="card border-0 shadow-sm p-4">

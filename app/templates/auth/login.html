@@ -4,20 +4,48 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Вход — TMS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@300;400;500;600;700&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <style>
-    body { background: #1e2a3a; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    .login-card { background: #fff; border-radius: 14px; padding: 40px; width: 100%; max-width: 380px; box-shadow: 0 8px 32px rgba(0,0,0,.3); }
-    .logo { font-size: 2.5rem; text-align: center; margin-bottom: 8px; }
-    .brand { text-align: center; font-weight: 700; font-size: 1.3rem; color: #1e2a3a; margin-bottom: 4px; }
-    .sub { text-align: center; color: #6c757d; font-size: .85rem; margin-bottom: 28px; }
-    .btn-login { background: #f39c12; color: #fff; border: none; width: 100%; padding: 10px; font-weight: 600; border-radius: 8px; }
-    .btn-login:hover { background: #d68910; color: #fff; }
+    body {
+      font-family: 'Fira Sans', system-ui, 'Segoe UI', sans-serif;
+      background: radial-gradient(1200px 600px at 80% -10%, #1D4ED8 0%, transparent 55%),
+                  linear-gradient(160deg, #0F1A2E 0%, #0B1424 100%);
+      display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px;
+    }
+    .login-card {
+      background: #fff; border-radius: 18px; padding: 40px 38px; width: 100%; max-width: 390px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.45);
+    }
+    .logo-mark {
+      width: 58px; height: 58px; margin: 0 auto 18px; border-radius: 15px;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #2563EB 0%, #F97316 150%);
+      color: #fff; box-shadow: 0 10px 24px rgba(37,99,235,.4);
+    }
+    .logo-mark svg { width: 32px; height: 32px; }
+    .brand { text-align: center; font-weight: 700; font-size: 1.45rem; color: #0F172A; margin-bottom: 4px; letter-spacing: .02em; }
+    .sub { text-align: center; color: #64748B; font-size: .85rem; margin-bottom: 28px; }
+    .form-label { font-weight: 500; font-size: .84rem; color: #475569; }
+    .form-control { border-color: #CBD5E1; border-radius: 9px; padding: 10px 12px; }
+    .form-control:focus { border-color: #2563EB; box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+    .btn-login { background: #F97316; color: #fff; border: none; width: 100%; padding: 11px; font-weight: 600; border-radius: 9px; transition: background .18s ease, box-shadow .18s ease; }
+    .btn-login:hover { background: #EA580C; color: #fff; box-shadow: 0 6px 16px rgba(234,88,12,.35); }
+    :focus-visible { outline: 2px solid #2563EB; outline-offset: 2px; }
   </style>
 </head>
 <body>
   <div class="login-card">
-    <div class="logo">🥜</div>
+    <div class="logo-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/>
+        <path d="M15 18H9"/>
+        <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/>
+        <circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
+      </svg>
+    </div>
     <div class="brand">TMS Поставки</div>
     <div class="sub">Система управления поставками</div>
 
@@ -28,12 +56,12 @@
     <form method="post" action="/auth/login">
       <input type="hidden" name="next" value="{{ next }}">
       <div class="mb-3">
-        <label class="form-label fw-semibold">Логин</label>
-        <input type="text" name="username" class="form-control" placeholder="admin" autofocus required>
+        <label class="form-label fw-semibold" for="username">Логин</label>
+        <input type="text" id="username" name="username" class="form-control" placeholder="admin" autofocus required>
       </div>
       <div class="mb-4">
-        <label class="form-label fw-semibold">Пароль</label>
-        <input type="password" name="password" class="form-control" required>
+        <label class="form-label fw-semibold" for="password">Пароль</label>
+        <input type="password" id="password" name="password" class="form-control" required>
       </div>
       <button type="submit" class="btn-login btn">Войти</button>
     </form>

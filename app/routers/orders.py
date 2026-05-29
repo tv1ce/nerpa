@@ -5,8 +5,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import login_required
-from app.models import Order, OrderItem, Counterparty, Product, CompanySettings
+from app.auth import login_required, role_required
+from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User
+from app.utils import log_action
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 templates = Jinja2Templates(directory="app/templates")
@@ -54,7 +55,7 @@ async def new_order(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/new")
-@login_required
+@role_required("manager")
 async def create_order(
     request: Request,
     number: str = Form(...),
@@ -83,14 +84,21 @@ async def create_order(
     # Фильтруем позиции без выбранного товара (защита от невалидных данных)
     items_data = [i for i in items_data if i.get("product_id")]
     for item in items_data:
+        qty = float(item["quantity"])
+        price = float(item["price"])
+        disc = min(max(float(item.get("discount_pct", 0)), 0), 100)
         db.add(OrderItem(
             order_id=order.id,
             product_id=int(item["product_id"]),
-            quantity=float(item["quantity"]),
-            price=float(item["price"]),
+            quantity=qty,
+            price=price,
+            discount_pct=disc,
             vat_rate=float(item.get("vat_rate", 20)),
-            amount=float(item["quantity"]) * float(item["price"]),
+            amount=round(qty * price * (1 - disc / 100), 2),
         ))
+    db.commit()
+    log_action(db, "order", order.id, "created",
+               request.session.get("user_id"), f"Заказ {order.number} создан")
     db.commit()
     return RedirectResponse(url=f"/orders/{order.id}", status_code=302)
 
@@ -101,8 +109,20 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         return RedirectResponse(url="/orders", status_code=302)
+    tasks = db.query(Task).filter(
+        Task.entity_type == "order", Task.entity_id == order_id
+    ).order_by(Task.status, Task.created_at).all()
+    comments = db.query(Comment).filter(
+        Comment.entity_type == "order", Comment.entity_id == order_id
+    ).order_by(Comment.created_at).all()
+    activity = db.query(AuditLog).filter(
+        AuditLog.entity_type == "order", AuditLog.entity_id == order_id
+    ).order_by(AuditLog.created_at.desc()).limit(50).all()
+    users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
+        "tasks": tasks, "comments": comments, "activity": activity, "users": users,
+        "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
     })
 
 
@@ -121,7 +141,7 @@ async def edit_order(request: Request, order_id: int, db: Session = Depends(get_
 
 
 @router.post("/{order_id}/edit")
-@login_required
+@role_required("manager")
 async def update_order(
     request: Request, order_id: int,
     number: str = Form(...),
@@ -150,27 +170,39 @@ async def update_order(
     items_data = json.loads(items_json)
     items_data = [i for i in items_data if i.get("product_id")]
     for item in items_data:
+        qty = float(item["quantity"])
+        price = float(item["price"])
+        disc = min(max(float(item.get("discount_pct", 0)), 0), 100)
         db.add(OrderItem(
             order_id=order.id,
             product_id=int(item["product_id"]),
-            quantity=float(item["quantity"]),
-            price=float(item["price"]),
+            quantity=qty,
+            price=price,
+            discount_pct=disc,
             vat_rate=float(item.get("vat_rate", 20)),
-            amount=float(item["quantity"]) * float(item["price"]),
+            amount=round(qty * price * (1 - disc / 100), 2),
         ))
+    db.commit()
+    log_action(db, "order", order_id, "updated",
+               request.session.get("user_id"), "Заказ отредактирован")
     db.commit()
     return RedirectResponse(url=f"/orders/{order_id}", status_code=302)
 
 
 @router.post("/{order_id}/status")
-@login_required
+@role_required("manager")
 async def change_status(request: Request, order_id: int,
                         status: str = Form(...),
                         redirect_url: str = Form(default=""),
                         db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if order:
+        old_status = order.status
         order.status = status
+        log_action(db, "order", order_id, "status_changed",
+                   request.session.get("user_id"),
+                   f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → {ORDER_STATUSES.get(status, status)}",
+                   field="status", old_value=old_status, new_value=status)
         db.commit()
     target = redirect_url if redirect_url else f"/orders/{order_id}"
     return RedirectResponse(url=target, status_code=302)
@@ -251,7 +283,7 @@ async def generate_tn(
 
 
 @router.post("/{order_id}/delete")
-@login_required
+@role_required("admin")
 async def delete_order(request: Request, order_id: int, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if order:

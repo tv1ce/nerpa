@@ -45,11 +45,19 @@
             <label class="form-label">Полное наименование *</label>
             <input type="text" name="name" id="f-name" class="form-control" required value="{{ cp.name if cp else '' }}">
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label">Краткое наименование</label>
             <input type="text" name="short_name" id="f-short_name" class="form-control" value="{{ cp.short_name if cp else '' }}">
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
+            <label class="form-label">Форма организации</label>
+            <select name="entity_type" id="f-entity_type" class="form-select">
+              {% for val, label in entity_types.items() %}
+              <option value="{{ val }}" {% if cp and cp.entity_type == val %}selected{% elif not cp and val == 'ooo' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
             <label class="form-label">Тип</label>
             <select name="type" class="form-select">
               {% for val, label in cp_types.items() %}
@@ -97,9 +105,9 @@
       </div>
     </div>
 
-    <!-- Банк -->
+    <!-- Банк + условия оплаты -->
     <div class="col-lg-4">
-      <div class="card border-0 shadow-sm p-4">
+      <div class="card border-0 shadow-sm p-4 mb-3">
         <div class="form-section-title">Банковские реквизиты</div>
         <div class="row g-3">
           <div class="col-12">
@@ -123,6 +131,27 @@
           <div class="col-12">
             <label class="form-label">К/с</label>
             <input type="text" name="bank_corr_account" id="f-bank_corr_account" class="form-control" maxlength="20" value="{{ cp.bank_corr_account if cp else '' }}">
+          </div>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm p-4">
+        <div class="form-section-title"><i class="bi bi-clock-history me-1"></i>Условия оплаты (дебиторка)</div>
+        <div class="row g-3">
+          <div class="col-7">
+            <label class="form-label">Отсрочка платежа, дней</label>
+            <input type="number" name="payment_delay_days" class="form-control" min="0" max="365"
+                   value="{{ cp.payment_delay_days if cp and cp.payment_delay_days is not none else 2 }}">
+            <div class="form-text">0 — просрочка в день срока оплаты</div>
+          </div>
+          <div class="col-5">
+            <label class="form-label">Тип дней</label>
+            <select name="payment_delay_type" class="form-select">
+              {% set cur_type = cp.payment_delay_type if cp and cp.payment_delay_type else 'banking' %}
+              <option value="banking"  {% if cur_type == 'banking'  %}selected{% endif %}>Банковские</option>
+              <option value="calendar" {% if cur_type == 'calendar' %}selected{% endif %}>Календарные</option>
+            </select>
+            <div class="form-text">Пн–Пт / любые</div>
           </div>
         </div>
       </div>
@@ -181,6 +210,12 @@ async function ddLookup() {
     // Синхронизируем поле ИНН в форме
     const innForm = document.getElementById('f-inn');
     if (innForm) innForm.value = data.inn;
+
+    // Автоопределение ООО/ИП по длине ИНН
+    const etSel = document.getElementById('f-entity_type');
+    if (etSel && data.inn) {
+      etSel.value = data.inn.length === 12 ? 'ip' : 'ooo';
+    }
 
     const parts = [];
     if (data.director) parts.push(`Директор: ${data.director}`);

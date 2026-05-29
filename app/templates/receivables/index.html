@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Дебиторская задолженность{% endblock %}
+{% block page_title %}Дебиторская задолженность{% endblock %}
+
+{% block content %}
+
+{# ── Сводка ─────────────────────────────────────────────────────────────────── #}
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="text-muted small mb-1"><i class="bi bi-receipt me-1"></i>Всего счетов к оплате</div>
+      <div class="fs-4 fw-semibold">{{ rows | length }}</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="text-muted small mb-1"><i class="bi bi-cash-stack me-1"></i>Сумма задолженности</div>
+      <div class="fs-4 fw-semibold text-primary">{{ total_amount | money }} ₽</div>
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-0 shadow-sm p-3 h-100 {% if overdue_count %}border-start border-danger border-3{% endif %}">
+      <div class="text-muted small mb-1"><i class="bi bi-exclamation-triangle me-1 text-danger"></i>Просрочено счетов</div>
+      <div class="fs-4 fw-semibold {% if overdue_count %}text-danger{% endif %}">{{ overdue_count }}</div>
+      {% if overdue_count %}
+      <div class="text-danger small">{{ overdue_amount | money }} ₽</div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="text-muted small mb-1"><i class="bi bi-calendar-x me-1"></i>Макс. просрочка</div>
+      <div class="fs-4 fw-semibold {% if max_overdue_days > 30 %}text-danger{% elif max_overdue_days > 0 %}text-warning{% endif %}">
+        {% if max_overdue_days %}{{ max_overdue_days }} дн.{% else %}—{% endif %}
+      </div>
+      <div class="text-muted small">Отсрочка — индивидуально по КА</div>
+    </div>
+  </div>
+</div>
+
+{# ── Таблица ─────────────────────────────────────────────────────────────────── #}
+{% if rows %}
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th>Счёт №</th>
+          <th>Дата</th>
+          <th>Контрагент</th>
+          <th>Срок оплаты</th>
+          <th>Отсрочка</th>
+          <th class="text-end">Сумма, ₽</th>
+          <th class="text-center">Просрочка</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        {% set inv = row.invoice %}
+        <tr class="{% if row.is_overdue %}table-danger{% endif %}">
+          <td class="fw-semibold">{{ inv.number }}</td>
+          <td class="text-nowrap">{{ inv.date | date_fmt }}</td>
+          <td>
+            <a href="/counterparties/{{ inv.counterparty_id }}" class="text-reset text-decoration-none">
+              {{ inv.counterparty.short_name or inv.counterparty.name if inv.counterparty else '—' }}
+            </a>
+          </td>
+          <td class="text-nowrap {% if row.is_overdue %}text-danger fw-semibold{% endif %}">
+            {{ inv.due_date | date_fmt if inv.due_date else '—' }}
+          </td>
+          <td class="text-nowrap text-muted" style="font-size:.82rem">
+            {% if row.delay_days %}
+              {{ row.delay_days }} {{ 'банк.' if row.delay_type == 'banking' else 'кал.' }} дн.
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="text-end fw-semibold text-nowrap">{{ inv.total_amount | money }}</td>
+          <td class="text-center">
+            {% if row.is_overdue %}
+              <span class="badge bg-danger">{{ row.days_overdue }} дн.</span>
+            {% elif row.days_left == 0 %}
+              <span class="badge bg-warning text-dark">сегодня</span>
+            {% elif row.days_left and row.days_left > 0 %}
+              <span class="badge bg-light text-secondary border">через {{ row.days_left }} дн.</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if inv.status == 'overdue' %}
+              <span class="badge bg-danger">Просрочен</span>
+            {% else %}
+              <span class="badge bg-warning text-dark">Выставлен</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="/invoices/{{ inv.id }}" class="btn btn-xs btn-outline-secondary py-0 px-2" title="Открыть счёт">
+              <i class="bi bi-arrow-right"></i>
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot class="table-light">
+        <tr>
+          <td colspan="5" class="fw-semibold text-end">Итого:</td>
+          <td class="text-end fw-bold text-nowrap">{{ total_amount | money }} ₽</td>
+          <td colspan="3"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-5 text-muted">
+  <i class="bi bi-check-circle fs-1 d-block mb-2 text-success"></i>
+  Нет неоплаченных счетов — всё в порядке!
+</div>
+{% endif %}
+
+{% endblock %}
