@@ -36,3 +36,6 @@ generated/
 
 # User uploads
 app/static/uploads/
+
+# Claude Code local tooling
+.claude/

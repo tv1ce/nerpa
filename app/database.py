@@ -58,6 +58,12 @@ def _migrate_db():
         ("counterparties", "category_manual", "INTEGER DEFAULT 0"),
         ("counterparties", "entity_type",     "TEXT DEFAULT 'ooo'"),
         ("order_items",    "discount_pct",    "REAL DEFAULT 0.0"),
+        ("company_settings", "okpo",          "TEXT"),
+        ("contracts",      "payment_days",    "INTEGER"),
+        ("company_settings", "board_nuts_plan",      "REAL DEFAULT 0.0"),
+        ("company_settings", "board_quotes",         "TEXT"),
+        ("company_settings", "board_stations",       "TEXT"),
+        ("company_settings", "board_active_station", "INTEGER DEFAULT 0"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]

@@ -209,6 +209,11 @@ class CompanySettings(Base):
     bank_corr_account = Column(String(20))
     logo_path = Column(String(500))
     monthly_plan = Column(Float, default=225000.0)
+    # ── Табло цеха (digital signage) ──
+    board_nuts_plan = Column(Float, default=0.0)        # план отгрузки орешков на месяц, шт
+    board_quotes = Column(Text)                         # мотивашки, по одной в строке
+    board_stations = Column(Text)                       # радиостанции, "Название | URL" в строке
+    board_active_station = Column(Integer, default=0)   # индекс активной станции
 
 
 class MonthlyPlan(Base):

@@ -14,11 +14,15 @@ templates = Jinja2Templates(directory="app/templates")
 @router.get("/", response_class=HTMLResponse)
 @login_required
 async def settings_page(request: Request, db: Session = Depends(get_db)):
+    from app.routers.board import BOARD_KEY, parse_stations
     company = db.query(CompanySettings).first()
     users = db.query(User).filter(User.is_active == True).all()
+    stations = parse_stations(company.board_stations if company else None)
     return templates.TemplateResponse(request, "settings/index.html", {
         "company": company, "users": users,
         "saved": request.query_params.get("saved"),
+        "board_key": BOARD_KEY,
+        "board_stations": stations,
     })
 
 
@@ -60,6 +64,28 @@ async def save_company(
     company.monthly_plan = monthly_plan
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
+
+
+@router.post("/board")
+@role_required("admin")
+async def save_board(
+    request: Request,
+    board_nuts_plan: float = Form(default=0.0),
+    board_quotes: str = Form(default=""),
+    board_stations: str = Form(default=""),
+    board_active_station: int = Form(default=0),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.board_nuts_plan = board_nuts_plan
+    company.board_quotes = board_quotes
+    company.board_stations = board_stations
+    company.board_active_station = board_active_station
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1#board", status_code=302)
 
 
 @router.post("/logo")

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board
 
 app = FastAPI(title="TMS — Управление поставками")
 
@@ -24,6 +24,7 @@ app.include_router(notifications.router)
 app.include_router(claims.router)
 app.include_router(activity.router)
 app.include_router(audit_log.router)
+app.include_router(board.router)
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ import app.routers.notifications as _r_notif
 import app.routers.claims as _r_claims
 import app.routers.activity as _r_act
 import app.routers.audit_log as _r_audit
+import app.routers.board as _r_board
 
-for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit]:
+for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board]:
     _mod.templates = _templates
