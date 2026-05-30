@@ -229,6 +229,27 @@ async def download_upd(request: Request, invoice_id: int, db: Session = Depends(
     )
 
 
+@router.get("/{invoice_id}/upd.xml")
+@login_required
+async def download_upd_xml(request: Request, invoice_id: int, db: Session = Depends(get_db)):
+    """Черновая выгрузка УПД в XML для ЭДО (формат ФНС 5.03)."""
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        return RedirectResponse(url="/invoices", status_code=302)
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings(name="Моя компания")
+    from app.utils.xml_upd import generate_upd_xml
+    from urllib.parse import quote
+    filename, xml_bytes = generate_upd_xml(invoice, company)
+    cd = f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=xml_bytes,
+        media_type="application/xml; charset=windows-1251",
+        headers={"Content-Disposition": cd},
+    )
+
+
 @router.get("/{invoice_id}/offer-buyer")
 @login_required
 async def download_offer_buyer(request: Request, invoice_id: int, db: Session = Depends(get_db)):

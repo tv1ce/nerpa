@@ -113,18 +113,18 @@ def generate_upd_pdf(invoice, company) -> bytes:
               or "предприниматель" in (company.name or "").lower()
     dname   = company.director or (company.name or "")
 
-    inn_kpp = company.inn or "—"
-    if company.kpp:
+    inn_kpp = company.inn or ""
+    if company.inn and company.kpp:
         inn_kpp += f" / {company.kpp}"
-    cp_inn_kpp = (cp.inn or "—") + (f" / {cp.kpp}" if cp.kpp else "")
-    cp_addr = cp.legal_address or cp.actual_address or "—"
+    cp_inn_kpp = (cp.inn or "") + (f" / {cp.kpp}" if (cp.inn and cp.kpp) else "")
+    cp_addr = cp.legal_address or cp.actual_address or ""
 
     if getattr(invoice, "contract", None):
         basis = f"№ {invoice.contract.number} от {_date_s(invoice.contract.date)} (руб.)"
     elif invoice.notes:
         basis = invoice.notes
     else:
-        basis = "—"
+        basis = ""
 
     inv_num  = invoice.number
     inv_date = _date_s(invoice.date)
@@ -169,8 +169,8 @@ def generate_upd_pdf(invoice, company) -> bytes:
     sf_tbl = Table([
         [_p("Счёт-фактура №", sz=8, bold=True), _p(str(inv_num), sz=9, bold=True),
          _p("от", sz=8), _p(_date_v(invoice.date), sz=9, bold=True), _p("(1)", sz=6, color=GREY)],
-        [_p("Исправление №", sz=7, color=GREY), _p("—", sz=7, color=GREY),
-         _p("от", sz=7, color=GREY), _p("—", sz=7, color=GREY), _p("(1а)", sz=6, color=GREY)],
+        [_p("Исправление №", sz=7, color=GREY), _p("", sz=7, color=GREY),
+         _p("от", sz=7, color=GREY), _p("", sz=7, color=GREY), _p("(1а)", sz=6, color=GREY)],
     ], colWidths=[26*mm, 22*mm, 8*mm, 45*mm, 12*mm])
     sf_tbl.setStyle(TableStyle([
         ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
@@ -198,20 +198,20 @@ def generate_upd_pdf(invoice, company) -> bytes:
     LW = W * 0.58
     RW = W - LW
     left_rows = [
-        ("Продавец:",                       company.name or "—", "(2)"),
-        ("Адрес:",                          company.legal_address or "—", "(2а)"),
+        ("Продавец:",                       company.name or "", "(2)"),
+        ("Адрес:",                          company.legal_address or "", "(2а)"),
         ("ИНН/КПП продавца:",               inn_kpp, "(2б)"),
         ("Грузоотправитель и его адрес:",   "он же", "(3)"),
-        ("Грузополучатель и его адрес:",     f"{cp.name}; {cp_addr}", "(4)"),
-        ("К платёжно-расчётному документу №:", f"{inv_num} от {inv_date}", "(5)"),
+        ("Грузополучатель и его адрес:",     (f"{cp.name}; {cp_addr}" if cp_addr else (cp.name or "")), "(4)"),
+        ("К платёжно-расчётному документу №:", "", "(5)"),
         ("Документ об отгрузке:",            f"Универсальный передаточный документ, № {inv_num} от {_date_v(invoice.date)}", "(5а)"),
     ]
     right_rows = [
-        ("Покупатель:",                      cp.name or "—", "(6)"),
+        ("Покупатель:",                      cp.name or "", "(6)"),
         ("Адрес:",                           cp_addr, "(6а)"),
         ("ИНН/КПП покупателя:",              cp_inn_kpp, "(6б)"),
         ("Валюта: наименование, код",        "Российский рубль, 643", "(7)"),
-        ("Идентификатор гос. контракта, договора (соглашения) (при наличии):", "—", "(8)"),
+        ("Идентификатор гос. контракта, договора (соглашения) (при наличии):", "", "(8)"),
     ]
     parties = Table([[_col(left_rows, LW), _col(right_rows, RW)]], colWidths=[LW, RW])
     parties.setStyle(TableStyle([
@@ -229,6 +229,10 @@ def generate_upd_pdf(invoice, company) -> bytes:
     # ══════════════════════════════════════════════════════════════
     #         А    1    1а    1б   2    2а    3    4    5    6    7    8    9   10  10а  11
     CW = [12*mm,7*mm,46*mm,11*mm,9*mm,14*mm,13*mm,15*mm,18*mm,12*mm,11*mm,16*mm,18*mm,10*mm,13*mm,17*mm]
+    # Растягиваем таблицу на всю ширину листа, чтобы она совпадала с рамками
+    # реквизитов и нижних блоков (иначе таблица уже и выглядит «съехавшей»).
+    _cw_scale = W / sum(CW)
+    CW = [c * _cw_scale for c in CW]
 
     def _hc(txt, sz=5.6): return _p(txt, sz=sz, bold=True, align="CENTER")
 
@@ -259,7 +263,7 @@ def generate_upd_pdf(invoice, company) -> bytes:
 
     total_without = total_vat = total_with = 0.0
     for idx, item in enumerate(invoice.items, 1):
-        code    = (item.product.article or "—") if item.product else "—"
+        code    = (item.product.article or "") if item.product else ""
         vat_r   = item.vat_rate or 0
         without = item.price * item.quantity
         vat_amt = without * vat_r / 100 if vat_r > 0 else 0
@@ -273,19 +277,19 @@ def generate_upd_pdf(invoice, company) -> bytes:
             _p(code, sz=6.5),
             _p(str(idx), sz=7, align="CENTER"),
             _p(item.name, sz=7),
-            _p("—", sz=7, align="CENTER"),
+            _p("", sz=7, align="CENTER"),
             _p("796", sz=7, align="CENTER"),
             _p(item.unit, sz=7, align="CENTER"),
             _p(_money(item.quantity).replace(",00",""), sz=7, align="RIGHT"),
             _p(_money(item.price), sz=7, align="RIGHT"),
             _p(_money(without), sz=7, align="RIGHT"),
-            _p("Без акциза", sz=6, align="CENTER"),
+            _p("без акциза", sz=6, align="CENTER"),
             _p(vat_str, sz=7, align="CENTER"),
             _p(vat_sum, sz=7, align="RIGHT"),
             _p(_money(with_t), sz=7, align="RIGHT"),
-            _p("—", sz=7, align="CENTER"),
-            _p("—", sz=7, align="CENTER"),
-            _p("—", sz=7, align="CENTER"),
+            _p("", sz=7, align="CENTER"),
+            _p("", sz=7, align="CENTER"),
+            _p("", sz=7, align="CENTER"),
         ])
 
     # итоговая строка «Всего к оплате (9)»
@@ -294,7 +298,7 @@ def generate_upd_pdf(invoice, company) -> bytes:
         _p(_money(total_without), sz=7, bold=True, align="RIGHT"),
         _p("Х", sz=7, align="CENTER"),
         "",
-        _p(_money(total_vat) if total_vat else "—", sz=7, bold=True, align="RIGHT"),
+        _p(_money(total_vat) if total_vat else "", sz=7, bold=True, align="RIGHT"),
         _p(_money(total_with), sz=7, bold=True, align="RIGHT"),
         "", "", "",
     ])
