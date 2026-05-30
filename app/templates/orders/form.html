@@ -38,7 +38,9 @@
             <select name="counterparty_id" class="form-select" required>
               <option value="">— выберите клиента —</option>
               {% for cp in counterparties %}
-              <option value="{{ cp.id }}" {% if order and order.counterparty_id == cp.id %}selected{% endif %}>{{ cp.name }}</option>
+              <option value="{{ cp.id }}" {% if order and order.counterparty_id == cp.id %}selected{% endif %}>
+                {{ cp.trade_name or cp.name }}{% if cp.trade_name %} ({{ cp.name }}){% endif %}
+              </option>
               {% endfor %}
             </select>
           </div>
@@ -74,8 +76,9 @@
                 <th style="width:80px">Кол-во</th>
                 <th style="width:55px">Ед.</th>
                 <th style="width:90px">Цена</th>
+                <th style="width:90px">Скидка</th>
                 <th style="width:65px">НДС%</th>
-                <th style="width:90px" class="text-end">Сумма</th>
+                <th style="width:100px" class="text-end">Сумма</th>
                 <th style="width:36px"></th>
               </tr>
             </thead>
@@ -86,6 +89,9 @@
         <!-- Итого -->
         <div class="text-end mt-2" style="font-size:.88rem">
           <div>Без НДС: <strong id="total-subtotal">0,00</strong> ₽</div>
+          <div id="total-discount-row" style="display:none" class="text-danger">
+            Скидка: −<strong id="total-discount">0,00</strong> ₽
+          </div>
           <div>НДС: <strong id="total-vat">0,00</strong> ₽</div>
           <div class="fs-5 fw-bold mt-1">Итого: <span id="total-amount">0,00</span> ₽</div>
         </div>
@@ -114,7 +120,7 @@ const productsMap = {
 const initialItems = [
   {% if order %}
     {% for item in order.items %}
-    { product_id: "{{ item.product_id }}", name: "{{ item.product.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.product.unit }}", price: {{ item.price }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
+    { product_id: "{{ item.product_id }}", name: "{{ item.product.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.product.unit }}", price: {{ item.price }}, discount_pct: {{ item.discount_pct or 0 }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
     {% endfor %}
   {% endif %}
 ];

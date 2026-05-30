@@ -22,6 +22,7 @@ class Counterparty(Base):
     __tablename__ = "counterparties"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
+    trade_name = Column(String(200))
     short_name = Column(String(100))
     inn = Column(String(12))
     kpp = Column(String(9))
@@ -32,6 +33,7 @@ class Counterparty(Base):
     email = Column(String(100))
     contact_person = Column(String(100))
     type = Column(String(20), default="client")  # client / supplier / both
+    entity_type = Column(String(10), default="ooo")  # ooo / ip / other
     bank_name = Column(String(200))
     bank_account = Column(String(20))
     bank_bik = Column(String(9))
@@ -39,10 +41,18 @@ class Counterparty(Base):
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
+    # Условия оплаты
+    payment_delay_days = Column(Integer, default=2)           # дней отсрочки
+    payment_delay_type = Column(String(10), default="banking") # 'banking' или 'calendar'
+
+    # CRM — категория клиента
+    category = Column(String(1))          # A / B / C / None
+    category_manual = Column(Boolean, default=False)  # True = вручную, не пересчитывать
 
     orders = relationship("Order", back_populates="counterparty")
     invoices = relationship("Invoice", back_populates="counterparty")
     contracts = relationship("Contract", back_populates="counterparty")
+    claims = relationship("Claim", back_populates="counterparty", order_by="Claim.date.desc()")
 
 
 class Product(Base):
@@ -95,8 +105,9 @@ class OrderItem(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     quantity = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
+    discount_pct = Column(Float, default=0.0)  # % скидки, 0-100
     vat_rate = Column(Float, default=20.0)
-    amount = Column(Float, nullable=False)
+    amount = Column(Float, nullable=False)  # итог строки с учётом скидки
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product", back_populates="order_items")
@@ -119,8 +130,11 @@ class Invoice(Base):
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
 
+    contract_id = Column(Integer, ForeignKey("contracts.id"))
+
     counterparty = relationship("Counterparty", back_populates="invoices")
     order = relationship("Order", back_populates="invoices")
+    contract = relationship("Contract")
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
 
 
@@ -153,6 +167,7 @@ class Contract(Base):
     start_date = Column(Date)
     end_date = Column(Date)
     amount = Column(Float)
+    payment_days = Column(Integer)  # дней отсрочки (для шаблонов с отсрочкой)
     file_path = Column(String(500))
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
@@ -180,6 +195,7 @@ class CompanySettings(Base):
     inn = Column(String(12))
     kpp = Column(String(9))
     ogrn = Column(String(15))
+    okpo = Column(String(15))
     legal_address = Column(String(500))
     actual_address = Column(String(500))
     phone = Column(String(50))
@@ -193,6 +209,11 @@ class CompanySettings(Base):
     bank_corr_account = Column(String(20))
     logo_path = Column(String(500))
     monthly_plan = Column(Float, default=225000.0)
+    # ── Табло цеха (digital signage) ──
+    board_nuts_plan = Column(Float, default=0.0)        # план отгрузки орешков на месяц, шт
+    board_quotes = Column(Text)                         # мотивашки, по одной в строке
+    board_stations = Column(Text)                       # радиостанции, "Название | URL" в строке
+    board_active_station = Column(Integer, default=0)   # индекс активной станции
 
 
 class MonthlyPlan(Base):
@@ -205,6 +226,91 @@ class MonthlyPlan(Base):
     notes = Column(String(500))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class Task(Base):
+    """Задача, привязанная к заказу, клиенту или рекламации."""
+    __tablename__ = "tasks"
+    id = Column(Integer, primary_key=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text)
+    status = Column(String(20), default="open")      # open / done
+    priority = Column(String(10), default="normal")  # low / normal / high / urgent
+    entity_type = Column(String(30))  # order / counterparty / claim
+    entity_id = Column(Integer)
+    assigned_to_id = Column(Integer, ForeignKey("users.id"))
+    created_by_id = Column(Integer, ForeignKey("users.id"))
+    due_date = Column(Date)
+    created_at = Column(DateTime, server_default=func.now())
+
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    created_by  = relationship("User", foreign_keys=[created_by_id])
+
+
+class Comment(Base):
+    """Комментарий к заказу, клиенту или рекламации."""
+    __tablename__ = "comments"
+    id = Column(Integer, primary_key=True)
+    body = Column(Text, nullable=False)
+    entity_type = Column(String(30))
+    entity_id = Column(Integer)
+    created_by_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    created_by = relationship("User")
+
+
+class AuditLog(Base):
+    """Лог изменений ключевых сущностей."""
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True)
+    entity_type = Column(String(30))    # order / counterparty / invoice / claim
+    entity_id = Column(Integer)
+    action = Column(String(50))         # created / updated / status_changed / deleted
+    field = Column(String(100))
+    old_value = Column(String(500))
+    new_value = Column(String(500))
+    note = Column(Text)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+    user = relationship("User")
+
+
+class Claim(Base):
+    """Рекламация / претензия от клиента."""
+    __tablename__ = "claims"
+    id = Column(Integer, primary_key=True)
+    number = Column(String(50), unique=True, nullable=False)
+    date = Column(Date, nullable=False)
+    counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
+    order_id = Column(Integer, ForeignKey("orders.id"))
+    type = Column(String(30), default="quality")   # quality / delivery / quantity / documents / other
+    status = Column(String(20), default="new")     # new / in_progress / resolved / rejected
+    description = Column(Text)
+    resolution = Column(Text)
+    amount = Column(Float)
+    created_by_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    counterparty = relationship("Counterparty", back_populates="claims")
+    order = relationship("Order")
+    created_by = relationship("User")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True)
+    type = Column(String(30), default="low_stock")
+    title = Column(String(200), nullable=False)
+    body = Column(Text)
+    product_id = Column(Integer, ForeignKey("products.id"))
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    product = relationship("Product")
 
 
 class StockMovement(Base):

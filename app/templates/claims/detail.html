@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}{{ claim.number }}{% endblock %}
+{% block page_title %}{{ claim.number }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/counterparties/{{ claim.counterparty_id }}#tab-claims" class="btn btn-sm btn-outline-secondary me-1">
+    <i class="bi bi-person me-1"></i>Карточка клиента
+  </a>
+  <a href="/claims/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  {# ── Левая колонка: данные рекламации ─────────────────────────────────── #}
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="d-flex align-items-start justify-content-between mb-3">
+        <div>
+          <span class="badge bg-{{ status_colors.get(claim.status, 'secondary') }} fs-6 px-3 py-2">
+            {{ claim_statuses.get(claim.status, claim.status) }}
+          </span>
+          {% if claim.status in ('new', 'in_progress') %}
+          <span class="text-muted ms-2" style="font-size:.82rem">
+            <i class="bi bi-clock me-1"></i>Открыта {{ claim.created_at | date_fmt }}
+          </span>
+          {% endif %}
+        </div>
+        <span class="badge bg-light text-dark border" style="font-size:.82rem">
+          {{ claim_types.get(claim.type, claim.type) }}
+        </span>
+      </div>
+
+      <div class="row g-3" style="font-size:.9rem">
+        <div class="col-md-6">
+          <span class="text-muted">Контрагент:</span><br>
+          <a href="/counterparties/{{ claim.counterparty_id }}" class="fw-semibold">
+            {{ claim.counterparty.trade_name or claim.counterparty.name if claim.counterparty else '—' }}
+          </a>
+        </div>
+        <div class="col-md-3">
+          <span class="text-muted">Дата:</span><br>
+          <span class="fw-semibold">{{ claim.date | date_fmt }}</span>
+        </div>
+        <div class="col-md-3">
+          <span class="text-muted">Сумма претензии:</span><br>
+          <span class="fw-semibold {% if claim.amount %}text-danger{% endif %}">
+            {{ claim.amount | money if claim.amount else '—' }} {% if claim.amount %}₽{% endif %}
+          </span>
+        </div>
+        {% if claim.order %}
+        <div class="col-12">
+          <span class="text-muted">Привязанный заказ:</span>
+          <a href="/orders/{{ claim.order_id }}" class="ms-1">{{ claim.order.number }}</a>
+          <span class="text-muted ms-1" style="font-size:.82rem">от {{ claim.order.date | date_fmt }}</span>
+        </div>
+        {% endif %}
+      </div>
+
+      {% if claim.description %}
+      <div class="mt-3 pt-3 border-top">
+        <div class="text-muted mb-1" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.05em">Описание</div>
+        <div style="font-size:.92rem; white-space:pre-wrap">{{ claim.description }}</div>
+      </div>
+      {% endif %}
+
+      {% if claim.resolution %}
+      <div class="mt-3 pt-3 border-top">
+        <div class="text-muted mb-1" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.05em">Решение / резолюция</div>
+        <div style="font-size:.92rem; white-space:pre-wrap">{{ claim.resolution }}</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Правая колонка: смена статуса ──────────────────────────────────── #}
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm p-3">
+      <div class="fw-semibold mb-3">Изменить статус</div>
+      <form method="post" action="/claims/{{ claim.id }}/status">
+        <div class="mb-3">
+          <label class="form-label">Новый статус</label>
+          <select name="status" class="form-select">
+            {% for val, label in claim_statuses.items() %}
+            <option value="{{ val }}" {% if claim.status == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Комментарий / резолюция</label>
+          <textarea name="resolution" class="form-control" rows="4"
+            placeholder="Опишите принятые меры или причину отклонения…">{{ claim.resolution or '' }}</textarea>
+        </div>
+        <button type="submit" class="btn btn-accent w-100"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+      </form>
+    </div>
+
+    {# Статусная шкала #}
+    <div class="card border-0 shadow-sm p-3 mt-3">
+      <div class="fw-semibold mb-3" style="font-size:.85rem">Воронка</div>
+      {% set status_order = ['new', 'in_progress', 'resolved'] %}
+      {% set cur_idx = status_order.index(claim.status) if claim.status in status_order else -1 %}
+      {% for s in status_order %}
+      {% set s_idx = loop.index0 %}
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+          style="width:24px;height:24px;font-size:.7rem;font-weight:700;
+          background:{% if s_idx < cur_idx %}#22c55e{% elif s_idx == cur_idx %}var(--brand){% else %}#e2e8f0{% endif %};
+          color:{% if s_idx <= cur_idx %}#fff{% else %}#94a3b8{% endif %}">
+          {% if s_idx < cur_idx %}<i class="bi bi-check"></i>{% else %}{{ loop.index }}{% endif %}
+        </div>
+        <span style="font-size:.82rem; color:{% if s_idx == cur_idx %}var(--text){% else %}#94a3b8{% endif %}; font-weight:{% if s_idx == cur_idx %}600{% else %}400{% endif %}">
+          {{ claim_statuses[s] }}
+        </span>
+      </div>
+      {% endfor %}
+      {% if claim.status == 'rejected' %}
+      <div class="d-flex align-items-center gap-2 mt-1">
+        <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0"
+          style="width:24px;height:24px;font-size:.7rem;background:#ef4444;color:#fff">
+          <i class="bi bi-x"></i>
+        </div>
+        <span style="font-size:.82rem;color:var(--text);font-weight:600">Отклонена</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

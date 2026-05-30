@@ -7,6 +7,28 @@
 {% endblock %}
 
 {% block content %}
+
+<!-- ── DaData поиск по ИНН ─────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm p-4 mb-3" id="dadata-card">
+  <div class="d-flex align-items-center gap-2 mb-2">
+    <span class="fw-semibold" style="font-size:.95rem"><i class="bi bi-search me-1 text-primary"></i>Заполнить по ИНН</span>
+    <span class="text-muted" style="font-size:.8rem">— данные подтянутся автоматически из реестра</span>
+  </div>
+  <div class="d-flex gap-2">
+    <input type="text" id="dd-inn" class="form-control" style="max-width:220px"
+           placeholder="ИНН (10 или 12 цифр)"
+           maxlength="12" inputmode="numeric"
+           value="{{ cp.inn if cp else '' }}">
+    <button type="button" class="btn btn-primary" id="dd-btn" onclick="ddLookup()">
+      <i class="bi bi-cloud-download me-1"></i>Найти
+    </button>
+    <span id="dd-spinner" class="d-none align-self-center">
+      <span class="spinner-border spinner-border-sm text-primary me-1"></span>Загрузка…
+    </span>
+  </div>
+  <div id="dd-alert" class="mt-2" style="font-size:.85rem"></div>
+</div>
+
 <form method="post" action="{{ '/counterparties/new' if is_new else '/counterparties/' + cp.id|string + '/edit' }}">
   <div class="row g-3">
 
@@ -16,14 +38,26 @@
         <div class="form-section-title">Основная информация</div>
         <div class="row g-3">
           <div class="col-12">
+            <label class="form-label">Название заведения <span class="text-muted" style="font-size:.8rem">(как называется точка: «Кафе Уют», «Магазин Продукты» и т.п.)</span></label>
+            <input type="text" name="trade_name" class="form-control" placeholder="Например: Кафе Ромашка" value="{{ cp.trade_name if cp and cp.trade_name else '' }}">
+          </div>
+          <div class="col-12">
             <label class="form-label">Полное наименование *</label>
-            <input type="text" name="name" class="form-control" required value="{{ cp.name if cp else '' }}">
+            <input type="text" name="name" id="f-name" class="form-control" required value="{{ cp.name if cp else '' }}">
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label">Краткое наименование</label>
-            <input type="text" name="short_name" class="form-control" value="{{ cp.short_name if cp else '' }}">
+            <input type="text" name="short_name" id="f-short_name" class="form-control" value="{{ cp.short_name if cp else '' }}">
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
+            <label class="form-label">Форма организации</label>
+            <select name="entity_type" id="f-entity_type" class="form-select">
+              {% for val, label in entity_types.items() %}
+              <option value="{{ val }}" {% if cp and cp.entity_type == val %}selected{% elif not cp and val == 'ooo' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4">
             <label class="form-label">Тип</label>
             <select name="type" class="form-select">
               {% for val, label in cp_types.items() %}
@@ -33,23 +67,23 @@
           </div>
           <div class="col-md-4">
             <label class="form-label">ИНН</label>
-            <input type="text" name="inn" class="form-control" maxlength="12" value="{{ cp.inn if cp else '' }}">
+            <input type="text" name="inn" id="f-inn" class="form-control" maxlength="12" value="{{ cp.inn if cp else '' }}">
           </div>
           <div class="col-md-4">
             <label class="form-label">КПП</label>
-            <input type="text" name="kpp" class="form-control" maxlength="9" value="{{ cp.kpp if cp else '' }}">
+            <input type="text" name="kpp" id="f-kpp" class="form-control" maxlength="9" value="{{ cp.kpp if cp else '' }}">
           </div>
           <div class="col-md-4">
             <label class="form-label">ОГРН</label>
-            <input type="text" name="ogrn" class="form-control" maxlength="15" value="{{ cp.ogrn if cp else '' }}">
+            <input type="text" name="ogrn" id="f-ogrn" class="form-control" maxlength="15" value="{{ cp.ogrn if cp else '' }}">
           </div>
           <div class="col-12">
             <label class="form-label">Юридический адрес</label>
-            <input type="text" name="legal_address" class="form-control" value="{{ cp.legal_address if cp else '' }}">
+            <input type="text" name="legal_address" id="f-legal_address" class="form-control" value="{{ cp.legal_address if cp else '' }}">
           </div>
           <div class="col-12">
             <label class="form-label">Фактический адрес</label>
-            <input type="text" name="actual_address" class="form-control" value="{{ cp.actual_address if cp else '' }}">
+            <input type="text" name="actual_address" id="f-actual_address" class="form-control" value="{{ cp.actual_address if cp else '' }}">
           </div>
           <div class="col-md-4">
             <label class="form-label">Телефон</label>
@@ -60,8 +94,8 @@
             <input type="email" name="email" class="form-control" value="{{ cp.email if cp else '' }}">
           </div>
           <div class="col-md-4">
-            <label class="form-label">Контактное лицо</label>
-            <input type="text" name="contact_person" class="form-control" value="{{ cp.contact_person if cp else '' }}">
+            <label class="form-label">Контактное лицо / Директор</label>
+            <input type="text" name="contact_person" id="f-contact_person" class="form-control" value="{{ cp.contact_person if cp else '' }}">
           </div>
           <div class="col-12">
             <label class="form-label">Примечания</label>
@@ -71,26 +105,53 @@
       </div>
     </div>
 
-    <!-- Банк -->
+    <!-- Банк + условия оплаты -->
     <div class="col-lg-4">
-      <div class="card border-0 shadow-sm p-4">
+      <div class="card border-0 shadow-sm p-4 mb-3">
         <div class="form-section-title">Банковские реквизиты</div>
         <div class="row g-3">
           <div class="col-12">
             <label class="form-label">Банк</label>
-            <input type="text" name="bank_name" class="form-control" value="{{ cp.bank_name if cp else '' }}">
+            <input type="text" name="bank_name" id="f-bank_name" class="form-control" value="{{ cp.bank_name if cp else '' }}">
           </div>
           <div class="col-12">
             <label class="form-label">Расчётный счёт</label>
-            <input type="text" name="bank_account" class="form-control" maxlength="20" value="{{ cp.bank_account if cp else '' }}">
+            <input type="text" name="bank_account" id="f-bank_account" class="form-control" maxlength="20" value="{{ cp.bank_account if cp else '' }}">
           </div>
-          <div class="col-md-6">
-            <label class="form-label">БИК</label>
-            <input type="text" name="bank_bik" class="form-control" maxlength="9" value="{{ cp.bank_bik if cp else '' }}">
+          <div class="col-12">
+            <label class="form-label d-flex justify-content-between align-items-center">
+              БИК
+              <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="ddBankLookup()" style="font-size:.75rem">
+                <i class="bi bi-search"></i> Найти банк
+              </button>
+            </label>
+            <input type="text" name="bank_bik" id="f-bank_bik" class="form-control" maxlength="9" value="{{ cp.bank_bik if cp else '' }}">
+            <div id="dd-bank-alert" style="font-size:.8rem" class="mt-1"></div>
           </div>
-          <div class="col-md-6">
+          <div class="col-12">
             <label class="form-label">К/с</label>
-            <input type="text" name="bank_corr_account" class="form-control" maxlength="20" value="{{ cp.bank_corr_account if cp else '' }}">
+            <input type="text" name="bank_corr_account" id="f-bank_corr_account" class="form-control" maxlength="20" value="{{ cp.bank_corr_account if cp else '' }}">
+          </div>
+        </div>
+      </div>
+
+      <div class="card border-0 shadow-sm p-4">
+        <div class="form-section-title"><i class="bi bi-clock-history me-1"></i>Условия оплаты (дебиторка)</div>
+        <div class="row g-3">
+          <div class="col-7">
+            <label class="form-label">Отсрочка платежа, дней</label>
+            <input type="number" name="payment_delay_days" class="form-control" min="0" max="365"
+                   value="{{ cp.payment_delay_days if cp and cp.payment_delay_days is not none else 2 }}">
+            <div class="form-text">0 — просрочка в день срока оплаты</div>
+          </div>
+          <div class="col-5">
+            <label class="form-label">Тип дней</label>
+            <select name="payment_delay_type" class="form-select">
+              {% set cur_type = cp.payment_delay_type if cp and cp.payment_delay_type else 'banking' %}
+              <option value="banking"  {% if cur_type == 'banking'  %}selected{% endif %}>Банковские</option>
+              <option value="calendar" {% if cur_type == 'calendar' %}selected{% endif %}>Календарные</option>
+            </select>
+            <div class="form-text">Пн–Пт / любые</div>
           </div>
         </div>
       </div>
@@ -102,4 +163,104 @@
     </div>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function setField(id, val) {
+  const el = document.getElementById('f-' + id);
+  if (el && val) el.value = val;
+}
+
+function showAlert(elId, msg, type) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.innerHTML = msg
+    ? `<div class="alert alert-${type} py-1 px-2 mb-0">${msg}</div>`
+    : '';
+}
+
+async function ddLookup() {
+  const inn = document.getElementById('dd-inn').value.trim();
+  if (!inn) { showAlert('dd-alert', 'Введите ИНН', 'warning'); return; }
+
+  document.getElementById('dd-btn').disabled = true;
+  document.getElementById('dd-spinner').classList.remove('d-none');
+  showAlert('dd-alert', '', '');
+
+  try {
+    const resp = await fetch(`/counterparties/dadata/party?inn=${encodeURIComponent(inn)}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      showAlert('dd-alert', `<i class="bi bi-exclamation-triangle me-1"></i>${data.error || 'Ошибка'}`, 'danger');
+      return;
+    }
+
+    // Заполняем поля
+    setField('name', data.name);
+    setField('short_name', data.short_name);
+    setField('inn', data.inn);
+    setField('kpp', data.kpp);
+    setField('ogrn', data.ogrn);
+    setField('legal_address', data.legal_address);
+    setField('actual_address', data.legal_address);  // По умолчанию совпадает
+    if (data.director) setField('contact_person', data.director);
+
+    // Синхронизируем поле ИНН в форме
+    const innForm = document.getElementById('f-inn');
+    if (innForm) innForm.value = data.inn;
+
+    // Автоопределение ООО/ИП по длине ИНН
+    const etSel = document.getElementById('f-entity_type');
+    if (etSel && data.inn) {
+      etSel.value = data.inn.length === 12 ? 'ip' : 'ooo';
+    }
+
+    const parts = [];
+    if (data.director) parts.push(`Директор: ${data.director}`);
+    if (data.okved) parts.push(`ОКВЭД: ${data.okved}`);
+    showAlert('dd-alert',
+      `<i class="bi bi-check-circle me-1 text-success"></i>Данные загружены${parts.length ? ' — ' + parts.join(', ') : ''}`,
+      'success');
+
+  } catch(e) {
+    showAlert('dd-alert', `<i class="bi bi-x-circle me-1"></i>Сетевая ошибка: ${e}`, 'danger');
+  } finally {
+    document.getElementById('dd-btn').disabled = false;
+    document.getElementById('dd-spinner').classList.add('d-none');
+  }
+}
+
+async function ddBankLookup() {
+  const bik = document.getElementById('f-bank_bik').value.trim();
+  if (!bik) { showAlert('dd-bank-alert', 'Введите БИК', 'warning'); return; }
+
+  showAlert('dd-bank-alert', '<span class="spinner-border spinner-border-sm me-1"></span>Поиск…', 'secondary');
+
+  try {
+    const resp = await fetch(`/counterparties/dadata/bank?bik=${encodeURIComponent(bik)}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      showAlert('dd-bank-alert', `<i class="bi bi-exclamation-triangle me-1"></i>${data.error}`, 'danger');
+      return;
+    }
+
+    setField('bank_name', data.bank_name);
+    setField('bank_bik', data.bank_bik);
+    setField('bank_corr_account', data.bank_corr_account);
+    showAlert('dd-bank-alert',
+      `<i class="bi bi-check-circle me-1 text-success"></i>${data.bank_name}`,
+      'success');
+  } catch(e) {
+    showAlert('dd-bank-alert', `Ошибка: ${e}`, 'danger');
+  }
+}
+
+// Enter в поле ИНН — запускает поиск
+document.getElementById('dd-inn').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); ddLookup(); }
+});
+</script>
 {% endblock %}

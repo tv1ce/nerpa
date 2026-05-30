@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Табло цеха</title>
+  <style>
+    /* Палитра «Лаванда»: светлый лавандовый фон + белые карточки + фирменный фиолет #575BA6 */
+    :root{
+      --bg1:#F1F0FB; --bg2:#E1DFF1; --purple:#575BA6; --lilac:#8E92D4;
+      --ink:#2E2C4A; --card:#FFFFFF; --line:#E8E6F4; --track:#ECEAF7;
+      --muted:#8A88A6; --green:#7DC242;
+      --shadow:0 1.4vh 3vh rgba(87,91,166,.12);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;overflow:hidden}
+    body{
+      font-family:'Fira Sans','Segoe UI',system-ui,sans-serif;
+      background:radial-gradient(circle at 22% -10%,var(--bg1),var(--bg2) 70%);
+      color:var(--ink);height:100vh;display:flex;flex-direction:column;padding:2.2vh 2.6vw;
+    }
+    /* ── Шапка ── */
+    header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2vh}
+    .company{font-size:2.4vh;font-weight:800;letter-spacing:.3px;color:var(--purple)}
+    .clock{text-align:right;line-height:1.1}
+    .clock .time{font-size:3.4vh;font-weight:800;color:var(--ink)}
+    .clock .date{font-size:1.8vh;color:var(--muted)}
+
+    /* ── Главный блок: отгрузка за месяц + план ── */
+    .hero{
+      background:linear-gradient(135deg,#F2F1FC,#FFFFFF 60%);
+      border:1px solid var(--line);border-radius:2.4vh;padding:3vh 3.2vw;margin-bottom:1.8vh;
+      position:relative;overflow:hidden;box-shadow:var(--shadow);
+    }
+    .hero .label{font-size:2.4vh;color:var(--muted);font-weight:600;margin-bottom:.6vh}
+    .hero .big{font-size:11vh;font-weight:800;line-height:.95;
+      background:linear-gradient(90deg,var(--purple),var(--lilac));-webkit-background-clip:text;
+      background-clip:text;-webkit-text-fill-color:transparent}
+    .hero .unit{font-size:3.6vh;color:var(--muted);font-weight:600;margin-left:1vw}
+    .plan-wrap{margin-top:2vh}
+    .plan-head{display:flex;justify-content:space-between;align-items:baseline;
+      font-size:2.1vh;color:var(--muted);margin-bottom:1vh}
+    .plan-head b{color:var(--ink)}
+    .plan-head .pct{font-weight:800;font-size:2.8vh;color:var(--purple)}
+    .bar{height:3vh;background:var(--track);border-radius:2vh;overflow:hidden}
+    .bar > div{height:100%;border-radius:2vh;
+      background:linear-gradient(90deg,var(--purple),var(--lilac));
+      transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
+    .hero.done .bar > div{background:linear-gradient(90deg,var(--green),#a5d96a)}
+    .celebrate{position:absolute;top:2.4vh;right:3vw;font-size:6vh;display:none}
+    .hero.done .celebrate{display:block;animation:pop 1.6s ease-in-out infinite}
+    @keyframes pop{0%,100%{transform:scale(1) rotate(-4deg)}50%{transform:scale(1.18) rotate(6deg)}}
+
+    /* ── Карточки-метрики ── */
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1.6vw;margin-bottom:1.8vh}
+    .stat{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
+      padding:2vh 1.6vw;text-align:center;box-shadow:var(--shadow)}
+    .stat .v{font-size:5vh;font-weight:800;line-height:1}
+    .stat .k{font-size:1.8vh;color:var(--muted);margin-top:.6vh}
+    .stat.today .v{color:var(--purple)}
+    .stat.year  .v{color:var(--lilac)}
+    .stat.total .v{color:var(--ink)}
+    .stat.claims .v{color:var(--green)}
+
+    /* ── Музыкальные каналы ── */
+    .music{display:flex;align-items:center;gap:1.2vw;background:var(--card);
+      border:1px solid var(--line);border-radius:1.6vh;padding:1.4vh 1.6vw;margin-bottom:1.8vh;
+      box-shadow:var(--shadow)}
+    .music .ico{font-size:3vh}
+    .stations{display:flex;gap:.8vw;flex-wrap:wrap;flex:1}
+    .chip{font-size:1.9vh;font-weight:600;padding:.8vh 1.4vw;border-radius:1.4vh;
+      background:var(--track);border:1px solid var(--line);color:var(--muted);cursor:pointer;
+      transition:all .2s;white-space:nowrap}
+    .chip.active{background:linear-gradient(90deg,var(--purple),var(--lilac));color:#fff;
+      border-color:transparent;box-shadow:0 .6vh 1.6vh rgba(87,91,166,.35)}
+    .eq{display:inline-flex;gap:2px;height:2vh;align-items:flex-end;margin-left:.4vw;vertical-align:middle}
+    .eq i{width:3px;background:#fff;border-radius:2px;animation:eq .9s ease-in-out infinite}
+    .eq i:nth-child(2){animation-delay:.3s}.eq i:nth-child(3){animation-delay:.6s}
+    @keyframes eq{0%,100%{height:30%}50%{height:100%}}
+    .sound-btn{font-size:1.9vh;font-weight:700;padding:.8vh 1.4vw;border-radius:1.4vh;
+      background:var(--purple);color:#fff;border:none;cursor:pointer}
+
+    /* ── Лента мотивашек ── */
+    .ticker{margin-top:auto;background:var(--card);border:1px solid var(--line);
+      border-radius:1.8vh;padding:2.4vh 3vw;text-align:center;min-height:10vh;
+      display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
+    .ticker .quote{font-size:3.2vh;font-weight:800;opacity:0;transition:opacity .8s;
+      background:linear-gradient(90deg,var(--purple),var(--lilac));-webkit-background-clip:text;
+      background-clip:text;-webkit-text-fill-color:transparent}
+    .ticker .quote.show{opacity:1}
+  </style>
+</head>
+<body data-key="{{ key }}">
+
+  <header>
+    <div class="company">🥜 {{ data.company_name }}</div>
+    <div class="clock">
+      <div class="time" id="clock-time">--:--</div>
+      <div class="date" id="clock-date"></div>
+    </div>
+  </header>
+
+  <!-- Главный показатель: отгрузка за месяц + прогресс к плану -->
+  <div class="hero" id="hero">
+    <div class="celebrate">🎉</div>
+    <div class="label">Отгружено орешков за месяц</div>
+    <div><span class="big" id="m-shipped">{{ data.shipped_month }}</span><span class="unit">шт</span></div>
+
+    <div class="plan-wrap" id="plan-wrap">
+      <div class="plan-head">
+        <span>План месяца: <b id="m-plan">{{ data.plan }}</b> шт</span>
+        <span class="pct"><span id="m-pct">{{ data.plan_pct }}</span>%</span>
+      </div>
+      <div class="bar"><div id="bar-fill" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- Метрики -->
+  <div class="stats">
+    <div class="stat today">
+      <div class="v" id="m-today">{{ data.shipped_today }}</div>
+      <div class="k">отгружено сегодня</div>
+    </div>
+    <div class="stat year">
+      <div class="v" id="m-year">{{ data.shipped_year }}</div>
+      <div class="k">с начала года</div>
+    </div>
+    <div class="stat total">
+      <div class="v" id="m-total">{{ data.shipped_total }}</div>
+      <div class="k">всего за всё время</div>
+    </div>
+    <div class="stat claims">
+      <div class="v" id="m-claims">—</div>
+      <div class="k" id="m-claims-label">дней без рекламаций</div>
+    </div>
+  </div>
+
+  <!-- Музыкальные каналы -->
+  <div class="music">
+    <span class="ico">🎵</span>
+    <div class="stations" id="stations"></div>
+    <button class="sound-btn" id="sound-btn" style="display:none">▶ Включить звук</button>
+  </div>
+
+  <!-- Лента мотивашек -->
+  <div class="ticker"><div class="quote" id="quote"></div></div>
+
+  <audio id="player"></audio>
+
+  <script>
+    const KEY = document.body.dataset.key;
+    const MUTE = new URLSearchParams(location.search).has('mute'); // режим без звука
+    const fmt = n => (n ?? 0).toLocaleString('ru-RU');
+
+    let QUOTES = {{ data.quotes | tojson }};
+    let STATIONS = {{ data.stations | tojson }};
+    let active = {{ data.active_station }};
+
+    const player = document.getElementById('player');
+    const soundBtn = document.getElementById('sound-btn');
+
+    // ── Часы ──
+    function tick(){
+      const d = new Date();
+      document.getElementById('clock-time').textContent =
+        d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+      document.getElementById('clock-date').textContent =
+        d.toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
+    }
+    tick(); setInterval(tick, 1000);
+
+    // ── Лента мотивашек ──
+    let qi = 0;
+    const qEl = document.getElementById('quote');
+    function showQuote(){
+      if (!QUOTES.length) return;
+      qEl.classList.remove('show');
+      setTimeout(()=>{ qEl.textContent = QUOTES[qi % QUOTES.length]; qEl.classList.add('show'); qi++; }, 600);
+    }
+    showQuote(); setInterval(showQuote, 9000);
+
+    // ── Музыка ──
+    function renderStations(){
+      const box = document.getElementById('stations');
+      box.innerHTML = '';
+      STATIONS.forEach((s, i) => {
+        const chip = document.createElement('div');
+        chip.className = 'chip' + (i === active ? ' active' : '');
+        chip.innerHTML = s.name + (i === active ? ' <span class="eq"><i></i><i></i><i></i></span>' : '');
+        chip.onclick = () => selectStation(i, true);
+        box.appendChild(chip);
+      });
+    }
+
+    function playActive(){
+      if (MUTE) return Promise.resolve();
+      const s = STATIONS[active];
+      if (!s) return Promise.reject();
+      if (player.src !== s.url){ player.src = s.url; }
+      return player.play();
+    }
+
+    function selectStation(i, fromClick){
+      active = i;
+      renderStations();
+      playActive().then(()=> soundBtn.style.display='none')
+                  .catch(()=> soundBtn.style.display='');
+      if (fromClick){
+        fetch('/board/station?key=' + encodeURIComponent(KEY) + '&i=' + i, {method:'POST'}).catch(()=>{});
+      }
+    }
+
+    // Кнопка разблокировки звука (на случай блокировки автозапуска вебвью/браузером)
+    soundBtn.onclick = () => { playActive().then(()=> soundBtn.style.display='none').catch(()=>{}); };
+
+    // Пробуем автозапуск; если браузер не разрешит — покажем кнопку
+    renderStations();
+    playActive().then(()=> soundBtn.style.display='none').catch(()=> soundBtn.style.display='');
+
+    // ── Обновление данных ──
+    function render(d){
+      document.getElementById('m-shipped').textContent = fmt(d.shipped_month);
+      document.getElementById('m-plan').textContent    = fmt(d.plan);
+      document.getElementById('m-pct').textContent     = d.plan_pct;
+      document.getElementById('m-today').textContent   = fmt(d.shipped_today);
+      document.getElementById('m-year').textContent    = fmt(d.shipped_year);
+      document.getElementById('m-total').textContent   = fmt(d.shipped_total);
+
+      const hero = document.getElementById('hero');
+      if (d.plan > 0){
+        document.getElementById('plan-wrap').style.display = '';
+        document.getElementById('bar-fill').style.width = Math.min(d.plan_pct,100) + '%';
+        hero.classList.toggle('done', d.plan_pct >= 100);
+      } else {
+        document.getElementById('plan-wrap').style.display = 'none';
+      }
+
+      const c = document.getElementById('m-claims');
+      const cl = document.getElementById('m-claims-label');
+      if (d.days_without_claims === null || d.days_without_claims === undefined){
+        c.textContent = '✓'; cl.textContent = 'рекламаций не было';
+      } else {
+        c.textContent = d.days_without_claims; cl.textContent = 'дней без рекламаций';
+      }
+
+      // Мотивашки могли измениться в настройках
+      if (JSON.stringify(d.quotes) !== JSON.stringify(QUOTES)) QUOTES = d.quotes;
+
+      // Список станций / активная станция могли смениться из настроек
+      if (JSON.stringify(d.stations) !== JSON.stringify(STATIONS)){
+        STATIONS = d.stations; renderStations();
+      }
+      if (d.active_station !== active){
+        selectStation(d.active_station, false);  // переключение из настроек — без повторного POST
+      }
+    }
+
+    function refresh(){
+      fetch('/board/data?key=' + encodeURIComponent(KEY))
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(render)
+        .catch(()=>{});
+    }
+    refresh(); setInterval(refresh, 30000);
+  </script>
+</body>
+</html>

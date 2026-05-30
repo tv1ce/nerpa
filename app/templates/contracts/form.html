@@ -62,13 +62,24 @@
           </div>
           <div class="col-12">
             <label class="form-label">Шаблон документа</label>
-            <select name="template_id" class="form-select">
+            <select name="template_id" id="template_id" class="form-select" onchange="onTemplateChange(this)">
               <option value="0">— без шаблона —</option>
               {% for tpl in doc_templates %}
-              <option value="{{ tpl.id }}" {% if contract and contract.template_id == tpl.id %}selected{% endif %}>{{ tpl.name }}</option>
+              <option value="{{ tpl.id }}"
+                data-deferred="{{ 'true' if ('отсрочка' in tpl.name.lower() or '50' in tpl.name) else 'false' }}"
+                {% if contract and contract.template_id == tpl.id %}selected{% endif %}>
+                {{ tpl.name }}
+              </option>
               {% endfor %}
             </select>
             <div class="form-text">Выберите шаблон — договор заполнится автоматически при сохранении</div>
+          </div>
+          <div class="col-md-4" id="payment_days_block" style="{{ '' if (contract and contract.payment_days) else 'display:none' }}">
+            <label class="form-label">Дней отсрочки</label>
+            <input type="number" name="payment_days" id="payment_days" class="form-control" min="1" max="365"
+                   value="{{ contract.payment_days if contract and contract.payment_days else '' }}"
+                   placeholder="напр. 30">
+            <div class="form-text">Кол-во дней — подставится в п. 2.9 договора</div>
           </div>
           <div class="col-12">
             <label class="form-label">Примечания</label>
@@ -99,4 +110,24 @@
     </div>
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function onTemplateChange(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const isDeferred = opt && opt.dataset.deferred === 'true';
+  const block = document.getElementById('payment_days_block');
+  if (isDeferred) {
+    block.style.display = '';
+  } else {
+    block.style.display = 'none';
+    document.getElementById('payment_days').value = '';
+  }
+}
+document.addEventListener('DOMContentLoaded', function() {
+  const sel = document.getElementById('template_id');
+  if (sel) onTemplateChange(sel);
+});
+</script>
 {% endblock %}

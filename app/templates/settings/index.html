@@ -107,6 +107,91 @@
     </div>
   </div>
 
+  <!-- Логотип -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="form-section-title">Логотип компании</div>
+      <form method="post" action="/settings/logo" enctype="multipart/form-data">
+        <div class="row g-3 align-items-center">
+          {% if company and company.logo_path %}
+          <div class="col-auto">
+            <img src="/static/uploads/{{ company.logo_path.split('/')[-1] }}" style="max-height:60px; max-width:180px; object-fit:contain;" class="border rounded p-1">
+          </div>
+          {% endif %}
+          <div class="col">
+            <input type="file" name="logo" class="form-control form-control-sm" accept=".png,.jpg,.jpeg,.svg" required>
+            <div class="form-text">PNG или JPG, используется в PDF-счетах</div>
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-upload me-1"></i>Загрузить</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Табло цеха -->
+  <div class="col-lg-8" id="board">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="form-section-title">🥜 Табло цеха (экран на производстве)</div>
+
+      <div class="alert alert-light border d-flex align-items-center gap-2 py-2 mb-3" style="font-size:.85rem">
+        <i class="bi bi-display"></i>
+        <div class="flex-grow-1">
+          Ссылка для liqvid (контент типа «веб-страница»):
+          <div class="input-group input-group-sm mt-1">
+            <input type="text" id="board-url" class="form-control" readonly value="/board?key={{ board_key }}">
+            <a class="btn btn-outline-secondary" id="board-open" href="/board?key={{ board_key }}" target="_blank">
+              <i class="bi bi-box-arrow-up-right"></i> Открыть
+            </a>
+          </div>
+          <div class="form-text">Токен задаётся переменной окружения <code>TMS_BOARD_KEY</code> на сервере.</div>
+        </div>
+      </div>
+
+      <form method="post" action="/settings/board">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">План отгрузки орешков на месяц, шт</label>
+            <input type="number" name="board_nuts_plan" class="form-control" step="100" min="0"
+                   value="{{ company.board_nuts_plan | int if company and company.board_nuts_plan else 0 }}">
+            <div class="form-text">Для прогресс-бара на табло. 0 — бар скрыт.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Активная радиостанция</label>
+            <select name="board_active_station" class="form-select">
+              {% for s in board_stations %}
+              <option value="{{ loop.index0 }}"
+                {% if company and company.board_active_station == loop.index0 %}selected{% endif %}>
+                {{ s.name }}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Можно переключать и прямо на табло по клику.</div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Мотивашки (по одной в строке)</label>
+            <textarea name="board_quotes" class="form-control" rows="5"
+                      placeholder="Каждый орешек — это улыбка клиента 🥜&#10;Сегодня работаем на рекорд!">{{ company.board_quotes if company and company.board_quotes else '' }}</textarea>
+            <div class="form-text">Если пусто — показываются стандартные фразы.</div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Радиостанции (по одной в строке, формат «Название | URL потока»)</label>
+            <textarea name="board_stations" class="form-control" rows="5" style="font-family:monospace;font-size:.85rem"
+                      placeholder="Радио Рекорд | https://radiorecord.hostingradio.ru/rr_main96.aacp&#10;Европа Плюс | https://ep128.hostingradio.ru/ep128">{{ company.board_stations if company and company.board_stations else '' }}</textarea>
+            <div class="form-text">Если пусто — используется набор станций по умолчанию. Указывай прямую ссылку на аудиопоток (mp3/aac).</div>
+          </div>
+
+          <div class="col-12">
+            <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить настройки табло</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Пользователи -->
   <div class="col-lg-4">
     <div class="card border-0 shadow-sm p-4">
@@ -154,4 +239,17 @@
     </div>
   </div>
 </div>
+
+<script>
+  // Показываем абсолютный URL табло (с доменом сервера) — его и вставлять в liqvid
+  (function(){
+    var inp = document.getElementById('board-url');
+    var open = document.getElementById('board-open');
+    if (inp){
+      var abs = window.location.origin + inp.value;
+      inp.value = abs;
+      if (open) open.href = abs;
+    }
+  })();
+</script>
 {% endblock %}

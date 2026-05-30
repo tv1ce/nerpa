@@ -3,6 +3,7 @@
 {% block page_title %}Дашборд{% endblock %}
 
 {% block content %}
+{% set status_ru = {'draft':'Черновик','confirmed':'Подтверждён','shipped':'Отгружен','delivered':'Доставлен','cancelled':'Отменён'} %}
 
 <!-- ── Stat cards ── -->
 <div class="row g-3 mb-4">
@@ -76,6 +77,56 @@
   </div>
 </div>
 
+<!-- ── Nuts sold ── -->
+<div class="row g-3 mb-4">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h6 class="fw-semibold mb-0" style="font-size:.95rem">Продано орешков</h6>
+        <span class="text-muted" style="font-size:.78rem">подтверждённые + отгруженные + доставленные заказы</span>
+      </div>
+      <div class="row g-4 align-items-center">
+
+        <!-- Большое число -->
+        <div class="col-md-3 text-center border-end">
+          <div style="font-size:2.8rem;font-weight:800;line-height:1;color:#F97316">
+            {{ total_nuts_sold | int | format_number }}
+          </div>
+          <div class="text-muted mt-1" style="font-size:.8rem">шт всего</div>
+          <div class="mt-2">
+            <span class="badge rounded-pill" style="background:#fff3cd;color:#856404;font-size:.82rem;padding:.4em .8em">
+              {{ nuts_this_month | int | format_number }} шт за этот месяц
+            </span>
+          </div>
+        </div>
+
+        <!-- Горизонтальные бары по продуктам -->
+        <div class="col-md-9">
+          {% if top_products %}
+            {% set max_qty = top_products[0][1] %}
+            {% for name, qty in top_products %}
+            <div class="mb-2">
+              <div class="d-flex justify-content-between mb-1" style="font-size:.82rem">
+                <span class="text-truncate me-2" style="max-width:70%">{{ name }}</span>
+                <span class="fw-semibold text-nowrap">{{ qty | int | format_number }} шт</span>
+              </div>
+              <div class="progress" style="height:8px;border-radius:4px;background:#f0f0f0">
+                <div class="progress-bar" role="progressbar"
+                     style="width:{{ (qty / max_qty * 100) | round | int }}%;background:#2563EB;border-radius:4px"
+                     aria-valuenow="{{ qty }}" aria-valuemax="{{ max_qty }}"></div>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-muted text-center py-3">Нет данных по продажам</div>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Top clients + Recent ── -->
 <div class="row g-3">
   <div class="col-lg-5">
@@ -114,7 +165,7 @@
               <td>{{ o.counterparty.name }}</td>
               <td>{{ o.date | date_fmt }}</td>
               <td>{{ o.total_amount | money }} ₽</td>
-              <td><span class="badge badge-{{ o.status }}">{{ o.status }}</span></td>
+              <td><span class="badge badge-{{ o.status }}">{{ status_ru.get(o.status, o.status) }}</span></td>
             </tr>
             {% else %}
             <tr><td colspan="5" class="text-center text-muted py-3">Заказов нет</td></tr>
@@ -138,8 +189,8 @@ new Chart(document.getElementById('revenueChart'), {
     datasets: [{
       label: 'Выручка ₽',
       data: months.map(m => m.revenue),
-      backgroundColor: '#f39c12cc',
-      borderColor: '#f39c12',
+      backgroundColor: '#2563EBcc',
+      borderColor: '#2563EB',
       borderWidth: 1,
       borderRadius: 4,
     }]
@@ -158,7 +209,7 @@ new Chart(document.getElementById('ordersChart'), {
     labels: ['Черновик','Подтверждён','Отгружен','Доставлен','Отменён'],
     datasets: [{
       data: [sc.draft, sc.confirmed, sc.shipped, sc.delivered, sc.cancelled],
-      backgroundColor: ['#6c757d','#0d6efd','#6f42c1','#198754','#dc3545'],
+      backgroundColor: ['#94A3B8','#2563EB','#8B5CF6','#22C55E','#EF4444'],
     }]
   },
   options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }, cutout: '65%' }

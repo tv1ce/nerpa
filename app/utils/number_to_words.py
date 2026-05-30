@@ -63,8 +63,12 @@ def amount_to_words(amount: float) -> str:
         parts.append(f"{_chunk(millions, False)} {_plural(millions, ('миллион', 'миллиона', 'миллионов'))}")
     if thousands:
         parts.append(f"{_chunk(thousands, True)} {_plural(thousands, ('тысяча', 'тысячи', 'тысяч'))}")
-    if remainder or not parts:
-        parts.append(f"{_chunk(remainder, False)} {_plural(remainder, ('рубль', 'рубля', 'рублей'))}")
+    if remainder:
+        parts.append(_chunk(remainder, False))
+    elif not parts:
+        parts.append("ноль")
+    # Слово «рубль/рубля/рублей» добавляется всегда и согласуется с суммой целиком.
+    parts.append(_plural(rubles, ('рубль', 'рубля', 'рублей')))
 
     rub_str = " ".join(parts)
     # Capitalize first letter

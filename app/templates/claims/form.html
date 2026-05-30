@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Новая рекламация{% endblock %}
+{% block page_title %}Новая рекламация{% endblock %}
+{% block topbar_actions %}
+  {% if preselect_cp %}
+  <a href="/counterparties/{{ preselect_cp.id }}#tab-claims" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+  {% else %}
+  <a href="/claims/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm p-4">
+      <form method="post" action="/claims/new" id="claimForm">
+        <div class="row g-3">
+
+          <div class="col-md-4">
+            <label class="form-label">Дата *</label>
+            <input type="date" name="claim_date" class="form-control" required value="{{ today }}">
+          </div>
+
+          <div class="col-md-8">
+            <label class="form-label">Контрагент *</label>
+            <select name="counterparty_id" id="cpSelect" class="form-select" required onchange="loadOrders(this.value)">
+              <option value="">— выберите контрагента —</option>
+              {% for cp in counterparties %}
+              <option value="{{ cp.id }}"
+                {% if preselect_cp and preselect_cp.id == cp.id %}selected{% endif %}>
+                {{ cp.trade_name or cp.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Привязать к заказу <span class="text-muted">(необязательно)</span></label>
+            <select name="order_id" id="orderSelect" class="form-select">
+              <option value="0">— без привязки —</option>
+              {% for o in orders %}
+              <option value="{{ o.id }}">{{ o.number }} от {{ o.date | date_fmt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Тип рекламации</label>
+            <select name="claim_type" class="form-select">
+              {% for val, label in claim_types.items() %}
+              <option value="{{ val }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Сумма претензии, ₽ <span class="text-muted">(необязательно)</span></label>
+            <input type="number" name="amount" class="form-control" step="0.01" min="0" placeholder="0.00">
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Описание / суть претензии</label>
+            <textarea name="description" class="form-control" rows="4" placeholder="Опишите проблему подробно…"></textarea>
+          </div>
+
+          <div class="col-12 d-flex gap-2">
+            <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Создать рекламацию</button>
+            <a href="/claims/" class="btn btn-outline-secondary">Отмена</a>
+          </div>
+
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadOrders(cpId) {
+  const sel = document.getElementById('orderSelect');
+  sel.innerHTML = '<option value="0">— без привязки —</option>';
+  if (!cpId) return;
+  try {
+    const resp = await fetch('/claims/by-order/0?cp_id=' + cpId);
+    const orders = await resp.json();
+    orders.forEach(function(o) {
+      const opt = document.createElement('option');
+      opt.value = o.id;
+      opt.textContent = o.number + ' от ' + o.date;
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+// Инициализация при загрузке если контрагент уже выбран
+(function() {
+  const cpSel = document.getElementById('cpSelect');
+  if (cpSel.value) loadOrders(cpSel.value);
+})();
+</script>
+{% endblock %}

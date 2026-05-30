@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Request, Depends, Form
+import os
+from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db, hash_password
-from app.auth import login_required
+from app.auth import login_required, role_required
 from app.models import CompanySettings, User
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -13,16 +14,20 @@ templates = Jinja2Templates(directory="app/templates")
 @router.get("/", response_class=HTMLResponse)
 @login_required
 async def settings_page(request: Request, db: Session = Depends(get_db)):
+    from app.routers.board import BOARD_KEY, parse_stations
     company = db.query(CompanySettings).first()
     users = db.query(User).filter(User.is_active == True).all()
+    stations = parse_stations(company.board_stations if company else None)
     return templates.TemplateResponse(request, "settings/index.html", {
         "company": company, "users": users,
         "saved": request.query_params.get("saved"),
+        "board_key": BOARD_KEY,
+        "board_stations": stations,
     })
 
 
 @router.post("/company")
-@login_required
+@role_required("admin")
 async def save_company(
     request: Request,
     name: str = Form(default=""),
@@ -61,8 +66,52 @@ async def save_company(
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 
 
-@router.post("/users/new")
+@router.post("/board")
+@role_required("admin")
+async def save_board(
+    request: Request,
+    board_nuts_plan: float = Form(default=0.0),
+    board_quotes: str = Form(default=""),
+    board_stations: str = Form(default=""),
+    board_active_station: int = Form(default=0),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.board_nuts_plan = board_nuts_plan
+    company.board_quotes = board_quotes
+    company.board_stations = board_stations
+    company.board_active_station = board_active_station
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1#board", status_code=302)
+
+
+@router.post("/logo")
 @login_required
+async def upload_logo(
+    request: Request,
+    logo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    os.makedirs("app/static/uploads", exist_ok=True)
+    ext = os.path.splitext(logo.filename)[1].lower() or ".png"
+    logo_path = f"app/static/uploads/logo{ext}"
+    content = await logo.read()
+    with open(logo_path, "wb") as f:
+        f.write(content)
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.logo_path = logo_path
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1", status_code=302)
+
+
+@router.post("/users/new")
+@role_required("admin")
 async def create_user(
     request: Request,
     username: str = Form(...),
@@ -83,7 +132,7 @@ async def create_user(
 
 
 @router.post("/users/{user_id}/delete")
-@login_required
+@role_required("admin")
 async def delete_user(request: Request, user_id: int, db: Session = Depends(get_db)):
     if request.session.get("user_id") != user_id:
         user = db.query(User).filter(User.id == user_id).first()

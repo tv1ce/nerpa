@@ -37,7 +37,7 @@
               <option value="{{ cp.id }}"
                 {% if invoice and invoice.counterparty_id == cp.id %}selected
                 {% elif order and order.counterparty_id == cp.id %}selected{% endif %}>
-                {{ cp.name }}
+                {{ cp.trade_name or cp.name }}{% if cp.trade_name %} ({{ cp.name }}){% endif %}
               </option>
               {% endfor %}
             </select>
@@ -47,6 +47,19 @@
             <select name="status" class="form-select">
               {% for val, label in statuses.items() %}
               <option value="{{ val }}" {% if invoice and invoice.status == val %}selected{% elif not invoice and val == 'draft' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label">Основание (договор)</label>
+            <select name="contract_id" class="form-select" id="contract-select">
+              <option value="">— без договора —</option>
+              {% for c in contracts %}
+              <option value="{{ c.id }}"
+                data-counterparty="{{ c.counterparty_id }}"
+                {% if invoice and invoice.contract_id == c.id %}selected{% endif %}>
+                № {{ c.number }} от {{ c.date | date_fmt }} — {{ c.counterparty.name }}
+              </option>
               {% endfor %}
             </select>
           </div>
@@ -125,5 +138,22 @@ const initialItems = [
   {% endif %}
 ];
 initItemsEditor(initialItems, productsMap);
+
+// Фильтрация договоров по выбранному контрагенту
+function filterContracts() {
+  const cpId = document.querySelector('[name="counterparty_id"]').value;
+  const sel = document.getElementById('contract-select');
+  let hasVisible = false;
+  for (const opt of sel.options) {
+    if (!opt.value) { opt.hidden = false; continue; }
+    const show = !cpId || opt.dataset.counterparty === cpId;
+    opt.hidden = !show;
+    if (show && opt.selected) hasVisible = true;
+  }
+  // Сбросить выбор если текущий договор не совпадает с контрагентом
+  if (!hasVisible) sel.value = '';
+}
+document.querySelector('[name="counterparty_id"]').addEventListener('change', filterContracts);
+filterContracts();
 </script>
 {% endblock %}

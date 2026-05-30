@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Транспортная накладная — Заказ {{ order.number }}{% endblock %}
+{% block page_title %}Транспортная накладная к заказу № {{ order.number }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/orders/{{ order.id }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+{% endblock %}
+
+{% block content %}
+<form method="post" action="/orders/{{ order.id }}/tn">
+  <div class="row g-3">
+
+    <div class="col-lg-8">
+      <!-- Перевозчик и ТС -->
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title">Перевозчик и транспортное средство</div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Перевозчик (ФИО / название)</label>
+            <input type="text" name="carrier_name" class="form-control" placeholder="ИП Иванов Иван Иванович">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">ИНН перевозчика</label>
+            <input type="text" name="carrier_inn" class="form-control" maxlength="12">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Водитель</label>
+            <input type="text" name="driver_name" class="form-control" placeholder="Иванов И.И.">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Тип и марка ТС</label>
+            <input type="text" name="vehicle_type" class="form-control" placeholder="Газель Next, 1.5т">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Рег. номер ТС</label>
+            <input type="text" name="vehicle_plate" class="form-control" placeholder="А123ВС78">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Стоимость перевозки, ₽</label>
+            <input type="text" name="shipping_cost" class="form-control">
+          </div>
+        </div>
+      </div>
+
+      <!-- Погрузка -->
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title">Погрузка</div>
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label">Адрес погрузки</label>
+            <input type="text" name="pickup_address" class="form-control"
+                   value="{{ company.actual_address or company.legal_address or '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Дата погрузки</label>
+            <input type="date" name="pickup_date" class="form-control"
+                   value="{{ order.date.isoformat() if order.date else '' }}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Груз -->
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title">Груз</div>
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Наименование груза</label>
+            <input type="text" name="cargo_name" class="form-control"
+                   placeholder="Заполняется автоматически из позиций заказа">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Кол-во мест</label>
+            <input type="text" name="cargo_places" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Масса брутто, кг</label>
+            <input type="text" name="cargo_weight" class="form-control" placeholder="3.5">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Объём, м³</label>
+            <input type="text" name="cargo_volume" class="form-control" placeholder="0.02">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Объявленная стоимость, ₽</label>
+            <input type="text" name="cargo_value" class="form-control"
+                   value="{{ order.total_amount | int if order.total_amount else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Номер ТН</label>
+            <input type="text" name="tn_number" class="form-control"
+                   value="{{ order.id }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Сопроводительные документы</label>
+            <input type="text" name="docs" class="form-control"
+                   placeholder="Счёт № ..., УПД № ...">
+          </div>
+        </div>
+      </div>
+
+      <!-- Доставка -->
+      <div class="card border-0 shadow-sm p-4">
+        <div class="form-section-title">Доставка</div>
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label">Адрес доставки</label>
+            <input type="text" name="delivery_address" class="form-control"
+                   value="{{ order.delivery_address or order.counterparty.legal_address or '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Дата доставки</label>
+            <input type="date" name="delivery_date" class="form-control"
+                   value="{{ order.delivery_date.isoformat() if order.delivery_date else '' }}">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Боковая панель -->
+    <div class="col-lg-4">
+      <div class="card border-0 shadow-sm p-3 mb-3">
+        <div class="fw-semibold mb-2" style="font-size:.9rem">Заказ</div>
+        <div class="mb-1" style="font-size:.85rem"><span class="text-muted">Номер:</span> {{ order.number }}</div>
+        <div class="mb-1" style="font-size:.85rem"><span class="text-muted">Клиент:</span> {{ order.counterparty.name }}</div>
+        <div class="mb-1" style="font-size:.85rem"><span class="text-muted">Сумма:</span> {{ order.total_amount | money }} ₽</div>
+        {% if order.delivery_address %}
+        <div style="font-size:.85rem"><span class="text-muted">Адрес:</span> {{ order.delivery_address }}</div>
+        {% endif %}
+      </div>
+      <div class="card border-0 shadow-sm p-3">
+        <button type="submit" class="btn btn-danger w-100">
+          <i class="bi bi-file-pdf me-1"></i>Сформировать ТН (PDF)
+        </button>
+      </div>
+    </div>
+
+  </div>
+</form>
+{% endblock %}
