@@ -336,9 +336,13 @@ async def logistics_index(
         ).scalar() or 0.0
 
     def _orders_count(d_from, d_to):
-        return db.query(func.count(Order.id)).filter(
+        from app.models import Counterparty as _CP
+        return db.query(func.count(Order.id)).join(
+            _CP, Order.carrier_id == _CP.id
+        ).filter(
             Order.date >= d_from,
             Order.date <= d_to,
+            _CP.name.ilike("%гоголев%"),
         ).scalar() or 0
 
     def _per_order(logi, orders):
