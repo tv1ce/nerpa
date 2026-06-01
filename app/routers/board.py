@@ -105,6 +105,25 @@ def _collect_metrics(db: Session) -> dict:
     last_claim_date = db.query(func.max(Claim.date)).scalar()
     days_without_claims = (today - last_claim_date).days if last_claim_date else None
 
+    # Рекорд дня текущего месяца
+    best_day_row = (
+        db.query(
+            func.date(Order.date).label("day"),
+            func.sum(OrderItem.quantity).label("total"),
+        )
+        .join(Order, OrderItem.order_id == Order.id)
+        .filter(Order.status.in_(_SOLD), Order.date >= month_start)
+        .group_by(func.date(Order.date))
+        .order_by(func.sum(OrderItem.quantity).desc())
+        .first()
+    )
+    record_day = int(best_day_row.total) if best_day_row else 0
+    is_record_today = bool(
+        best_day_row
+        and str(best_day_row.day) == str(today)
+        and shipped_today > 0
+    )
+
     return {
         "company_name": company_name,
         "shipped_total": shipped_total,
@@ -114,6 +133,8 @@ def _collect_metrics(db: Session) -> dict:
         "plan": plan,
         "plan_pct": plan_pct,
         "days_without_claims": days_without_claims,
+        "record_day": record_day,
+        "is_record_today": is_record_today,
         "quotes": quotes,
         "stations": stations,
         "active_station": active,

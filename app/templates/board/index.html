@@ -5,11 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Табло цеха</title>
   <style>
-    /* Палитра «Лаванда»: светлый лавандовый фон + белые карточки + фирменный фиолет #575BA6 */
     :root{
       --bg1:#F1F0FB; --bg2:#E1DFF1; --purple:#575BA6; --lilac:#8E92D4;
       --ink:#2E2C4A; --card:#FFFFFF; --line:#E8E6F4; --track:#ECEAF7;
-      --muted:#8A88A6; --green:#7DC242;
+      --muted:#8A88A6; --green:#7DC242; --orange:#E57C3A;
       --shadow:0 1.4vh 3vh rgba(87,91,166,.12);
     }
     *{box-sizing:border-box;margin:0;padding:0}
@@ -18,7 +17,9 @@
       font-family:'Fira Sans','Segoe UI',system-ui,sans-serif;
       background:radial-gradient(circle at 22% -10%,var(--bg1),var(--bg2) 70%);
       color:var(--ink);height:100vh;display:flex;flex-direction:column;padding:2.2vh 2.6vw;
+      transition:background 4s ease;
     }
+
     /* ── Шапка ── */
     header{display:flex;justify-content:space-between;align-items:center;margin-bottom:2vh}
     .company{font-size:2.4vh;font-weight:800;letter-spacing:.3px;color:var(--purple)}
@@ -26,46 +27,115 @@
     .clock .time{font-size:3.4vh;font-weight:800;color:var(--ink)}
     .clock .date{font-size:1.8vh;color:var(--muted)}
 
-    /* ── Главный блок: отгрузка за месяц + план ── */
+    /* ── Главный блок ── */
     .hero{
       background:linear-gradient(135deg,#F2F1FC,#FFFFFF 60%);
       border:1px solid var(--line);border-radius:2.4vh;padding:3vh 3.2vw;margin-bottom:1.8vh;
       position:relative;overflow:hidden;box-shadow:var(--shadow);
+      transition:background .5s,border-color .5s;
     }
     .hero .label{font-size:2.4vh;color:var(--muted);font-weight:600;margin-bottom:.6vh}
     .hero .big{font-size:11vh;font-weight:800;line-height:.95;
       background:linear-gradient(90deg,var(--purple),var(--lilac));-webkit-background-clip:text;
       background-clip:text;-webkit-text-fill-color:transparent}
     .hero .unit{font-size:3.6vh;color:var(--muted);font-weight:600;margin-left:1vw}
-    .plan-wrap{margin-top:2vh}
+    .plan-wrap{margin-top:2vh;padding-right:9vw} /* отступ под маскота */
     .plan-head{display:flex;justify-content:space-between;align-items:baseline;
       font-size:2.1vh;color:var(--muted);margin-bottom:1vh}
     .plan-head b{color:var(--ink)}
     .plan-head .pct{font-weight:800;font-size:2.8vh;color:var(--purple)}
     .bar{height:3vh;background:var(--track);border-radius:2vh;overflow:hidden}
-    .bar > div{height:100%;border-radius:2vh;
+    .bar > div{
+      height:100%;border-radius:2vh;
       background:linear-gradient(90deg,var(--purple),var(--lilac));
-      transition:width 1.2s cubic-bezier(.2,.8,.2,1)}
-    .hero.done .bar > div{background:linear-gradient(90deg,var(--green),#a5d96a)}
+      transition:width 1.2s cubic-bezier(.2,.8,.2,1);
+      animation:bar-glow 2.5s ease-in-out infinite;
+    }
+    @keyframes bar-glow{
+      0%,100%{box-shadow:none}
+      50%{box-shadow:0 0 1.5vh rgba(87,91,166,.45)}
+    }
+    .hero.done .bar > div{
+      background:linear-gradient(90deg,var(--green),#a5d96a);
+      animation:bar-glow-done 1.8s ease-in-out infinite;
+    }
+    @keyframes bar-glow-done{
+      0%,100%{box-shadow:none}
+      50%{box-shadow:0 0 2vh rgba(125,194,66,.55)}
+    }
     .celebrate{position:absolute;top:2.4vh;right:3vw;font-size:6vh;display:none}
     .hero.done .celebrate{display:block;animation:pop 1.6s ease-in-out infinite}
     @keyframes pop{0%,100%{transform:scale(1) rotate(-4deg)}50%{transform:scale(1.18) rotate(6deg)}}
 
+    /* ── Маскот ── */
+    .mascot{
+      position:absolute;bottom:2.4vh;right:2vw;
+      font-size:7.5vh;line-height:1;cursor:pointer;user-select:none;
+      filter:drop-shadow(0 .4vh .8vh rgba(0,0,0,.1));
+      animation:bounce 3s ease-in-out infinite;
+    }
+    @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.2vh)}}
+    .hero.done .mascot{animation:party 1s ease-in-out infinite}
+    @keyframes party{0%,100%{transform:translateY(0) rotate(-6deg) scale(1)}50%{transform:translateY(-1.5vh) rotate(6deg) scale(1.1)}}
+    .mascot.wiggle{animation:wiggle .65s ease-in-out !important}
+    @keyframes wiggle{
+      0%,100%{transform:scale(1) rotate(0)}
+      15%{transform:scale(1.3) rotate(-18deg)}
+      30%{transform:scale(1.4) rotate(18deg)}
+      50%{transform:scale(1.25) rotate(-12deg)}
+      70%{transform:scale(1.15) rotate(8deg)}
+      85%{transform:scale(1.05) rotate(-4deg)}
+    }
+
+    /* ── Облачко-реплика маскота ── */
+    .speech{
+      position:absolute;bottom:calc(2.4vh + 8.5vh + 1.5vh);right:1.5vw;
+      background:var(--card);border:.25vh solid var(--purple);
+      border-radius:1.4vh;padding:.8vh 1.2vw;
+      font-size:1.8vh;font-weight:700;color:var(--purple);
+      white-space:nowrap;box-shadow:var(--shadow);
+      opacity:0;transform:translateY(1vh);
+      transition:opacity .3s,transform .3s;
+      pointer-events:none;z-index:10;
+    }
+    .speech.show{opacity:1;transform:translateY(0)}
+    .speech::after{
+      content:'';position:absolute;bottom:-1vh;right:2.5vh;
+      border:.6vh solid transparent;border-top-color:var(--purple);
+    }
+
+    /* ── Рекорд дня ── */
+    .record-badge{
+      display:inline-flex;align-items:center;gap:.5vw;margin-top:1.2vh;
+      background:linear-gradient(90deg,#FFD700,#FFA500);color:#2E2C4A;
+      font-size:2vh;font-weight:800;padding:.6vh 1.4vw;border-radius:1.6vh;
+      animation:pulse-gold 2s ease-in-out infinite;
+    }
+    @keyframes pulse-gold{
+      0%,100%{box-shadow:0 0 0 0 rgba(255,215,0,.5)}
+      50%{box-shadow:0 0 0 1.2vh rgba(255,215,0,0)}
+    }
+
     /* ── Карточки-метрики ── */
-    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1.6vw;margin-bottom:1.8vh}
+    .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1.3vw;margin-bottom:1.8vh}
     .stat{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
-      padding:2vh 1.6vw;text-align:center;box-shadow:var(--shadow)}
-    .stat .v{font-size:5vh;font-weight:800;line-height:1}
-    .stat .k{font-size:1.8vh;color:var(--muted);margin-top:.6vh}
+      padding:1.8vh 1.2vw;text-align:center;box-shadow:var(--shadow);
+      transition:background .5s,border-color .5s;}
+    .stat .v{font-size:4.4vh;font-weight:800;line-height:1}
+    .stat .k{font-size:1.65vh;color:var(--muted);margin-top:.6vh}
     .stat.today .v{color:var(--purple)}
     .stat.year  .v{color:var(--lilac)}
     .stat.total .v{color:var(--ink)}
     .stat.claims .v{color:var(--green)}
+    .stat.shift .v{font-size:3.6vh;color:var(--orange);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+    .stat.shift.warn .v{color:#E53E3E;animation:blink .9s ease-in-out infinite}
+    .stat.shift.done-shift .v{color:var(--muted)}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 
     /* ── Музыкальные каналы ── */
     .music{display:flex;align-items:center;gap:1.2vw;background:var(--card);
       border:1px solid var(--line);border-radius:1.6vh;padding:1.4vh 1.6vw;margin-bottom:1.8vh;
-      box-shadow:var(--shadow)}
+      box-shadow:var(--shadow);transition:background .5s,border-color .5s;}
     .music .ico{font-size:3vh}
     .stations{display:flex;gap:.8vw;flex-wrap:wrap;flex:1}
     .chip{font-size:1.9vh;font-weight:600;padding:.8vh 1.4vw;border-radius:1.4vh;
@@ -83,14 +153,29 @@
     /* ── Лента мотивашек ── */
     .ticker{margin-top:auto;background:var(--card);border:1px solid var(--line);
       border-radius:1.8vh;padding:2.4vh 3vw;text-align:center;min-height:10vh;
-      display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow)}
+      display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);
+      transition:background .5s,border-color .5s;}
     .ticker .quote{font-size:3.2vh;font-weight:800;opacity:0;transition:opacity .8s;
       background:linear-gradient(90deg,var(--purple),var(--lilac));-webkit-background-clip:text;
       background-clip:text;-webkit-text-fill-color:transparent}
     .ticker .quote.show{opacity:1}
+
+    /* ── Ночной режим ── */
+    #night-overlay{
+      position:fixed;inset:0;
+      background:rgba(6,4,22,0);
+      pointer-events:none;z-index:990;
+      transition:background 5s ease;
+    }
+    body.night #night-overlay{background:rgba(6,4,22,.78)}
+
+    /* ── Конфетти ── */
+    #confetti-canvas{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999}
   </style>
 </head>
 <body data-key="{{ key }}">
+<canvas id="confetti-canvas"></canvas>
+<div id="night-overlay"></div>
 
   <header>
     <div class="company">🥜 {{ data.company_name }}</div>
@@ -100,11 +185,14 @@
     </div>
   </header>
 
-  <!-- Главный показатель: отгрузка за месяц + прогресс к плану -->
+  <!-- Главный показатель -->
   <div class="hero" id="hero">
     <div class="celebrate">🎉</div>
+    <div class="mascot" id="mascot">😊</div>
+    <div class="speech" id="speech"></div>
     <div class="label">Отгружено орешков за месяц</div>
     <div><span class="big" id="m-shipped">{{ data.shipped_month }}</span><span class="unit">шт</span></div>
+    <div id="record-badge" class="record-badge" style="display:{{ '' if data.is_record_today else 'none' }}">🏆 Рекорд дня!</div>
 
     <div class="plan-wrap" id="plan-wrap">
       <div class="plan-head">
@@ -133,6 +221,10 @@
       <div class="v" id="m-claims">—</div>
       <div class="k" id="m-claims-label">дней без рекламаций</div>
     </div>
+    <div class="stat shift" id="stat-shift">
+      <div class="v" id="m-shift">--:--</div>
+      <div class="k" id="m-shift-label">до конца смены</div>
+    </div>
   </div>
 
   <!-- Музыкальные каналы -->
@@ -149,12 +241,14 @@
 
   <script>
     const KEY = document.body.dataset.key;
-    const MUTE = new URLSearchParams(location.search).has('mute'); // режим без звука
+    const MUTE = new URLSearchParams(location.search).has('mute');
     const fmt = n => (n ?? 0).toLocaleString('ru-RU');
 
     let QUOTES = {{ data.quotes | tojson }};
     let STATIONS = {{ data.stations | tojson }};
     let active = {{ data.active_station }};
+    let isRecordToday = {{ 'true' if data.is_record_today else 'false' }};
+    let planDone = false;
 
     const player = document.getElementById('player');
     const soundBtn = document.getElementById('sound-btn');
@@ -169,13 +263,163 @@
     }
     tick(); setInterval(tick, 1000);
 
-    // ── Лента мотивашек ──
+    // ── Таймер до конца смены (18:00) ──
+    function updateShift(){
+      const now = new Date();
+      const end = new Date(now); end.setHours(18, 0, 0, 0);
+      const shiftEl = document.getElementById('m-shift');
+      const shiftLabel = document.getElementById('m-shift-label');
+      const card = document.getElementById('stat-shift');
+      if (now >= end){
+        shiftEl.textContent = '🌙';
+        shiftLabel.textContent = 'смена окончена';
+        card.classList.remove('warn');
+        card.classList.add('done-shift');
+        return;
+      }
+      card.classList.remove('done-shift');
+      const diff = Math.floor((end - now) / 1000);
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
+      const s = diff % 60;
+      const parts = [];
+      if (h > 0) parts.push(String(h).padStart(2,'0'));
+      parts.push(String(m).padStart(2,'0'));
+      parts.push(String(s).padStart(2,'0'));
+      shiftEl.textContent = parts.join(':');
+      shiftLabel.textContent = 'до конца смены';
+      card.classList.toggle('warn', diff < 3600);
+    }
+    updateShift(); setInterval(updateShift, 1000);
+
+    // ── Ночной режим (после 18:00) ──
+    function updateNightMode(){
+      const h = new Date().getHours();
+      document.body.classList.toggle('night', h >= 18 || h < 7);
+    }
+    updateNightMode(); setInterval(updateNightMode, 60000);
+
+    // ── Конфетти ──
+    const confettiCanvas = document.getElementById('confetti-canvas');
+    const cctx = confettiCanvas.getContext('2d');
+    let confettiActive = false;
+
+    function launchConfetti(){
+      if (confettiActive) return;
+      confettiActive = true;
+      confettiCanvas.width = window.innerWidth;
+      confettiCanvas.height = window.innerHeight;
+      const colors = ['#575BA6','#8E92D4','#7DC242','#FFD700','#FF6B6B','#FFA500','#FF85A1'];
+      const particles = Array.from({length: 160}, () => ({
+        x: Math.random() * confettiCanvas.width,
+        y: -20 - Math.random() * 250,
+        vx: (Math.random() - .5) * 4,
+        vy: 2.5 + Math.random() * 3.5,
+        w: 7 + Math.random() * 8,
+        h: 4 + Math.random() * 5,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        rot: Math.random() * 360,
+        rotV: (Math.random() - .5) * 9,
+      }));
+      const start = Date.now();
+      function frame(){
+        cctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+        const elapsed = Date.now() - start;
+        const alpha = elapsed < 4500 ? 1 : Math.max(0, 1 - (elapsed - 4500) / 1500);
+        particles.forEach(p => {
+          p.x += p.vx; p.y += p.vy; p.vy += .04; p.rot += p.rotV;
+          if (p.y > confettiCanvas.height){ p.y = -20; p.vy = 2.5 + Math.random() * 3.5; }
+          cctx.save();
+          cctx.globalAlpha = alpha;
+          cctx.translate(p.x, p.y);
+          cctx.rotate(p.rot * Math.PI / 180);
+          cctx.fillStyle = p.color;
+          cctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+          cctx.restore();
+        });
+        if (elapsed < 6000) requestAnimationFrame(frame);
+        else { cctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.height); confettiActive = false; }
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // ── Маскот: клик + пасхалка ──
+    const MASCOT_PHRASES = [
+      'Орешки сами себя не отгрузят! 🥜',
+      'Кто молодец? Вы молодец! 👏',
+      'Орешковый дзен достигнут 🧘',
+      'Чай стынет — план ждёт! ☕',
+      'Ты нажал на маскота. Зачем? 🤔',
+      'Орешки любят быстрые руки 🏎️',
+      'Смотри в план, а не на меня! 📊',
+      'Я просто украшение. Работайте! 😤',
+      'Ещё чуть-чуть — и рекорд! 🚀',
+      'Без орешков не было бы меня 🥜',
+    ];
+    let mascotClicks = 0;
+    let speechTimer = null;
+    const mascotEl = document.getElementById('mascot');
+    const speechEl = document.getElementById('speech');
+
+    mascotEl.addEventListener('click', () => {
+      mascotClicks++;
+      // Wiggle
+      mascotEl.classList.remove('wiggle');
+      void mascotEl.offsetWidth;
+      mascotEl.classList.add('wiggle');
+      mascotEl.addEventListener('animationend', () => mascotEl.classList.remove('wiggle'), {once:true});
+      // Пасхалка на 10-й клик
+      let phrase;
+      if (mascotClicks >= 10){
+        phrase = '🎊 ВЫ ВЗЛОМАЛИ МАСКОТА! 🎊';
+        launchConfetti();
+        mascotClicks = 0;
+      } else {
+        phrase = MASCOT_PHRASES[Math.floor(Math.random() * MASCOT_PHRASES.length)];
+      }
+      speechEl.textContent = phrase;
+      speechEl.classList.add('show');
+      if (speechTimer) clearTimeout(speechTimer);
+      speechTimer = setTimeout(() => speechEl.classList.remove('show'), 2800);
+    });
+
+    // ── Маскот: меняется по прогрессу ──
+    function updateMascot(pct){
+      if      (pct >= 100) mascotEl.textContent = '🥳';
+      else if (pct >= 75)  mascotEl.textContent = '🔥';
+      else if (pct >= 50)  mascotEl.textContent = '💪';
+      else if (pct >= 25)  mascotEl.textContent = '😊';
+      else                 mascotEl.textContent = '😴';
+    }
+    updateMascot({{ data.plan_pct }});
+
+    // ── Тикер: мотивашки + факты об орешках ──
+    const NUT_FACTS = [
+      '🥜 Факт: арахис — это бобовое, а не орех!',
+      '🌰 Орехи снижают риск сердечных заболеваний на 30%',
+      '🥜 Факт: в орехах больше полезного жира, чем в авокадо',
+      '🌰 Витамин Е в орехах — мощный антиоксидант для мозга',
+      '🥜 Факт: египетские фараоны брали орехи в гробницы',
+      '🌰 Горсть орехов в день снижает стресс и усталость',
+      '🥜 Факт: орехи помогают лучше концентрироваться',
+    ];
     let qi = 0;
     const qEl = document.getElementById('quote');
+    function getPool(){
+      const base = QUOTES.length ? QUOTES : ['Работаем!'];
+      const record = isRecordToday ? ['🏆 Сегодня рекорд дня — вы лучшие!'] : [];
+      // Факт вставляется каждые 4 цитаты
+      const mixed = [];
+      base.forEach((q, i) => {
+        mixed.push(q);
+        if ((i + 1) % 4 === 0) mixed.push(NUT_FACTS[Math.floor(i / 4) % NUT_FACTS.length]);
+      });
+      return [...record, ...mixed];
+    }
     function showQuote(){
-      if (!QUOTES.length) return;
+      const pool = getPool();
       qEl.classList.remove('show');
-      setTimeout(()=>{ qEl.textContent = QUOTES[qi % QUOTES.length]; qEl.classList.add('show'); qi++; }, 600);
+      setTimeout(()=>{ qEl.textContent = pool[qi % pool.length]; qEl.classList.add('show'); qi++; }, 600);
     }
     showQuote(); setInterval(showQuote, 9000);
 
@@ -210,14 +454,11 @@
       }
     }
 
-    // Кнопка разблокировки звука (на случай блокировки автозапуска вебвью/браузером)
     soundBtn.onclick = () => { playActive().then(()=> soundBtn.style.display='none').catch(()=>{}); };
-
-    // Пробуем автозапуск; если браузер не разрешит — покажем кнопку
     renderStations();
     playActive().then(()=> soundBtn.style.display='none').catch(()=> soundBtn.style.display='');
 
-    // ── Обновление данных ──
+    // ── Обновление данных (каждые 30 сек) ──
     function render(d){
       document.getElementById('m-shipped').textContent = fmt(d.shipped_month);
       document.getElementById('m-plan').textContent    = fmt(d.plan);
@@ -229,11 +470,16 @@
       const hero = document.getElementById('hero');
       if (d.plan > 0){
         document.getElementById('plan-wrap').style.display = '';
-        document.getElementById('bar-fill').style.width = Math.min(d.plan_pct,100) + '%';
-        hero.classList.toggle('done', d.plan_pct >= 100);
+        document.getElementById('bar-fill').style.width = Math.min(d.plan_pct, 100) + '%';
+        const nowDone = d.plan_pct >= 100;
+        if (nowDone && !planDone) launchConfetti();
+        planDone = nowDone;
+        hero.classList.toggle('done', nowDone);
       } else {
         document.getElementById('plan-wrap').style.display = 'none';
       }
+
+      updateMascot(d.plan_pct);
 
       const c = document.getElementById('m-claims');
       const cl = document.getElementById('m-claims-label');
@@ -243,16 +489,14 @@
         c.textContent = d.days_without_claims; cl.textContent = 'дней без рекламаций';
       }
 
-      // Мотивашки могли измениться в настройках
-      if (JSON.stringify(d.quotes) !== JSON.stringify(QUOTES)) QUOTES = d.quotes;
+      isRecordToday = !!d.is_record_today;
+      document.getElementById('record-badge').style.display = isRecordToday ? '' : 'none';
 
-      // Список станций / активная станция могли смениться из настроек
+      if (JSON.stringify(d.quotes) !== JSON.stringify(QUOTES)) QUOTES = d.quotes;
       if (JSON.stringify(d.stations) !== JSON.stringify(STATIONS)){
         STATIONS = d.stations; renderStations();
       }
-      if (d.active_station !== active){
-        selectStation(d.active_station, false);  // переключение из настроек — без повторного POST
-      }
+      if (d.active_station !== active) selectStation(d.active_station, false);
     }
 
     function refresh(){
