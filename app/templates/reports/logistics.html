@@ -4,6 +4,7 @@
 
 {% block topbar_actions %}
 <div class="d-flex gap-2 flex-wrap">
+  <a href="/reports/logistics/?period=week"       class="btn btn-sm {% if period=='week'       %}btn-accent{% else %}btn-outline-secondary{% endif %}">Неделя</a>
   <a href="/reports/logistics/?period=month"      class="btn btn-sm {% if period=='month'      %}btn-accent{% else %}btn-outline-secondary{% endif %}">Месяц</a>
   <a href="/reports/logistics/?period=prev_month" class="btn btn-sm {% if period=='prev_month' %}btn-accent{% else %}btn-outline-secondary{% endif %}">Пред. месяц</a>
   <a href="/reports/logistics/?period=year"       class="btn btn-sm {% if period=='year'       %}btn-accent{% else %}btn-outline-secondary{% endif %}">Год</a>
@@ -93,19 +94,32 @@
 
     <!-- KPI -->
     <div class="card border-0 shadow-sm p-3 mb-3">
-      <div class="form-section-title mb-2">Сводка</div>
-      <div class="d-flex justify-content-between align-items-center mb-1">
-        <span class="text-muted" style="font-size:.82rem">Текущий месяц</span>
-        <span class="fw-bold text-danger">{{ total_month | money }} ₽</span>
+      <div class="form-section-title mb-3">Сводка</div>
+
+      {% set kpi_rows = [
+        ('Текущая неделя',   total_week,       per_order_week,       orders_week),
+        ('Текущий месяц',    total_month,      per_order_month,      orders_month),
+        (prev_month_label | capitalize, total_prev_month, per_order_prev_month, orders_prev_month),
+        ('Текущий год',      total_year,       per_order_year,       orders_year),
+      ] %}
+
+      {% for label, logi_total, per_order, n_orders in kpi_rows %}
+      <div class="mb-3 pb-2 {% if not loop.last %}border-bottom{% endif %}">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="text-muted" style="font-size:.8rem">{{ label }}</span>
+          <span class="fw-bold text-danger" style="font-size:.9rem">{{ logi_total | money }} ₽</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-muted" style="font-size:.75rem">
+            <i class="bi bi-box-seam me-1"></i>Логистика 1 заказа
+            <span class="text-muted ms-1">({{ n_orders }} зак.)</span>
+          </span>
+          <span style="font-size:.82rem; font-weight:600; color:#6c757d">
+            {% if per_order is not none %}{{ per_order | money }} ₽{% else %}<span class="text-muted">—</span>{% endif %}
+          </span>
+        </div>
       </div>
-      <div class="d-flex justify-content-between align-items-center mb-1">
-        <span class="text-muted" style="font-size:.82rem">{{ prev_month_label | capitalize }}</span>
-        <span class="fw-semibold text-secondary">{{ total_prev_month | money }} ₽</span>
-      </div>
-      <div class="d-flex justify-content-between align-items-center">
-        <span class="text-muted" style="font-size:.82rem">Текущий год</span>
-        <span class="fw-bold text-danger">{{ total_year | money }} ₽</span>
-      </div>
+      {% endfor %}
     </div>
 
     <!-- Синхронизация с Метафорой -->

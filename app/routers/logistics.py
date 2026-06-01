@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import login_required
 from app.database import get_db
-from app.models import LogisticsCost, CompanySettings
+from app.models import LogisticsCost, CompanySettings, Order
 
 router = APIRouter(prefix="/reports/logistics", tags=["logistics"])
 templates = Jinja2Templates(directory="app/templates")
@@ -287,21 +287,27 @@ async def logistics_index(
     month_start, month_end = _month_bounds(today)
     year_start = today.replace(month=1, day=1)
 
+    # Неделя
+    week_start = today - timedelta(days=today.weekday())
+    week_end   = week_start + timedelta(days=6)
+
     # Предыдущий месяц
-    prev_month_last = month_start - timedelta(days=1)
+    prev_month_last  = month_start - timedelta(days=1)
     prev_month_start, prev_month_end = _month_bounds(prev_month_last)
 
-    if period == "year":
+    if period == "week":
+        tbl_from, tbl_to = week_start, week_end
+    elif period == "year":
         tbl_from, tbl_to = year_start, today
     elif period == "prev_month":
         tbl_from, tbl_to = prev_month_start, prev_month_end
     elif period == "custom" and date_from and date_to:
         try:
             tbl_from = date.fromisoformat(date_from)
-            tbl_to = date.fromisoformat(date_to)
+            tbl_to   = date.fromisoformat(date_to)
         except ValueError:
             tbl_from, tbl_to = month_start, today
-    else:
+    else:  # month (default)
         tbl_from, tbl_to = month_start, today
 
     rows = db.query(LogisticsCost).filter(
@@ -310,28 +316,57 @@ async def logistics_index(
     ).order_by(LogisticsCost.date.desc()).all()
 
     total = sum(r.amount for r in rows)
-    total_month = db.query(func.sum(LogisticsCost.amount)).filter(
-        LogisticsCost.date >= month_start,
-        LogisticsCost.date <= month_end,
-    ).scalar() or 0.0
-    total_prev_month = db.query(func.sum(LogisticsCost.amount)).filter(
-        LogisticsCost.date >= prev_month_start,
-        LogisticsCost.date <= prev_month_end,
-    ).scalar() or 0.0
-    total_year = db.query(func.sum(LogisticsCost.amount)).filter(
-        LogisticsCost.date >= year_start,
-    ).scalar() or 0.0
+
+    def _logi_sum(d_from, d_to):
+        return db.query(func.sum(LogisticsCost.amount)).filter(
+            LogisticsCost.date >= d_from,
+            LogisticsCost.date <= d_to,
+        ).scalar() or 0.0
+
+    def _orders_count(d_from, d_to):
+        return db.query(func.count(Order.id)).filter(
+            Order.date >= d_from,
+            Order.date <= d_to,
+        ).scalar() or 0
+
+    def _per_order(logi, orders):
+        return round(logi / orders, 2) if orders > 0 else None
+
+    total_week       = _logi_sum(week_start, week_end)
+    total_month      = _logi_sum(month_start, month_end)
+    total_prev_month = _logi_sum(prev_month_start, prev_month_end)
+    total_year       = _logi_sum(year_start, today)
+
+    orders_week       = _orders_count(week_start, week_end)
+    orders_month      = _orders_count(month_start, month_end)
+    orders_prev_month = _orders_count(prev_month_start, prev_month_end)
+    orders_year       = _orders_count(year_start, today)
 
     company = db.query(CompanySettings).first()
     return templates.TemplateResponse(request, "reports/logistics.html", {
         "rows": rows, "total": total,
-        "total_month": total_month, "total_prev_month": total_prev_month,
-        "total_year": total_year,
+        # суммы по периодам
+        "total_week":       total_week,
+        "total_month":      total_month,
+        "total_prev_month": total_prev_month,
+        "total_year":       total_year,
+        # логистика на 1 заказ
+        "per_order_week":       _per_order(total_week,       orders_week),
+        "per_order_month":      _per_order(total_month,      orders_month),
+        "per_order_prev_month": _per_order(total_prev_month, orders_prev_month),
+        "per_order_year":       _per_order(total_year,       orders_year),
+        # кол-во заказов
+        "orders_week":       orders_week,
+        "orders_month":      orders_month,
+        "orders_prev_month": orders_prev_month,
+        "orders_year":       orders_year,
+        # метки
+        "week_start": week_start, "week_end": week_end,
         "prev_month_label": prev_month_start.strftime("%B %Y"),
         "period": period, "date_from": date_from, "date_to": date_to,
         "tbl_from": tbl_from, "tbl_to": tbl_to,
         "today": today,
-        "metafora_url": getattr(company, "metafora_url", None) or METAFORA_URL,
+        "metafora_url":  getattr(company, "metafora_url",  None) or METAFORA_URL,
         "metafora_email": getattr(company, "metafora_email", None) or "",
         "has_token": bool(getattr(company, "metafora_token", None)),
     })
