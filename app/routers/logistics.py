@@ -310,13 +310,24 @@ async def logistics_index(
     else:  # month (default)
         tbl_from, tbl_to = month_start, today
 
-    rows = db.query(LogisticsCost).filter(
+    raw_rows = db.query(LogisticsCost).filter(
         LogisticsCost.date >= tbl_from,
         LogisticsCost.date <= tbl_to,
     ).order_by(LogisticsCost.date.desc()).all()
 
-    TAX = 1.06  # +6% налог (применяется к отображаемым суммам)
-    total = round(sum(r.amount for r in rows) * TAX, 2)
+    TAX = 1.06  # +6% налог (применяется ко всем отображаемым суммам)
+    rows = [
+        {
+            "id":          r.id,
+            "date":        r.date,
+            "description": r.description,
+            "notes":       r.notes,
+            "source":      r.source,
+            "amount":      round(r.amount * TAX, 2),
+        }
+        for r in raw_rows
+    ]
+    total = round(sum(r["amount"] for r in rows), 2)
 
     def _logi_sum(d_from, d_to):
         return db.query(func.sum(LogisticsCost.amount)).filter(
