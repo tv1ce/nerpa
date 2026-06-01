@@ -59,6 +59,11 @@ def _money(v):
     if v is None: return "—"
     return f"{v:,.2f}".replace(",", " ").replace(".", ",")
 
+def _qty(v):
+    """Количество как в 1С: 3 знака после запятой, пробел-разделитель тысяч."""
+    if v is None: return ""
+    return f"{v:,.3f}".replace(",", " ").replace(".", ",")
+
 def _date_v(d):
     if not d: return "—"
     if isinstance(d, date):
@@ -136,7 +141,7 @@ def generate_upd_pdf(invoice, company) -> bytes:
     # ══════════════════════════════════════════════════════════════
     status_cell = Table([
         [_p("Статус:", sz=8), _p("2", sz=12, bold=True, align="CENTER")],
-        [_p("1 – счёт-фактура и передаточный документ (акт)", sz=5.5, color=GREY), ""],
+        [_p("1 – счет-фактура и передаточный документ (акт)", sz=5.5, color=GREY), ""],
         [_p("2 – передаточный документ (акт)", sz=5.5, color=GREY), ""],
     ], colWidths=[None, 10*mm])
     status_cell.setStyle(TableStyle([
@@ -167,10 +172,10 @@ def generate_upd_pdf(invoice, company) -> bytes:
 
     # ── строка счёта-фактуры (1)/(1а) ──────────────────────────────
     sf_tbl = Table([
-        [_p("Счёт-фактура №", sz=8, bold=True), _p(str(inv_num), sz=9, bold=True),
+        [_p("Счет-фактура №", sz=8, bold=True), _p(str(inv_num), sz=9, bold=True),
          _p("от", sz=8), _p(_date_v(invoice.date), sz=9, bold=True), _p("(1)", sz=6, color=GREY)],
-        [_p("Исправление №", sz=7, color=GREY), _p("", sz=7, color=GREY),
-         _p("от", sz=7, color=GREY), _p("", sz=7, color=GREY), _p("(1а)", sz=6, color=GREY)],
+        [_p("Исправление №", sz=7, color=GREY), _p("--", sz=7, color=GREY),
+         _p("от", sz=7, color=GREY), _p("--", sz=7, color=GREY), _p("(1а)", sz=6, color=GREY)],
     ], colWidths=[26*mm, 22*mm, 8*mm, 45*mm, 12*mm])
     sf_tbl.setStyle(TableStyle([
         ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
@@ -263,7 +268,7 @@ def generate_upd_pdf(invoice, company) -> bytes:
 
     total_without = total_vat = total_with = 0.0
     for idx, item in enumerate(invoice.items, 1):
-        code    = (item.product.article or "") if item.product else ""
+        code    = (item.product.article or "--") if item.product else "--"
         vat_r   = item.vat_rate or 0
         without = item.price * item.quantity
         vat_amt = without * vat_r / 100 if vat_r > 0 else 0
@@ -272,24 +277,24 @@ def generate_upd_pdf(invoice, company) -> bytes:
         total_vat     += vat_amt
         total_with    += with_t
         vat_str = "Без НДС" if vat_r == 0 else f"{int(vat_r)}%"
-        vat_sum = "—" if vat_r == 0 else _money(vat_amt)
+        vat_sum = "--" if vat_r == 0 else _money(vat_amt)
         rows.append([
             _p(code, sz=6.5),
             _p(str(idx), sz=7, align="CENTER"),
             _p(item.name, sz=7),
-            _p("", sz=7, align="CENTER"),
+            _p("--", sz=7, align="CENTER"),
             _p("796", sz=7, align="CENTER"),
             _p(item.unit, sz=7, align="CENTER"),
-            _p(_money(item.quantity).replace(",00",""), sz=7, align="RIGHT"),
-            _p(_money(item.price), sz=7, align="RIGHT"),
+            _p(_qty(item.quantity), sz=7, align="RIGHT"),
+            _p(_money(item.price) if item.price else "--", sz=7, align="RIGHT"),
             _p(_money(without), sz=7, align="RIGHT"),
-            _p("без акциза", sz=6, align="CENTER"),
+            _p("Без акциза", sz=6, align="CENTER"),
             _p(vat_str, sz=7, align="CENTER"),
             _p(vat_sum, sz=7, align="RIGHT"),
             _p(_money(with_t), sz=7, align="RIGHT"),
-            _p("", sz=7, align="CENTER"),
-            _p("", sz=7, align="CENTER"),
-            _p("", sz=7, align="CENTER"),
+            _p("--", sz=7, align="CENTER"),
+            _p("--", sz=7, align="CENTER"),
+            _p("--", sz=7, align="CENTER"),
         ])
 
     # итоговая строка «Всего к оплате (9)»
@@ -298,7 +303,7 @@ def generate_upd_pdf(invoice, company) -> bytes:
         _p(_money(total_without), sz=7, bold=True, align="RIGHT"),
         _p("Х", sz=7, align="CENTER"),
         "",
-        _p(_money(total_vat) if total_vat else "", sz=7, bold=True, align="RIGHT"),
+        _p(_money(total_vat) if total_vat else "--", sz=7, bold=True, align="RIGHT"),
         _p(_money(total_with), sz=7, bold=True, align="RIGHT"),
         "", "", "",
     ])
