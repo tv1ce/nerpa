@@ -133,6 +133,7 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
     new_clients = db.query(Counterparty).filter(
         func.date(Counterparty.created_at) >= ws,
         func.date(Counterparty.created_at) <= we,
+        Counterparty.type.in_(["client", "both"]),
     ).count()
 
     logistics_week = db.query(func.sum(LogisticsCost.amount)).filter(
@@ -235,6 +236,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
         .filter(
             Order.date >= ms, Order.date <= me,
             func.date(Counterparty.created_at) >= ms,
+            Counterparty.type.in_(["client", "both"]),
         )
         .count()
     )
