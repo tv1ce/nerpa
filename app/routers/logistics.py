@@ -315,7 +315,8 @@ async def logistics_index(
         LogisticsCost.date <= tbl_to,
     ).order_by(LogisticsCost.date.desc()).all()
 
-    total = sum(r.amount for r in rows)
+    TAX = 1.06  # +6% налог (применяется к отображаемым суммам)
+    total = round(sum(r.amount for r in rows) * TAX, 2)
 
     def _logi_sum(d_from, d_to):
         return db.query(func.sum(LogisticsCost.amount)).filter(
@@ -332,10 +333,10 @@ async def logistics_index(
     def _per_order(logi, orders):
         return round(logi / orders, 2) if orders > 0 else None
 
-    total_week       = _logi_sum(week_start, week_end)
-    total_month      = _logi_sum(month_start, month_end)
-    total_prev_month = _logi_sum(prev_month_start, prev_month_end)
-    total_year       = _logi_sum(year_start, today)
+    total_week       = round(_logi_sum(week_start, week_end)       * TAX, 2)
+    total_month      = round(_logi_sum(month_start, month_end)     * TAX, 2)
+    total_prev_month = round(_logi_sum(prev_month_start, prev_month_end) * TAX, 2)
+    total_year       = round(_logi_sum(year_start, today)          * TAX, 2)
 
     orders_week       = _orders_count(week_start, week_end)
     orders_month      = _orders_count(month_start, month_end)
