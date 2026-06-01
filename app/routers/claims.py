@@ -159,6 +159,19 @@ async def update_status(
     return RedirectResponse(url=f"/claims/{claim_id}", status_code=302)
 
 
+@router.post("/{claim_id}/delete")
+@role_required("admin")
+async def delete_claim(request: Request, claim_id: int, db: Session = Depends(get_db)):
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if claim:
+        log_action(db, "claim", claim_id, "deleted",
+                   request.session.get("user_id"),
+                   f"Рекламация {claim.number} удалена")
+        db.delete(claim)
+        db.commit()
+    return RedirectResponse(url="/claims/", status_code=302)
+
+
 @router.get("/by-order/{order_id}")
 @login_required
 async def orders_by_cp(request: Request, order_id: int, cp_id: int = 0, db: Session = Depends(get_db)):

@@ -28,6 +28,12 @@
             <label class="form-label">Краткое наименование</label>
             <input type="text" name="short_name" class="form-control" value="{{ cv(company.short_name) if company else '' }}">
           </div>
+          <div class="col-md-6">
+            <label class="form-label">Название бренда <span class="text-muted" style="font-size:.82rem">(выводится на табло цеха)</span></label>
+            <input type="text" name="brand_name" class="form-control" placeholder="Например: ОрехОфф"
+                   value="{{ cv(company.brand_name) if company else '' }}">
+            <div class="form-text">Если заполнено — на табло показывается вместо краткого наименования ИП.</div>
+          </div>
           <div class="col-md-3">
             <label class="form-label">ИНН</label>
             <input type="text" name="inn" class="form-control" maxlength="12" value="{{ cv(company.inn) if company else '' }}">
@@ -231,6 +237,7 @@
           <select name="role" class="form-select form-select-sm">
             <option value="manager">Менеджер</option>
             <option value="viewer">Просмотр</option>
+            <option value="warehouse">Склад</option>
             <option value="admin">Администратор</option>
           </select>
         </div>

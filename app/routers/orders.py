@@ -30,7 +30,7 @@ def _next_order_number(db: Session) -> str:
 @router.get("/", response_class=HTMLResponse)
 @login_required
 async def list_orders(request: Request, q: str = "", status: str = "", db: Session = Depends(get_db)):
-    query = db.query(Order).join(Counterparty)
+    query = db.query(Order).join(Counterparty, Order.counterparty_id == Counterparty.id)
     if q:
         query = query.filter(Order.number.ilike(f"%{q}%") | Counterparty.name.ilike(f"%{q}%"))
     if status:
@@ -47,9 +47,16 @@ async def new_order(request: Request, db: Session = Depends(get_db)):
     counterparties = db.query(Counterparty).filter(
         Counterparty.is_active == True, Counterparty.type.in_(["client", "both"])
     ).order_by(Counterparty.name).all()
+    suppliers = db.query(Counterparty).filter(
+        Counterparty.is_active == True, Counterparty.type.in_(["supplier", "both"])
+    ).order_by(Counterparty.name).all()
+    carriers = db.query(Counterparty).filter(
+        Counterparty.is_active == True, Counterparty.type == "carrier"
+    ).order_by(Counterparty.name).all()
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     return templates.TemplateResponse(request, "orders/form.html", {
-        "order": None, "counterparties": counterparties, "products": products,
+        "order": None, "counterparties": counterparties, "suppliers": suppliers,
+        "carriers": carriers, "products": products,
         "statuses": ORDER_STATUSES, "suggested_number": _next_order_number(db),
     })
 
@@ -61,6 +68,8 @@ async def create_order(
     number: str = Form(...),
     order_date: str = Form(...),
     counterparty_id: int = Form(...),
+    supplier_id: int = Form(default=0),
+    carrier_id: int = Form(default=0),
     status: str = Form(default="draft"),
     delivery_date: str = Form(default=""),
     delivery_address: str = Form(default=""),
@@ -72,6 +81,8 @@ async def create_order(
         number=number,
         date=date.fromisoformat(order_date),
         counterparty_id=counterparty_id,
+        supplier_id=supplier_id or None,
+        carrier_id=carrier_id or None,
         status=status,
         delivery_date=date.fromisoformat(delivery_date) if delivery_date else None,
         delivery_address=delivery_address,
@@ -133,9 +144,16 @@ async def edit_order(request: Request, order_id: int, db: Session = Depends(get_
     if not order:
         return RedirectResponse(url="/orders", status_code=302)
     counterparties = db.query(Counterparty).filter(Counterparty.is_active == True).order_by(Counterparty.name).all()
+    suppliers = db.query(Counterparty).filter(
+        Counterparty.is_active == True, Counterparty.type.in_(["supplier", "both"])
+    ).order_by(Counterparty.name).all()
+    carriers = db.query(Counterparty).filter(
+        Counterparty.is_active == True, Counterparty.type == "carrier"
+    ).order_by(Counterparty.name).all()
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     return templates.TemplateResponse(request, "orders/form.html", {
-        "order": order, "counterparties": counterparties, "products": products,
+        "order": order, "counterparties": counterparties, "suppliers": suppliers,
+        "carriers": carriers, "products": products,
         "statuses": ORDER_STATUSES, "suggested_number": order.number,
     })
 
@@ -147,6 +165,8 @@ async def update_order(
     number: str = Form(...),
     order_date: str = Form(...),
     counterparty_id: int = Form(...),
+    supplier_id: int = Form(default=0),
+    carrier_id: int = Form(default=0),
     status: str = Form(default="draft"),
     delivery_date: str = Form(default=""),
     delivery_address: str = Form(default=""),
@@ -160,6 +180,8 @@ async def update_order(
     order.number = number
     order.date = date.fromisoformat(order_date)
     order.counterparty_id = counterparty_id
+    order.supplier_id = supplier_id or None
+    order.carrier_id = carrier_id or None
     order.status = status
     order.delivery_date = date.fromisoformat(delivery_date) if delivery_date else None
     order.delivery_address = delivery_address
@@ -215,8 +237,10 @@ async def tn_form(request: Request, order_id: int, db: Session = Depends(get_db)
     if not order:
         return RedirectResponse(url="/orders", status_code=302)
     company = db.query(CompanySettings).first()
+    # Автоподстановка данных перевозчика из заказа
+    carrier = order.carrier if order.carrier_id else None
     return templates.TemplateResponse(request, "orders/tn_form.html", {
-        "order": order, "company": company,
+        "order": order, "company": company, "carrier": carrier,
     })
 
 

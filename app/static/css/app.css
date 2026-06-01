@@ -255,6 +255,7 @@ a:hover { text-decoration: none; }
 .badge-client    { background:#DBEAFE; color:#1E40AF; }
 .badge-supplier  { background:#EDE9FE; color:#6D28D9; }
 .badge-both      { background:#FFEDD5; color:#C2410C; }
+.badge-carrier   { background:#D1FAE5; color:#065F46; }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 .btn { font-weight: 500; border-radius: var(--r-sm); transition: background .18s ease, box-shadow .18s ease, color .18s ease; }

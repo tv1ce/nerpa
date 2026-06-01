@@ -2,9 +2,11 @@
 {% block title %}Склад{% endblock %}
 {% block page_title %}Склад — Остатки{% endblock %}
 {% block topbar_actions %}
+  {% if request.session.get('user_role') != 'warehouse' %}
   <a href="/warehouse/new?mtype=in"  class="btn btn-sm btn-accent me-1"><i class="bi bi-plus-lg me-1"></i>Приход</a>
   <a href="/warehouse/new?mtype=out" class="btn btn-sm btn-outline-danger me-1"><i class="bi bi-dash-lg me-1"></i>Расход</a>
-  <a href="/warehouse/journal"       class="btn btn-sm btn-outline-secondary"><i class="bi bi-journal-text me-1"></i>Журнал</a>
+  {% endif %}
+  <a href="/warehouse/journal" class="btn btn-sm btn-outline-secondary"><i class="bi bi-journal-text me-1"></i>Журнал</a>
 {% endblock %}
 
 {% block content %}
@@ -54,6 +56,11 @@
               <td class="text-end text-muted" style="font-size:.82rem">{{ p.unit }}</td>
               <td class="text-end fw-bold {% if is_low %}text-danger{% elif bal > 0 %}text-success{% else %}text-muted{% endif %}" style="font-size:1rem">
                 {{ bal | int if bal == bal | int else bal }}
+                {% if p.sale_unit and p.units_per_box and p.units_per_box > 1 %}
+                <div class="text-muted fw-normal" style="font-size:.75rem">
+                  {{ (bal * p.units_per_box) | int }} {{ p.sale_unit }}
+                </div>
+                {% endif %}
               </td>
               <td class="text-end text-muted" style="font-size:.82rem">
                 {{ p.min_stock | int if p.min_stock else '—' }}

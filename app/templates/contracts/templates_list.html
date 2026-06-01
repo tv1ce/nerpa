@@ -38,18 +38,51 @@
     </div>
 
     <div class="card border-0 shadow-sm p-3 mt-3">
-      <div class="fw-semibold mb-2" style="font-size:.9rem"><i class="bi bi-info-circle text-primary me-1"></i>Как использовать плейсхолдеры</div>
-      <div style="font-size:.8rem; color:#555; line-height: 1.7;">
-        В .docx шаблоне используйте следующие метки:<br>
+      <div class="fw-semibold mb-2" style="font-size:.9rem">
+        <i class="bi bi-info-circle text-primary me-1"></i>Доступные плейсхолдеры
+      </div>
+      <div style="font-size:.79rem; color:#444; line-height:1.8">
+
+        <div class="text-muted fw-semibold mb-1" style="font-size:.75rem; text-transform:uppercase; letter-spacing:.04em">Договор</div>
         <code>{{'{{'}}contract_number{{'}}'}}</code> — номер договора<br>
-        <code>{{'{{'}}contract_date{{'}}'}}</code> — дата договора<br>
-        <code>{{'{{'}}client_name{{'}}'}}</code> — название контрагента<br>
-        <code>{{'{{'}}client_inn{{'}}'}}</code> — ИНН контрагента<br>
-        <code>{{'{{'}}company_name{{'}}'}}</code> — ваша компания<br>
-        <code>{{'{{'}}company_director{{'}}'}}</code> — директор<br>
+        <code>{{'{{'}}contract_date{{'}}'}}</code> — дата (дд.мм.гггг)<br>
+        <code>{{'{{'}}contract_date_day{{'}}'}}</code> — день<br>
+        <code>{{'{{'}}contract_date_month{{'}}'}}</code> — месяц прописью<br>
+        <code>{{'{{'}}contract_date_year{{'}}'}}</code> — год<br>
         <code>{{'{{'}}contract_subject{{'}}'}}</code> — предмет договора<br>
-        <code>{{'{{'}}start_date{{'}}'}}</code> / <code>{{'{{'}}end_date{{'}}'}}</code> — даты<br>
-        <code>{{'{{'}}contract_amount{{'}}'}}</code> — сумма договора
+        <code>{{'{{'}}contract_amount{{'}}'}}</code> — сумма<br>
+        <code>{{'{{'}}start_date{{'}}'}}</code> / <code>{{'{{'}}end_date{{'}}'}}</code> — срок<br>
+        <code>{{'{{'}}payment_days_num{{'}}'}}</code> — дней отсрочки (цифрой)<br>
+        <code>{{'{{'}}payment_days_words{{'}}'}}</code> — дней отсрочки (прописью)<br>
+
+        <div class="text-muted fw-semibold mt-2 mb-1" style="font-size:.75rem; text-transform:uppercase; letter-spacing:.04em">Контрагент</div>
+        <code>{{'{{'}}client_name{{'}}'}}</code> — полное наименование<br>
+        <code>{{'{{'}}client_short_name{{'}}'}}</code> — краткое наименование<br>
+        <code>{{'{{'}}client_inn{{'}}'}}</code> — ИНН<br>
+        <code>{{'{{'}}client_kpp{{'}}'}}</code> — КПП<br>
+        <code>{{'{{'}}client_ogrn{{'}}'}}</code> — ОГРН<br>
+        <code>{{'{{'}}client_address{{'}}'}}</code> — юридический адрес<br>
+        <code>{{'{{'}}client_bank_name{{'}}'}}</code> — банк<br>
+        <code>{{'{{'}}client_bank_account{{'}}'}}</code> — расчётный счёт<br>
+        <code>{{'{{'}}client_bik{{'}}'}}</code> — БИК<br>
+        <code>{{'{{'}}client_corr_account{{'}}'}}</code> — корр. счёт<br>
+        <code>{{'{{'}}client_phone{{'}}'}}</code> — телефон<br>
+        <code>{{'{{'}}client_email{{'}}'}}</code> — email<br>
+        <code>{{'{{'}}client_rep{{'}}'}}</code> — представитель<br>
+
+        <div class="text-muted fw-semibold mt-2 mb-1" style="font-size:.75rem; text-transform:uppercase; letter-spacing:.04em">Наша компания</div>
+        <code>{{'{{'}}company_name{{'}}'}}</code> — полное наименование<br>
+        <code>{{'{{'}}company_short_name{{'}}'}}</code> — краткое наименование<br>
+        <code>{{'{{'}}company_inn{{'}}'}}</code> — ИНН<br>
+        <code>{{'{{'}}company_kpp{{'}}'}}</code> — КПП<br>
+        <code>{{'{{'}}company_ogrn{{'}}'}}</code> — ОГРН<br>
+        <code>{{'{{'}}company_address{{'}}'}}</code> — юридический адрес<br>
+        <code>{{'{{'}}company_director{{'}}'}}</code> — директор (ФИО)<br>
+        <code>{{'{{'}}company_director_basis{{'}}'}}</code> — основание<br>
+        <code>{{'{{'}}company_bank_name{{'}}'}}</code> — банк<br>
+        <code>{{'{{'}}company_bank_account{{'}}'}}</code> — расчётный счёт<br>
+        <code>{{'{{'}}company_bik{{'}}'}}</code> — БИК<br>
+        <code>{{'{{'}}company_corr_account{{'}}'}}</code> — корр. счёт<br>
       </div>
     </div>
   </div>

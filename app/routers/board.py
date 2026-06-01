@@ -93,7 +93,7 @@ def _collect_metrics(db: Session) -> dict:
 
     company = db.query(CompanySettings).first()
     plan = int(company.board_nuts_plan or 0) if company else 0
-    company_name = (company.short_name or company.name) if company else "Производство"
+    company_name = (company.brand_name or company.short_name or company.name) if company else "Производство"
     quotes = parse_quotes(company.board_quotes if company else None)
     stations = parse_stations(company.board_stations if company else None)
     active = (company.board_active_station or 0) if company else 0

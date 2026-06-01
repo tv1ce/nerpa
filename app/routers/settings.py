@@ -47,6 +47,7 @@ async def save_company(
     bank_bik: str = Form(default=""),
     bank_corr_account: str = Form(default=""),
     monthly_plan: float = Form(default=225000.0),
+    brand_name: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -62,6 +63,7 @@ async def save_company(
     company.bank_name = bank_name; company.bank_account = bank_account
     company.bank_bik = bank_bik; company.bank_corr_account = bank_corr_account
     company.monthly_plan = monthly_plan
+    company.brand_name = brand_name or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 
@@ -121,13 +123,18 @@ async def create_user(
     db: Session = Depends(get_db),
 ):
     existing = db.query(User).filter(User.username == username).first()
-    if not existing:
-        user = User(
+    if existing:
+        # Пользователь был удалён (is_active=False) — восстанавливаем с новыми данными
+        existing.full_name = full_name
+        existing.password_hash = hash_password(password)
+        existing.role = role
+        existing.is_active = True
+    else:
+        db.add(User(
             username=username, full_name=full_name,
             password_hash=hash_password(password), role=role,
-        )
-        db.add(user)
-        db.commit()
+        ))
+    db.commit()
     return RedirectResponse(url="/settings/", status_code=302)
 
 

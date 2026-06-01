@@ -32,6 +32,7 @@ class Counterparty(Base):
     phone = Column(String(50))
     email = Column(String(100))
     contact_person = Column(String(100))
+    signatory = Column(String(100))  # Подписант в формате «Фамилия И.О.» (для ИП)
     type = Column(String(20), default="client")  # client / supplier / both
     entity_type = Column(String(10), default="ooo")  # ooo / ip / other
     bank_name = Column(String(200))
@@ -49,7 +50,7 @@ class Counterparty(Base):
     category = Column(String(1))          # A / B / C / None
     category_manual = Column(Boolean, default=False)  # True = вручную, не пересчитывать
 
-    orders = relationship("Order", back_populates="counterparty")
+    orders = relationship("Order", back_populates="counterparty", foreign_keys="Order.counterparty_id")
     invoices = relationship("Invoice", back_populates="counterparty")
     contracts = relationship("Contract", back_populates="counterparty")
     claims = relationship("Claim", back_populates="counterparty", order_by="Claim.date.desc()")
@@ -60,15 +61,17 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     article = Column(String(50))
-    unit = Column(String(20), default="кг")
+    unit = Column(String(20), default="шт")       # единица на складе
+    sale_unit = Column(String(20))               # единица в заказах/счетах (если отличается)
+    units_per_box = Column(Integer, default=1)   # сколько sale_unit в 1 складской единице
     price = Column(Float, default=0.0)
     vat_rate = Column(Float, default=20.0)
     description = Column(Text)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     # Склад
-    min_stock = Column(Float, default=0.0)     # минимальный остаток (сигнализирует о нехватке)
-    initial_stock = Column(Float, default=0.0) # начальный остаток при постановке на учёт
+    min_stock = Column(Float, default=0.0)
+    initial_stock = Column(Float, default=0.0)
 
     order_items = relationship("OrderItem", back_populates="product")
     stock_movements = relationship("StockMovement", back_populates="product")
@@ -80,6 +83,8 @@ class Order(Base):
     number = Column(String(50), unique=True, nullable=False)
     date = Column(Date, nullable=False)
     counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
+    supplier_id = Column(Integer, ForeignKey("counterparties.id"), nullable=True)
+    carrier_id = Column(Integer, ForeignKey("counterparties.id"), nullable=True)
     status = Column(String(20), default="draft")
     # draft / confirmed / shipped / delivered / cancelled
     delivery_date = Column(Date)
@@ -88,7 +93,9 @@ class Order(Base):
     created_by_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, server_default=func.now())
 
-    counterparty = relationship("Counterparty", back_populates="orders")
+    counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
+    supplier = relationship("Counterparty", foreign_keys=[supplier_id])
+    carrier = relationship("Counterparty", foreign_keys=[carrier_id])
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="order")
     created_by = relationship("User")
@@ -148,6 +155,7 @@ class InvoiceItem(Base):
     unit = Column(String(20), default="кг")
     price = Column(Float, nullable=False)
     vat_rate = Column(Float, default=20.0)
+    discount_pct = Column(Float, default=0.0)
     amount = Column(Float, nullable=False)
 
     invoice = relationship("Invoice", back_populates="items")
@@ -209,11 +217,19 @@ class CompanySettings(Base):
     bank_corr_account = Column(String(20))
     logo_path = Column(String(500))
     monthly_plan = Column(Float, default=225000.0)
+    brand_name = Column(String(200))                        # название бренда для табло цеха
     # ── Табло цеха (digital signage) ──
     board_nuts_plan = Column(Float, default=0.0)        # план отгрузки орешков на месяц, шт
     board_quotes = Column(Text)                         # мотивашки, по одной в строке
     board_stations = Column(Text)                       # радиостанции, "Название | URL" в строке
     board_active_station = Column(Integer, default=0)   # индекс активной станции
+    # ── Интеграция с Метафорой ──
+    metafora_email    = Column(String(200))
+    metafora_password = Column(String(200))   # не используется (PIN-вход), оставлено для совместимости
+    metafora_token    = Column(Text)          # Firebase ID-token
+    metafora_refresh  = Column(Text)          # Firebase refresh-token
+    metafora_app_id   = Column(String(50))    # Glide appID (автоопределяется)
+    metafora_url      = Column(String(500))   # URL выгрузки
 
 
 class MonthlyPlan(Base):
@@ -330,3 +346,16 @@ class StockMovement(Base):
     product = relationship("Product", back_populates="stock_movements")
     order = relationship("Order")
     created_by = relationship("User")
+
+
+class LogisticsCost(Base):
+    """Затраты на логистику (импорт из Метафоры или ручной ввод)."""
+    __tablename__ = "logistics_costs"
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False)
+    description = Column(String(500))
+    amount = Column(Float, nullable=False, default=0.0)
+    source = Column(String(30), default="manual")  # manual / metafora / upload
+    external_id = Column(String(100))              # ID из внешней системы (для дедупликации)
+    notes = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())

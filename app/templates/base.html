@@ -97,16 +97,21 @@
       <small>Управление поставками</small>
     </span>
   </div>
+  {% set _role = request.session.get('user_role', 'viewer') %}
   <div class="pt-2">
+
+    {% if _role != 'warehouse' %}
     <div class="nav-section">Главное</div>
     <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
       <i class="bi bi-speedometer2"></i> <span>Дашборд</span>
     </a>
+    {% endif %}
 
-    <div class="nav-section">Продажи</div>
+    <div class="nav-section">{% if _role == 'warehouse' %}Заказы{% else %}Продажи{% endif %}</div>
     <a href="/orders" class="nav-link {% if '/orders' in request.url.path %}active{% endif %}">
       <i class="bi bi-box-seam"></i> <span>Заказы</span>
     </a>
+    {% if _role != 'warehouse' %}
     <a href="/invoices" class="nav-link {% if '/invoices' in request.url.path %}active{% endif %}">
       <i class="bi bi-receipt"></i> <span>Счета на оплату</span>
     </a>
@@ -116,15 +121,19 @@
     <a href="/claims/" class="nav-link {% if '/claims' in request.url.path %}active{% endif %}">
       <i class="bi bi-chat-left-text"></i> <span>Рекламации</span>
     </a>
+    {% endif %}
 
     <div class="nav-section">Справочники</div>
     <a href="/counterparties" class="nav-link {% if '/counterparties' in request.url.path %}active{% endif %}">
       <i class="bi bi-people"></i> <span>Контрагенты</span>
     </a>
+    {% if _role != 'warehouse' %}
     <a href="/products" class="nav-link {% if '/products' in request.url.path %}active{% endif %}">
       <i class="bi bi-basket"></i> <span>Товары</span>
     </a>
+    {% endif %}
 
+    {% if _role != 'warehouse' %}
     <div class="nav-section">Документы</div>
     <a href="/contracts" class="nav-link {% if '/contracts' in request.url.path and 'templates' not in request.url.path %}active{% endif %}">
       <i class="bi bi-file-earmark-text"></i> <span>Договора</span>
@@ -134,9 +143,13 @@
     </a>
 
     <div class="nav-section">Аналитика</div>
-    <a href="/reports/revenue" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
+    <a href="/reports/revenue" class="nav-link {% if '/reports/revenue' in request.url.path or '/reports/plans' in request.url.path %}active{% endif %}">
       <i class="bi bi-bar-chart-line"></i> <span>Выручка</span>
     </a>
+    <a href="/reports/logistics/" class="nav-link {% if '/reports/logistics' in request.url.path %}active{% endif %}">
+      <i class="bi bi-truck"></i> <span>Логистика</span>
+    </a>
+    {% endif %}
 
     <div class="nav-section">Склад</div>
     <a href="/warehouse/" class="nav-link {% if '/warehouse' in request.url.path and 'journal' not in request.url.path %}active{% endif %}">
@@ -146,15 +159,18 @@
       <i class="bi bi-journal-text"></i> <span>Журнал движений</span>
     </a>
 
+    {% if _role != 'warehouse' %}
     <div class="nav-section">Система</div>
     <a href="/settings/" class="nav-link {% if '/settings' in request.url.path %}active{% endif %}">
       <i class="bi bi-gear"></i> <span>Настройки</span>
     </a>
-    {% if request.session.get('user_role') == 'admin' %}
+    {% if _role == 'admin' %}
     <a href="/audit-log/" class="nav-link {% if '/audit-log' in request.url.path %}active{% endif %}">
       <i class="bi bi-journal-check"></i> <span>Лог изменений</span>
     </a>
     {% endif %}
+    {% endif %}
+
   </div>
 
   <div class="user-block">

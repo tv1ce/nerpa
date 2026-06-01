@@ -97,6 +97,19 @@
             <label class="form-label">Контактное лицо / Директор</label>
             <input type="text" name="contact_person" id="f-contact_person" class="form-control" value="{{ cp.contact_person if cp else '' }}">
           </div>
+          <div class="col-md-4" id="signatory-row">
+            <label class="form-label">
+              Подписант
+              <span class="text-muted" style="font-size:.78rem">(Фамилия И.О.)</span>
+              <button type="button" class="btn btn-link btn-sm p-0 ms-1" style="font-size:.78rem;vertical-align:baseline" onclick="autoSignatory()" title="Сгенерировать из ФИО">
+                <i class="bi bi-arrow-clockwise"></i>
+              </button>
+            </label>
+            <input type="text" name="signatory" id="f-signatory" class="form-control"
+                   placeholder="Иванов И.И."
+                   value="{{ cp.signatory if cp and cp.signatory else '' }}">
+            <div class="form-text" id="signatory-hint"></div>
+          </div>
           <div class="col-12">
             <label class="form-label">Примечания</label>
             <textarea name="notes" class="form-control" rows="2">{{ cp.notes if cp else '' }}</textarea>
@@ -262,5 +275,55 @@ async function ddBankLookup() {
 document.getElementById('dd-inn').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') { e.preventDefault(); ddLookup(); }
 });
+
+// ── Подписант ИП ──────────────────────────────────────────────────────
+function buildSignatory(fullName) {
+  if (!fullName) return '';
+  let name = fullName.trim();
+  const prefixes = ['Индивидуальный предприниматель ', 'индивидуальный предприниматель ', 'ИП ', 'ип '];
+  for (const p of prefixes) {
+    if (name.startsWith(p)) { name = name.slice(p.length); break; }
+  }
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length >= 3) return `${parts[0]} ${parts[1][0].toUpperCase()}.${parts[2][0].toUpperCase()}.`;
+  if (parts.length === 2) return `${parts[0]} ${parts[1][0].toUpperCase()}.`;
+  return parts[0] || '';
+}
+
+function autoSignatory() {
+  const fio = document.getElementById('f-contact_person').value.trim();
+  const sig = buildSignatory(fio || document.getElementById('f-name').value.trim());
+  if (sig) {
+    document.getElementById('f-signatory').value = sig;
+    document.getElementById('signatory-hint').textContent = '';
+  }
+}
+
+function updateSignatoryVisibility() {
+  const et = document.getElementById('f-entity_type').value;
+  const row = document.getElementById('signatory-row');
+  row.style.display = (et === 'ip') ? '' : 'none';
+}
+
+function onEntityTypeChange() {
+  updateSignatoryVisibility();
+  const et = document.getElementById('f-entity_type').value;
+  if (et === 'ip') {
+    const sigField = document.getElementById('f-signatory');
+    if (!sigField.value.trim()) autoSignatory();
+    if (sigField.value.trim())
+      document.getElementById('signatory-hint').textContent = 'Сгенерировано автоматически — можно изменить';
+  }
+}
+
+// Автообновление при изменении контактного лица (только для ИП)
+document.getElementById('f-contact_person').addEventListener('change', function() {
+  if (document.getElementById('f-entity_type').value === 'ip') autoSignatory();
+});
+
+document.getElementById('f-entity_type').addEventListener('change', onEntityTypeChange);
+
+// Инициализация при загрузке
+updateSignatoryVisibility();
 </script>
 {% endblock %}

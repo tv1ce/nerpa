@@ -25,6 +25,28 @@ _DAYS_GENITIVE = {
 }
 
 
+def _get_signatory(cp) -> str:
+    """Возвращает подписанта контрагента. Для ИП без явного значения генерирует из ФИО."""
+    if getattr(cp, "signatory", None):
+        return cp.signatory
+    if getattr(cp, "entity_type", None) == "ip":
+        source = cp.contact_person or cp.name or ""
+        if not source:
+            return "___________________"
+        name = source.strip()
+        for prefix in ("Индивидуальный предприниматель ", "индивидуальный предприниматель ", "ИП ", "ип "):
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+                break
+        parts = name.split()
+        if len(parts) >= 3:
+            return f"{parts[0]} {parts[1][0].upper()}.{parts[2][0].upper()}."
+        if len(parts) == 2:
+            return f"{parts[0]} {parts[1][0].upper()}."
+        return parts[0] if parts else "___________________"
+    return cp.contact_person or "___________________"
+
+
 def _fmt_date(d) -> str:
     if not d:
         return ""
@@ -94,6 +116,7 @@ def fill_contract_template(template_path: str, output_path: str, contract, compa
         "{{client_email}}": cp.email or "",
         "{{client_contact}}": cp.contact_person or "",
         "{{client_rep}}": cp.contact_person or "___________________",
+        "{{client_signatory}}": _get_signatory(cp),
         "{{client_bank_name}}": cp.bank_name or "",
         "{{client_bank_account}}": cp.bank_account or "",
         "{{client_bik}}": cp.bank_bik or "",
@@ -114,19 +137,30 @@ def fill_contract_template(template_path: str, output_path: str, contract, compa
 
 
 def _replace_in_para(para, replacements: dict):
+    """Заменяет плейсхолдеры в параграфе.
+
+    Word часто разбивает текст на несколько runs ({{, placeholder, }}),
+    поэтому сначала склеиваем всё в строку, делаем замены, затем
+    кладём результат в первый run и очищаем остальные.
+    Форматирование (шрифт, размер) первого run сохраняется.
+    """
+    if not para.runs:
+        return
+
+    full_text = "".join(run.text for run in para.runs)
+
+    # Проверяем нужна ли вообще хоть одна замена
+    if not any(key in full_text for key in replacements):
+        return
+
+    new_text = full_text
     for key, value in replacements.items():
-        if key in para.text:
-            for run in para.runs:
-                if key in run.text:
-                    run.text = run.text.replace(key, value)
-            # Если замена не сработала через run — заменяем весь параграф
-            if key in para.text:
-                full_text = para.text
-                new_text = full_text.replace(key, value)
-                if para.runs:
-                    para.runs[0].text = new_text
-                    for run in para.runs[1:]:
-                        run.text = ""
+        new_text = new_text.replace(key, value)
+
+    # Кладём результат в первый run, остальные обнуляем
+    para.runs[0].text = new_text
+    for run in para.runs[1:]:
+        run.text = ""
 
 
 def convert_docx_to_pdf(docx_path: str, output_dir: str) -> str | None:

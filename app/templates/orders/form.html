@@ -45,6 +45,18 @@
             </select>
           </div>
           <div class="col-md-6">
+            <label class="form-label">Перевозчик</label>
+            <select name="carrier_id" class="form-select">
+              <option value="0">— не указан —</option>
+              {% for cp in carriers %}
+              <option value="{{ cp.id }}" {% if order and order.carrier_id == cp.id %}selected{% endif %}>
+                {{ cp.trade_name or cp.name }}{% if cp.trade_name %} ({{ cp.name }}){% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Подставляется автоматически в транспортную накладную</div>
+          </div>
+          <div class="col-md-6">
             <label class="form-label">Дата доставки</label>
             <input type="date" name="delivery_date" class="form-control"
                    value="{{ order.delivery_date.isoformat() if order and order.delivery_date else '' }}">
@@ -113,14 +125,14 @@
 <script>
 const productsMap = {
   {% for p in products %}
-  "{{ p.id }}": { name: "{{ p.name | replace('"', '\\"') }}", unit: "{{ p.unit }}", price: {{ p.price }}, vat_rate: {{ p.vat_rate }} },
+  "{{ p.id }}": { name: "{{ p.name | replace('"', '\\"') }}", unit: "{{ p.sale_unit or p.unit }}", price: {{ p.price }}, vat_rate: {{ p.vat_rate }} },
   {% endfor %}
 };
 
 const initialItems = [
   {% if order %}
     {% for item in order.items %}
-    { product_id: "{{ item.product_id }}", name: "{{ item.product.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.product.unit }}", price: {{ item.price }}, discount_pct: {{ item.discount_pct or 0 }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
+    { product_id: "{{ item.product_id }}", name: "{{ item.product.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.product.sale_unit or item.product.unit }}", price: {{ item.price }}, discount_pct: {{ item.discount_pct or 0 }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
     {% endfor %}
   {% endif %}
 ];

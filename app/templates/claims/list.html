@@ -50,6 +50,7 @@
           <th>Статус</th>
           <th>Заказ</th>
           <th class="text-end pe-3">Сумма, ₽</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -76,9 +77,17 @@
           <td class="text-end pe-3 text-muted" style="font-size:.85rem">
             {{ cl.amount | money if cl.amount else '—' }}
           </td>
+          <td class="pe-2">
+            <form method="post" action="/claims/{{ cl.id }}/delete" class="d-inline"
+                  data-confirm="Удалить рекламацию {{ cl.number }}?">
+              <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:.75rem">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-center py-4 text-muted">Рекламаций не найдено</td></tr>
+        <tr><td colspan="8" class="text-center py-4 text-muted">Рекламаций не найдено</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -2,12 +2,14 @@
 {% block title %}Контрагенты{% endblock %}
 {% block page_title %}Контрагенты{% endblock %}
 {% block topbar_actions %}
+  {% if request.session.get('user_role') != 'warehouse' %}
   <form method="post" action="/counterparties/recalc-categories" class="d-inline me-2">
     <button class="btn btn-sm btn-outline-secondary" title="Пересчитать категории A/B/C по сумме заказов">
       <i class="bi bi-arrow-repeat me-1"></i>Пересчитать категории
     </button>
   </form>
   <a href="/counterparties/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Добавить</a>
+  {% endif %}
 {% endblock %}
 
 {% block content %}

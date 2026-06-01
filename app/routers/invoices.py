@@ -9,6 +9,36 @@ from app.auth import login_required
 from app.models import Invoice, InvoiceItem, Counterparty, Order, Product, CompanySettings, Contract
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+
+def _calc_totals(items: list) -> tuple[float, float]:
+    """Считает subtotal и vat_amount с учётом скидки."""
+    subtotal = 0.0
+    vat_amount = 0.0
+    for i in items:
+        qty   = float(i.get("quantity", 0))
+        price = float(i.get("price", 0))
+        disc  = min(max(float(i.get("discount_pct", 0)), 0), 100)
+        vat   = float(i.get("vat_rate", 20))
+        line  = qty * price * (1 - disc / 100)
+        subtotal  += line
+        vat_amount += line * vat / 100
+    return subtotal, vat_amount
+
+
+def _add_invoice_item(db, invoice_id: int, item: dict):
+    qty   = float(item.get("quantity", 0))
+    price = float(item.get("price", 0))
+    disc  = min(max(float(item.get("discount_pct", 0)), 0), 100)
+    vat   = float(item.get("vat_rate", 20))
+    amount = round(qty * price * (1 - disc / 100), 2)
+    db.add(InvoiceItem(
+        invoice_id=invoice_id,
+        product_id=int(item["product_id"]) if item.get("product_id") else None,
+        name=item.get("name", ""), quantity=qty,
+        unit=item.get("unit", "шт"),
+        price=price, vat_rate=vat, discount_pct=disc, amount=amount,
+    ))
 templates = Jinja2Templates(directory="app/templates")
 
 INVOICE_STATUSES = {
@@ -70,11 +100,7 @@ async def create_invoice(
     db: Session = Depends(get_db),
 ):
     items = json.loads(items_json)
-    subtotal = sum(float(i["quantity"]) * float(i["price"]) for i in items)
-    vat_amount = sum(
-        float(i["quantity"]) * float(i["price"]) * float(i.get("vat_rate", 20)) / 100
-        for i in items
-    )
+    subtotal, vat_amount = _calc_totals(items)
     invoice = Invoice(
         number=number, date=date.fromisoformat(invoice_date),
         counterparty_id=counterparty_id, order_id=order_id or None,
@@ -86,13 +112,7 @@ async def create_invoice(
     db.add(invoice)
     db.flush()
     for item in items:
-        qty, price, vat = float(item["quantity"]), float(item["price"]), float(item.get("vat_rate", 20))
-        db.add(InvoiceItem(
-            invoice_id=invoice.id,
-            product_id=int(item["product_id"]) if item.get("product_id") else None,
-            name=item["name"], quantity=qty, unit=item.get("unit", "кг"),
-            price=price, vat_rate=vat, amount=round(qty * price, 2),
-        ))
+        _add_invoice_item(db, invoice.id, item)
     db.commit()
     return RedirectResponse(url=f"/invoices/{invoice.id}", status_code=302)
 
@@ -144,11 +164,7 @@ async def update_invoice(
     if not invoice:
         return RedirectResponse(url="/invoices", status_code=302)
     items = json.loads(items_json)
-    subtotal = sum(float(i["quantity"]) * float(i["price"]) for i in items)
-    vat_amount = sum(
-        float(i["quantity"]) * float(i["price"]) * float(i.get("vat_rate", 20)) / 100
-        for i in items
-    )
+    subtotal, vat_amount = _calc_totals(items)
     invoice.number = number; invoice.date = date.fromisoformat(invoice_date)
     invoice.counterparty_id = counterparty_id; invoice.order_id = order_id or None
     invoice.contract_id = contract_id or None
@@ -161,13 +177,7 @@ async def update_invoice(
         db.delete(item)
     db.flush()
     for item in items:
-        qty, price, vat = float(item["quantity"]), float(item["price"]), float(item.get("vat_rate", 20))
-        db.add(InvoiceItem(
-            invoice_id=invoice.id,
-            product_id=int(item["product_id"]) if item.get("product_id") else None,
-            name=item["name"], quantity=qty, unit=item.get("unit", "кг"),
-            price=price, vat_rate=vat, amount=round(qty * price, 2),
-        ))
+        _add_invoice_item(db, invoice.id, item)
     db.commit()
     return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=302)
 

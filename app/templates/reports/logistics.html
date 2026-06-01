@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}Логистика{% endblock %}
+{% block page_title %}Затраты на логистику{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex gap-2 flex-wrap">
+  <a href="/reports/logistics/?period=month"      class="btn btn-sm {% if period=='month'      %}btn-accent{% else %}btn-outline-secondary{% endif %}">Месяц</a>
+  <a href="/reports/logistics/?period=prev_month" class="btn btn-sm {% if period=='prev_month' %}btn-accent{% else %}btn-outline-secondary{% endif %}">Пред. месяц</a>
+  <a href="/reports/logistics/?period=year"       class="btn btn-sm {% if period=='year'       %}btn-accent{% else %}btn-outline-secondary{% endif %}">Год</a>
+  <form method="get" action="/reports/logistics/" class="d-flex gap-1">
+    <input type="hidden" name="period" value="custom">
+    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}" style="width:130px">
+    <input type="date" name="date_to"   class="form-control form-control-sm" value="{{ date_to }}"   style="width:130px">
+    <button class="btn btn-sm btn-outline-secondary">Применить</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- ── Таблица ─────────────────────────────────────────────────────── -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex justify-content-between align-items-center">
+        <div>
+          <span class="fw-semibold">Затраты</span>
+          <span class="text-muted ms-2" style="font-size:.82rem">{{ tbl_from | date_fmt }} — {{ tbl_to | date_fmt }}</span>
+        </div>
+        <span class="text-muted" style="font-size:.82rem">{{ rows|length }} записей</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm tms-table mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4" style="width:110px">Дата</th>
+              <th>Описание</th>
+              <th class="text-end" style="width:130px">Сумма, ₽</th>
+              <th style="width:80px" class="text-muted" style="font-size:.75rem">Источник</th>
+              <th style="width:40px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td class="ps-4 text-muted" style="font-size:.85rem">{{ row.date | date_fmt }}</td>
+              <td>
+                {{ row.description or '—' }}
+                {% if row.notes %}<div class="text-muted" style="font-size:.75rem">{{ row.notes }}</div>{% endif %}
+              </td>
+              <td class="text-end fw-semibold text-danger">{{ row.amount | money }}</td>
+              <td>
+                {% if row.source == 'metafora' %}
+                  <span class="badge bg-info text-dark" style="font-size:.68rem">Метафора</span>
+                {% elif row.source == 'manual' %}
+                  <span class="badge bg-secondary" style="font-size:.68rem">Вручную</span>
+                {% else %}
+                  <span class="badge bg-light text-dark border" style="font-size:.68rem">Файл</span>
+                {% endif %}
+              </td>
+              <td class="text-end pe-3">
+                <form method="post" action="/reports/logistics/{{ row.id }}/delete"
+                      data-confirm="Удалить запись?">
+                  <button class="btn btn-xs btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="5" class="text-center text-muted py-4">
+                <i class="bi bi-inbox fs-3 d-block mb-2 opacity-25"></i>
+                Нет данных за выбранный период
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          {% if rows %}
+          <tfoot style="background:#fff0f0;font-weight:700;border-top:2px solid #dc3545">
+            <tr>
+              <td class="ps-4" colspan="2" style="font-size:.9rem">Итого за период</td>
+              <td class="text-end text-danger" style="font-size:.95rem">{{ total | money }}</td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Правая панель ────────────────────────────────────────────────── -->
+  <div class="col-lg-4">
+
+    <!-- KPI -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="form-section-title mb-2">Сводка</div>
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span class="text-muted" style="font-size:.82rem">Текущий месяц</span>
+        <span class="fw-bold text-danger">{{ total_month | money }} ₽</span>
+      </div>
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span class="text-muted" style="font-size:.82rem">{{ prev_month_label | capitalize }}</span>
+        <span class="fw-semibold text-secondary">{{ total_prev_month | money }} ₽</span>
+      </div>
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="text-muted" style="font-size:.82rem">Текущий год</span>
+        <span class="fw-bold text-danger">{{ total_year | money }} ₽</span>
+      </div>
+    </div>
+
+    <!-- Синхронизация с Метафорой -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="form-section-title mb-2"><i class="bi bi-arrow-repeat me-1"></i>Синхронизация с Метафорой</div>
+
+      {% if has_token %}
+      <!-- Авторизованы -->
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <i class="bi bi-check-circle-fill text-success"></i>
+        <span style="font-size:.82rem">Вход выполнен: <strong>{{ metafora_email }}</strong></span>
+        <button class="btn btn-xs btn-outline-secondary py-0 px-1 ms-auto" style="font-size:.72rem"
+                onclick="document.getElementById('meta-auth').classList.toggle('d-none')">
+          Сменить вход
+        </button>
+      </div>
+      <button class="btn btn-sm btn-primary w-100" id="sync-btn" onclick="syncMetafora()">
+        <i class="bi bi-cloud-download me-1"></i>Синхронизировать сейчас
+      </button>
+      {% else %}
+      <p class="text-muted mb-2" style="font-size:.82rem">
+        Вход по PIN-коду: введите email — на почту придёт код, затем введите его.
+      </p>
+      {% endif %}
+
+      <!-- Блок авторизации по PIN (2 шага) -->
+      <div id="meta-auth" class="{{ 'd-none' if has_token else '' }}">
+
+        <!-- Шаг 1: email -->
+        <div id="pin-step1">
+          <div class="mb-2">
+            <label class="form-label" style="font-size:.8rem">Email в Метафоре</label>
+            <input type="email" id="meta-email" class="form-control form-control-sm"
+                   placeholder="you@example.com" value="{{ metafora_email }}">
+          </div>
+          <div class="mb-2">
+            <label class="form-label" style="font-size:.8rem">URL выгрузки
+              <span class="text-muted">(можно оставить как есть)</span>
+            </label>
+            <input type="text" id="meta-url" class="form-control form-control-sm"
+                   value="{{ metafora_url }}">
+          </div>
+          <button class="btn btn-sm btn-accent w-100" id="pin-req-btn" onclick="requestPin()">
+            <i class="bi bi-envelope me-1"></i>Получить PIN на почту
+          </button>
+        </div>
+
+        <!-- Шаг 2: PIN -->
+        <div id="pin-step2" class="d-none">
+          <div class="alert alert-info py-1 px-2 mb-2" style="font-size:.8rem">
+            <i class="bi bi-envelope-check me-1"></i>Код отправлен на <strong id="pin-email-label"></strong>
+          </div>
+          <div class="mb-2">
+            <label class="form-label" style="font-size:.8rem">PIN-код из письма</label>
+            <input type="text" id="meta-pin" class="form-control form-control-sm"
+                   inputmode="numeric" placeholder="например 123456" autocomplete="one-time-code">
+          </div>
+          <button class="btn btn-sm btn-success w-100 mb-1" id="pin-verify-btn" onclick="verifyPin()">
+            <i class="bi bi-check-lg me-1"></i>Подтвердить и войти
+          </button>
+          <button class="btn btn-sm btn-link w-100 p-0" style="font-size:.78rem" onclick="backToStep1()">
+            ← Изменить email
+          </button>
+        </div>
+      </div>
+
+      <div id="sync-result" class="mt-2" style="font-size:.82rem"></div>
+    </div>
+
+    <!-- Загрузка файла -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="form-section-title mb-2"><i class="bi bi-upload me-1"></i>Загрузить файл</div>
+      <p class="text-muted mb-2" style="font-size:.82rem">Excel (.xlsx) или CSV с колонками: дата, описание, сумма.</p>
+      <input type="file" id="upload-file" class="form-control form-control-sm mb-2" accept=".xlsx,.xls,.csv">
+      <button class="btn btn-sm btn-outline-secondary w-100" onclick="uploadFile()">
+        <i class="bi bi-file-earmark-arrow-up me-1"></i>Загрузить
+      </button>
+      <div id="upload-result" class="mt-2" style="font-size:.82rem"></div>
+    </div>
+
+    <!-- Ручное добавление -->
+    <div class="card border-0 shadow-sm p-3">
+      <div class="form-section-title mb-2"><i class="bi bi-plus-circle me-1"></i>Добавить вручную</div>
+      <form method="post" action="/reports/logistics/add">
+        <div class="mb-2">
+          <label class="form-label" style="font-size:.82rem">Дата</label>
+          <input type="date" name="cost_date" class="form-control form-control-sm" required
+                 value="{{ today.isoformat() }}">
+        </div>
+        <div class="mb-2">
+          <label class="form-label" style="font-size:.82rem">Описание</label>
+          <input type="text" name="description" class="form-control form-control-sm"
+                 placeholder="Доставка, транспорт…">
+        </div>
+        <div class="mb-2">
+          <label class="form-label" style="font-size:.82rem">Сумма, ₽</label>
+          <input type="number" name="amount" class="form-control form-control-sm"
+                 step="0.01" min="0" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" style="font-size:.82rem">Примечание</label>
+          <textarea name="notes" class="form-control form-control-sm" rows="2"></textarea>
+        </div>
+        <button type="submit" class="btn btn-accent btn-sm w-100">
+          <i class="bi bi-plus-lg me-1"></i>Добавить
+        </button>
+      </form>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Безопасный разбор ответа: возвращает {ok, error}
+async function parseResp(r) {
+  let d = {};
+  try { d = await r.json(); } catch(e) { d = {}; }
+  if (!r.ok && d.ok === undefined) {
+    // 404/500 и т.п. — формируем понятное сообщение
+    const msg = d.detail || d.error ||
+      (r.status === 404 ? 'Маршрут не найден — перезапустите сервер (start.bat)' : `HTTP ${r.status}`);
+    return { ok: false, error: msg };
+  }
+  if (d.ok && !d.error) return d;
+  return { ok: !!d.ok, added: d.added, skipped: d.skipped,
+           error: d.error || d.detail || 'Неизвестная ошибка' };
+}
+
+// ── Шаг 1: запросить PIN ──────────────────────────────────────────────
+async function requestPin() {
+  const email = document.getElementById('meta-email').value.trim();
+  const url   = document.getElementById('meta-url').value.trim();
+  const res   = document.getElementById('sync-result');
+  const btn   = document.getElementById('pin-req-btn');
+  if (!email) { res.innerHTML = '<div class="text-warning">Введите email</div>'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отправка…';
+  res.innerHTML = '';
+
+  // Сначала сохраняем URL (без перезагрузки) через save-settings
+  try {
+    const fdUrl = new FormData();
+    fdUrl.append('metafora_email', email);
+    fdUrl.append('metafora_url', url);
+    // не редиректим — используем тот же endpoint, но игнорируем ответ-редирект
+    await fetch('/reports/logistics/save-settings', { method: 'POST', body: fdUrl, redirect: 'manual' });
+  } catch(e) {}
+
+  try {
+    const fd = new FormData();
+    fd.append('email', email);
+    const r = await fetch('/reports/logistics/request-pin', { method: 'POST', body: fd });
+    const d = await parseResp(r);
+    if (d.ok) {
+      document.getElementById('pin-email-label').textContent = email;
+      document.getElementById('pin-step1').classList.add('d-none');
+      document.getElementById('pin-step2').classList.remove('d-none');
+      document.getElementById('meta-pin').focus();
+    } else {
+      res.innerHTML = `<div class="alert alert-warning py-1 px-2 mb-0">${d.error}</div>`;
+    }
+  } catch(e) {
+    res.innerHTML = `<div class="alert alert-danger py-1 px-2 mb-0">Ошибка: ${e}</div>`;
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-envelope me-1"></i>Получить PIN на почту';
+}
+
+// ── Шаг 2: подтвердить PIN ────────────────────────────────────────────
+async function verifyPin() {
+  const pin = document.getElementById('meta-pin').value.trim();
+  const res = document.getElementById('sync-result');
+  const btn = document.getElementById('pin-verify-btn');
+  if (!pin) { res.innerHTML = '<div class="text-warning">Введите PIN</div>'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Проверка…';
+  res.innerHTML = '';
+
+  try {
+    const fd = new FormData();
+    fd.append('pin', pin);
+    const r = await fetch('/reports/logistics/verify-pin', { method: 'POST', body: fd });
+    const d = await parseResp(r);
+    if (d.ok) {
+      // Сразу синхронизируем — не ждём перезагрузки
+      document.getElementById('meta-auth').classList.add('d-none');
+      res.innerHTML = '<div class="alert alert-success py-1 px-2 mb-0"><span class="spinner-border spinner-border-sm me-1"></span>Вход выполнен, синхронизирую…</div>';
+      await syncMetafora();
+    } else {
+      res.innerHTML = `<div class="alert alert-warning py-1 px-2 mb-0">${d.error}</div>`;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Подтвердить и войти';
+    }
+  } catch(e) {
+    res.innerHTML = `<div class="alert alert-danger py-1 px-2 mb-0">Ошибка: ${e}</div>`;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Подтвердить и войти';
+  }
+}
+
+function backToStep1() {
+  document.getElementById('pin-step2').classList.add('d-none');
+  document.getElementById('pin-step1').classList.remove('d-none');
+  document.getElementById('sync-result').innerHTML = '';
+}
+
+async function syncMetafora() {
+  const btn = document.getElementById('sync-btn');  // может быть null при вызове после PIN
+  const res = document.getElementById('sync-result');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Загрузка…'; }
+  res.innerHTML = '<div class="text-muted" style="font-size:.82rem"><span class="spinner-border spinner-border-sm me-1"></span>Синхронизирую…</div>';
+  try {
+    const r = await fetch('/reports/logistics/sync-metafora', { method: 'POST' });
+    const d = await parseResp(r);
+    if (d.ok) {
+      res.innerHTML = `<div class="alert alert-success py-1 px-2 mb-0"><i class="bi bi-check-circle me-1"></i>Готово! Добавлено: ${d.added}, пропущено дублей: ${d.skipped}</div>`;
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      res.innerHTML = `<div class="alert alert-warning py-1 px-2 mb-0">${d.error}</div>`;
+    }
+  } catch(e) {
+    res.innerHTML = `<div class="alert alert-danger py-1 px-2 mb-0">Ошибка: ${e}</div>`;
+  }
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>Синхронизировать сейчас'; }
+}
+
+async function uploadFile() {
+  const input = document.getElementById('upload-file');
+  const res = document.getElementById('upload-result');
+  if (!input.files.length) { res.innerHTML = '<div class="text-warning">Выберите файл</div>'; return; }
+
+  const fd = new FormData();
+  fd.append('file', input.files[0]);
+  res.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Обработка…';
+
+  try {
+    const r = await fetch('/reports/logistics/upload', { method: 'POST', body: fd });
+    const d = await parseResp(r);
+    if (d.ok) {
+      res.innerHTML = `<div class="alert alert-success py-1 px-2 mb-0">Добавлено: ${d.added}, пропущено дублей: ${d.skipped}</div>`;
+      if (d.added > 0) setTimeout(() => location.reload(), 1200);
+    } else {
+      res.innerHTML = `<div class="alert alert-warning py-1 px-2 mb-0">${d.error}</div>`;
+    }
+  } catch(e) {
+    res.innerHTML = `<div class="alert alert-danger py-1 px-2 mb-0">Ошибка: ${e}</div>`;
+  }
+}
+</script>
+{% endblock %}

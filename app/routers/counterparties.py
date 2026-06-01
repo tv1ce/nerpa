@@ -11,6 +11,23 @@ from app.utils import log_action
 router = APIRouter(prefix="/counterparties", tags=["counterparties"])
 templates = Jinja2Templates(directory="app/templates")
 
+
+def _generate_signatory(full_name: str) -> str:
+    """Строит «Фамилия И.О.» из полного ФИО или названия ИП."""
+    if not full_name:
+        return ""
+    name = full_name.strip()
+    for prefix in ("Индивидуальный предприниматель ", "индивидуальный предприниматель ", "ИП ", "ип "):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    parts = name.split()
+    if len(parts) >= 3:
+        return f"{parts[0]} {parts[1][0].upper()}.{parts[2][0].upper()}."
+    if len(parts) == 2:
+        return f"{parts[0]} {parts[1][0].upper()}."
+    return parts[0] if parts else ""
+
 DADATA_TOKEN = "f8e4e9a1543e8d8f79091bab8d1422a83ee2d573"
 DADATA_HEADERS = {
     "Authorization": f"Token {DADATA_TOKEN}",
@@ -18,7 +35,7 @@ DADATA_HEADERS = {
     "Accept": "application/json",
 }
 
-CP_TYPES = {"client": "Покупатель", "supplier": "Поставщик", "both": "Покупатель и поставщик"}
+CP_TYPES = {"client": "Покупатель", "supplier": "Поставщик", "both": "Покупатель и поставщик", "carrier": "Перевозчик"}
 ENTITY_TYPES = {"ooo": "ООО", "ip": "ИП", "other": "Прочее"}
 
 CAT_COLORS = {"A": "success", "B": "primary", "C": "warning"}
@@ -107,6 +124,7 @@ async def create_counterparty(
     phone: str = Form(default=""),
     email: str = Form(default=""),
     contact_person: str = Form(default=""),
+    signatory: str = Form(default=""),
     type: str = Form(default="client"),
     entity_type: str = Form(default="ooo"),
     bank_name: str = Form(default=""),
@@ -118,12 +136,17 @@ async def create_counterparty(
     payment_delay_type: str = Form(default="banking"),
     db: Session = Depends(get_db),
 ):
+    resolved_entity = entity_type if entity_type in ENTITY_TYPES else "ooo"
+    if resolved_entity == "ip" and not signatory.strip():
+        signatory = _generate_signatory(contact_person or name)
     cp = Counterparty(
         name=name, trade_name=trade_name or None, short_name=short_name,
         inn=inn, kpp=kpp, ogrn=ogrn,
         legal_address=legal_address, actual_address=actual_address,
-        phone=phone, email=email, contact_person=contact_person, type=type,
-        entity_type=entity_type if entity_type in ENTITY_TYPES else "ooo",
+        phone=phone, email=email, contact_person=contact_person,
+        signatory=signatory or None,
+        type=type,
+        entity_type=resolved_entity,
         bank_name=bank_name, bank_account=bank_account, bank_bik=bank_bik,
         bank_corr_account=bank_corr_account, notes=notes,
         payment_delay_days=max(0, payment_delay_days),
@@ -302,6 +325,7 @@ async def update_counterparty(
     phone: str = Form(default=""),
     email: str = Form(default=""),
     contact_person: str = Form(default=""),
+    signatory: str = Form(default=""),
     type: str = Form(default="client"),
     entity_type: str = Form(default="ooo"),
     bank_name: str = Form(default=""),
@@ -315,11 +339,16 @@ async def update_counterparty(
 ):
     cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
     if cp:
+        resolved_entity = entity_type if entity_type in ENTITY_TYPES else "ooo"
+        if resolved_entity == "ip" and not signatory.strip():
+            signatory = _generate_signatory(contact_person or name)
         cp.name = name; cp.trade_name = trade_name or None; cp.short_name = short_name
         cp.inn = inn; cp.kpp = kpp
         cp.ogrn = ogrn; cp.legal_address = legal_address; cp.actual_address = actual_address
-        cp.phone = phone; cp.email = email; cp.contact_person = contact_person; cp.type = type
-        cp.entity_type = entity_type if entity_type in ENTITY_TYPES else "ooo"
+        cp.phone = phone; cp.email = email; cp.contact_person = contact_person
+        cp.signatory = signatory or None
+        cp.type = type
+        cp.entity_type = resolved_entity
         cp.bank_name = bank_name; cp.bank_account = bank_account; cp.bank_bik = bank_bik
         cp.bank_corr_account = bank_corr_account; cp.notes = notes
         cp.payment_delay_days = max(0, payment_delay_days)

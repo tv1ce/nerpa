@@ -33,7 +33,7 @@
         <div class="col-md-4"><span class="text-muted">Статус:</span>
           <span class="badge badge-{{ invoice.status }} fs-6">{{ statuses[invoice.status] }}</span>
         </div>
-        <div class="col-md-6"><span class="text-muted">Клиент:</span> <a href="/counterparties/{{ invoice.counterparty_id }}">{{ invoice.counterparty.name }}</a></div>
+        <div class="col-md-6"><span class="text-muted">Клиент:</span> <a href="/counterparties/{{ invoice.counterparty_id }}">{{ invoice.counterparty.trade_name or invoice.counterparty.name }}</a></div>
         <div class="col-md-3"><span class="text-muted">Оплатить до:</span> {{ invoice.due_date | date_fmt }}</div>
         <div class="col-md-3"><span class="text-muted">Оплачено:</span> {{ invoice.paid_date | date_fmt }}</div>
         {% if invoice.order %}<div class="col-12"><span class="text-muted">Заказ:</span> <a href="/orders/{{ invoice.order_id }}">{{ invoice.order.number }}</a></div>{% endif %}
@@ -46,9 +46,12 @@
       <div class="form-section-title">Позиции счёта</div>
       <div class="table-responsive">
         <table class="table tms-table mb-0">
+          {% set has_discount = invoice.items | selectattr("discount_pct", "gt", 0) | list | length > 0 %}
           <thead>
             <tr><th>№</th><th>Наименование</th><th class="text-end">Кол-во</th><th>Ед.</th>
-                <th class="text-end">Цена</th><th class="text-end">НДС%</th><th class="text-end">Сумма</th></tr>
+                <th class="text-end">Цена</th>
+                {% if has_discount %}<th class="text-end">Скидка</th>{% endif %}
+                <th class="text-end">НДС%</th><th class="text-end">Сумма</th></tr>
           </thead>
           <tbody>
             {% for item in invoice.items %}
@@ -58,15 +61,30 @@
               <td class="text-end">{{ item.quantity }}</td>
               <td>{{ item.unit }}</td>
               <td class="text-end">{{ item.price | money }}</td>
+              {% if has_discount %}
+                <td class="text-end">
+                  {% if item.discount_pct %}<span class="text-danger fw-semibold">−{{ item.discount_pct | int }}%</span>{% else %}—{% endif %}
+                </td>
+              {% endif %}
               <td class="text-end">{{ item.vat_rate | int }}%</td>
               <td class="text-end fw-semibold">{{ item.amount | money }}</td>
             </tr>
             {% endfor %}
           </tbody>
+          {% set colspan = 6 if has_discount else 5 %}
           <tfoot class="table-light">
-            <tr><td colspan="6" class="text-end">Без НДС:</td><td class="text-end">{{ invoice.subtotal | money }} ₽</td></tr>
-            <tr><td colspan="6" class="text-end">НДС:</td><td class="text-end">{{ invoice.vat_amount | money }} ₽</td></tr>
-            <tr class="fw-bold"><td colspan="6" class="text-end fs-5">Итого:</td><td class="text-end fs-5">{{ invoice.total_amount | money }} ₽</td></tr>
+            {% if has_discount %}
+            {% set full_sum = invoice.items | sum(attribute='quantity') %}
+            {% set gross = namespace(val=0.0) %}
+            {% for item in invoice.items %}{% set gross.val = gross.val + item.quantity * item.price %}{% endfor %}
+            <tr class="text-muted" style="font-size:.85rem">
+              <td colspan="{{ colspan + 1 }}" class="text-end">До скидки:</td>
+              <td class="text-end">{{ gross.val | money }} ₽</td>
+            </tr>
+            {% endif %}
+            <tr><td colspan="{{ colspan + 1 }}" class="text-end">Без НДС:</td><td class="text-end">{{ invoice.subtotal | money }} ₽</td></tr>
+            <tr><td colspan="{{ colspan + 1 }}" class="text-end">НДС:</td><td class="text-end">{{ invoice.vat_amount | money }} ₽</td></tr>
+            <tr class="fw-bold"><td colspan="{{ colspan + 1 }}" class="text-end fs-5">Итого:</td><td class="text-end fs-5">{{ invoice.total_amount | money }} ₽</td></tr>
           </tfoot>
         </table>
       </div>

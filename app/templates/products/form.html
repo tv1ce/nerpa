@@ -20,13 +20,28 @@
             <label class="form-label">Артикул</label>
             <input type="text" name="article" class="form-control" value="{{ product.article if product else '' }}">
           </div>
-          <div class="col-md-6">
-            <label class="form-label">Единица измерения</label>
-            <select name="unit" class="form-select">
-              {% for u in ['кг', 'г', 'т', 'шт', 'уп', 'л', 'мл'] %}
+          <div class="col-md-4">
+            <label class="form-label">Ед. на складе</label>
+            <select name="unit" class="form-select" id="f-unit">
+              {% for u in ['шт', 'Коробки', 'кг', 'г', 'т', 'уп', 'л', 'мл'] %}
               <option value="{{ u }}" {% if product and product.unit == u %}selected{% endif %}>{{ u }}</option>
               {% endfor %}
             </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Ед. в заказах/счетах
+              <span class="text-muted" style="font-size:.78rem">(если отличается)</span>
+            </label>
+            <input type="text" name="sale_unit" class="form-control"
+                   placeholder="шт"
+                   value="{{ product.sale_unit if product and product.sale_unit else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">В 1 складской ед.
+              <span class="text-muted" style="font-size:.78rem">(шт продажи)</span>
+            </label>
+            <input type="number" name="units_per_box" class="form-control" min="1" step="1"
+                   value="{{ product.units_per_box if product else 1 }}">
           </div>
           <div class="col-md-6">
             <label class="form-label">Цена, ₽</label>

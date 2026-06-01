@@ -2,8 +2,10 @@
 {% block title %}Заказ {{ order.number }}{% endblock %}
 {% block page_title %}Заказ {{ order.number }}{% endblock %}
 {% block topbar_actions %}
+  {% if request.session.get('user_role') != 'warehouse' %}
   <a href="/orders/{{ order.id }}/edit" class="btn btn-accent btn-sm me-1"><i class="bi bi-pencil me-1"></i>Редактировать</a>
   <a href="/invoices/new?order_id={{ order.id }}" class="btn btn-outline-success btn-sm me-1"><i class="bi bi-receipt me-1"></i>Выставить счёт</a>
+  {% endif %}
   <a href="/orders" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Назад</a>
 {% endblock %}
 
@@ -16,7 +18,7 @@
         <div class="col-md-4"><span class="text-muted">Номер:</span> <strong>{{ order.number }}</strong></div>
         <div class="col-md-4"><span class="text-muted">Дата:</span> {{ order.date | date_fmt }}</div>
         <div class="col-md-4"><span class="text-muted">Статус:</span> <span class="badge badge-{{ order.status }} fs-6">{{ statuses[order.status] }}</span></div>
-        <div class="col-md-6"><span class="text-muted">Клиент:</span> <a href="/counterparties/{{ order.counterparty_id }}">{{ order.counterparty.name }}</a></div>
+        <div class="col-md-6"><span class="text-muted">Клиент:</span> <a href="/counterparties/{{ order.counterparty_id }}">{{ order.counterparty.trade_name or order.counterparty.name }}</a></div>
         <div class="col-md-6"><span class="text-muted">Дата доставки:</span> {{ order.delivery_date | date_fmt }}</div>
         {% if order.delivery_address %}
         <div class="col-12"><span class="text-muted">Адрес доставки:</span> {{ order.delivery_address }}</div>

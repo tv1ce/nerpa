@@ -93,8 +93,9 @@
                 <th style="width:75px">Кол-во</th>
                 <th style="width:55px">Ед.</th>
                 <th style="width:90px">Цена</th>
-                <th style="width:60px">НДС%</th>
-                <th style="width:90px" class="text-end">Сумма</th>
+                <th style="width:90px">Скидка</th>
+                <th style="width:65px">НДС%</th>
+                <th style="width:100px" class="text-end">Сумма</th>
                 <th style="width:36px"></th>
               </tr>
             </thead>
@@ -103,6 +104,9 @@
         </div>
         <div class="text-end mt-2" style="font-size:.88rem">
           <div>Без НДС: <strong id="total-subtotal">0,00</strong> ₽</div>
+          <div id="total-discount-row" style="display:none" class="text-danger">
+            Скидка: −<strong id="total-discount">0,00</strong> ₽
+          </div>
           <div>НДС: <strong id="total-vat">0,00</strong> ₽</div>
           <div class="fs-5 fw-bold mt-1">Итого: <span id="total-amount">0,00</span> ₽</div>
         </div>
@@ -123,7 +127,7 @@
 <script>
 const productsMap = {
   {% for p in products %}
-  "{{ p.id }}": { name: "{{ p.name | replace('"', '\\"') }}", unit: "{{ p.unit }}", price: {{ p.price }}, vat_rate: {{ p.vat_rate }} },
+  "{{ p.id }}": { name: "{{ p.name | replace('"', '\\"') }}", unit: "{{ p.sale_unit or p.unit }}", price: {{ p.price }}, vat_rate: {{ p.vat_rate }} },
   {% endfor %}
 };
 const initialItems = [
@@ -133,7 +137,7 @@ const initialItems = [
     {% endfor %}
   {% elif order %}
     {% for item in order.items %}
-    { product_id: "{{ item.product_id }}", name: "{{ item.product.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.product.unit }}", price: {{ item.price }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
+    { product_id: "{{ item.product_id }}", name: "{{ item.product.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.product.sale_unit or item.product.unit }}", price: {{ item.price }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
     {% endfor %}
   {% endif %}
 ];

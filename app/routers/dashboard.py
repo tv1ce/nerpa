@@ -40,7 +40,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     ).count()
 
     recent_orders = (
-        db.query(Order).join(Counterparty)
+        db.query(Order).join(Counterparty, Order.counterparty_id == Counterparty.id)
         .order_by(Order.created_at.desc()).limit(5).all()
     )
     recent_invoices = (

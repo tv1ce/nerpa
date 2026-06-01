@@ -9,7 +9,7 @@ function initItemsEditor(initialItems, productsMap) {
 }
 
 function addItem() {
-  _itemsData.push({ product_id: "", name: "", quantity: 1, unit: "кг", price: 0, discount_pct: 0, vat_rate: 20, amount: 0 });
+  _itemsData.push({ product_id: "", name: "", quantity: 1, unit: "шт", price: 0, discount_pct: 0, vat_rate: 20, amount: 0 });
   renderItems();
 }
 

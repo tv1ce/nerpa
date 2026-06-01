@@ -162,7 +162,7 @@
             {% for o in recent_orders %}
             <tr>
               <td class="ps-3"><a href="/orders/{{ o.id }}">{{ o.number }}</a></td>
-              <td>{{ o.counterparty.name }}</td>
+              <td>{{ o.counterparty.trade_name or o.counterparty.name }}</td>
               <td>{{ o.date | date_fmt }}</td>
               <td>{{ o.total_amount | money }} ₽</td>
               <td><span class="badge badge-{{ o.status }}">{{ status_ru.get(o.status, o.status) }}</span></td>

@@ -41,7 +41,9 @@ async def create_product(
     request: Request,
     name: str = Form(...),
     article: str = Form(default=""),
-    unit: str = Form(default="кг"),
+    unit: str = Form(default="шт"),
+    sale_unit: str = Form(default=""),
+    units_per_box: int = Form(default=1),
     price: float = Form(default=0.0),
     vat_rate: float = Form(default=20.0),
     description: str = Form(default=""),
@@ -49,6 +51,8 @@ async def create_product(
     db: Session = Depends(get_db),
 ):
     product = Product(name=name, article=article, unit=unit,
+                      sale_unit=sale_unit or None,
+                      units_per_box=max(1, units_per_box),
                       price=price, vat_rate=vat_rate, description=description,
                       min_stock=min_stock)
     db.add(product)
@@ -71,7 +75,9 @@ async def update_product(
     request: Request, product_id: int,
     name: str = Form(...),
     article: str = Form(default=""),
-    unit: str = Form(default="кг"),
+    unit: str = Form(default="шт"),
+    sale_unit: str = Form(default=""),
+    units_per_box: int = Form(default=1),
     price: float = Form(default=0.0),
     vat_rate: float = Form(default=20.0),
     description: str = Form(default=""),
@@ -81,6 +87,8 @@ async def update_product(
     product = db.query(Product).filter(Product.id == product_id).first()
     if product:
         product.name = name; product.article = article; product.unit = unit
+        product.sale_unit = sale_unit or None
+        product.units_per_box = max(1, units_per_box)
         product.price = price; product.vat_rate = vat_rate; product.description = description
         product.min_stock = min_stock
         db.commit()

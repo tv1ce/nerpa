@@ -64,11 +64,29 @@ def _migrate_db():
         ("company_settings", "board_quotes",         "TEXT"),
         ("company_settings", "board_stations",       "TEXT"),
         ("company_settings", "board_active_station", "INTEGER DEFAULT 0"),
+        ("company_settings", "brand_name",           "TEXT"),
+        ("orders", "supplier_id", "INTEGER REFERENCES counterparties(id)"),
+        ("orders", "carrier_id",  "INTEGER REFERENCES counterparties(id)"),
+        ("counterparties", "signatory", "TEXT"),
+        ("company_settings", "metafora_email",    "TEXT"),
+        ("company_settings", "metafora_password", "TEXT"),
+        ("company_settings", "metafora_token",    "TEXT"),
+        ("company_settings", "metafora_refresh",  "TEXT"),
+        ("company_settings", "metafora_app_id",   "TEXT"),
+        ("company_settings", "metafora_url",      "TEXT"),
+        ("products", "sale_unit", "TEXT"),
+        ("products", "units_per_box", "INTEGER DEFAULT 1"),
+        ("invoice_items", "discount_pct", "REAL DEFAULT 0.0"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in existing:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")
+
+    # Перевод орешков с «Коробки» на «шт»
+    cur.execute("UPDATE products SET unit='шт', sale_unit=NULL, units_per_box=1 WHERE unit='Коробки'")
+    cur.execute("UPDATE invoice_items SET unit='шт' WHERE unit='Коробки'")
+
     conn.commit()
     conn.close()
 

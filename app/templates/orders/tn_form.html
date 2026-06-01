@@ -14,13 +14,24 @@
       <div class="card border-0 shadow-sm p-4 mb-3">
         <div class="form-section-title">Перевозчик и транспортное средство</div>
         <div class="row g-3">
+          {% if carrier %}
+          <div class="col-12">
+            <div class="alert alert-info py-2 mb-0" style="font-size:.85rem">
+              <i class="bi bi-truck me-1"></i>Перевозчик подставлен из заказа:
+              <strong>{{ carrier.trade_name or carrier.name }}</strong>
+              — <a href="/counterparties/{{ carrier.id }}" class="alert-link" target="_blank">карточка</a>
+            </div>
+          </div>
+          {% endif %}
           <div class="col-md-6">
             <label class="form-label">Перевозчик (ФИО / название)</label>
-            <input type="text" name="carrier_name" class="form-control" placeholder="ИП Иванов Иван Иванович">
+            <input type="text" name="carrier_name" class="form-control" placeholder="ИП Иванов Иван Иванович"
+                   value="{{ (carrier.trade_name or carrier.name) if carrier else '' }}">
           </div>
           <div class="col-md-3">
             <label class="form-label">ИНН перевозчика</label>
-            <input type="text" name="carrier_inn" class="form-control" maxlength="12">
+            <input type="text" name="carrier_inn" class="form-control" maxlength="12"
+                   value="{{ carrier.inn if carrier else '' }}">
           </div>
           <div class="col-md-3">
             <label class="form-label">Водитель</label>
@@ -120,7 +131,7 @@
       <div class="card border-0 shadow-sm p-3 mb-3">
         <div class="fw-semibold mb-2" style="font-size:.9rem">Заказ</div>
         <div class="mb-1" style="font-size:.85rem"><span class="text-muted">Номер:</span> {{ order.number }}</div>
-        <div class="mb-1" style="font-size:.85rem"><span class="text-muted">Клиент:</span> {{ order.counterparty.name }}</div>
+        <div class="mb-1" style="font-size:.85rem"><span class="text-muted">Клиент:</span> {{ order.counterparty.trade_name or order.counterparty.name }}</div>
         <div class="mb-1" style="font-size:.85rem"><span class="text-muted">Сумма:</span> {{ order.total_amount | money }} ₽</div>
         {% if order.delivery_address %}
         <div style="font-size:.85rem"><span class="text-muted">Адрес:</span> {{ order.delivery_address }}</div>

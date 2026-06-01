@@ -83,7 +83,10 @@ async def create_contract(
     db.add(contract)
     db.flush()
     if template_id:
-        _generate_contract_doc(contract, db)
+        try:
+            _generate_contract_doc(contract, db)
+        except Exception as e:
+            print(f"[WARN] Не удалось сформировать документ договора: {e}")
     db.commit()
     return RedirectResponse(url=f"/contracts/{contract.id}", status_code=302)
 
@@ -147,8 +150,11 @@ async def update_contract(
 async def generate_contract(request: Request, contract_id: int, db: Session = Depends(get_db)):
     contract = db.query(Contract).filter(Contract.id == contract_id).first()
     if contract and contract.template_id:
-        _generate_contract_doc(contract, db)
-        db.commit()
+        try:
+            _generate_contract_doc(contract, db)
+            db.commit()
+        except Exception as e:
+            print(f"[WARN] Не удалось сформировать документ: {e}")
     return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
 
 
@@ -223,6 +229,12 @@ def _generate_contract_doc(contract: Contract, db: Session):
     company = db.query(CompanySettings).first()
     if not template or not company or not os.path.exists(template.file_path):
         return
+    # Проверяем расширение — python-docx работает только с .docx
+    if not template.file_path.lower().endswith(".docx"):
+        raise ValueError(
+            f"Шаблон '{template.name}' имеет неподдерживаемый формат. "
+            f"Загрузите файл в формате .docx (не .doc)"
+        )
     os.makedirs(GENERATED_DIR, exist_ok=True)
     output_name = f"contract_{contract.number.replace('/', '-')}_{contract.id}.docx"
     output_path = os.path.join(GENERATED_DIR, output_name)

@@ -6,7 +6,7 @@ from sqlalchemy import func
 from datetime import date, timedelta
 from app.database import get_db
 from app.auth import login_required
-from app.models import Order, OrderItem, Invoice, Counterparty, CompanySettings, MonthlyPlan
+from app.models import Order, OrderItem, Invoice, Counterparty, CompanySettings, MonthlyPlan, LogisticsCost
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 templates = Jinja2Templates(directory="app/templates")
@@ -54,7 +54,7 @@ async def revenue_report(
     # и подтягиваем связанный счёт
     rows_q = (
         db.query(Order)
-        .join(Counterparty)
+        .join(Counterparty, Order.counterparty_id == Counterparty.id)
         .filter(
             Order.date >= tbl_from,
             Order.date <= tbl_to,
@@ -124,11 +124,13 @@ async def revenue_report(
 
     plan_pct = round(revenue_month / monthly_plan * 100, 1) if monthly_plan > 0 else 0
 
-    # Средняя сумма заказа
-    order_count = db.query(func.count(Order.id)).filter(
-        Order.date >= year_start,
-    ).scalar() or 0
-    avg_order = round(revenue_year / order_count, 2) if order_count > 0 else 0.0
+    # Затраты на логистику за месяц и год
+    logistics_month = db.query(func.sum(LogisticsCost.amount)).filter(
+        LogisticsCost.date >= month_start,
+    ).scalar() or 0.0
+    logistics_year = db.query(func.sum(LogisticsCost.amount)).filter(
+        LogisticsCost.date >= year_start,
+    ).scalar() or 0.0
 
     # Итого по таблице (за выбранный период)
     total_amount = sum(r["amount"] for r in shipments)
@@ -149,7 +151,8 @@ async def revenue_report(
         "revenue_month": revenue_month,
         "monthly_plan": monthly_plan,
         "plan_pct": plan_pct,
-        "avg_order": avg_order,
+        "logistics_month": logistics_month,
+        "logistics_year": logistics_year,
         # Фильтр
         "period": period,
         "date_from": date_from,

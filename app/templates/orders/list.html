@@ -2,7 +2,9 @@
 {% block title %}Заказы{% endblock %}
 {% block page_title %}Заказы на поставку{% endblock %}
 {% block topbar_actions %}
+  {% if request.session.get('user_role') != 'warehouse' %}
   <a href="/orders/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новый заказ</a>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
@@ -43,7 +45,7 @@
         {% for o in orders %}
         <tr>
           <td class="ps-3"><a href="/orders/{{ o.id }}" class="fw-semibold text-decoration-none">{{ o.number }}</a></td>
-          <td>{{ o.counterparty.name }}</td>
+          <td>{{ o.counterparty.trade_name or o.counterparty.name }}</td>
           <td>{{ o.date | date_fmt }}</td>
           <td>{{ o.delivery_date | date_fmt }}</td>
           <td class="text-end">{{ o.total_amount | money }}</td>

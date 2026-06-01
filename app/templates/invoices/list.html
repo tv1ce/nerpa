@@ -43,7 +43,7 @@
         {% for inv in invoices %}
         <tr>
           <td class="ps-3"><a href="/invoices/{{ inv.id }}" class="fw-semibold text-decoration-none">{{ inv.number }}</a></td>
-          <td>{{ inv.counterparty.name }}</td>
+          <td>{{ inv.counterparty.trade_name or inv.counterparty.name }}</td>
           <td>{{ inv.date | date_fmt }}</td>
           <td>
             {{ inv.due_date | date_fmt }}

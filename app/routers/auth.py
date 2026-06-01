@@ -32,6 +32,9 @@ async def login(
     request.session["user_id"] = user.id
     request.session["user_name"] = user.full_name
     request.session["user_role"] = user.role
+    # Для роли склада — стартовая страница остатки
+    if user.role == "warehouse" and next == "/":
+        next = "/warehouse/"
     return RedirectResponse(url=next, status_code=302)
 
 
