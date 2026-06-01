@@ -342,7 +342,7 @@ async def logistics_index(
         ).filter(
             Order.date >= d_from,
             Order.date <= d_to,
-            _CP.name.ilike("%гоголев%"),
+            _CP.name.ilike("%Гоголев Николай Николаевич%"),
         ).scalar() or 0
 
     def _per_order(logi, orders):
