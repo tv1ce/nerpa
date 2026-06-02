@@ -34,16 +34,18 @@
       position:relative;overflow:hidden;box-shadow:var(--shadow);
       transition:background .5s,border-color .5s;
     }
-    .hero .label{font-size:2.4vh;color:var(--muted);font-weight:600;margin-bottom:.6vh}
-    .hero .big{font-size:11vh;font-weight:800;line-height:.95;
+    .hero .label{font-size:2.7vh;color:var(--muted);font-weight:600;margin-bottom:.6vh}
+    .hero .big{font-size:9.5vh;font-weight:800;line-height:.95;
       background:linear-gradient(90deg,var(--purple),var(--lilac));-webkit-background-clip:text;
       background-clip:text;-webkit-text-fill-color:transparent}
-    .hero .unit{font-size:3.6vh;color:var(--muted);font-weight:600;margin-left:1vw}
+    .hero .unit{font-size:3.4vh;color:var(--muted);font-weight:600;margin-left:1vw}
+    .hero .money{font-size:3.2vh;font-weight:700;color:var(--green);margin-left:2vw;
+      letter-spacing:-.01em}
     .plan-wrap{margin-top:2vh;padding-right:9vw} /* отступ под маскота */
     .plan-head{display:flex;justify-content:space-between;align-items:baseline;
-      font-size:2.1vh;color:var(--muted);margin-bottom:1vh}
+      font-size:2.3vh;color:var(--muted);margin-bottom:1vh}
     .plan-head b{color:var(--ink)}
-    .plan-head .pct{font-weight:800;font-size:2.8vh;color:var(--purple)}
+    .plan-head .pct{font-weight:800;font-size:3vh;color:var(--purple)}
     .bar{height:3vh;background:var(--track);border-radius:2vh;overflow:hidden}
     .bar > div{
       height:100%;border-radius:2vh;
@@ -117,19 +119,31 @@
     }
 
     /* ── Карточки-метрики ── */
-    .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:1.3vw;margin-bottom:1.8vh}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1.3vw;margin-bottom:1.4vh}
+    .stats2{display:grid;grid-template-columns:repeat(3,1fr);gap:1.3vw;margin-bottom:1.4vh}
     .stat{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
       padding:1.8vh 1.2vw;text-align:center;box-shadow:var(--shadow);
-      transition:background .5s,border-color .5s;}
-    .stat .v{font-size:4.4vh;font-weight:800;line-height:1}
-    .stat .k{font-size:1.65vh;color:var(--muted);margin-top:.6vh}
+      transition:background .5s,border-color .5s;
+      display:flex;flex-direction:column;justify-content:center;}
+    .stat .v{font-size:3.2vh;font-weight:800;line-height:1.1}
+    .stat .k{font-size:1.9vh;color:var(--muted);font-weight:600;margin-top:.6vh}
+    .stat .sub{font-size:3.0vh;font-weight:700;margin-top:.3vh}
+    .stat.today .sub,.stat.year .sub,.stat.total .sub,.stat.prev-nuts .sub{color:var(--green)}
+    .stat.cost .sub{font-size:1.7vh;font-weight:600;color:var(--ink)}
     .stat.today .v{color:var(--purple)}
     .stat.year  .v{color:var(--lilac)}
     .stat.total .v{color:var(--ink)}
     .stat.claims .v{color:var(--green)}
-    .stat.shift .v{font-size:3.6vh;color:var(--orange);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-    .stat.shift.warn .v{color:#E53E3E;animation:blink .9s ease-in-out infinite}
-    .stat.shift.done-shift .v{color:var(--muted)}
+    .stat.prev-nuts .v{color:var(--purple)}
+    .stat.prev-rev  .v{font-size:3.0vh;color:var(--lilac)}
+    .stat.cost .v{font-size:3.2vh;color:var(--green)}
+    .stat.cost.cost-warn .v{color:var(--orange)}
+    .stat.cost.cost-over .v{color:#E53E3E}
+    .cost-bar-wrap{margin-top:.8vh;height:1.8vh;background:var(--track);border-radius:1vh;overflow:hidden}
+    .cost-bar{height:100%;border-radius:1vh;transition:width .8s ease,background .4s;
+      background:linear-gradient(90deg,var(--green),#a5d96a)}
+    .cost-bar.warn{background:linear-gradient(90deg,var(--orange),#f5a85e)}
+    .cost-bar.over{background:linear-gradient(90deg,#E53E3E,#f88)}
     @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 
     /* ── Музыкальные каналы ── */
@@ -191,13 +205,16 @@
     <div class="mascot" id="mascot">😊</div>
     <div class="speech" id="speech"></div>
     <div class="label">Отгружено орешков за месяц</div>
-    <div><span class="big" id="m-shipped">{{ data.shipped_month }}</span><span class="unit">шт</span></div>
+    <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:.4vh 0">
+      <span class="big" id="m-shipped">{{ data.shipped_month }}</span><span class="unit">шт</span>
+      <span class="money" id="m-money">{{ "{:,}".format(data.revenue_month).replace(",", " ") }} ₽</span>
+    </div>
     <div id="record-badge" class="record-badge" style="display:{{ '' if data.is_record_today else 'none' }}">🏆 Рекорд дня!</div>
 
     <div class="plan-wrap" id="plan-wrap">
       <div class="plan-head">
-        <span>План месяца: <b id="m-plan">{{ data.plan }}</b> шт</span>
-        <span class="pct"><span id="m-pct">{{ data.plan_pct }}</span>%</span>
+        <span>Выручка: <b id="m-revenue">{{ "{:,}".format(data.revenue_month).replace(",", " ") }}</b> ₽ &nbsp;/&nbsp; план <b id="m-revenue-plan">{{ "{:,}".format(data.revenue_plan).replace(",", " ") }}</b> ₽</span>
+        <span class="pct"><span id="m-pct">{{ data.revenue_pct }}</span>%</span>
       </div>
       <div class="bar"><div id="bar-fill" style="width:0%"></div></div>
     </div>
@@ -206,24 +223,42 @@
   <!-- Метрики -->
   <div class="stats">
     <div class="stat today">
-      <div class="v" id="m-today">{{ data.shipped_today }}</div>
+      <div class="v" id="m-today">{{ data.shipped_today }} шт</div>
       <div class="k">отгружено сегодня</div>
+      <div class="sub" id="m-today-money">{{ "{:,}".format(data.shipped_today_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat year">
-      <div class="v" id="m-year">{{ data.shipped_year }}</div>
+      <div class="v" id="m-year">{{ data.shipped_year }} шт</div>
       <div class="k">с начала года</div>
+      <div class="sub" id="m-year-money">{{ "{:,}".format(data.shipped_year_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat total">
-      <div class="v" id="m-total">{{ data.shipped_total }}</div>
+      <div class="v" id="m-total">{{ data.shipped_total }} шт</div>
       <div class="k">всего за всё время</div>
+      <div class="sub" id="m-total-money">{{ "{:,}".format(data.shipped_total_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat claims">
       <div class="v" id="m-claims">—</div>
       <div class="k" id="m-claims-label">дней без рекламаций</div>
     </div>
-    <div class="stat shift" id="stat-shift">
-      <div class="v" id="m-shift">--:--</div>
-      <div class="k" id="m-shift-label">до конца смены</div>
+  </div>
+
+  <!-- Прошлый месяц + Себестоимость -->
+  <div class="stats2">
+    <div class="stat prev-nuts">
+      <div class="v" id="m-lm-nuts">{{ data.last_month_nuts }} шт</div>
+      <div class="k">орешков — прошлый месяц</div>
+      <div class="sub" id="m-lm-nuts-money">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
+    </div>
+    <div class="stat prev-rev">
+      <div class="v" id="m-lm-rev">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }}</div>
+      <div class="k">выручка — прошлый месяц, ₽</div>
+    </div>
+    <div class="stat cost" id="stat-cost">
+      <div class="v" id="m-cost">{{ data.cost_pct | round(1) }}%</div>
+      <div class="k">себестоимость</div>
+      <div class="cost-bar-wrap"><div class="cost-bar" id="cost-bar" style="width:0%"></div></div>
+      <div class="sub" id="m-cost-sub">норма: {{ data.cost_norm_pct | round(1) }}% &nbsp;|&nbsp; Δ {{ "%+.1f" | format(data.cost_pct - data.cost_norm_pct) }}%</div>
     </div>
   </div>
 
@@ -242,7 +277,16 @@
   <script>
     const KEY = document.body.dataset.key;
     const MUTE = new URLSearchParams(location.search).has('mute');
-    const fmt = n => (n ?? 0).toLocaleString('ru-RU');
+    const fmt  = n => (n ?? 0).toLocaleString('ru-RU');
+    const fmtR = n => (n ?? 0).toLocaleString('ru-RU', {maximumFractionDigits:0}); // рубли без копеек
+
+    let NUT_PRICE    = {{ data.nut_price }};
+    let COST_NORM    = {{ data.cost_norm_pct }};
+    let COST_DEV     = {{ data.cost_deviation }};
+    const SHIFT_START = {{ data.shift_start | tojson }};  // "HH:MM"
+    const SHIFT_END   = {{ data.shift_end   | tojson }};
+
+    function parseHM(s){ const [h,m] = (s||'00:00').split(':').map(Number); return {h,m}; }
 
     let QUOTES = {{ data.quotes | tojson }};
     let STATIONS = {{ data.stations | tojson }};
@@ -263,39 +307,13 @@
     }
     tick(); setInterval(tick, 1000);
 
-    // ── Таймер до конца смены (18:00) ──
-    function updateShift(){
-      const now = new Date();
-      const end = new Date(now); end.setHours(18, 0, 0, 0);
-      const shiftEl = document.getElementById('m-shift');
-      const shiftLabel = document.getElementById('m-shift-label');
-      const card = document.getElementById('stat-shift');
-      if (now >= end){
-        shiftEl.textContent = '🌙';
-        shiftLabel.textContent = 'смена окончена';
-        card.classList.remove('warn');
-        card.classList.add('done-shift');
-        return;
-      }
-      card.classList.remove('done-shift');
-      const diff = Math.floor((end - now) / 1000);
-      const h = Math.floor(diff / 3600);
-      const m = Math.floor((diff % 3600) / 60);
-      const s = diff % 60;
-      const parts = [];
-      if (h > 0) parts.push(String(h).padStart(2,'0'));
-      parts.push(String(m).padStart(2,'0'));
-      parts.push(String(s).padStart(2,'0'));
-      shiftEl.textContent = parts.join(':');
-      shiftLabel.textContent = 'до конца смены';
-      card.classList.toggle('warn', diff < 3600);
-    }
-    updateShift(); setInterval(updateShift, 1000);
-
-    // ── Ночной режим (после 18:00) ──
+    // ── Ночной режим (вне рабочего времени) ──
     function updateNightMode(){
-      const h = new Date().getHours();
-      document.body.classList.toggle('night', h >= 18 || h < 7);
+      const now = new Date();
+      const {h: sh} = parseHM(SHIFT_START);
+      const {h: eh} = parseHM(SHIFT_END);
+      const hour = now.getHours();
+      document.body.classList.toggle('night', hour >= eh || hour < sh);
     }
     updateNightMode(); setInterval(updateNightMode, 60000);
 
@@ -393,6 +411,13 @@
     }
     updateMascot({{ data.plan_pct }});
 
+    // Инициализация cost-карточки
+    renderCost({{ data.cost_pct }}, {{ data.cost_norm_pct }}, {{ data.cost_deviation }});
+    // Инициализация полосы плана (по выручке)
+    if ({{ data.revenue_plan }} > 0){
+      document.getElementById('bar-fill').style.width = Math.min({{ data.revenue_pct }}, 100) + '%';
+    }
+
     // ── Тикер: мотивашки + факты об орешках ──
     const NUT_FACTS = [
       '🥜 Факт: арахис — это бобовое, а не орех!',
@@ -458,20 +483,54 @@
     renderStations();
     playActive().then(()=> soundBtn.style.display='none').catch(()=> soundBtn.style.display='');
 
+    // ── Себестоимость: цвет и полоса ──
+    function renderCost(pct, norm, dev){
+      const card    = document.getElementById('stat-cost');
+      const bar     = document.getElementById('cost-bar');
+      const sub     = document.getElementById('m-cost-sub');
+      const delta   = pct - norm;
+      const barPct  = norm > 0 ? Math.min(pct / norm * 100, 130) : 0;
+      bar.style.width = barPct + '%';
+      card.classList.remove('cost-warn','cost-over');
+      bar.classList.remove('warn','over');
+      if (pct > norm + dev){
+        card.classList.add('cost-over'); bar.classList.add('over');
+      } else if (pct > norm){
+        card.classList.add('cost-warn'); bar.classList.add('warn');
+      }
+      const sign = delta >= 0 ? '+' : '';
+      sub.textContent = 'норма: ' + norm.toFixed(1) + '% | Δ ' + sign + delta.toFixed(1) + '%';
+    }
+
     // ── Обновление данных (каждые 30 сек) ──
     function render(d){
       document.getElementById('m-shipped').textContent = fmt(d.shipped_month);
-      document.getElementById('m-plan').textContent    = fmt(d.plan);
-      document.getElementById('m-pct').textContent     = d.plan_pct;
-      document.getElementById('m-today').textContent   = fmt(d.shipped_today);
-      document.getElementById('m-year').textContent    = fmt(d.shipped_year);
-      document.getElementById('m-total').textContent   = fmt(d.shipped_total);
+      document.getElementById('m-money').textContent   = fmtR(d.revenue_month) + ' ₽';
+      document.getElementById('m-revenue').textContent      = fmtR(d.revenue_month);
+      document.getElementById('m-revenue-plan').textContent = fmtR(d.revenue_plan);
+      document.getElementById('m-pct').textContent          = d.revenue_pct;
+      document.getElementById('m-today').textContent        = fmt(d.shipped_today) + ' шт';
+      document.getElementById('m-today-money').textContent   = fmtR(d.shipped_today_money) + ' ₽';
+      document.getElementById('m-year').textContent          = fmt(d.shipped_year) + ' шт';
+      document.getElementById('m-year-money').textContent    = fmtR(d.shipped_year_money)  + ' ₽';
+      document.getElementById('m-total').textContent         = fmt(d.shipped_total) + ' шт';
+      document.getElementById('m-total-money').textContent   = fmtR(d.shipped_total_money) + ' ₽';
+
+      // Прошлый месяц
+      document.getElementById('m-lm-nuts').textContent      = fmt(d.last_month_nuts) + ' шт';
+      document.getElementById('m-lm-nuts-money').textContent = fmtR(d.last_month_revenue) + ' ₽';
+      document.getElementById('m-lm-rev').textContent       = fmtR(d.last_month_revenue);
+
+      // Себестоимость
+      NUT_PRICE = d.nut_price; COST_NORM = d.cost_norm_pct; COST_DEV = d.cost_deviation;
+      document.getElementById('m-cost').textContent = d.cost_pct.toFixed(1) + '%';
+      renderCost(d.cost_pct, d.cost_norm_pct, d.cost_deviation);
 
       const hero = document.getElementById('hero');
-      if (d.plan > 0){
+      if (d.revenue_plan > 0){
         document.getElementById('plan-wrap').style.display = '';
-        document.getElementById('bar-fill').style.width = Math.min(d.plan_pct, 100) + '%';
-        const nowDone = d.plan_pct >= 100;
+        document.getElementById('bar-fill').style.width = Math.min(d.revenue_pct, 100) + '%';
+        const nowDone = d.revenue_pct >= 100;
         if (nowDone && !planDone) launchConfetti();
         planDone = nowDone;
         hero.classList.toggle('done', nowDone);
