@@ -7,7 +7,7 @@
 URL для liqvid:  https://<сервер>/board?key=<токен>
 """
 import os
-from datetime import date
+from datetime import date, timedelta
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -76,7 +76,11 @@ def parse_stations(raw: str | None) -> list[dict]:
 def _collect_metrics(db: Session) -> dict:
     today = date.today()
     month_start = today.replace(day=1)
-    year_start = today.replace(month=1, day=1)
+    year_start  = today.replace(month=1, day=1)
+
+    # Прошлый месяц
+    last_month_end   = month_start - timedelta(days=1)
+    last_month_start = last_month_end.replace(day=1)
 
     def _nuts(*filters):
         q = db.query(func.sum(OrderItem.quantity)).join(
@@ -86,23 +90,54 @@ def _collect_metrics(db: Session) -> dict:
             q = q.filter(f)
         return int(q.scalar() or 0)
 
+    def _revenue(*filters):
+        q = db.query(func.sum(OrderItem.amount)).join(
+            Order, OrderItem.order_id == Order.id
+        ).filter(Order.status.in_(_SOLD))
+        for f in filters:
+            q = q.filter(f)
+        return int(q.scalar() or 0)
+
     shipped_total = _nuts()
     shipped_month = _nuts(Order.date >= month_start)
     shipped_today = _nuts(Order.date == today)
-    shipped_year = _nuts(Order.date >= year_start)
+    shipped_year  = _nuts(Order.date >= year_start)
 
-    company = db.query(CompanySettings).first()
-    plan = int(company.board_nuts_plan or 0) if company else 0
+    last_month_nuts    = _nuts(Order.date >= last_month_start, Order.date <= last_month_end)
+    last_month_revenue = _revenue(Order.date >= last_month_start, Order.date <= last_month_end)
+
+    revenue_month = _revenue(Order.date >= month_start)
+
+    company      = db.query(CompanySettings).first()
+    plan         = int(company.board_nuts_plan or 0) if company else 0
+    revenue_plan = float(company.monthly_plan or 0.0) if company else 0.0
     company_name = (company.brand_name or company.short_name or company.name) if company else "Производство"
-    quotes = parse_quotes(company.board_quotes if company else None)
-    stations = parse_stations(company.board_stations if company else None)
-    active = (company.board_active_station or 0) if company else 0
+    logo_path    = company.logo_path if company and company.logo_path else None
+    # Превращаем путь хранения "app/static/uploads/logo.png" → "/static/uploads/logo.png"
+    if logo_path:
+        logo_path = "/" + logo_path.lstrip("/").replace("app/static", "static", 1) if logo_path.startswith("app/static") else logo_path
+    quotes       = parse_quotes(company.board_quotes if company else None)
+    stations     = parse_stations(company.board_stations if company else None)
+    active       = (company.board_active_station or 0) if company else 0
     if active >= len(stations):
         active = 0
 
-    plan_pct = round(shipped_month / plan * 100) if plan > 0 else 0
+    nut_price        = float(company.board_nut_price or 52.0)    if company else 52.0
+    cost_pct         = float(company.board_cost_pct or 0.0)      if company else 0.0
+    cost_norm_pct    = float(company.board_cost_norm_pct or 48.0) if company else 48.0
+    cost_deviation   = float(company.board_cost_deviation or 5.0) if company else 5.0
+    shift_start      = (company.board_shift_start or "09:00")    if company else "09:00"
+    shift_end        = (company.board_shift_end   or "17:00")    if company else "17:00"
 
-    last_claim_date = db.query(func.max(Claim.date)).scalar()
+    plan_pct     = round(shipped_month / plan * 100) if plan > 0 else 0
+    revenue_pct  = round(revenue_month / revenue_plan * 100) if revenue_plan > 0 else 0
+
+    shipped_month_money = int(shipped_month * nut_price)
+    shipped_today_money = int(shipped_today * nut_price)
+    shipped_year_money  = int(shipped_year  * nut_price)
+    shipped_total_money = int(shipped_total * nut_price)
+
+    last_claim_date    = db.query(func.max(Claim.date)).scalar()
     days_without_claims = (today - last_claim_date).days if last_claim_date else None
 
     # Рекорд дня текущего месяца
@@ -125,19 +160,35 @@ def _collect_metrics(db: Session) -> dict:
     )
 
     return {
-        "company_name": company_name,
-        "shipped_total": shipped_total,
-        "shipped_month": shipped_month,
-        "shipped_today": shipped_today,
-        "shipped_year": shipped_year,
-        "plan": plan,
-        "plan_pct": plan_pct,
+        "company_name":        company_name,
+        "logo_path":           logo_path,
+        "shipped_total":       shipped_total,
+        "shipped_total_money": shipped_total_money,
+        "shipped_month":       shipped_month,
+        "shipped_month_money": shipped_month_money,
+        "shipped_today":       shipped_today,
+        "shipped_today_money": shipped_today_money,
+        "shipped_year":        shipped_year,
+        "shipped_year_money":  shipped_year_money,
+        "plan":                plan,
+        "plan_pct":            plan_pct,
+        "revenue_month":       revenue_month,
+        "revenue_plan":        int(revenue_plan),
+        "revenue_pct":         revenue_pct,
         "days_without_claims": days_without_claims,
-        "record_day": record_day,
-        "is_record_today": is_record_today,
-        "quotes": quotes,
-        "stations": stations,
-        "active_station": active,
+        "record_day":          record_day,
+        "is_record_today":     is_record_today,
+        "last_month_nuts":     last_month_nuts,
+        "last_month_revenue":  last_month_revenue,
+        "nut_price":           nut_price,
+        "cost_pct":            cost_pct,
+        "cost_norm_pct":       cost_norm_pct,
+        "cost_deviation":      cost_deviation,
+        "shift_start":         shift_start,
+        "shift_end":           shift_end,
+        "quotes":              quotes,
+        "stations":            stations,
+        "active_station":      active,
     }
 
 
