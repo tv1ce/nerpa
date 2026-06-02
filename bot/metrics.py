@@ -16,7 +16,33 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.models import (
     Order, OrderItem, Invoice, Counterparty, Contract,
     LogisticsCost, Claim, MonthlyPlan, Product, StockMovement,
+    SalesLead, User,
 )
+
+
+def get_callbacks_today(db: Session) -> list[dict]:
+    """Точки прозвона, по которым перезвон назначен на сегодня или просрочен."""
+    rows = (
+        db.query(SalesLead)
+        .filter(
+            SalesLead.is_active == True,
+            SalesLead.callback_at.isnot(None),
+            SalesLead.callback_at <= date.today(),
+            SalesLead.call_status.notin_(["deal", "refused", "invalid"]),
+        )
+        .order_by(SalesLead.callback_at, SalesLead.assigned_to_id)
+        .all()
+    )
+    result = []
+    for l in rows:
+        result.append({
+            "name": l.name,
+            "phone": l.phone or "",
+            "manager": l.assigned_to.full_name if l.assigned_to else None,
+            "overdue": l.callback_at < date.today(),
+            "date": l.callback_at,
+        })
+    return result
 
 
 def _month_bounds(d: date):

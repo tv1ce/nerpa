@@ -14,12 +14,23 @@ templates = Jinja2Templates(directory="app/templates")
 @router.get("/", response_class=HTMLResponse)
 @login_required
 async def settings_page(request: Request, db: Session = Depends(get_db)):
-    from app.routers.board import BOARD_KEY, parse_stations
+    from app.auth import ROLE_LABELS
     company = db.query(CompanySettings).first()
     users = db.query(User).filter(User.is_active == True).all()
-    stations = parse_stations(company.board_stations if company else None)
     return templates.TemplateResponse(request, "settings/index.html", {
-        "company": company, "users": users,
+        "company": company, "users": users, "role_labels": ROLE_LABELS,
+        "saved": request.query_params.get("saved"),
+    })
+
+
+@router.get("/board/", response_class=HTMLResponse)
+@login_required
+async def board_settings_page(request: Request, db: Session = Depends(get_db)):
+    from app.routers.board import BOARD_KEY, parse_stations
+    company = db.query(CompanySettings).first()
+    stations = parse_stations(company.board_stations if company else None)
+    return templates.TemplateResponse(request, "settings/board.html", {
+        "company": company,
         "saved": request.query_params.get("saved"),
         "board_key": BOARD_KEY,
         "board_stations": stations,
@@ -47,7 +58,6 @@ async def save_company(
     bank_bik: str = Form(default=""),
     bank_corr_account: str = Form(default=""),
     monthly_plan: float = Form(default=225000.0),
-    brand_name: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -63,16 +73,22 @@ async def save_company(
     company.bank_name = bank_name; company.bank_account = bank_account
     company.bank_bik = bank_bik; company.bank_corr_account = bank_corr_account
     company.monthly_plan = monthly_plan
-    company.brand_name = brand_name or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 
 
-@router.post("/board")
+@router.post("/board/")
 @role_required("admin")
 async def save_board(
     request: Request,
+    brand_name: str = Form(default=""),
     board_nuts_plan: float = Form(default=0.0),
+    board_shift_start: str = Form(default="09:00"),
+    board_shift_end: str = Form(default="17:00"),
+    board_nut_price: float = Form(default=52.0),
+    board_cost_pct: float = Form(default=0.0),
+    board_cost_norm_pct: float = Form(default=48.0),
+    board_cost_deviation: float = Form(default=5.0),
     board_quotes: str = Form(default=""),
     board_stations: str = Form(default=""),
     board_active_station: int = Form(default=0),
@@ -82,12 +98,19 @@ async def save_board(
     if not company:
         company = CompanySettings()
         db.add(company)
-    company.board_nuts_plan = board_nuts_plan
-    company.board_quotes = board_quotes
-    company.board_stations = board_stations
+    company.brand_name           = brand_name or None
+    company.board_nuts_plan      = board_nuts_plan
+    company.board_shift_start    = board_shift_start
+    company.board_shift_end      = board_shift_end
+    company.board_nut_price      = board_nut_price
+    company.board_cost_pct       = board_cost_pct
+    company.board_cost_norm_pct  = board_cost_norm_pct
+    company.board_cost_deviation = board_cost_deviation
+    company.board_quotes         = board_quotes
+    company.board_stations       = board_stations
     company.board_active_station = board_active_station
     db.commit()
-    return RedirectResponse(url="/settings/?saved=1#board", status_code=302)
+    return RedirectResponse(url="/settings/board/?saved=1", status_code=302)
 
 
 @router.post("/logo")
