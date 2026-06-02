@@ -4,7 +4,13 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from app.database import SessionLocal, verify_password
 from app.models import User
 
-ROLE_LEVELS = {"admin": 3, "manager": 2, "viewer": 1, "warehouse": 1}
+ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "viewer": 1, "warehouse": 1}
+
+# Человекочитаемые названия ролей
+ROLE_LABELS = {
+    "admin": "Администратор", "manager": "Менеджер", "sales": "Отдел продаж",
+    "viewer": "Просмотр", "warehouse": "Склад",
+}
 
 # Разделы, доступные роли "warehouse" (только чтение)
 WAREHOUSE_ALLOWED_PREFIXES = (

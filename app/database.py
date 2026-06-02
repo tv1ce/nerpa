@@ -77,6 +77,13 @@ def _migrate_db():
         ("products", "sale_unit", "TEXT"),
         ("products", "units_per_box", "INTEGER DEFAULT 1"),
         ("invoice_items", "discount_pct", "REAL DEFAULT 0.0"),
+        ("company_settings", "board_shift_start",    "TEXT DEFAULT '09:00'"),
+        ("company_settings", "board_shift_end",      "TEXT DEFAULT '17:00'"),
+        ("company_settings", "board_nut_price",      "REAL DEFAULT 52.0"),
+        ("company_settings", "board_cost_pct",       "REAL DEFAULT 0.0"),
+        ("company_settings", "board_cost_norm_pct",  "REAL DEFAULT 48.0"),
+        ("company_settings", "board_cost_deviation", "REAL DEFAULT 5.0"),
+        ("sales_leads", "converted_cp_id", "INTEGER REFERENCES counterparties(id)"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]

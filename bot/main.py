@@ -30,7 +30,10 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import SessionLocal
-from bot.metrics import get_daily_metrics, get_weekly_metrics, get_monthly_metrics
+from bot.metrics import (
+    get_daily_metrics, get_weekly_metrics, get_monthly_metrics,
+    get_callbacks_today,
+)
 from bot.formatters import format_daily, format_weekly, format_monthly
 
 load_dotenv()
@@ -60,9 +63,10 @@ def _parse_time(env_var: str, default: str) -> time:
     return time(hour=h, minute=m, tzinfo=TZ)
 
 
-DAILY_TIME   = _parse_time("TMS_DAILY_TIME",   "20:00")
-WEEKLY_TIME  = _parse_time("TMS_WEEKLY_TIME",  "18:00")
-MONTHLY_TIME = _parse_time("TMS_MONTHLY_TIME", "20:00")
+DAILY_TIME    = _parse_time("TMS_DAILY_TIME",    "20:00")
+WEEKLY_TIME   = _parse_time("TMS_WEEKLY_TIME",   "18:00")
+MONTHLY_TIME  = _parse_time("TMS_MONTHLY_TIME",  "20:00")
+CALLBACK_TIME = _parse_time("TMS_CALLBACK_TIME", "09:30")
 
 
 # ── Отправка сообщения всем подписчикам ───────────────────────────────────────
@@ -105,6 +109,28 @@ def _monthly_text(ref: date | None = None) -> str:
         db.close()
 
 
+def _callbacks_text() -> str:
+    db = SessionLocal()
+    try:
+        items = get_callbacks_today(db)
+    finally:
+        db.close()
+    if not items:
+        return "📞 *Перезвоны на сегодня*\n\nНа сегодня перезвонов нет 👍"
+    lines = [f"📞 *Перезвоны на сегодня* — {len(items)}\n"]
+    # группируем по менеджерам
+    by_mgr: dict[str, list] = {}
+    for it in items:
+        by_mgr.setdefault(it["manager"] or "Без менеджера", []).append(it)
+    for mgr, rows in by_mgr.items():
+        lines.append(f"\n👤 *{mgr}*")
+        for r in rows:
+            flag = "🔴 " if r["overdue"] else ""
+            phone = f" — `{r['phone']}`" if r["phone"] else ""
+            lines.append(f"  {flag}{r['name']}{phone}")
+    return "\n".join(lines)
+
+
 # ── Scheduled callbacks ────────────────────────────────────────────────────────
 
 async def cb_daily(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -115,6 +141,11 @@ async def cb_daily(context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cb_weekly(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Отправка еженедельного отчёта")
     await broadcast(context.bot, _weekly_text())
+
+
+async def cb_callbacks(context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.info("Отправка напоминания о перезвонах")
+    await broadcast(context.bot, _callbacks_text())
 
 
 async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -135,6 +166,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/daily — отчёт за сегодня\n"
         "/weekly — отчёт за текущую неделю\n"
         "/monthly — отчёт за текущий месяц\n"
+        "/callbacks — перезвоны на сегодня\n"
         "/status — статус бота и расписание",
         parse_mode=ParseMode.MARKDOWN,
     )
@@ -150,6 +182,10 @@ async def cmd_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def cmd_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(_monthly_text(), parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(_callbacks_text(), parse_mode=ParseMode.MARKDOWN)
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -188,9 +224,13 @@ def main() -> None:
     app.add_handler(CommandHandler("daily",   cmd_daily))
     app.add_handler(CommandHandler("weekly",  cmd_weekly))
     app.add_handler(CommandHandler("monthly", cmd_monthly))
+    app.add_handler(CommandHandler("callbacks", cmd_callbacks))
     app.add_handler(CommandHandler("status",  cmd_status))
 
     jq = app.job_queue
+
+    # Напоминание о перезвонах — каждое утро в CALLBACK_TIME (будни)
+    jq.run_daily(cb_callbacks, time=CALLBACK_TIME, days=(0, 1, 2, 3, 4), name="callbacks")
 
     # Ежедневный отчёт — каждый день в DAILY_TIME
     jq.run_daily(cb_daily, time=DAILY_TIME, name="daily_report")

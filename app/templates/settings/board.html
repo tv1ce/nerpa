@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Табло цеха{% endblock %}
+{% block page_title %}Настройки табло цеха{% endblock %}
+
+{% block content %}
+{% if saved %}
+<div class="alert alert-success alert-dismissible fade show">
+  <i class="bi bi-check-circle me-1"></i>Настройки сохранены!
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{% macro cv(field, default='') %}{{ (field or default) if company else default }}{% endmacro %}
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <form method="post" action="/settings/board/">
+      <!-- Ссылка на табло -->
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title"><i class="bi bi-display me-1"></i>Ссылка на табло</div>
+        <div class="alert alert-light border d-flex align-items-center gap-2 py-2 mb-0" style="font-size:.85rem">
+          <i class="bi bi-tv fs-5 text-muted"></i>
+          <div class="flex-grow-1">
+            Для экрана (Android TV, liqvid, браузер в киоск-режиме):
+            <div class="input-group input-group-sm mt-1">
+              <input type="text" id="board-url" class="form-control font-monospace" readonly value="/board?key={{ board_key }}">
+              <a class="btn btn-outline-secondary" id="board-open" href="/board?key={{ board_key }}" target="_blank">
+                <i class="bi bi-box-arrow-up-right"></i> Открыть
+              </a>
+            </div>
+            <div class="form-text mt-1">Токен задаётся переменной окружения <code>TMS_BOARD_KEY</code>.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Отображение -->
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title"><i class="bi bi-palette me-1"></i>Отображение</div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Название бренда на табло</label>
+            <input type="text" name="brand_name" class="form-control"
+                   placeholder="Например: ОрехОфф"
+                   value="{{ cv(company.brand_name) if company else '' }}">
+            <div class="form-text">Если пусто — выводится краткое наименование компании.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">План отгрузки орешков, шт/месяц</label>
+            <input type="number" name="board_nuts_plan" class="form-control" step="100" min="0"
+                   value="{{ company.board_nuts_plan | int if company and company.board_nuts_plan else 0 }}">
+            <div class="form-text">Для прогресс-бара на табло. 0 — бар скрыт.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Рабочая смена -->
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title"><i class="bi bi-clock me-1"></i>Рабочая смена</div>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Начало смены</label>
+            <input type="time" name="board_shift_start" class="form-control"
+                   value="{{ company.board_shift_start if company and company.board_shift_start else '09:00' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Конец смены</label>
+            <input type="time" name="board_shift_end" class="form-control"
+                   value="{{ company.board_shift_end if company and company.board_shift_end else '17:00' }}">
+          </div>
+          <div class="col-md-4 d-flex align-items-end pb-1">
+            <span class="text-muted" style="font-size:.82rem">
+              <i class="bi bi-info-circle"></i> Таймер «до конца смены» и ночной режим считаются по этим значениям.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Финансы -->
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title"><i class="bi bi-currency-exchange me-1"></i>Финансовые показатели</div>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Цена 1 ореха, ₽</label>
+            <input type="number" name="board_nut_price" class="form-control" step="0.5" min="0"
+                   value="{{ company.board_nut_price if company and company.board_nut_price else 52.0 }}">
+            <div class="form-text">Используется для пересчёта штук в рубли.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Себестоимость факт, %</label>
+            <input type="number" name="board_cost_pct" class="form-control" step="0.1" min="0" max="200"
+                   value="{{ company.board_cost_pct if company and company.board_cost_pct else 0.0 }}">
+            <div class="form-text">Текущий фактический показатель.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Норма себестоимости, %</label>
+            <input type="number" name="board_cost_norm_pct" class="form-control" step="0.1" min="0" max="200"
+                   value="{{ company.board_cost_norm_pct if company and company.board_cost_norm_pct else 48.0 }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Допустимое отклонение, %</label>
+            <input type="number" name="board_cost_deviation" class="form-control" step="0.1" min="0" max="50"
+                   value="{{ company.board_cost_deviation if company and company.board_cost_deviation else 5.0 }}">
+            <div class="form-text">Свыше этого — красный индикатор.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Контент -->
+      <div class="card border-0 shadow-sm p-4 mb-3">
+        <div class="form-section-title"><i class="bi bi-chat-quote me-1"></i>Контент</div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Активная радиостанция</label>
+            <select name="board_active_station" class="form-select">
+              {% for s in board_stations %}
+              <option value="{{ loop.index0 }}"
+                {% if company and company.board_active_station == loop.index0 %}selected{% endif %}>
+                {{ s.name }}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Переключается и прямо на табло по клику.</div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Мотивашки (по одной в строке)</label>
+            <textarea name="board_quotes" class="form-control" rows="5"
+                      placeholder="Каждый орешек — это улыбка клиента 🥜&#10;Сегодня работаем на рекорд!">{{ company.board_quotes if company and company.board_quotes else '' }}</textarea>
+            <div class="form-text">Если пусто — показываются стандартные фразы.</div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Радиостанции <span class="text-muted">(формат «Название | URL потока»)</span></label>
+            <textarea name="board_stations" class="form-control font-monospace" rows="5" style="font-size:.85rem"
+                      placeholder="Радио Рекорд | https://radiorecord.hostingradio.ru/rr_main96.aacp&#10;Европа Плюс | https://ep128.hostingradio.ru/ep128">{{ company.board_stations if company and company.board_stations else '' }}</textarea>
+            <div class="form-text">Если пусто — набор станций по умолчанию.</div>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-accent btn-lg">
+        <i class="bi bi-check-lg me-1"></i>Сохранить настройки табло
+      </button>
+    </form>
+  </div>
+
+  <!-- Превью / подсказки -->
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="form-section-title">Быстрые действия</div>
+      <div class="d-grid gap-2">
+        <a id="board-preview-btn" href="/board?key={{ board_key }}" target="_blank"
+           class="btn btn-outline-secondary">
+          <i class="bi bi-box-arrow-up-right me-1"></i> Открыть табло
+        </a>
+      </div>
+      <hr class="my-3">
+      <div class="text-muted" style="font-size:.82rem">
+        <p class="mb-2"><i class="bi bi-info-circle me-1"></i><b>Таймер смены</b> — обратный отсчёт до конца смены. После окончания включается ночной режим.</p>
+        <p class="mb-2"><i class="bi bi-info-circle me-1"></i><b>Цена ореха</b> — только для примерного пересчёта штук в рубли на табло.</p>
+        <p class="mb-0"><i class="bi bi-info-circle me-1"></i><b>Себестоимость</b> — вводится вручную, цвет меняется относительно нормы.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var inp = document.getElementById('board-url');
+  var open = document.getElementById('board-open');
+  var prev = document.getElementById('board-preview-btn');
+  if (inp){
+    var abs = window.location.origin + inp.value;
+    inp.value = abs;
+    if (open) open.href = abs;
+    if (prev) prev.href = abs;
+  }
+})();
+</script>
+{% endblock %}

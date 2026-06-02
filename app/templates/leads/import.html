@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}Импорт точек{% endblock %}
+{% block page_title %}Импорт точек для прозвона{% endblock %}
+{% block topbar_actions %}
+  <a href="/leads/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К таблице</a>
+{% endblock %}
+
+{% block content %}
+{% if result and result.error %}
+  <div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>{{ result.error }}</div>
+{% endif %}
+
+{# ── Шаг 1: загрузка ── #}
+{% if step == 'upload' %}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h6 class="fw-semibold mb-3"><i class="bi bi-upload me-2 text-primary"></i>Загрузить файл</h6>
+        <form method="post" action="/leads/import" enctype="multipart/form-data">
+          <div class="mb-3">
+            <input type="file" name="file" class="form-control" accept=".xlsx,.xls,.xlsm,.csv" required>
+            <div class="form-text">Excel (.xlsx) или CSV: название, телефон, адрес, рубрика, соцсети.</div>
+          </div>
+          <button class="btn btn-accent"><i class="bi bi-magic me-1"></i>Распознать и показать превью</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="fw-semibold mb-2"><i class="bi bi-info-circle me-2 text-secondary"></i>Как это работает</h6>
+        <ul class="small text-muted mb-0" style="line-height:1.7">
+          <li>Колонки распознаются автоматически — на следующем шаге можно поправить вручную.</li>
+          <li><b>Сеть vs одиночка:</b> бренд встречается ≥2 раз → <span class="badge bg-primary">сеть</span>.</li>
+          <li>Соцсети (ВК/Instagram/Telegram/WhatsApp/сайт) вытаскиваются из любых ячеек.</li>
+          <li>Дубли можно отсечь по телефону и названию+адресу.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Шаг 2: превью маппинга ── #}
+{% if step == 'preview' %}
+<form method="post" action="/leads/import/commit">
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h6 class="fw-semibold mb-0"><i class="bi bi-sliders me-2 text-primary"></i>Сопоставление колонок — {{ filename }}</h6>
+        <span class="text-muted small">Строк с данными: {{ total }}</span>
+      </div>
+      <div class="row g-2">
+        {% for field, label in fields.items() %}
+        <div class="col-md-3">
+          <label class="form-label small mb-1 fw-semibold">{{ label }}</label>
+          <select name="map_{{ field }}" class="form-select form-select-sm">
+            <option value="">— нет —</option>
+            {% for h in headers %}
+            <option value="{{ loop.index0 }}" {% if guess.get(field) == loop.index0 %}selected{% endif %}>{{ h or ('Колонка ' ~ loop.index) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="form-check mt-3">
+        <input class="form-check-input" type="checkbox" name="dedup" id="dedup" checked>
+        <label class="form-check-label small" for="dedup">Пропускать дубли (по телефону и названию+адресу)</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-body pb-0"><h6 class="fw-semibold mb-2"><i class="bi bi-table me-2 text-secondary"></i>Образец данных</h6></div>
+    <div class="table-responsive">
+      <table class="table table-sm tms-table mb-0" style="font-size:.78rem">
+        <thead><tr>{% for h in headers %}<th>{{ h or ('Кол. ' ~ loop.index) }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in sample %}
+          <tr>{% for h in headers %}<td>{{ row[loop.index0] if loop.index0 < row|length else '' }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <button class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Импортировать</button>
+  <a href="/leads/import" class="btn btn-link text-muted">Отмена</a>
+</form>
+{% endif %}
+
+{# ── Шаг 3: результат ── #}
+{% if step == 'done' and result and not result.error %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body">
+    <div class="d-flex align-items-center mb-3">
+      <i class="bi bi-check-circle-fill text-success fs-4 me-2"></i>
+      <div>
+        <div class="fw-semibold">Импорт завершён — {{ result.filename }}</div>
+        <div class="text-muted small">Добавлено {{ result.created }} точек{% if result.skipped %}, пропущено дублей: {{ result.skipped }}{% endif %}</div>
+      </div>
+    </div>
+    <div class="row g-2 text-center mb-3">
+      <div class="col"><div class="border rounded py-2"><div class="fs-5 fw-bold">{{ result.created }}</div><div class="small text-muted">Добавлено</div></div></div>
+      <div class="col"><div class="border rounded py-2"><div class="fs-5 fw-bold text-primary">{{ result.networks }}</div><div class="small text-muted">Сетей</div></div></div>
+      <div class="col"><div class="border rounded py-2"><div class="fs-5 fw-bold">{{ result.network_points }}</div><div class="small text-muted">Сетевых точек</div></div></div>
+      <div class="col"><div class="border rounded py-2"><div class="fs-5 fw-bold text-warning">{{ result.skipped }}</div><div class="small text-muted">Дублей</div></div></div>
+      <div class="col"><div class="border rounded py-2"><div class="fs-5 fw-bold text-success">{{ result.socials }}</div><div class="small text-muted">С соцсетями</div></div></div>
+    </div>
+    {% if result.mapped %}
+    <div class="d-flex flex-wrap gap-1 mb-3">
+      {% for field, col in result.mapped.items() %}
+      <span class="badge bg-light text-dark border">{{ field }} ← «{{ col }}»</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <a href="/leads/" class="btn btn-accent"><i class="bi bi-table me-1"></i>Перейти к таблице прозвона</a>
+    <a href="/leads/import" class="btn btn-outline-secondary">Импортировать ещё</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Аналитика прозвона{% endblock %}
+{% block page_title %}Аналитика прозвона{% endblock %}
+{% block topbar_actions %}
+  <a href="/leads/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К таблице</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body text-center"><div class="fs-3 fw-bold">{{ total }}</div><div class="text-muted small">Всего точек</div></div></div></div>
+  <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body text-center"><div class="fs-3 fw-bold text-primary">{{ networks }}</div><div class="text-muted small">Сетевых</div></div></div></div>
+  <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body text-center"><div class="fs-3 fw-bold text-success">{{ funnel['deal'] }}</div><div class="text-muted small">Продаж</div></div></div></div>
+  <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body text-center"><div class="fs-3 fw-bold text-info">{{ converted }}</div><div class="text-muted small">Стали контрагентами</div></div></div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="fw-semibold mb-3">Воронка по статусам</h6>
+        <canvas id="funnelChart" height="240"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body pb-0">
+        <h6 class="fw-semibold mb-3">Эффективность менеджеров</h6>
+      </div>
+      <div class="table-responsive">
+        <table class="table tms-table mb-0">
+          <thead><tr><th class="ps-3">Менеджер</th><th>Назначено</th><th>Прозвонено</th><th>Интерес</th><th>Продажи</th><th>Конверсия</th></tr></thead>
+          <tbody>
+            {% for m in by_manager %}
+            <tr>
+              <td class="ps-3 fw-semibold">{{ m.name }}</td>
+              <td>{{ m.assigned }}</td>
+              <td>{{ m.called }}</td>
+              <td>{{ m.interested }}</td>
+              <td><span class="fw-bold text-success">{{ m.deals }}</span></td>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <div class="progress flex-grow-1" style="height:6px;max-width:80px">
+                    <div class="progress-bar bg-success" style="width:{{ m.conv }}%"></div>
+                  </div>
+                  <span class="small">{{ m.conv }}%</span>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center py-4 text-muted">Лиды ещё не распределены по менеджерам</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FUNNEL_LABELS = {{ statuses.values()|list|tojson }};
+const FUNNEL_DATA = {{ funnel.values()|list|tojson }};
+const COLORS = ['#94a3b8','#0dcaf0','#ffc107','#0d6efd','#0dcaf0','#dc3545','#198754','#212529'];
+new Chart(document.getElementById('funnelChart'), {
+  type: 'bar',
+  data: { labels: FUNNEL_LABELS, datasets: [{ data: FUNNEL_DATA, backgroundColor: COLORS, borderRadius: 4 }] },
+  options: {
+    indexAxis: 'y', responsive: true,
+    plugins: { legend: { display: false } },
+    scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+  }
+});
+</script>
+{% endblock %}

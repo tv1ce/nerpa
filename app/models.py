@@ -223,6 +223,12 @@ class CompanySettings(Base):
     board_quotes = Column(Text)                         # мотивашки, по одной в строке
     board_stations = Column(Text)                       # радиостанции, "Название | URL" в строке
     board_active_station = Column(Integer, default=0)   # индекс активной станции
+    board_shift_start    = Column(String(5), default="09:00")  # начало смены HH:MM
+    board_shift_end      = Column(String(5), default="17:00")  # конец смены HH:MM
+    board_nut_price      = Column(Float, default=52.0)  # цена 1 ореха (₽) для перевода в деньги
+    board_cost_pct       = Column(Float, default=0.0)   # фактическая себестоимость %
+    board_cost_norm_pct  = Column(Float, default=48.0)  # норма себестоимости %
+    board_cost_deviation = Column(Float, default=5.0)   # допустимое отклонение от нормы %
     # ── Интеграция с Метафорой ──
     metafora_email    = Column(String(200))
     metafora_password = Column(String(200))   # не используется (PIN-вход), оставлено для совместимости
@@ -346,6 +352,64 @@ class StockMovement(Base):
     product = relationship("Product", back_populates="stock_movements")
     order = relationship("Order")
     created_by = relationship("User")
+
+
+class SalesLead(Base):
+    """Точка для прозвона отделом продаж (кофейня, кондитерская и т.п.),
+    импортированная из спарсенного Excel/CSV."""
+    __tablename__ = "sales_leads"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(300), nullable=False)        # название точки/заведения
+    brand = Column(String(300))                       # нормализованный бренд (для группировки сетей)
+    is_network = Column(Boolean, default=False)       # сетевая точка?
+    network_size = Column(Integer, default=1)         # сколько точек в сети в этой загрузке
+    category = Column(String(150))                    # рубрика: кофейня / кондитерская / …
+    city = Column(String(150))
+    address = Column(String(500))
+    phone = Column(String(150))
+    email = Column(String(150))
+    contact_person = Column(String(150))
+    # Соцсети / онлайн
+    website = Column(String(500))
+    vk = Column(String(500))
+    instagram = Column(String(500))
+    telegram = Column(String(500))
+    whatsapp = Column(String(500))
+    # Прозвон
+    call_status = Column(String(20), default="new")
+    # new / callback / no_answer / interested / thinking / refused / deal / invalid
+    assigned_to_id = Column(Integer, ForeignKey("users.id"))
+    last_call_at = Column(DateTime)
+    callback_at = Column(Date)
+    call_count = Column(Integer, default=0)
+    notes = Column(Text)
+    # Импорт
+    source_file = Column(String(300))
+    raw = Column(Text)                                # JSON исходной строки (на всякий случай)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    # Конвертация в контрагента
+    converted_cp_id = Column(Integer, ForeignKey("counterparties.id"))
+
+    assigned_to = relationship("User")
+    converted_cp = relationship("Counterparty")
+    calls = relationship("LeadCall", back_populates="lead",
+                         order_by="LeadCall.created_at.desc()",
+                         cascade="all, delete-orphan")
+
+
+class LeadCall(Base):
+    """Запись о звонке/контакте по точке прозвона (история)."""
+    __tablename__ = "lead_calls"
+    id = Column(Integer, primary_key=True)
+    lead_id = Column(Integer, ForeignKey("sales_leads.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    status = Column(String(20))        # статус, установленный этим звонком
+    comment = Column(Text)
+    created_at = Column(DateTime, server_default=func.now())
+
+    lead = relationship("SalesLead", back_populates="calls")
+    user = relationship("User")
 
 
 class LogisticsCost(Base):

@@ -39,3 +39,6 @@ app/static/uploads/
 
 # Claude Code local tooling
 .claude/
+
+# Secrets
+.env

@@ -121,6 +121,9 @@
     <a href="/claims/" class="nav-link {% if '/claims' in request.url.path %}active{% endif %}">
       <i class="bi bi-chat-left-text"></i> <span>Рекламации</span>
     </a>
+    <a href="/leads/" class="nav-link {% if '/leads' in request.url.path %}active{% endif %}">
+      <i class="bi bi-telephone-outbound"></i> <span>Прозвон</span>
+    </a>
     {% endif %}
 
     <div class="nav-section">Справочники</div>
@@ -161,8 +164,11 @@
 
     {% if _role != 'warehouse' %}
     <div class="nav-section">Система</div>
-    <a href="/settings/" class="nav-link {% if '/settings' in request.url.path %}active{% endif %}">
+    <a href="/settings/" class="nav-link {% if '/settings' in request.url.path and '/settings/board' not in request.url.path %}active{% endif %}">
       <i class="bi bi-gear"></i> <span>Настройки</span>
+    </a>
+    <a href="/settings/board/" class="nav-link {% if '/settings/board' in request.url.path %}active{% endif %}">
+      <i class="bi bi-display"></i> <span>Табло цеха</span>
     </a>
     {% if _role == 'admin' %}
     <a href="/audit-log/" class="nav-link {% if '/audit-log' in request.url.path %}active{% endif %}">

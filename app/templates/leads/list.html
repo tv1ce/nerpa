@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% block title %}Прозвон{% endblock %}
+{% block page_title %}Прозвон{% endblock %}
+{% block topbar_actions %}
+  <a href="/leads/stats" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-bar-chart-line me-1"></i>Аналитика</a>
+  <div class="btn-group me-2">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-download me-1"></i>Экспорт</button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item" href="/leads/export.xlsx?{{ request.url.query }}">Excel (.xlsx)</a></li>
+      <li><a class="dropdown-item" href="/leads/export.csv?{{ request.url.query }}">CSV</a></li>
+    </ul>
+  </div>
+  <a href="/leads/import" class="btn btn-accent btn-sm"><i class="bi bi-upload me-1"></i>Импорт точек</a>
+{% endblock %}
+
+{% block content %}
+{% macro lead_row(l, gid='', child=False) %}
+<tr id="lead-{{ l.id }}" class="lead-row{% if l.is_network %} row-net{% endif %}{% if gid %} grp-{{ gid }} d-none{% endif %}">
+  <td class="ps-3 {% if child %}ps-4{% endif %}"><input type="checkbox" class="form-check-input rowcheck {% if gid %}grpchk-{{ gid }}{% endif %}" name="ids" value="{{ l.id }}" form="bulkform"></td>
+  <td>
+    {% if child %}
+      <div class="fw-semibold" style="font-size:.82rem">
+        {% if l.address %}<i class="bi bi-geo-alt me-1 text-primary"></i>{{ l.city + ', ' if l.city }}{{ l.address }}{% elif l.city %}{{ l.city }}{% else %}{{ l.name }}{% endif %}
+        {% if l.converted_cp_id %}<a href="/counterparties/{{ l.converted_cp_id }}" class="badge bg-success-subtle text-success border border-success-subtle text-decoration-none ms-1" style="font-size:.62rem" title="Уже контрагент"><i class="bi bi-link-45deg"></i></a>{% endif %}
+      </div>
+      {% if l.category %}<span class="badge bg-light text-dark border net-badge mt-1">{{ l.category }}</span>{% endif %}
+    {% else %}
+      <div class="fw-semibold">
+        {{ l.name }}
+        {% if l.converted_cp_id %}<a href="/counterparties/{{ l.converted_cp_id }}" class="badge bg-success-subtle text-success border border-success-subtle text-decoration-none ms-1" style="font-size:.65rem" title="Уже контрагент"><i class="bi bi-link-45deg"></i></a>{% endif %}
+      </div>
+      <div class="d-flex align-items-center gap-1 mt-1 flex-wrap">
+        <span class="badge bg-light text-secondary border net-badge">Одиночка</span>
+        {% if l.category %}<span class="badge bg-light text-dark border net-badge">{{ l.category }}</span>{% endif %}
+      </div>
+      {% if l.address %}<div class="text-muted mt-1" style="font-size:.74rem"><i class="bi bi-geo-alt me-1"></i>{{ l.city + ', ' if l.city }}{{ l.address }}</div>{% endif %}
+    {% endif %}
+  </td>
+  <td>
+    {% if l.phone %}<a href="tel:{{ l.phone }}" class="fw-semibold text-decoration-none d-block"><i class="bi bi-telephone me-1 text-success"></i>{{ l.phone }}</a>{% else %}<span class="text-muted small">—</span>{% endif %}
+    {% if l.email %}<a href="mailto:{{ l.email }}" class="text-muted text-decoration-none" style="font-size:.76rem"><i class="bi bi-envelope me-1"></i>{{ l.email }}</a>{% endif %}
+    <input class="note-input mt-1" style="font-size:.76rem" value="{{ l.contact_person or '' }}" placeholder="Контактное лицо…" data-field="contact_person" data-id="{{ l.id }}">
+  </td>
+  <td class="text-nowrap">
+    {% if l.vk %}<a class="soc-link soc-vk" href="{{ l.vk }}" target="_blank" title="ВКонтакте"><i class="bi bi-stack"></i></a>{% endif %}
+    {% if l.instagram %}<a class="soc-link soc-ig" href="{{ l.instagram }}" target="_blank" title="Instagram"><i class="bi bi-instagram"></i></a>{% endif %}
+    {% if l.telegram %}<a class="soc-link soc-tg" href="{{ l.telegram }}" target="_blank" title="Telegram"><i class="bi bi-telegram"></i></a>{% endif %}
+    {% if l.whatsapp %}<a class="soc-link soc-wa" href="{{ l.whatsapp }}" target="_blank" title="WhatsApp"><i class="bi bi-whatsapp"></i></a>{% endif %}
+    {% if l.website %}<a class="soc-link soc-web" href="{{ l.website }}" target="_blank" title="Сайт"><i class="bi bi-globe"></i></a>{% endif %}
+    {% if not (l.vk or l.instagram or l.telegram or l.whatsapp or l.website) %}
+      <a class="btn btn-sm btn-outline-secondary py-0 px-1" target="_blank" title="Найти соцсети в Яндексе"
+         href="https://yandex.ru/search/?text={{ (l.name ~ ' ' ~ (l.city or '') ~ ' инстаграм вконтакте телеграм')|urlencode }}"><i class="bi bi-search"></i></a>
+    {% endif %}
+  </td>
+  <td>
+    <select class="status-select bg-{{ status_colors[l.call_status] }}{% if l.call_status in ['new','no_answer'] %} text-dark{% else %} text-white{% endif %}" data-id="{{ l.id }}" data-role="status">
+      {% for val, label in statuses.items() %}<option value="{{ val }}" {% if l.call_status==val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <div class="text-muted mt-1" style="font-size:.68rem" data-role="lastcall">
+      {% if l.last_call_at %}<i class="bi bi-clock-history me-1"></i>{{ l.last_call_at.strftime('%d.%m %H:%M') }}{% endif %}
+    </div>
+  </td>
+  <td>
+    <select class="form-select form-select-sm" data-field="assigned_to_id" data-id="{{ l.id }}">
+      <option value="">—</option>
+      {% for u in users %}<option value="{{ u.id }}" {% if l.assigned_to_id==u.id %}selected{% endif %}>{{ u.full_name }}</option>{% endfor %}
+      {% if l.assigned_to_id and l.assigned_to and not (users|selectattr('id','equalto', l.assigned_to_id)|list) %}
+      <option value="{{ l.assigned_to_id }}" selected>{{ l.assigned_to.full_name }} (вне отдела)</option>
+      {% endif %}
+    </select>
+  </td>
+  <td>
+    <input type="date" class="form-control form-control-sm{% if due=='today' %} border-warning{% endif %}" data-field="callback_at" data-id="{{ l.id }}" value="{{ l.callback_at.isoformat() if l.callback_at else '' }}">
+  </td>
+  <td><input class="note-input" value="{{ l.notes or '' }}" placeholder="Заметка…" data-field="notes" data-id="{{ l.id }}"></td>
+  <td class="text-end pe-3 text-nowrap">
+    <button type="button" class="btn btn-sm btn-outline-secondary py-0" title="История звонков" onclick="showHistory({{ l.id }})"><i class="bi bi-clock-history"></i></button>
+    {% if not l.converted_cp_id %}
+    <button type="button" class="btn btn-sm btn-outline-success py-0" title="Создать контрагента" onclick="toCp({{ l.id }})"><i class="bi bi-person-plus"></i></button>
+    {% endif %}
+    <button type="button" class="btn btn-sm btn-outline-danger py-0" title="Удалить" onclick="delLead({{ l.id }})"><i class="bi bi-trash"></i></button>
+  </td>
+</tr>
+{% endmacro %}
+<style>
+  .lead-stats .stat-card { background:#fff; border-radius:.6rem; padding:.7rem 1rem; box-shadow:0 1px 3px rgba(15,23,42,.06); display:block; text-decoration:none; color:inherit; }
+  .lead-stats a.stat-card:hover { box-shadow:0 2px 10px rgba(15,23,42,.12); }
+  .lead-stats .stat-val { font-size:1.35rem; font-weight:700; line-height:1; }
+  .lead-stats .stat-lbl { font-size:.72rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.03em; }
+  .stat-card.due { background:linear-gradient(135deg,#fff7ed,#fff); border:1px solid #fdba74; }
+  .prozvon-table td { vertical-align:middle; }
+  .soc-link { font-size:1.05rem; margin-right:.3rem; text-decoration:none; opacity:.85; }
+  .soc-link:hover { opacity:1; }
+  .soc-vk{color:#0077ff}.soc-ig{color:#e1306c}.soc-tg{color:#229ed9}.soc-wa{color:#25d366}.soc-web{color:#64748b}
+  .net-badge { font-size:.68rem; font-weight:700; }
+  .status-select { border:none; font-weight:600; font-size:.8rem; border-radius:.4rem; padding:.2rem .4rem; cursor:pointer; }
+  .note-input { border:1px solid transparent; background:transparent; font-size:.8rem; width:100%; border-radius:.35rem; padding:.15rem .35rem; }
+  .note-input:hover { border-color:#e2e8f0; }
+  .note-input:focus { border-color:#94a3b8; background:#fff; outline:none; }
+  .row-net { background:linear-gradient(90deg,#eff6ff 0,#fff 6px); }
+  #bulkbar { position:sticky; top:0; z-index:5; }
+</style>
+
+<!-- Сводка -->
+<div class="row g-2 mb-3 lead-stats">
+  <div class="col"><a class="stat-card" href="/leads/"><div class="stat-val">{{ stats.total }}</div><div class="stat-lbl">Всего точек</div></a></div>
+  <div class="col"><a class="stat-card" href="/leads/?kind=network"><div class="stat-val text-primary">{{ stats.networks }}</div><div class="stat-lbl">Сетевых</div></a></div>
+  <div class="col"><div class="stat-card"><div class="stat-val">{{ stats.called }}</div><div class="stat-lbl">Прозвонено</div></div></div>
+  <div class="col"><a class="stat-card" href="/leads/?status=interested"><div class="stat-val text-info">{{ stats.interested }}</div><div class="stat-lbl">Интерес</div></a></div>
+  <div class="col"><a class="stat-card" href="/leads/?status=deal"><div class="stat-val text-success">{{ stats.deals }}</div><div class="stat-lbl">Продажи</div></a></div>
+  <div class="col"><a class="stat-card due" href="/leads/?due=today"><div class="stat-val text-warning">{{ stats.due_today }}</div><div class="stat-lbl"><i class="bi bi-telephone-inbound me-1"></i>Перезвон сегодня</div></a></div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <form class="row g-2 mb-3" method="get">
+      {% if due %}<input type="hidden" name="due" value="{{ due }}">{% endif %}
+      <div class="col-md-3"><input type="text" name="q" class="form-control form-control-sm" placeholder="Поиск: название, телефон, адрес…" value="{{ q }}"></div>
+      <div class="col-md-2">
+        <select name="kind" class="form-select form-select-sm">
+          <option value="">Сети и одиночки</option>
+          <option value="network" {% if kind=='network' %}selected{% endif %}>Только сети</option>
+          <option value="single" {% if kind=='single' %}selected{% endif %}>Только одиночки</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Все статусы</option>
+          {% for val, label in statuses.items() %}<option value="{{ val }}" {% if status==val %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="category" class="form-select form-select-sm">
+          <option value="">Все рубрики</option>
+          {% for c in categories %}<option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="assigned" class="form-select form-select-sm">
+          <option value="">Все менеджеры</option>
+          <option value="none" {% if assigned=='none' %}selected{% endif %}>Без менеджера</option>
+          {% for u in users %}<option value="{{ u.id }}" {% if assigned==u.id|string %}selected{% endif %}>{{ u.full_name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/leads/" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+      {% if sources %}
+      <div class="col-12"><div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="small text-muted">Загрузки:</span>
+        {% for s in sources %}<a href="/leads/?source={{ s|urlencode }}" class="badge text-decoration-none {% if source==s %}bg-primary{% else %}bg-light text-dark border{% endif %}">{{ s }}</a>{% endfor %}
+      </div></div>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Панель массовых действий -->
+  <div id="bulkbar" class="bg-light border-top border-bottom px-3 py-2 d-none align-items-center gap-2 flex-wrap">
+    <span class="small fw-semibold"><span id="selcount">0</span> выбрано</span>
+    <select name="bulk_status" class="form-select form-select-sm w-auto">
+      <option value="">Сменить статус…</option>
+      {% for val, label in statuses.items() %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="doBulk('status','bulk_status')">Применить</button>
+    <select name="bulk_assign" class="form-select form-select-sm w-auto">
+      <option value="">Назначить менеджера…</option>
+      <option value="">— снять —</option>
+      {% for u in users %}<option value="{{ u.id }}">{{ u.full_name }}</option>{% endfor %}
+    </select>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="doBulk('assign','bulk_assign')">Назначить</button>
+    {% if users %}
+    <button type="button" class="btn btn-sm btn-outline-primary" onclick="doDistribute()"><i class="bi bi-shuffle me-1"></i>Раздать поровну</button>
+    {% endif %}
+    <button type="button" class="btn btn-sm btn-outline-danger" onclick="doBulk('delete')"><i class="bi bi-trash me-1"></i>Удалить</button>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table tms-table prozvon-table mb-0 align-middle">
+      <thead>
+        <tr>
+          <th class="ps-3" style="width:2rem"><input type="checkbox" class="form-check-input" id="checkall"></th>
+          <th>Точка</th><th>Контакты</th><th>Соцсети</th>
+          <th style="width:11rem">Статус</th><th style="width:9rem">Менеджер</th>
+          <th style="width:8rem">Перезвон</th><th style="min-width:11rem">Заметки</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in groups %}
+          {% if g.kind == 'network' %}
+          {% set gid = loop.index %}
+          <tr class="grp-header" data-gid="{{ gid }}" style="cursor:pointer; background:#eef4ff">
+            <td class="ps-3"><input type="checkbox" class="form-check-input grp-master" data-gid="{{ gid }}" onclick="event.stopPropagation()"></td>
+            <td colspan="8" onclick="toggleGroup('{{ gid }}', this)">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <i class="bi bi-chevron-right grp-chevron" style="transition:.15s"></i>
+                <span class="badge bg-primary net-badge"><i class="bi bi-diagram-3 me-1"></i>Сеть · {{ g.count }}</span>
+                <span class="fw-bold">{{ g.name }}</span>
+                {% if g.category %}<span class="badge bg-light text-dark border net-badge">{{ g.category }}</span>{% endif %}
+                {% if g.cities %}<span class="text-muted small"><i class="bi bi-geo-alt me-1"></i>{{ g.cities[:4]|join(', ') }}{% if g.cities|length > 4 %} +{{ g.cities|length - 4 }}{% endif %}</span>{% endif %}
+                <span class="ms-auto small {% if g.done == g.count %}text-success{% else %}text-muted{% endif %}">
+                  Прозвонено {{ g.done }}/{{ g.count }}{% if g.deals %} · <span class="text-success fw-semibold">продажи: {{ g.deals }}</span>{% endif %}
+                </span>
+              </div>
+            </td>
+          </tr>
+            {% for l in g.leads %}{{ lead_row(l, gid=gid, child=True) }}{% endfor %}
+          {% else %}
+          {{ lead_row(g.lead) }}
+          {% endif %}
+        {% else %}
+        <tr><td colspan="9" class="text-center py-5 text-muted">Список пуст. <a href="/leads/import">Импортируйте файл с точками</a>.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if leads %}
+<div class="text-muted small mt-2 d-flex justify-content-between align-items-center">
+  <span>Показано точек: {{ leads|length }}</span>
+  {% if source %}
+  <form method="post" action="/leads/clear" data-confirm="Убрать все точки из загрузки «{{ source }}»?">
+    <input type="hidden" name="source" value="{{ source }}">
+    <button class="btn btn-sm btn-link text-danger p-0">Очистить эту загрузку</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- скрытые формы для действий -->
+<form id="bulkform" method="post" action="/leads/bulk" class="d-none"></form>
+<form id="delform" method="post" class="d-none"></form>
+<form id="cpform" method="post" class="d-none"></form>
+
+<!-- модалка истории -->
+<div class="modal fade" id="histModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title" id="histTitle">История звонков</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body" id="histBody"><div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm"></span></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const STATUS_COLORS = {{ status_colors|tojson }};
+const DARK = ['new','no_answer'];
+
+async function post(url, body) {
+  const fd = new FormData();
+  for (const k in body) fd.append(k, body[k]);
+  const r = await fetch(url, { method: 'POST', body: fd });
+  return r.ok ? r.json() : Promise.reject(r);
+}
+function flash(el){ el.style.transition='box-shadow .2s'; el.style.boxShadow='0 0 0 2px rgba(34,197,94,.5)'; setTimeout(()=>el.style.boxShadow='',500); }
+
+// Сворачивание/разворачивание сети
+function toggleGroup(gid, cell){
+  const rows = document.querySelectorAll('.grp-' + gid);
+  let opened = false;
+  rows.forEach(r => { r.classList.toggle('d-none'); opened = !r.classList.contains('d-none'); });
+  const header = document.querySelector(`.grp-header[data-gid="${gid}"]`);
+  const chev = header ? header.querySelector('.grp-chevron') : null;
+  if (chev) chev.style.transform = opened ? 'rotate(90deg)' : '';
+}
+// Чекбокс «вся сеть»
+document.querySelectorAll('.grp-master').forEach(m => {
+  m.addEventListener('change', () => {
+    document.querySelectorAll('.grpchk-' + m.dataset.gid).forEach(c => c.checked = m.checked);
+    refreshBulk();
+  });
+});
+
+// Статус
+document.querySelectorAll('select[data-role="status"]').forEach(sel => {
+  sel.addEventListener('change', async () => {
+    try {
+      const d = await post(`/leads/${sel.dataset.id}/status`, { status: sel.value });
+      sel.className = 'status-select bg-' + d.color + (DARK.includes(d.status) ? ' text-dark' : ' text-white');
+      const lc = document.querySelector(`#lead-${sel.dataset.id} [data-role="lastcall"]`);
+      if (lc) lc.innerHTML = '<i class="bi bi-clock-history me-1"></i>' + d.last_call.slice(0,5) + ' ' + d.last_call.slice(11,16);
+      flash(sel);
+    } catch(e){ sel.classList.add('border','border-danger'); }
+  });
+});
+// Inline-поля
+document.querySelectorAll('[data-field]').forEach(el => {
+  const ev = el.tagName==='SELECT' || el.type==='date' ? 'change' : 'blur';
+  el.addEventListener(ev, async () => {
+    try { await post(`/leads/${el.dataset.id}/field`, { field: el.dataset.field, value: el.value }); flash(el); }
+    catch(e){ el.classList.add('border','border-danger'); }
+  });
+});
+
+// История
+async function showHistory(id){
+  const m = new bootstrap.Modal('#histModal'); m.show();
+  const body = document.getElementById('histBody');
+  body.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm"></span></div>';
+  try {
+    const r = await fetch(`/leads/${id}/history`); const d = await r.json();
+    document.getElementById('histTitle').textContent = 'История: ' + d.name;
+    if (!d.calls.length){ body.innerHTML = '<div class="text-muted text-center py-4">Звонков ещё не было</div>'; return; }
+    body.innerHTML = d.calls.map(c =>
+      '<div class="d-flex gap-2 pb-2 mb-2 border-bottom">' +
+        '<span class="badge bg-'+c.color+' align-self-start">'+c.label+'</span>' +
+        '<div class="flex-grow-1"><div class="small">'+(c.comment||'<span class="text-muted">без комментария</span>')+'</div>' +
+        '<div class="text-muted" style="font-size:.72rem">'+c.user+' · '+c.time+'</div></div>' +
+      '</div>').join('');
+  } catch(e){ body.innerHTML = '<div class="text-danger text-center py-4">Ошибка загрузки</div>'; }
+}
+function submitTo(formId, action){ const f=document.getElementById(formId); f.action=action; f.submit(); }
+function delLead(id){ if(confirm('Удалить точку?')) submitTo('delform', `/leads/${id}/delete`); }
+function toCp(id){ if(confirm('Создать контрагента из этой точки?')) submitTo('cpform', `/leads/${id}/to-counterparty`); }
+
+// Массовые действия
+const bulkbar = document.getElementById('bulkbar');
+function selected(){ return [...document.querySelectorAll('.rowcheck:checked')]; }
+function refreshBulk(){
+  const n = selected().length;
+  document.getElementById('selcount').textContent = n;
+  bulkbar.classList.toggle('d-none', n===0);
+  bulkbar.classList.toggle('d-flex', n>0);
+}
+document.getElementById('checkall').addEventListener('change', e => {
+  document.querySelectorAll('.rowcheck').forEach(c => c.checked = e.target.checked); refreshBulk();
+});
+document.querySelectorAll('.rowcheck').forEach(c => c.addEventListener('change', refreshBulk));
+
+function bulkSubmit(action, value, managers){
+  const f = document.getElementById('bulkform');
+  // подчистить прежние служебные поля
+  f.querySelectorAll('.bulk-extra').forEach(e => e.remove());
+  const add = (n,v)=>{ const i=document.createElement('input'); i.type='hidden'; i.name=n; i.value=v; i.className='bulk-extra'; f.appendChild(i); };
+  add('action', action);
+  if (value!==undefined) add('value', value);
+  if (managers) managers.forEach(m => add('managers', m));
+  f.submit();
+}
+function doBulk(action, selName){
+  let val;
+  if (selName){ val = bulkbar.querySelector(`[name="${selName}"]`).value; }
+  if (action==='delete' && !confirm('Удалить выбранные точки?')) return;
+  bulkSubmit(action, val);
+}
+function doDistribute(){
+  const mgrs = {{ users|map(attribute='id')|list|tojson }};
+  if (!mgrs.length) return;
+  if (confirm('Раздать выбранные точки поровну между всеми менеджерами?')) bulkSubmit('distribute', undefined, mgrs);
+}
+</script>
+{% endblock %}
