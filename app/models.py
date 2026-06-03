@@ -77,6 +77,13 @@ class Product(Base):
     stock_movements = relationship("StockMovement", back_populates="product")
 
 
+# ── Циклы статусов заказа (зависят от типа оплаты по договору) ────────────────
+# Предоплата: клиент платит → заказ падает на сборку кладовщику
+ORDER_FLOW_PREPAY   = ["draft", "confirmed", "paid", "assembled", "handed", "delivered"]
+# Отсрочка платежа: шаг «Оплачен» пропускается, на сборку падает после подтверждения
+ORDER_FLOW_DEFERRED = ["draft", "confirmed", "assembled", "handed", "delivered"]
+
+
 class Order(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
@@ -85,8 +92,10 @@ class Order(Base):
     counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
     supplier_id = Column(Integer, ForeignKey("counterparties.id"), nullable=True)
     carrier_id = Column(Integer, ForeignKey("counterparties.id"), nullable=True)
+    contract_id = Column(Integer, ForeignKey("contracts.id"), nullable=True)
     status = Column(String(20), default="draft")
-    # draft / confirmed / shipped / delivered / cancelled
+    # draft / confirmed / paid / assembled / handed / delivered / cancelled
+    payment_type = Column(String(10), default="prepay")  # prepay / deferred
     delivery_date = Column(Date)
     delivery_address = Column(String(500))
     notes = Column(Text)
@@ -96,6 +105,7 @@ class Order(Base):
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
     supplier = relationship("Counterparty", foreign_keys=[supplier_id])
     carrier = relationship("Counterparty", foreign_keys=[carrier_id])
+    contract = relationship("Contract")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="order")
     created_by = relationship("User")
@@ -103,6 +113,25 @@ class Order(Base):
     @property
     def total_amount(self):
         return sum(i.amount for i in self.items)
+
+    @property
+    def is_prepay(self) -> bool:
+        """True — заказ по предоплате; False — с отсрочкой платежа."""
+        return (self.payment_type or "prepay") != "deferred"
+
+    @property
+    def workflow(self) -> list:
+        """Применимая последовательность статусов для этого заказа."""
+        return ORDER_FLOW_PREPAY if self.is_prepay else ORDER_FLOW_DEFERRED
+
+    @property
+    def ready_for_assembly(self) -> bool:
+        """Заказ «падает» кладовщику на сборку:
+        — по предоплате  — когда статус «Оплачен»;
+        — по отсрочке    — когда статус «Подтверждён» (оплата пропускается)."""
+        if self.status in ("assembled", "handed", "delivered", "cancelled"):
+            return False
+        return self.status == ("paid" if self.is_prepay else "confirmed")
 
 
 class OrderItem(Base):
@@ -175,6 +204,7 @@ class Contract(Base):
     start_date = Column(Date)
     end_date = Column(Date)
     amount = Column(Float)
+    payment_type = Column(String(10), default="prepay")  # prepay (предоплата) / deferred (отсрочка)
     payment_days = Column(Integer)  # дней отсрочки (для шаблонов с отсрочкой)
     file_path = Column(String(500))
     notes = Column(Text)
@@ -236,6 +266,9 @@ class CompanySettings(Base):
     metafora_refresh  = Column(Text)          # Firebase refresh-token
     metafora_app_id   = Column(String(50))    # Glide appID (автоопределяется)
     metafora_url      = Column(String(500))   # URL выгрузки
+    # ── Разведка ЛПР (DaData) ──
+    dadata_token  = Column(String(100))       # API-ключ DaData (suggestions)
+    dadata_secret = Column(String(100))       # секретный ключ (для cleaning API, опц.)
 
 
 class MonthlyPlan(Base):
@@ -388,6 +421,20 @@ class SalesLead(Base):
     raw = Column(Text)                                # JSON исходной строки (на всякий случай)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
+    # ── Разведка / обогащение (ЛПР, реквизиты из открытых источников РФ) ──
+    inn = Column(String(12))                          # ИНН организации/ИП
+    kpp = Column(String(9))
+    ogrn = Column(String(15))
+    company_name_full = Column(String(500))           # полное наименование с ОПФ
+    director = Column(String(200))                    # ЛПР — ФИО руководителя
+    director_post = Column(String(200))               # должность ЛПР
+    company_status = Column(String(30))               # действующая / ликвидируется / ликвидирована
+    okved = Column(String(300))                       # основной вид деятельности (код + описание)
+    registration_date = Column(String(20))            # дата регистрации (как строка)
+    enriched_at = Column(DateTime)                    # когда последний раз обогащали
+    enrich_source = Column(String(50))                # источник: dadata / local / manual
+    recon_reviewed = Column(Boolean, default=False)   # карточку разведки открывали/проверяли
+    recon_reviewed_at = Column(DateTime)
     # Конвертация в контрагента
     converted_cp_id = Column(Integer, ForeignKey("counterparties.id"))
 

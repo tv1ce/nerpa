@@ -42,11 +42,11 @@
     <input class="note-input mt-1" style="font-size:.76rem" value="{{ l.contact_person or '' }}" placeholder="Контактное лицо…" data-field="contact_person" data-id="{{ l.id }}">
   </td>
   <td class="text-nowrap">
-    {% if l.vk %}<a class="soc-link soc-vk" href="{{ l.vk }}" target="_blank" title="ВКонтакте"><i class="bi bi-stack"></i></a>{% endif %}
-    {% if l.instagram %}<a class="soc-link soc-ig" href="{{ l.instagram }}" target="_blank" title="Instagram"><i class="bi bi-instagram"></i></a>{% endif %}
-    {% if l.telegram %}<a class="soc-link soc-tg" href="{{ l.telegram }}" target="_blank" title="Telegram"><i class="bi bi-telegram"></i></a>{% endif %}
-    {% if l.whatsapp %}<a class="soc-link soc-wa" href="{{ l.whatsapp }}" target="_blank" title="WhatsApp"><i class="bi bi-whatsapp"></i></a>{% endif %}
-    {% if l.website %}<a class="soc-link soc-web" href="{{ l.website }}" target="_blank" title="Сайт"><i class="bi bi-globe"></i></a>{% endif %}
+    {% if l.vk and l.vk|safe_url != '#' %}<a class="soc-link soc-vk" href="{{ l.vk|safe_url }}" target="_blank" rel="noopener" title="ВКонтакте"><i class="bi bi-stack"></i></a>{% endif %}
+    {% if l.instagram and l.instagram|safe_url != '#' %}<a class="soc-link soc-ig" href="{{ l.instagram|safe_url }}" target="_blank" rel="noopener" title="Instagram"><i class="bi bi-instagram"></i></a>{% endif %}
+    {% if l.telegram and l.telegram|safe_url != '#' %}<a class="soc-link soc-tg" href="{{ l.telegram|safe_url }}" target="_blank" rel="noopener" title="Telegram"><i class="bi bi-telegram"></i></a>{% endif %}
+    {% if l.whatsapp and l.whatsapp|safe_url != '#' %}<a class="soc-link soc-wa" href="{{ l.whatsapp|safe_url }}" target="_blank" rel="noopener" title="WhatsApp"><i class="bi bi-whatsapp"></i></a>{% endif %}
+    {% if l.website and l.website|safe_url != '#' %}<a class="soc-link soc-web" href="{{ l.website|safe_url }}" target="_blank" rel="noopener" title="Сайт"><i class="bi bi-globe"></i></a>{% endif %}
     {% if not (l.vk or l.instagram or l.telegram or l.whatsapp or l.website) %}
       <a class="btn btn-sm btn-outline-secondary py-0 px-1" target="_blank" title="Найти соцсети в Яндексе"
          href="https://yandex.ru/search/?text={{ (l.name ~ ' ' ~ (l.city or '') ~ ' инстаграм вконтакте телеграм')|urlencode }}"><i class="bi bi-search"></i></a>
@@ -74,6 +74,7 @@
   </td>
   <td><input class="note-input" value="{{ l.notes or '' }}" placeholder="Заметка…" data-field="notes" data-id="{{ l.id }}"></td>
   <td class="text-end pe-3 text-nowrap">
+    <a href="/recon/{{ l.id }}" class="btn btn-sm btn-outline-primary py-0" title="Разведка ЛПР"><i class="bi bi-binoculars"></i></a>
     <button type="button" class="btn btn-sm btn-outline-secondary py-0" title="История звонков" onclick="showHistory({{ l.id }})"><i class="bi bi-clock-history"></i></button>
     {% if not l.converted_cp_id %}
     <button type="button" class="btn btn-sm btn-outline-success py-0" title="Создать контрагента" onclick="toCp({{ l.id }})"><i class="bi bi-person-plus"></i></button>

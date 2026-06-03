@@ -60,6 +60,16 @@
             <input type="number" name="amount" class="form-control" step="0.01" min="0"
                    value="{{ contract.amount if contract and contract.amount else '' }}">
           </div>
+          <div class="col-md-4">
+            <label class="form-label">Условия оплаты *</label>
+            <select name="payment_type" id="payment_type" class="form-select" onchange="onPaymentTypeChange()">
+              {% for val, label in payment_types.items() %}
+              <option value="{{ val }}"
+                {% if contract and contract.payment_type == val %}selected{% elif not contract and val == 'prepay' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Определяет цикл статусов заказов по этому договору</div>
+          </div>
           <div class="col-12">
             <label class="form-label">Шаблон документа</label>
             <select name="template_id" id="template_id" class="form-select" onchange="onTemplateChange(this)">
@@ -74,7 +84,7 @@
             </select>
             <div class="form-text">Выберите шаблон — договор заполнится автоматически при сохранении</div>
           </div>
-          <div class="col-md-4" id="payment_days_block" style="{{ '' if (contract and contract.payment_days) else 'display:none' }}">
+          <div class="col-md-4" id="payment_days_block" style="{{ '' if (contract and contract.payment_type == 'deferred') else 'display:none' }}">
             <label class="form-label">Дней отсрочки</label>
             <input type="number" name="payment_days" id="payment_days" class="form-control" min="1" max="365"
                    value="{{ contract.payment_days if contract and contract.payment_days else '' }}"
@@ -114,20 +124,28 @@
 
 {% block scripts %}
 <script>
-function onTemplateChange(sel) {
-  const opt = sel.options[sel.selectedIndex];
-  const isDeferred = opt && opt.dataset.deferred === 'true';
+// Блок «дней отсрочки» виден только при условии «Отсрочка платежа»
+function onPaymentTypeChange() {
+  const pt = document.getElementById('payment_type');
   const block = document.getElementById('payment_days_block');
-  if (isDeferred) {
+  if (pt && pt.value === 'deferred') {
     block.style.display = '';
   } else {
     block.style.display = 'none';
-    document.getElementById('payment_days').value = '';
+    const pd = document.getElementById('payment_days');
+    if (pd) pd.value = '';
   }
 }
+// При выборе шаблона с отсрочкой — автоматически ставим «Отсрочка платежа»
+function onTemplateChange(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const isDeferred = opt && opt.dataset.deferred === 'true';
+  const pt = document.getElementById('payment_type');
+  if (isDeferred && pt) pt.value = 'deferred';
+  onPaymentTypeChange();
+}
 document.addEventListener('DOMContentLoaded', function() {
-  const sel = document.getElementById('template_id');
-  if (sel) onTemplateChange(sel);
+  onPaymentTypeChange();
 });
 </script>
 {% endblock %}

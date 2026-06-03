@@ -1,15 +1,165 @@
-{% extends "base.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
+{% extends _base %}
+
+{# ─── для мобильного base нужен счётчик очереди в таббаре ─── #}
+{% set assembly_queue_count = assembly_queue | length %}
+
 {% block title %}Склад{% endblock %}
-{% block page_title %}Склад — Остатки{% endblock %}
+{% block page_title %}{% if _role == "warehouse" %}Склад{% else %}Склад — Остатки{% endif %}{% endblock %}
+
 {% block topbar_actions %}
-  {% if request.session.get('user_role') != 'warehouse' %}
+  {% if _role != 'warehouse' %}
   <a href="/warehouse/new?mtype=in"  class="btn btn-sm btn-accent me-1"><i class="bi bi-plus-lg me-1"></i>Приход</a>
   <a href="/warehouse/new?mtype=out" class="btn btn-sm btn-outline-danger me-1"><i class="bi bi-dash-lg me-1"></i>Расход</a>
-  {% endif %}
   <a href="/warehouse/journal" class="btn btn-sm btn-outline-secondary"><i class="bi bi-journal-text me-1"></i>Журнал</a>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
+{% if _role == 'warehouse' %}
+{# ═══════════════════════════════════════════════════════════════
+   МОБИЛЬНЫЙ ИНТЕРФЕЙС КЛАДОВЩИКА
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% if low_stock %}
+<div class="wm-alert wm-alert-warn">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  <span>Низкий остаток: {{ low_stock | map(attribute='name') | join(', ') }}</span>
+</div>
+{% endif %}
+
+{# ── Очередь сборки ── #}
+<div class="wm-section-title">
+  <span>
+    <i class="bi bi-box-seam me-1" style="color:var(--wm-brand)"></i>
+    На сборку
+    {% if assembly_queue %}<span style="background:#EF4444;color:#fff;border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;margin-left:6px">{{ assembly_queue|length }}</span>{% endif %}
+  </span>
+</div>
+
+{% if assembly_queue %}
+{% for o in assembly_queue %}
+<div class="wm-queue-card {{ 'prepay' if o.is_prepay else 'deferred' }}">
+  <div class="wm-queue-card-head">
+    <div>
+      <div class="wm-queue-num">Заказ № {{ o.number }}</div>
+      <div class="wm-queue-client">{{ o.counterparty.trade_name or o.counterparty.name }}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:.78rem;color:var(--wm-muted);font-weight:600">{{ o.date | date_fmt }}</div>
+    </div>
+  </div>
+
+  <div class="wm-queue-meta">
+    {% if o.is_prepay %}
+    <span class="wm-pill wm-pill-prepay"><i class="bi bi-check-circle-fill"></i>Предоплата</span>
+    {% else %}
+    <span class="wm-pill wm-pill-defer"><i class="bi bi-clock"></i>Отсрочка</span>
+    {% endif %}
+    {% if o.delivery_date %}
+    <span class="wm-pill wm-pill-date"><i class="bi bi-calendar3"></i>{{ o.delivery_date | date_fmt }}</span>
+    {% endif %}
+    <span class="wm-pill wm-pill-items"><i class="bi bi-list-ul"></i>{{ o.items | length }} поз.</span>
+  </div>
+
+  {% if o.items %}
+  <div class="wm-queue-items">
+    {% for item in o.items %}
+    <div class="wm-queue-item-row">
+      <span>{{ item.product.name }}</span>
+      <span>{{ item.quantity | int if item.quantity == item.quantity | int else item.quantity }} {{ item.product.unit }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="wm-queue-footer">
+    <form method="post" action="/warehouse/orders/{{ o.id }}/assemble">
+      <button type="submit" class="wm-btn-assembled">
+        <i class="bi bi-check2-square"></i> Собрано — передаю на отгрузку
+      </button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="wm-card" style="margin-bottom:14px">
+  <div class="wm-empty">
+    <i class="bi bi-check2-all" style="color:var(--wm-success);opacity:1"></i>
+    <p style="font-weight:700;color:var(--wm-success)">Нет заказов на сборку</p>
+    <p style="font-size:.8rem;color:var(--wm-muted);margin-top:4px">Новые заказы появятся здесь автоматически</p>
+  </div>
+</div>
+{% endif %}
+
+{# ── Остатки ── #}
+<div class="wm-section-title" style="margin-top:4px">
+  <span><i class="bi bi-boxes me-1"></i>Остатки</span>
+</div>
+
+{% if products %}
+<div class="wm-card" style="margin-bottom:12px">
+  {% for p in products %}
+  {% set bal = balances.get(p.id, 0) %}
+  {% set is_low  = (p.min_stock and p.min_stock > 0 and bal <= p.min_stock and bal > 0) %}
+  {% set is_zero = (bal <= 0) %}
+  <div class="wm-stock-item">
+    <div class="wm-stock-icon {% if is_zero %}zero{% elif is_low %}low{% endif %}">
+      {% if is_zero %}<i class="bi bi-exclamation-circle-fill"></i>
+      {% elif is_low %}<i class="bi bi-exclamation-triangle-fill"></i>
+      {% else %}<i class="bi bi-archive"></i>{% endif %}
+    </div>
+    <div class="wm-stock-info">
+      <div class="wm-stock-name">{{ p.name }}</div>
+      {% if p.article %}<div class="wm-stock-article">{{ p.article }}</div>{% endif %}
+    </div>
+    <div class="wm-stock-qty">
+      <div class="wm-stock-qty-val {% if is_zero %}zero{% elif is_low %}low{% else %}ok{% endif %}">
+        {{ bal | int if bal == bal | int else "%.1f" | format(bal) }}
+      </div>
+      <div class="wm-stock-qty-unit">{{ p.unit }}</div>
+      {% if p.sale_unit and p.units_per_box and p.units_per_box > 1 %}
+      <div class="wm-stock-qty-unit" style="font-size:.68rem">= {{ (bal * p.units_per_box) | int }} {{ p.sale_unit }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ── Последние операции ── #}
+{% if recent %}
+<div class="wm-section-title">
+  <span><i class="bi bi-clock-history me-1"></i>Последние операции</span>
+  <a href="/warehouse/journal">Все</a>
+</div>
+<div class="wm-card" style="margin-bottom:12px">
+  {% for mv in recent[:5] %}
+  <div class="wm-journal-item">
+    <div class="wm-journal-icon {{ mv.movement_type if mv.movement_type in ('in','out') else 'adj' }}">
+      {% if mv.movement_type == 'in' %}<i class="bi bi-plus-lg"></i>
+      {% elif mv.movement_type == 'out' %}<i class="bi bi-dash-lg"></i>
+      {% else %}<i class="bi bi-arrow-left-right"></i>{% endif %}
+    </div>
+    <div class="wm-journal-body">
+      <div class="wm-journal-product">{{ mv.product.name if mv.product else '—' }}</div>
+      <div class="wm-journal-meta">{{ mv.date | date_fmt }}{% if mv.reason %} · {{ mv.reason }}{% endif %}{% if mv.order %} · Заказ {{ mv.order.number }}{% endif %}</div>
+    </div>
+    <div class="wm-journal-qty {{ mv.movement_type if mv.movement_type in ('in','out') else 'adj' }}">
+      {% if mv.movement_type == 'in' %}+{% elif mv.movement_type == 'out' %}−{% endif %}{{ mv.quantity | int if mv.quantity == mv.quantity | int else mv.quantity }}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% else %}
+{# ═══════════════════════════════════════════════════════════════
+   ДЕСКТОП-ИНТЕРФЕЙС (оригинальный)
+   ═══════════════════════════════════════════════════════════════ #}
 
 {% if low_stock %}
 <div class="alert alert-warning alert-dismissible fade show d-flex align-items-center gap-2 mb-3">
@@ -21,6 +171,49 @@
   <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
 </div>
 {% endif %}
+
+<!-- Очередь сборки: заказы, упавшие кладовщику -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex align-items-center">
+    <span class="fw-semibold"><i class="bi bi-box-seam me-1 text-info"></i>На сборку</span>
+    {% if assembly_queue %}<span class="badge bg-info text-dark ms-2">{{ assembly_queue|length }}</span>{% endif %}
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">№ заказа</th>
+          <th>Клиент</th>
+          <th>Оплата</th>
+          <th>Доставка</th>
+          <th class="text-end">Позиций</th>
+          <th class="text-end pe-4" style="width:160px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in assembly_queue %}
+        <tr>
+          <td class="ps-4"><a href="/orders/{{ o.id }}" class="fw-semibold text-decoration-none">{{ o.number }}</a></td>
+          <td>{{ o.counterparty.trade_name or o.counterparty.name }}</td>
+          <td>
+            {% if o.is_prepay %}<span class="badge bg-success">Предоплата</span>
+            {% else %}<span class="badge bg-warning text-dark">Отсрочка</span>{% endif %}
+          </td>
+          <td>{{ o.delivery_date | date_fmt }}</td>
+          <td class="text-end">{{ o.items|length }}</td>
+          <td class="text-end pe-4">
+            <form method="post" action="/warehouse/orders/{{ o.id }}/assemble" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-success py-0"><i class="bi bi-check2-square me-1"></i>Собран</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-3" style="font-size:.85rem">Нет заказов на сборку</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 
 <div class="row g-3">
 
@@ -148,9 +341,10 @@
     </div>
   </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
+{% block scripts_desktop %}{% endblock %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/app.js"></script>
 <script>
 function openStockModal(pid, name, minStock, initStock) {
   document.getElementById('stockProductName').textContent = name;
@@ -160,4 +354,5 @@ function openStockModal(pid, name, minStock, initStock) {
   new bootstrap.Modal(document.getElementById('stockModal')).show();
 }
 </script>
+{% endif %}{# end desktop #}
 {% endblock %}

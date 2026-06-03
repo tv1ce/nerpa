@@ -60,6 +60,9 @@ def _migrate_db():
         ("order_items",    "discount_pct",    "REAL DEFAULT 0.0"),
         ("company_settings", "okpo",          "TEXT"),
         ("contracts",      "payment_days",    "INTEGER"),
+        ("contracts",      "payment_type",    "TEXT DEFAULT 'prepay'"),
+        ("orders",         "payment_type",    "TEXT DEFAULT 'prepay'"),
+        ("orders",         "contract_id",     "INTEGER REFERENCES contracts(id)"),
         ("company_settings", "board_nuts_plan",      "REAL DEFAULT 0.0"),
         ("company_settings", "board_quotes",         "TEXT"),
         ("company_settings", "board_stations",       "TEXT"),
@@ -84,6 +87,22 @@ def _migrate_db():
         ("company_settings", "board_cost_norm_pct",  "REAL DEFAULT 48.0"),
         ("company_settings", "board_cost_deviation", "REAL DEFAULT 5.0"),
         ("sales_leads", "converted_cp_id", "INTEGER REFERENCES counterparties(id)"),
+        # Разведка ЛПР по точкам прозвона
+        ("sales_leads", "inn",               "TEXT"),
+        ("sales_leads", "kpp",               "TEXT"),
+        ("sales_leads", "ogrn",              "TEXT"),
+        ("sales_leads", "company_name_full", "TEXT"),
+        ("sales_leads", "director",          "TEXT"),
+        ("sales_leads", "director_post",     "TEXT"),
+        ("sales_leads", "company_status",    "TEXT"),
+        ("sales_leads", "okved",             "TEXT"),
+        ("sales_leads", "registration_date", "TEXT"),
+        ("sales_leads", "enriched_at",       "TIMESTAMP"),
+        ("sales_leads", "enrich_source",     "TEXT"),
+        ("sales_leads", "recon_reviewed",    "INTEGER DEFAULT 0"),
+        ("sales_leads", "recon_reviewed_at", "TIMESTAMP"),
+        ("company_settings", "dadata_token",  "TEXT"),
+        ("company_settings", "dadata_secret", "TEXT"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]
@@ -93,6 +112,12 @@ def _migrate_db():
     # Перевод орешков с «Коробки» на «шт»
     cur.execute("UPDATE products SET unit='шт', sale_unit=NULL, units_per_box=1 WHERE unit='Коробки'")
     cur.execute("UPDATE invoice_items SET unit='шт' WHERE unit='Коробки'")
+
+    # Переход на новый цикл статусов заказа: старый «shipped» (Отгружен)
+    # соответствует новому «handed» (Передан поставщику)
+    cur.execute("UPDATE orders SET status='handed' WHERE status='shipped'")
+    # Договоры с заполненной отсрочкой считаем договорами с отсрочкой платежа
+    cur.execute("UPDATE contracts SET payment_type='deferred' WHERE payment_days IS NOT NULL AND payment_days > 0 AND (payment_type IS NULL OR payment_type='prepay')")
 
     conn.commit()
     conn.close()

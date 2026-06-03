@@ -76,6 +76,22 @@ def fill_contract_template(template_path: str, output_path: str, contract, compa
     cp = contract.counterparty
 
     d = contract.date
+    # Условия оплаты (предоплата / отсрочка платежа) — переменная для шаблона
+    _is_deferred = getattr(contract, "payment_type", "prepay") == "deferred"
+    if _is_deferred:
+        _pdays = contract.payment_days
+        payment_type_label = "Отсрочка платежа"
+        if _pdays:
+            payment_terms = (
+                f"Оплата производится с отсрочкой платежа в течение {_pdays} "
+                f"({_days_words(_pdays)}) дней с момента поставки товара."
+            )
+        else:
+            payment_terms = "Оплата производится с отсрочкой платежа."
+    else:
+        payment_type_label = "Предоплата"
+        payment_terms = "Оплата производится на условиях 100% предоплаты до отгрузки товара."
+
     placeholders = {
         "{{contract_number}}": contract.number or "",
         "{{contract_date}}": _fmt_date(contract.date),
@@ -86,6 +102,9 @@ def fill_contract_template(template_path: str, output_path: str, contract, compa
         "{{contract_amount}}": _fmt_money(contract.amount),
         "{{start_date}}": _fmt_date(contract.start_date),
         "{{end_date}}": _fmt_date(contract.end_date),
+        # Условия оплаты
+        "{{payment_type}}": payment_type_label,
+        "{{payment_terms}}": payment_terms,
         # Отсрочка платежа
         "{{payment_days_num}}": str(contract.payment_days) if contract.payment_days else "___",
         "{{payment_days_words}}": _days_words(contract.payment_days),

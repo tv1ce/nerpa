@@ -174,8 +174,8 @@ def generate_upd_pdf(invoice, company) -> bytes:
     sf_tbl = Table([
         [_p("Счет-фактура №", sz=8, bold=True), _p(str(inv_num), sz=9, bold=True),
          _p("от", sz=8), _p(_date_v(invoice.date), sz=9, bold=True), _p("(1)", sz=6, color=GREY)],
-        [_p("Исправление №", sz=7, color=GREY), _p("--", sz=7, color=GREY),
-         _p("от", sz=7, color=GREY), _p("--", sz=7, color=GREY), _p("(1а)", sz=6, color=GREY)],
+        [_p("Исправление №", sz=7, color=GREY), _p("", sz=7, color=GREY),
+         _p("от", sz=7, color=GREY), _p("", sz=7, color=GREY), _p("(1а)", sz=6, color=GREY)],
     ], colWidths=[26*mm, 22*mm, 8*mm, 45*mm, 12*mm])
     sf_tbl.setStyle(TableStyle([
         ("VALIGN",(0,0),(-1,-1),"MIDDLE"),
@@ -268,7 +268,7 @@ def generate_upd_pdf(invoice, company) -> bytes:
 
     total_without = total_vat = total_with = 0.0
     for idx, item in enumerate(invoice.items, 1):
-        code    = (item.product.article or "--") if item.product else "--"
+        code    = (item.product.article or "") if item.product else ""
         vat_r   = item.vat_rate or 0
         without = item.price * item.quantity
         vat_amt = without * vat_r / 100 if vat_r > 0 else 0
@@ -282,19 +282,19 @@ def generate_upd_pdf(invoice, company) -> bytes:
             _p(code, sz=6.5),
             _p(str(idx), sz=7, align="CENTER"),
             _p(item.name, sz=7),
-            _p("--", sz=7, align="CENTER"),
+            _p("", sz=7, align="CENTER"),
             _p("796", sz=7, align="CENTER"),
             _p(item.unit, sz=7, align="CENTER"),
             _p(_qty(item.quantity), sz=7, align="RIGHT"),
             _p(_money(item.price) if item.price else "--", sz=7, align="RIGHT"),
             _p(_money(without), sz=7, align="RIGHT"),
-            _p("Без акциза", sz=6, align="CENTER"),
+            _p("без акциза", sz=6, align="CENTER"),
             _p(vat_str, sz=7, align="CENTER"),
             _p(vat_sum, sz=7, align="RIGHT"),
             _p(_money(with_t), sz=7, align="RIGHT"),
-            _p("--", sz=7, align="CENTER"),
-            _p("--", sz=7, align="CENTER"),
-            _p("--", sz=7, align="CENTER"),
+            _p("", sz=7, align="CENTER"),
+            _p("", sz=7, align="CENTER"),
+            _p("", sz=7, align="CENTER"),
         ])
 
     # итоговая строка «Всего к оплате (9)»
@@ -303,7 +303,7 @@ def generate_upd_pdf(invoice, company) -> bytes:
         _p(_money(total_without), sz=7, bold=True, align="RIGHT"),
         _p("Х", sz=7, align="CENTER"),
         "",
-        _p(_money(total_vat) if total_vat else "--", sz=7, bold=True, align="RIGHT"),
+        _p(_money(total_vat) if total_vat else "", sz=7, bold=True, align="RIGHT"),
         _p(_money(total_with), sz=7, bold=True, align="RIGHT"),
         "", "", "",
     ])

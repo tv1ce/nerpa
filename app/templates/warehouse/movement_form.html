@@ -1,17 +1,129 @@
-{% extends "base.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
+{% extends _base %}
+
 {% set type_labels = {"in": "Приход", "out": "Расход", "adjustment": "Корректировка"} %}
 {% block title %}{{ type_labels.get(selected_type, 'Операция') }} — Склад{% endblock %}
-{% block page_title %}{{ type_labels.get(selected_type, 'Новая операция') }}{% endblock %}
+{% block page_title %}
+  {% if _role == "warehouse" %}{{ type_labels.get(selected_type, 'Операция') }}
+  {% else %}{{ type_labels.get(selected_type, 'Новая операция') }}{% endif %}
+{% endblock %}
+
 {% block topbar_actions %}
+  {% if _role != 'warehouse' %}
   <a href="/warehouse/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К остаткам</a>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
+{% if _role == 'warehouse' %}
+{# ═══════════════════════════════════════════════════════════════
+   МОБИЛЬНАЯ ФОРМА ОПЕРАЦИИ
+   ═══════════════════════════════════════════════════════════════ #}
+
+{# Переключалка типа операции #}
+<div class="wm-type-tabs">
+  <a href="/warehouse/new?mtype=in{% if selected_product %}&product_id={{ selected_product }}{% endif %}"
+     class="wm-type-tab {% if selected_type == 'in' %}active-in{% endif %}">
+    <i class="bi bi-plus-circle{% if selected_type == 'in' %}-fill{% endif %}"></i>
+    <span>Приход</span>
+  </a>
+  <a href="/warehouse/new?mtype=out{% if selected_product %}&product_id={{ selected_product }}{% endif %}"
+     class="wm-type-tab {% if selected_type == 'out' %}active-out{% endif %}">
+    <i class="bi bi-dash-circle{% if selected_type == 'out' %}-fill{% endif %}"></i>
+    <span>Расход</span>
+  </a>
+  <a href="/warehouse/new?mtype=adjustment{% if selected_product %}&product_id={{ selected_product }}{% endif %}"
+     class="wm-type-tab {% if selected_type == 'adjustment' %}active-adj{% endif %}">
+    <i class="bi bi-arrow-left-right"></i>
+    <span>Коррект.</span>
+  </a>
+</div>
+
+<form method="post" action="/warehouse/new" id="wm-form">
+  <input type="hidden" name="movement_type" value="{{ selected_type }}">
+
+  {# Товар #}
+  <div class="wm-form-group">
+    <label class="wm-form-label" for="productSelect">Товар</label>
+    <select name="product_id" class="wm-form-control" id="productSelect" required onchange="updateBalance(this)">
+      <option value="">— выберите товар —</option>
+      {% for p in products %}
+      <option value="{{ p.id }}" {% if p.id == selected_product %}selected{% endif %}
+        data-balance="{{ balances.get(p.id, 0) }}" data-unit="{{ p.unit }}">
+        {{ p.name }}{% if p.article %} [{{ p.article }}]{% endif %}
+      </option>
+      {% endfor %}
+    </select>
+    <div id="balanceInfo" class="wm-balance-hint"></div>
+  </div>
+
+  {# Количество #}
+  <div class="wm-form-group">
+    <label class="wm-form-label" for="qtyInput">
+      Количество
+      <span id="unitLabelInner" style="text-transform:none;letter-spacing:0;font-weight:700;color:var(--wm-brand)"></span>
+    </label>
+    <input type="number" name="quantity" id="qtyInput"
+           class="wm-form-control big" min="0.001" step="any" required
+           placeholder="0"
+           style="{% if selected_type == 'in' %}border-color:var(--wm-success){% elif selected_type == 'out' %}border-color:var(--wm-danger){% endif %}">
+  </div>
+
+  {# Дата #}
+  <div class="wm-form-group">
+    <label class="wm-form-label">Дата</label>
+    <input type="date" name="mov_date" class="wm-form-control" required value="{{ today }}">
+  </div>
+
+  {# Причина #}
+  <div class="wm-form-group">
+    <label class="wm-form-label">Причина</label>
+    <select name="reason" class="wm-form-control">
+      {% for r in reasons.get(selected_type, []) %}
+      <option value="{{ r }}">{{ r }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {# Заказ (только для расхода — привязка к отгрузке) #}
+  {% if selected_type == 'out' %}
+  <div class="wm-form-group">
+    <label class="wm-form-label">Заказ <span style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--wm-muted)">(привязать к отгрузке)</span></label>
+    <select name="order_id" class="wm-form-control">
+      <option value="">— не привязывать —</option>
+      {% for o in orders %}
+      <option value="{{ o.id }}">№ {{ o.number }} — {{ o.counterparty.trade_name or o.counterparty.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  {% else %}
+  <input type="hidden" name="order_id" value="0">
+  {% endif %}
+
+  {# Примечание #}
+  <div class="wm-form-group">
+    <label class="wm-form-label">Примечание</label>
+    <textarea name="notes" class="wm-form-control" rows="2"
+              style="height:auto;padding:14px;resize:none;line-height:1.5"
+              placeholder="Необязательно"></textarea>
+  </div>
+
+  <button type="submit" class="wm-submit-btn {% if selected_type == 'in' %}wm-submit-in{% elif selected_type == 'out' %}wm-submit-out{% else %}wm-submit-adj{% endif %}">
+    {% if selected_type == 'in' %}<i class="bi bi-plus-lg"></i> Записать приход
+    {% elif selected_type == 'out' %}<i class="bi bi-dash-lg"></i> Записать расход
+    {% else %}<i class="bi bi-arrow-left-right"></i> Записать корректировку{% endif %}
+  </button>
+</form>
+
+{% else %}
+{# ═══════════════════════════════════════════════════════════════
+   ДЕСКТОП-ИНТЕРФЕЙС
+   ═══════════════════════════════════════════════════════════════ #}
 <div class="row g-3 justify-content-center">
   <div class="col-lg-7">
     <div class="card border-0 shadow-sm p-4">
-
-      <!-- Тип операции -->
       <div class="d-flex gap-2 mb-4">
         {% for key, label in movement_types.items() %}
         <a href="/warehouse/new?mtype={{ key }}{% if selected_product %}&product_id={{ selected_product }}{% endif %}"
@@ -26,7 +138,6 @@
 
       <form method="post" action="/warehouse/new">
         <input type="hidden" name="movement_type" value="{{ selected_type }}">
-
         <div class="row g-3">
           <div class="col-12">
             <label class="form-label">Товар *</label>
@@ -41,7 +152,6 @@
             </select>
             <div id="balanceInfo" class="form-text"></div>
           </div>
-
           <div class="col-md-6">
             <label class="form-label">Количество *</label>
             <div class="input-group">
@@ -49,12 +159,10 @@
               <span class="input-group-text" id="unitLabel">ед.</span>
             </div>
           </div>
-
           <div class="col-md-6">
             <label class="form-label">Дата *</label>
             <input type="date" name="mov_date" class="form-control" required value="{{ today }}">
           </div>
-
           <div class="col-md-8">
             <label class="form-label">Причина</label>
             <select name="reason" class="form-select">
@@ -63,7 +171,6 @@
               {% endfor %}
             </select>
           </div>
-
           <div class="col-md-4">
             <label class="form-label">Заказ (если есть)</label>
             <select name="order_id" class="form-select">
@@ -73,12 +180,10 @@
               {% endfor %}
             </select>
           </div>
-
           <div class="col-12">
             <label class="form-label">Примечание</label>
             <textarea name="notes" class="form-control" rows="2" placeholder="Необязательно"></textarea>
           </div>
-
           <div class="col-12 pt-2">
             <button type="submit" class="btn btn-accent w-100">
               <i class="bi bi-check-lg me-1"></i>Записать операцию
@@ -89,22 +194,47 @@
     </div>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 const balances = {{ balances | tojson }};
+
 function updateBalance(sel) {
   const opt = sel.options[sel.selectedIndex];
-  const bal = opt.dataset.balance || 0;
+  const bal = parseFloat(opt.dataset.balance) || 0;
   const unit = opt.dataset.unit || 'ед.';
+
+  {% if _role == 'warehouse' %}
+  const hint = document.getElementById('balanceInfo');
+  if (opt.value) {
+    hint.innerHTML = 'Сейчас на складе: <strong>' + bal + ' ' + unit + '</strong>';
+  } else {
+    hint.textContent = '';
+  }
+  const unitSpan = document.getElementById('unitLabelInner');
+  if (unitSpan && opt.value) unitSpan.textContent = unit;
+  {% else %}
   document.getElementById('balanceInfo').textContent = bal > 0 ? 'Текущий остаток: ' + bal + ' ' + unit : '';
-  document.getElementById('unitLabel').textContent = unit;
+  const ul = document.getElementById('unitLabel');
+  if (ul) ul.textContent = unit;
+  {% endif %}
 }
-// Инициализация при загрузке
-window.addEventListener('load', () => {
+
+window.addEventListener('load', function() {
   const sel = document.getElementById('productSelect');
-  if (sel.value) updateBalance(sel);
+  if (sel && sel.value) updateBalance(sel);
 });
+
+{% if _role == 'warehouse' %}
+// Убрать лишние 0 при фокусе на поле количества
+const qtyInput = document.getElementById('qtyInput');
+if (qtyInput) {
+  qtyInput.addEventListener('focus', function() {
+    if (this.value === '0') this.value = '';
+  });
+}
+{% endif %}
 </script>
 {% endblock %}

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/navy">
+
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <WebView
+            android:id="@+id/webview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/bg" />
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <ProgressBar
+        android:id="@+id/progress"
+        style="?android:attr/progressBarStyleLarge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:indeterminateTint="@color/blue"
+        android:visibility="gone" />
+
+    <!-- Экран ошибки соединения -->
+    <LinearLayout
+        android:id="@+id/errorView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:background="@color/navy"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📦"
+            android:textSize="56sp"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/error_title"
+            android:textColor="@color/white"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="6dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/error_text"
+            android:textColor="@color/muted"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:layout_marginBottom="28dp" />
+
+        <Button
+            android:id="@+id/btnRetry"
+            android:layout_width="240dp"
+            android:layout_height="52dp"
+            android:text="@string/error_retry"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:backgroundTint="@color/blue"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btnChangeServer"
+            android:layout_width="240dp"
+            android:layout_height="52dp"
+            android:text="@string/error_change"
+            android:textColor="@color/white"
+            android:backgroundTint="@color/muted" />
+
+    </LinearLayout>
+
+</FrameLayout>

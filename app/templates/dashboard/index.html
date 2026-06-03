@@ -3,14 +3,14 @@
 {% block page_title %}Дашборд{% endblock %}
 
 {% block content %}
-{% set status_ru = {'draft':'Черновик','confirmed':'Подтверждён','shipped':'Отгружен','delivered':'Доставлен','cancelled':'Отменён'} %}
+{% set status_ru = {'draft':'Черновик','confirmed':'Подтверждён','paid':'Оплачен','assembled':'Собран','handed':'Передан поставщику','delivered':'Доставлено','cancelled':'Отменён'} %}
 
 <!-- ── Stat cards ── -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-xl-3">
     <div class="card stat-card h-100 p-3">
       <div class="d-flex align-items-center gap-3">
-        <div class="icon" style="background:#fff3cd"><i class="bi bi-box-seam text-warning fs-4"></i></div>
+        <div class="icon" style="background:#DDDDF5"><i class="bi bi-box-seam fs-4" style="color:#575BA6"></i></div>
         <div>
           <div class="value">{{ total_orders }}</div>
           <div class="label">Всего заказов</div>
@@ -22,7 +22,7 @@
   <div class="col-6 col-xl-3">
     <div class="card stat-card h-100 p-3">
       <div class="d-flex align-items-center gap-3">
-        <div class="icon" style="background:#d1e7dd"><i class="bi bi-receipt text-success fs-4"></i></div>
+        <div class="icon" style="background:#D1FAE5"><i class="bi bi-receipt fs-4" style="color:#166534"></i></div>
         <div>
           <div class="value">{{ revenue_this_month | money }}</div>
           <div class="label">Выручка за месяц, ₽</div>
@@ -34,7 +34,7 @@
   <div class="col-6 col-xl-3">
     <div class="card stat-card h-100 p-3">
       <div class="d-flex align-items-center gap-3">
-        <div class="icon" style="background:#cfe2ff"><i class="bi bi-people text-primary fs-4"></i></div>
+        <div class="icon" style="background:#FEF3DC"><i class="bi bi-people fs-4" style="color:#C8870A"></i></div>
         <div>
           <div class="value">{{ total_counterparties }}</div>
           <div class="label">Контрагентов</div>
@@ -46,7 +46,7 @@
   <div class="col-6 col-xl-3">
     <div class="card stat-card h-100 p-3">
       <div class="d-flex align-items-center gap-3">
-        <div class="icon" style="background:#f8d7da"><i class="bi bi-currency-exchange text-danger fs-4"></i></div>
+        <div class="icon" style="background:#EDE9FE"><i class="bi bi-currency-exchange fs-4" style="color:#6D28D9"></i></div>
         <div>
           <div class="value">{{ total_revenue | money }}</div>
           <div class="label">Общая выручка, ₽</div>
@@ -89,7 +89,7 @@
 
         <!-- Большое число -->
         <div class="col-md-3 text-center border-end">
-          <div style="font-size:2.8rem;font-weight:800;line-height:1;color:#F97316">
+          <div style="font-size:2.8rem;font-weight:800;line-height:1;color:#C8870A">
             {{ total_nuts_sold | int | format_number }}
           </div>
           <div class="text-muted mt-1" style="font-size:.8rem">шт всего</div>
@@ -112,7 +112,7 @@
               </div>
               <div class="progress" style="height:8px;border-radius:4px;background:#f0f0f0">
                 <div class="progress-bar" role="progressbar"
-                     style="width:{{ (qty / max_qty * 100) | round | int }}%;background:#2563EB;border-radius:4px"
+                     style="width:{{ (qty / max_qty * 100) | round | int }}%;background:#575BA6;border-radius:4px"
                      aria-valuenow="{{ qty }}" aria-valuemax="{{ max_qty }}"></div>
               </div>
             </div>
@@ -189,10 +189,10 @@ new Chart(document.getElementById('revenueChart'), {
     datasets: [{
       label: 'Выручка ₽',
       data: months.map(m => m.revenue),
-      backgroundColor: '#2563EBcc',
-      borderColor: '#2563EB',
+      backgroundColor: 'rgba(87,91,166,.75)',
+      borderColor: '#575BA6',
       borderWidth: 1,
-      borderRadius: 4,
+      borderRadius: 6,
     }]
   },
   options: {
@@ -206,10 +206,10 @@ const sc = {{ order_status_counts | tojson }};
 new Chart(document.getElementById('ordersChart'), {
   type: 'doughnut',
   data: {
-    labels: ['Черновик','Подтверждён','Отгружен','Доставлен','Отменён'],
+    labels: ['Черновик','Подтверждён','Оплачен','Собран','Передан','Доставлено','Отменён'],
     datasets: [{
-      data: [sc.draft, sc.confirmed, sc.shipped, sc.delivered, sc.cancelled],
-      backgroundColor: ['#94A3B8','#2563EB','#8B5CF6','#22C55E','#EF4444'],
+      data: [sc.draft, sc.confirmed, sc.paid, sc.assembled, sc.handed, sc.delivered, sc.cancelled],
+      backgroundColor: ['#94A3B8','#2563EB','#14B8A6','#EAB308','#8B5CF6','#22C55E','#EF4444'],
     }]
   },
   options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }, cutout: '65%' }

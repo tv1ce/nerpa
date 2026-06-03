@@ -1,0 +1,324 @@
+{% extends "base.html" %}
+{% block title %}Разведка ЛПР{% endblock %}
+{% block page_title %}Разведка ЛПР{% endblock %}
+{% block topbar_actions %}
+  <a href="/leads/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К прозвону</a>
+{% endblock %}
+
+{% block content %}
+<style>
+  .recon-stats .stat-card{background:#fff;border-radius:.6rem;padding:.7rem 1rem;box-shadow:0 1px 3px rgba(15,23,42,.06);}
+  .recon-stats .stat-val{font-size:1.35rem;font-weight:700;line-height:1;}
+  .recon-stats .stat-lbl{font-size:.72rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em;}
+  .engine-card{border:0;box-shadow:0 1px 3px rgba(15,23,42,.07);border-radius:.7rem;}
+  .engine-head{display:flex;align-items:center;gap:.6rem;font-weight:600;}
+  .engine-ico{width:38px;height:38px;border-radius:.6rem;display:flex;align-items:center;justify-content:center;font-size:1.15rem;color:#fff;}
+  .log-box{background:#0f172a;color:#cbd5e1;border-radius:.5rem;padding:.7rem .9rem;font-size:.8rem;font-family:ui-monospace,monospace;min-height:54px;white-space:pre-wrap;}
+  tr.reviewed{background:#f8fafc;}
+  tr.reviewed td:nth-child(2){color:#64748b;}
+  .reviewed-flag{font-size:1.05rem;}
+</style>
+
+<!-- Сводка -->
+<div class="row g-2 mb-3 recon-stats">
+  <div class="col"><a class="stat-card text-decoration-none text-reset d-block" href="/recon/"><div class="stat-val">{{ stats.total }}</div><div class="stat-lbl">Точек в базе</div></a></div>
+  <div class="col"><a class="stat-card text-decoration-none text-reset d-block" href="/recon/?view=lpr"><div class="stat-val text-primary">{{ stats.with_lpr }}</div><div class="stat-lbl">С ЛПР</div></a></div>
+  <div class="col"><div class="stat-card"><div class="stat-val text-info">{{ stats.with_inn }}</div><div class="stat-lbl">С ИНН</div></div></div>
+  <div class="col"><a class="stat-card text-decoration-none text-reset d-block" href="/recon/?reviewed=yes"><div class="stat-val text-success">{{ stats.reviewed }}</div><div class="stat-lbl">Просмотрено</div></a></div>
+  <div class="col"><div class="stat-card"><div class="stat-val">{{ stats.with_socials }}</div><div class="stat-lbl">С соцсетями</div></div></div>
+  <div class="col"><a class="stat-card text-decoration-none text-reset d-block" href="/recon/?view=dead"><div class="stat-val text-danger">{{ stats.dead }}</div><div class="stat-lbl">Ликвидируются</div></a></div>
+</div>
+
+<div class="row g-3">
+  <!-- Движок 1: автоматический разбор базы -->
+  <div class="col-lg-6">
+    <div class="card engine-card h-100">
+      <div class="card-body">
+        <div class="engine-head mb-2">
+          <span class="engine-ico" style="background:#0d6efd"><i class="bi bi-magic"></i></span>
+          Автоматический разбор базы
+        </div>
+        <p class="text-muted small mb-3">Без интернета. Пройдёт по всем точкам и до-вытащит из исходных строк
+          импорта соцсети, e-mail, телефон, ИНН; приведёт телефоны к формату <code>+7 (___) ___-__-__</code>
+          и заново пересоберёт сети по брендам.</p>
+        <form id="localForm" class="row g-2 align-items-end">
+          <div class="col-8">
+            <label class="form-label small mb-1">Источник (файл импорта)</label>
+            <select name="source" class="form-select form-select-sm">
+              <option value="">— вся база —</option>
+              {% for s in sources %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-4">
+            <button class="btn btn-primary btn-sm w-100" type="submit"><i class="bi bi-play-fill me-1"></i>Запустить</button>
+          </div>
+        </form>
+        <div class="log-box mt-3" id="localLog">Готов к запуску…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Движок 2: DaData -->
+  <div class="col-lg-6">
+    <div class="card engine-card h-100">
+      <div class="card-body">
+        <div class="engine-head mb-2">
+          <span class="engine-ico" style="background:#198754"><i class="bi bi-person-badge"></i></span>
+          Поиск ЛПР · ЕГРЮЛ/ЕГРИП (DaData)
+          {% if has_token %}<span class="badge bg-success-subtle text-success border border-success-subtle ms-auto">ключ задан</span>
+          {% else %}<span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-auto">нет ключа</span>{% endif %}
+        </div>
+        <p class="text-muted small mb-3">Официальные данные ФНС: руководитель (ЛПР) и должность, ИНН/КПП/ОГРН,
+          статус, ОКВЭД, дата регистрации. Ищет по ИНН (если есть) либо по названию + городу.</p>
+
+        {% if has_token %}
+        <form id="ddForm" class="row g-2 align-items-end">
+          <div class="col-5">
+            <label class="form-label small mb-1">Источник</label>
+            <select name="source" class="form-select form-select-sm">
+              <option value="">— вся база —</option>
+              {% for s in sources %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-3">
+            <label class="form-label small mb-1">Лимит</label>
+            <input type="number" name="limit" value="50" min="1" max="300" class="form-control form-control-sm">
+          </div>
+          <div class="col-4">
+            <button class="btn btn-success btn-sm w-100" type="submit"><i class="bi bi-search me-1"></i>Найти ЛПР</button>
+          </div>
+          <div class="col-12">
+            <div class="form-check small mb-1">
+              <input class="form-check-input" type="checkbox" name="only_missing" id="onlyMissing" checked>
+              <label class="form-check-label" for="onlyMissing">Только те, где ЛПР ещё не найден</label>
+            </div>
+            <div class="form-check small">
+              <input class="form-check-input" type="checkbox" name="drop_dead" id="dropDead" checked>
+              <label class="form-check-label" for="dropDead">Автоматически убирать ликвидирующиеся / банкротов из базы</label>
+            </div>
+          </div>
+        </form>
+        <div class="log-box mt-2" id="ddLog">Готов к запуску…</div>
+        {% else %}
+        <div class="alert alert-warning small py-2"><i class="bi bi-key me-1"></i>Укажите бесплатный ключ DaData ниже (10&nbsp;000 запросов/сутки).</div>
+        {% endif %}
+
+        <form method="post" action="/recon/config" class="mt-3 pt-3 border-top">
+          <label class="form-label small mb-1 fw-semibold">Ключ DaData (API-токен)</label>
+          <div class="input-group input-group-sm">
+            <input type="text" name="dadata_token" class="form-control" placeholder="токен из ЛК dadata.ru" autocomplete="off">
+            <button class="btn btn-outline-secondary" type="submit">Сохранить</button>
+          </div>
+          <div class="form-text">Регистрация на <a href="https://dadata.ru/profile/#info" target="_blank">dadata.ru</a> →
+            раздел «API-ключи». Можно также задать переменной окружения <code>DADATA_TOKEN</code>.</div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Полный список точек с данными разведки -->
+<div class="card border-0 shadow-sm mt-3">
+  <div class="card-body pb-2">
+    <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+      <h6 class="fw-semibold mb-0 me-2"><i class="bi bi-person-vcard me-2 text-primary"></i>База разведки <span class="text-muted fw-normal">({{ leads|length }})</span></h6>
+
+      {% set _base = '/recon/?q=' ~ (q|urlencode) ~ '&view=' ~ view ~ '&reviewed=' ~ reviewed ~ '&source=' ~ (source|urlencode) %}
+      <div class="btn-group btn-group-sm ms-auto" role="group">
+        <a href="{{ _base }}&group={{ group }}" class="btn btn-outline-secondary {% if sort!='hot' %}active{% endif %}" title="Обычная сортировка"><i class="bi bi-list-ul"></i></a>
+        <a href="{{ _base }}&group={{ group }}&sort=hot" class="btn btn-outline-danger {% if sort=='hot' %}active{% endif %}" title="Сначала горячие">🔥 Горячие</a>
+      </div>
+      <a href="{{ _base }}&sort={{ sort }}&group={{ '' if group=='company' else 'company' }}"
+         class="btn btn-sm {% if group=='company' %}btn-primary{% else %}btn-outline-primary{% endif %}" title="Свернуть точки одной компании">
+        <i class="bi bi-diagram-3 me-1"></i>По компаниям</a>
+
+      {% if duplicates %}
+      <button class="btn btn-sm btn-outline-warning" id="dedupBtn" title="Склеить точки-близнецы (одни реквизиты/телефон)">
+        <i class="bi bi-union me-1"></i>Склеить дубли ({{ duplicates }})</button>
+      {% endif %}
+      {% if stats.with_lpr %}
+      <a class="btn btn-sm btn-outline-success" href="/recon/export-lpr.xlsx" title="Выгрузить ЛПР в Excel"><i class="bi bi-file-earmark-excel me-1"></i>Экспорт ЛПР</a>
+      {% endif %}
+      {% if stats.dead %}
+      <button class="btn btn-sm btn-outline-danger" id="cleanupBtn">
+        <i class="bi bi-trash3 me-1"></i>Убрать ликвидированных ({{ stats.dead }})</button>
+      {% endif %}
+    </div>
+    <form class="row g-2 mb-1" method="get">
+      <input type="hidden" name="sort" value="{{ sort }}">
+      <input type="hidden" name="group" value="{{ group }}">
+      <div class="col-md-3"><input type="text" name="q" class="form-control form-control-sm" placeholder="Поиск: название, ЛПР, ИНН, город…" value="{{ q }}"></div>
+      <div class="col-md-2">
+        <select name="view" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Все точки</option>
+          <option value="lpr"   {% if view=='lpr' %}selected{% endif %}>С найденным ЛПР</option>
+          <option value="nolpr" {% if view=='nolpr' %}selected{% endif %}>Без ЛПР</option>
+          <option value="dead"  {% if view=='dead' %}selected{% endif %}>Ликвидируются</option>
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="reviewed" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Просмотр: любой</option>
+          <option value="yes" {% if reviewed=='yes' %}selected{% endif %}>Просмотренные</option>
+          <option value="no"  {% if reviewed=='no' %}selected{% endif %}>Не просмотренные</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select name="source" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Все источники</option>
+          {% for s in sources %}<option value="{{ s }}" {% if source==s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2"><button class="btn btn-sm btn-outline-secondary w-100"><i class="bi bi-search me-1"></i>Фильтр</button></div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    {% if companies is not none %}
+    {# ── Вид «по компаниям»: точки с одними реквизитами свёрнуты ── #}
+    <table class="table tms-table mb-0 align-middle">
+      <thead><tr>
+        <th class="ps-3">Компания</th><th>Точек</th><th>ЛПР</th><th>ИНН</th>
+        <th>Статус ЕГРЮЛ</th><th>Прозвон</th><th>Города</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for c in companies %}
+        <tr>
+          <td class="ps-3 fw-semibold">
+            {{ c.head.company_name_full or c.head.name }}
+            {% if c.score >= 75 %}<span class="ms-1" title="Горячая">🔥</span>{% endif %}
+          </td>
+          <td>{% if c.count > 1 %}<span class="badge bg-primary-subtle text-primary border border-primary-subtle">Сеть · {{ c.count }}</span>{% else %}1{% endif %}</td>
+          <td>{{ c.director or '—' }}</td>
+          <td class="small">{{ c.inn or '—' }}</td>
+          <td>{% if c.company_status %}<span class="badge bg-{{ status_badge.get(c.company_status,'secondary') }}-subtle text-{{ status_badge.get(c.company_status,'secondary') }} border border-{{ status_badge.get(c.company_status,'secondary') }}-subtle">{{ c.company_status }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="small">{{ c.called }}/{{ c.count }}</td>
+          <td class="small text-muted">{{ c.cities|join(', ') if c.cities else '—' }}</td>
+          <td class="text-end pe-3"><a href="/recon/{{ c.head.id }}" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-binoculars"></i></a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center py-4 text-muted">Ничего не найдено.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    {# ── Обычный список точек ── #}
+    <table class="table tms-table mb-0 align-middle">
+      <thead><tr>
+        <th class="ps-3" style="width:34px"></th>
+        <th>Точка</th><th>Темп.</th><th>ЛПР</th><th>Должность</th><th>ИНН</th>
+        <th>Статус ЕГРЮЛ</th><th>Прозвон</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for item in leads %}
+        {% set l = item.lead %}
+        <tr id="row-{{ l.id }}" class="{% if l.recon_reviewed %}reviewed{% endif %}">
+          <td class="ps-3 text-center">
+            <i class="bi reviewed-flag {% if l.recon_reviewed %}bi-check-circle-fill text-success{% else %}bi-circle text-muted{% endif %}"
+               role="button" title="{% if l.recon_reviewed %}Просмотрено{% if l.recon_reviewed_at %} {{ l.recon_reviewed_at.strftime('%d.%m %H:%M') }}{% endif %} — снять отметку{% else %}Отметить просмотренным{% endif %}"
+               onclick="toggleReviewed({{ l.id }}, this)"></i>
+          </td>
+          <td class="fw-semibold">{{ l.name }}
+            {% if l.is_network %}<span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size:.6rem" title="Точка сети">сеть · {{ l.network_size }}</span>{% endif %}
+            {% if l.city %}<div class="text-muted small">{{ l.city }}</div>{% endif %}
+          </td>
+          <td><span class="badge bg-{{ item.label[1] }}-subtle text-{{ item.label[1] }} border border-{{ item.label[1] }}-subtle" title="Скоринг {{ item.score }}/100">{{ item.label[0] }}</span></td>
+          <td>{{ l.director or '—' }}</td>
+          <td class="small text-muted">{{ l.director_post or '—' }}</td>
+          <td class="small">{{ l.inn or '—' }}</td>
+          <td>{% if l.company_status %}<span class="badge bg-{{ status_badge.get(l.company_status,'secondary') }}-subtle text-{{ status_badge.get(l.company_status,'secondary') }} border border-{{ status_badge.get(l.company_status,'secondary') }}-subtle">{{ l.company_status }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td>
+            {% if l.call_status and l.call_status != 'new' %}<span class="badge bg-light text-dark border">{{ statuses.get(l.call_status, l.call_status) }}</span>
+            {% else %}<span class="text-muted small">не звонили</span>{% endif %}
+          </td>
+          <td class="text-end pe-3"><a href="/recon/{{ l.id }}" class="btn btn-sm btn-outline-secondary py-0" title="Карточка разведки"><i class="bi bi-binoculars"></i></a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center py-4 text-muted">Ничего не найдено по фильтру. Запустите обогащение/поиск ЛПР выше.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function runEngine(formId, url, logId, render){
+  var form = document.getElementById(formId);
+  if(!form) return;
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    var log = document.getElementById(logId);
+    var btn = form.querySelector('button[type=submit]');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    log.textContent = 'Обрабатываю…';
+    try{
+      var r = await fetch(url, { method:'POST', body: new FormData(form) });
+      var d = await r.json();
+      if(d.error){ log.textContent = '⚠ ' + d.error; }
+      else { log.textContent = render(d); }
+    }catch(err){ log.textContent = '⚠ Ошибка сети: ' + err; }
+    finally{ btn.disabled = false; btn.innerHTML = btn.dataset.label; }
+  });
+  var b = form.querySelector('button[type=submit]'); b.dataset.label = b.innerHTML;
+}
+
+runEngine('localForm', '/recon/run-local', 'localLog', function(d){
+  var lines = ['✔ Обработано точек: ' + d.processed,
+               '  изменено: ' + d.touched + ', пересобрано сетей: ' + d.networks_changed];
+  var f = d.fields || {};
+  Object.keys(f).forEach(function(k){ lines.push('  • ' + k + ': +' + f[k]); });
+  lines.push('', 'Обновите страницу, чтобы увидеть свежую статистику.');
+  return lines.join('\n');
+});
+
+runEngine('ddForm', '/recon/run-dadata', 'ddLog', function(d){
+  return ['✔ Запрошено: ' + d.processed,
+          '  найдено ЛПР: ' + d.found_lpr,
+          '  из кэша (точки сети/дубли без запроса): ' + (d.from_cache || 0),
+          '  убрано ликвидированных: ' + (d.removed || 0),
+          '  ошибок: ' + d.errors,
+          '', 'Обновите страницу — результаты в таблице ниже.'].join('\n');
+});
+
+// Склейка истинных дублей
+var dedupBtn = document.getElementById('dedupBtn');
+if(dedupBtn){
+  dedupBtn.addEventListener('click', async function(){
+    if(!confirm('Склеить точки-близнецы (одинаковый ИНН+адрес или телефон)? История звонков и лучший статус сохранятся на оставшейся записи.')) return;
+    dedupBtn.disabled = true; dedupBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    var r = await fetch('/recon/dedup', { method:'POST' });
+    var d = await r.json();
+    alert('Склеено дублей: ' + (d.merged || 0) + ' (групп: ' + (d.groups || 0) + ')');
+    location.reload();
+  });
+}
+
+// Переключение отметки «просмотрено»
+async function toggleReviewed(id, el){
+  var r = await fetch('/recon/' + id + '/reviewed', { method:'POST' });
+  var d = await r.json();
+  if(!d.ok) return;
+  var row = document.getElementById('row-' + id);
+  if(d.reviewed){
+    el.className = 'bi reviewed-flag bi-check-circle-fill text-success';
+    row.classList.add('reviewed');
+  } else {
+    el.className = 'bi reviewed-flag bi-circle text-muted';
+    row.classList.remove('reviewed');
+  }
+}
+
+// Разовая чистка ликвидированных
+var cleanupBtn = document.getElementById('cleanupBtn');
+if(cleanupBtn){
+  cleanupBtn.addEventListener('click', async function(){
+    if(!confirm('Убрать из активной базы все организации со статусом «ликвидируется / ликвидирована / банкротство»?')) return;
+    cleanupBtn.disabled = true;
+    var r = await fetch('/recon/cleanup-dead', { method:'POST' });
+    var d = await r.json();
+    alert('Убрано из базы: ' + (d.removed || 0));
+    location.reload();
+  });
+}
+</script>
+{% endblock %}

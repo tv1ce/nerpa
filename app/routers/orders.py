@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User
+from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User, Contract
 from app.utils import log_action
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -15,16 +15,46 @@ templates = Jinja2Templates(directory="app/templates")
 ORDER_STATUSES = {
     "draft": "Черновик",
     "confirmed": "Подтверждён",
-    "shipped": "Отгружен",
-    "delivered": "Доставлен",
+    "paid": "Оплачен",
+    "assembled": "Собран",
+    "handed": "Передан поставщику",
+    "delivered": "Доставлено",
     "cancelled": "Отменён",
 }
+
+PAYMENT_TYPES = {
+    "prepay": "Предоплата",
+    "deferred": "Отсрочка платежа",
+}
+
+
+def _statuses_for(order: Order) -> dict:
+    """Статусы, применимые к конкретному заказу (зависят от типа оплаты),
+    плюс «Отменён». Для предоплаты доступен шаг «Оплачен», для отсрочки — нет."""
+    allowed = list(order.workflow) + ["cancelled"]
+    return {k: v for k, v in ORDER_STATUSES.items() if k in allowed}
 
 
 def _next_order_number(db: Session) -> str:
     from sqlalchemy import func
     max_id = db.query(func.max(Order.id)).scalar() or 0
     return str(max_id + 1)
+
+
+def _assembly_queue_count(db: Session) -> int:
+    """Кол-во заказов на сборку — для бейджа в мобильном таббаре."""
+    candidates = db.query(Order).filter(Order.status.in_(["confirmed", "paid"])).all()
+    return sum(1 for o in candidates if o.ready_for_assembly)
+
+
+def _resolve_payment_type(db: Session, contract_id: int, fallback: str) -> str:
+    """Тип оплаты заказа определяется выбранным договором; если договор
+    не выбран — берётся значение из формы. Допустимые: prepay / deferred."""
+    if contract_id:
+        contract = db.query(Contract).filter(Contract.id == contract_id).first()
+        if contract and contract.payment_type:
+            return contract.payment_type
+    return fallback if fallback in ("prepay", "deferred") else "prepay"
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -38,6 +68,7 @@ async def list_orders(request: Request, q: str = "", status: str = "", db: Sessi
     orders = query.order_by(Order.date.desc(), Order.id.desc()).all()
     return templates.TemplateResponse(request, "orders/list.html", {
         "orders": orders, "q": q, "status": status, "statuses": ORDER_STATUSES,
+        "assembly_queue_count": _assembly_queue_count(db),
     })
 
 
@@ -54,10 +85,12 @@ async def new_order(request: Request, db: Session = Depends(get_db)):
         Counterparty.is_active == True, Counterparty.type == "carrier"
     ).order_by(Counterparty.name).all()
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    contracts = db.query(Contract).order_by(Contract.date.desc()).all()
     return templates.TemplateResponse(request, "orders/form.html", {
         "order": None, "counterparties": counterparties, "suppliers": suppliers,
-        "carriers": carriers, "products": products,
-        "statuses": ORDER_STATUSES, "suggested_number": _next_order_number(db),
+        "carriers": carriers, "products": products, "contracts": contracts,
+        "statuses": ORDER_STATUSES, "payment_types": PAYMENT_TYPES,
+        "suggested_number": _next_order_number(db),
     })
 
 
@@ -70,6 +103,8 @@ async def create_order(
     counterparty_id: int = Form(...),
     supplier_id: int = Form(default=0),
     carrier_id: int = Form(default=0),
+    contract_id: int = Form(default=0),
+    payment_type: str = Form(default="prepay"),
     status: str = Form(default="draft"),
     delivery_date: str = Form(default=""),
     delivery_address: str = Form(default=""),
@@ -77,12 +112,15 @@ async def create_order(
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
+    payment_type = _resolve_payment_type(db, contract_id, payment_type)
     order = Order(
         number=number,
         date=date.fromisoformat(order_date),
         counterparty_id=counterparty_id,
         supplier_id=supplier_id or None,
         carrier_id=carrier_id or None,
+        contract_id=contract_id or None,
+        payment_type=payment_type,
         status=status,
         delivery_date=date.fromisoformat(delivery_date) if delivery_date else None,
         delivery_address=delivery_address,
@@ -132,8 +170,10 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
     users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
+        "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
         "tasks": tasks, "comments": comments, "activity": activity, "users": users,
         "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
+        "assembly_queue_count": _assembly_queue_count(db),
     })
 
 
@@ -151,10 +191,12 @@ async def edit_order(request: Request, order_id: int, db: Session = Depends(get_
         Counterparty.is_active == True, Counterparty.type == "carrier"
     ).order_by(Counterparty.name).all()
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    contracts = db.query(Contract).order_by(Contract.date.desc()).all()
     return templates.TemplateResponse(request, "orders/form.html", {
         "order": order, "counterparties": counterparties, "suppliers": suppliers,
-        "carriers": carriers, "products": products,
-        "statuses": ORDER_STATUSES, "suggested_number": order.number,
+        "carriers": carriers, "products": products, "contracts": contracts,
+        "statuses": ORDER_STATUSES, "payment_types": PAYMENT_TYPES,
+        "suggested_number": order.number,
     })
 
 
@@ -167,6 +209,8 @@ async def update_order(
     counterparty_id: int = Form(...),
     supplier_id: int = Form(default=0),
     carrier_id: int = Form(default=0),
+    contract_id: int = Form(default=0),
+    payment_type: str = Form(default="prepay"),
     status: str = Form(default="draft"),
     delivery_date: str = Form(default=""),
     delivery_address: str = Form(default=""),
@@ -182,6 +226,8 @@ async def update_order(
     order.counterparty_id = counterparty_id
     order.supplier_id = supplier_id or None
     order.carrier_id = carrier_id or None
+    order.contract_id = contract_id or None
+    order.payment_type = _resolve_payment_type(db, contract_id, payment_type)
     order.status = status
     order.delivery_date = date.fromisoformat(delivery_date) if delivery_date else None
     order.delivery_address = delivery_address
@@ -212,13 +258,23 @@ async def update_order(
 
 
 @router.post("/{order_id}/status")
-@role_required("manager")
+@login_required
 async def change_status(request: Request, order_id: int,
                         status: str = Form(...),
                         redirect_url: str = Form(default=""),
                         db: Session = Depends(get_db)):
+    from app.auth import ROLE_LEVELS
+    role = request.session.get("user_role", "viewer")
     order = db.query(Order).filter(Order.id == order_id).first()
-    if order:
+
+    # Кладовщик может переводить заказ в «Собран» только когда он готов к сборке
+    if role == "warehouse":
+        allowed = (status == "assembled" and order is not None and order.ready_for_assembly)
+    else:
+        allowed = (ROLE_LEVELS.get(role, 0) >= ROLE_LEVELS.get("manager", 0)
+                   and order is not None and status in _statuses_for(order))
+
+    if allowed:
         old_status = order.status
         order.status = status
         log_action(db, "order", order_id, "status_changed",
@@ -226,6 +282,7 @@ async def change_status(request: Request, order_id: int,
                    f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → {ORDER_STATUSES.get(status, status)}",
                    field="status", old_value=old_status, new_value=status)
         db.commit()
+
     target = redirect_url if redirect_url else f"/orders/{order_id}"
     return RedirectResponse(url=target, status_code=302)
 
