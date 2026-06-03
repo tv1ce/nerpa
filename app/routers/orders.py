@@ -258,13 +258,23 @@ async def update_order(
 
 
 @router.post("/{order_id}/status")
-@role_required("manager")
+@login_required
 async def change_status(request: Request, order_id: int,
                         status: str = Form(...),
                         redirect_url: str = Form(default=""),
                         db: Session = Depends(get_db)):
+    from app.auth import ROLE_LEVELS
+    role = request.session.get("user_role", "viewer")
     order = db.query(Order).filter(Order.id == order_id).first()
-    if order and status in _statuses_for(order):
+
+    # Кладовщик может переводить заказ в «Собран» только когда он готов к сборке
+    if role == "warehouse":
+        allowed = (status == "assembled" and order is not None and order.ready_for_assembly)
+    else:
+        allowed = (ROLE_LEVELS.get(role, 0) >= ROLE_LEVELS.get("manager", 0)
+                   and order is not None and status in _statuses_for(order))
+
+    if allowed:
         old_status = order.status
         order.status = status
         log_action(db, "order", order_id, "status_changed",
@@ -272,6 +282,7 @@ async def change_status(request: Request, order_id: int,
                    f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → {ORDER_STATUSES.get(status, status)}",
                    field="status", old_value=old_status, new_value=status)
         db.commit()
+
     target = redirect_url if redirect_url else f"/orders/{order_id}"
     return RedirectResponse(url=target, status_code=302)
 
