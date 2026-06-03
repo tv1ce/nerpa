@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import FileResponse
 from starlette.middleware.sessions import SessionMiddleware
 from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads
 from app.database import init_db
@@ -12,6 +13,29 @@ app = FastAPI(title="TMS — Управление поставками")
 
 app.add_middleware(SessionMiddleware, secret_key="tms-secret-change-in-production-2024", max_age=86400)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+
+# ── PWA: манифест и service worker (нужны на корне, без авторизации) ──────────
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def pwa_manifest():
+    return FileResponse(
+        "app/static/manifest.webmanifest",
+        media_type="application/manifest+json",
+    )
+
+
+@app.get("/sw.js", include_in_schema=False)
+async def pwa_service_worker():
+    # SW обязан отдаваться с корня, чтобы его scope покрывал весь сайт ('/')
+    return FileResponse(
+        "app/static/js/sw.js",
+        media_type="application/javascript",
+        headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache",
+        },
+    )
 
 app.include_router(auth.router)
 app.include_router(dashboard.router)

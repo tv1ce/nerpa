@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TMS Склад</string>
+    <string name="setup_title">Подключение к серверу TMS</string>
+    <string name="setup_hint">Введите адрес сервера TMS в локальной сети.\nНапример: http://192.168.1.50:8080</string>
+    <string name="setup_label">Адрес сервера</string>
+    <string name="setup_save">Подключиться</string>
+    <string name="setup_invalid">Введите корректный адрес (начинается с http:// или https://)</string>
+    <string name="error_title">Нет связи с сервером</string>
+    <string name="error_text">Проверьте Wi-Fi и адрес сервера TMS</string>
+    <string name="error_retry">Повторить</string>
+    <string name="error_change">Сменить адрес сервера</string>
+</resources>

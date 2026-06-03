@@ -1,0 +1,24 @@
+{
+  "name": "TMS Склад",
+  "short_name": "TMS Склад",
+  "description": "Рабочее место кладовщика: сборка заказов, приход и расход, остатки",
+  "lang": "ru",
+  "start_url": "/warehouse/?pwa=1",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0F1A2E",
+  "theme_color": "#0F1A2E",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/static/icons/icon-192.png",     "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-512.png",     "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/static/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "На сборку",  "url": "/warehouse/?pwa=1",          "icons": [{ "src": "/static/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Приход",     "url": "/warehouse/new?mtype=in",    "icons": [{ "src": "/static/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Расход",     "url": "/warehouse/new?mtype=out",   "icons": [{ "src": "/static/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

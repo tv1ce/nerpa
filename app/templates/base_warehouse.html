@@ -6,8 +6,13 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TMS Склад">
   <meta name="theme-color" content="#0F1A2E">
   <title>{% block title %}Склад{% endblock %} — TMS</title>
+  {# ── PWA ── #}
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;600;700;800&display=swap">
@@ -179,6 +184,57 @@
 })();
 </script>
 <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+{# ── PWA: установка и service worker ── #}
+<div id="pwa-install" style="display:none;position:fixed;left:12px;right:12px;bottom:calc(var(--wm-tab-h) + 12px);z-index:300;background:#fff;border-radius:14px;box-shadow:0 8px 28px rgba(15,23,42,.25);padding:14px 16px;align-items:center;gap:12px">
+  <div style="width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#2563EB,#EA580C);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.2rem"><i class="bi bi-box-seam"></i></div>
+  <div style="flex:1;min-width:0">
+    <div style="font-weight:700;font-size:.92rem;color:#0F172A">Установить приложение</div>
+    <div style="font-size:.78rem;color:#64748b">Иконка на экране, запуск без браузера</div>
+  </div>
+  <button id="pwa-install-btn" style="background:#2563EB;color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:.88rem;font-weight:700;flex-shrink:0">Установить</button>
+  <button id="pwa-install-close" style="background:none;border:none;color:#94a3b8;font-size:1.3rem;line-height:1;padding:0 4px">&times;</button>
+</div>
+
+<script>
+// Регистрация service worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {});
+  });
+}
+
+// Подсказка установки (Android/Chrome)
+(function () {
+  var deferred = null;
+  var bar = document.getElementById('pwa-install');
+  var btn = document.getElementById('pwa-install-btn');
+  var close = document.getElementById('pwa-install-close');
+  if (localStorage.getItem('pwa-install-dismissed') === '1') return;
+
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+    deferred = e;
+    if (bar) bar.style.display = 'flex';
+  });
+  if (btn) btn.addEventListener('click', function () {
+    if (!deferred) return;
+    deferred.prompt();
+    deferred.userChoice.finally(function () {
+      deferred = null;
+      if (bar) bar.style.display = 'none';
+    });
+  });
+  if (close) close.addEventListener('click', function () {
+    if (bar) bar.style.display = 'none';
+    localStorage.setItem('pwa-install-dismissed', '1');
+  });
+  window.addEventListener('appinstalled', function () {
+    if (bar) bar.style.display = 'none';
+  });
+})();
+</script>
+
 {% block scripts %}{% endblock %}
 </body>
 </html>
