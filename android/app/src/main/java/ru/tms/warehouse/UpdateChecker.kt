@@ -103,7 +103,7 @@ class UpdateChecker(private val activity: Activity, private val serverUrl: Strin
         }
         try {
             conn.inputStream.use { input ->
-                dest.outputStream.use { output -> input.copyTo(output) }
+                dest.outputStream().use { output -> input.copyTo(output) }
             }
         } finally {
             conn.disconnect()
