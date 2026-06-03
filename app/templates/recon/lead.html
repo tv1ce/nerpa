@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Разведка · {{ lead.name }}{% endblock %}
+{% block page_title %}Разведка ЛПР{% endblock %}
+{% block topbar_actions %}
+  {% if lead.recon_reviewed %}<span class="badge bg-success-subtle text-success border border-success-subtle me-2"><i class="bi bi-check-circle me-1"></i>Просмотрено{% if lead.recon_reviewed_at %} {{ lead.recon_reviewed_at.strftime('%d.%m %H:%M') }}{% endif %}</span>{% endif %}
+  <a href="/recon/" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left me-1"></i>К разведке</a>
+  <a href="/leads/?q={{ lead.name|urlencode }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-telephone me-1"></i>В прозвоне</a>
+{% endblock %}
+
+{% block content %}
+<style>
+  .src-link{display:flex;align-items:center;gap:.55rem;padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:.5rem;text-decoration:none;color:#0f172a;font-size:.85rem;transition:.12s;}
+  .src-link:hover{border-color:#94a3b8;background:#f8fafc;}
+  .src-link i:first-child{font-size:1.05rem;color:#2563eb;}
+  .src-group-title{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;font-weight:700;margin:.4rem 0 .5rem;}
+  .lpr-field label{font-size:.74rem;color:#64748b;font-weight:600;}
+  /* Подсветка ЛПР и телефонов */
+  .lpr-hero{background:linear-gradient(135deg,#ecfdf5,#f0fdf4);border:1px solid #a7f3d0;border-radius:.6rem;padding:.8rem .9rem;margin-bottom:1rem;}
+  .lpr-hero .lpr-name{font-size:1.05rem;font-weight:700;color:#065f46;line-height:1.2;}
+  .lpr-hero .lpr-post{font-size:.78rem;color:#16794d;}
+  .phone-chip{display:inline-flex;align-items:center;gap:.5rem;background:#fff;border:1px solid #fcd34d;border-radius:.5rem;padding:.35rem .6rem;margin:.25rem .35rem 0 0;}
+  .phone-chip .num{font-size:1.05rem;font-weight:700;color:#92400e;letter-spacing:.02em;}
+  .phone-chip a.call{color:#16a34a;font-size:1.1rem;text-decoration:none;}
+  .phone-chip button.copy{border:none;background:none;color:#94a3b8;cursor:pointer;padding:0;font-size:.95rem;}
+  .phone-chip button.copy:hover{color:#475569;}
+  .lpr-find-phone{font-size:.78rem;}
+  .src-link.hot{border-color:#fdba74;background:#fff7ed;}
+  .src-link.hot i:first-child{color:#ea580c;}
+</style>
+
+<div class="row g-3">
+  <!-- Карточка точки + ЛПР -->
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <h5 class="fw-bold mb-1">{{ lead.name }}</h5>
+        <div class="text-muted small mb-2">
+          {% if lead.category %}<span class="badge bg-light text-dark border me-1">{{ lead.category }}</span>{% endif %}
+          {% if lead.is_network %}<span class="badge bg-primary-subtle text-primary border border-primary-subtle">Сеть · {{ lead.network_size }}</span>{% endif %}
+        </div>
+        {% if lead.address %}<div class="small mb-1"><i class="bi bi-geo-alt me-1 text-secondary"></i>{{ lead.city + ', ' if lead.city }}{{ lead.address }}</div>{% endif %}
+        {% if lead.phone %}<div class="small mb-1"><i class="bi bi-telephone me-1 text-success"></i><a href="tel:{{ lead.phone }}" class="text-decoration-none">{{ pretty_phone(lead.phone) }}</a></div>{% endif %}
+        {% if lead.email %}<div class="small mb-1"><i class="bi bi-envelope me-1 text-secondary"></i>{{ lead.email }}</div>{% endif %}
+        <div class="mt-2">
+          {% if lead.vk and lead.vk|safe_url != '#' %}<a class="me-2" href="{{ lead.vk|safe_url }}" target="_blank" rel="noopener" title="VK" style="color:#0077ff"><i class="bi bi-stack"></i></a>{% endif %}
+          {% if lead.instagram and lead.instagram|safe_url != '#' %}<a class="me-2" href="{{ lead.instagram|safe_url }}" target="_blank" rel="noopener" title="Instagram" style="color:#e1306c"><i class="bi bi-instagram"></i></a>{% endif %}
+          {% if lead.telegram and lead.telegram|safe_url != '#' %}<a class="me-2" href="{{ lead.telegram|safe_url }}" target="_blank" rel="noopener" title="Telegram" style="color:#229ed9"><i class="bi bi-telegram"></i></a>{% endif %}
+          {% if lead.whatsapp and lead.whatsapp|safe_url != '#' %}<a class="me-2" href="{{ lead.whatsapp|safe_url }}" target="_blank" rel="noopener" title="WhatsApp" style="color:#25d366"><i class="bi bi-whatsapp"></i></a>{% endif %}
+          {% if lead.website and lead.website|safe_url != '#' %}<a class="me-2" href="{{ lead.website|safe_url }}" target="_blank" rel="noopener" title="Сайт" style="color:#64748b"><i class="bi bi-globe"></i></a>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ЛПР и реквизиты (редактируемо) -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <div class="d-flex align-items-center mb-3">
+          <h6 class="fw-semibold mb-0"><i class="bi bi-person-badge me-2 text-success"></i>ЛПР и реквизиты</h6>
+          {% if lead.company_status %}<span class="badge bg-{{ status_badge.get(lead.company_status,'secondary') }}-subtle text-{{ status_badge.get(lead.company_status,'secondary') }} border border-{{ status_badge.get(lead.company_status,'secondary') }}-subtle ms-auto">{{ lead.company_status }}</span>{% endif %}
+        </div>
+
+        <!-- Подсветка: ЛПР + телефоны для звонка -->
+        <div class="lpr-hero">
+          {% if lead.director %}
+            <div class="lpr-name"><i class="bi bi-person-badge me-1"></i>{{ lead.director }}</div>
+            <div class="lpr-post">{{ lead.director_post or 'Руководитель' }}</div>
+          {% else %}
+            <div class="lpr-name text-muted"><i class="bi bi-person-x me-1"></i>ЛПР не найден</div>
+            <div class="lpr-post">Запустите «Найти в ЕГРЮЛ» или впишите вручную ниже</div>
+          {% endif %}
+
+          <div class="mt-2">
+            <div class="lpr-find-phone fw-semibold text-muted mb-1"><i class="bi bi-telephone-inbound me-1"></i>Телефоны для связи</div>
+            {% if phones %}
+              {% for p in phones %}
+              <span class="phone-chip">
+                <a class="call" href="tel:{{ p|replace(' ','')|replace('(','')|replace(')','')|replace('-','') }}" title="Позвонить"><i class="bi bi-telephone-fill"></i></a>
+                <span class="num">{{ p }}</span>
+                <button type="button" class="copy" title="Скопировать" onclick="copyPhone('{{ p }}', this)"><i class="bi bi-clipboard"></i></button>
+              </span>
+              {% endfor %}
+            {% else %}
+              <div class="small text-muted">Номер не найден в данных точки. Используйте «Найти телефон ЛПР» справа →</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <form id="lprForm">
+          <div class="row g-2">
+            <div class="col-12 lpr-field"><label>ЛПР (ФИО руководителя)</label>
+              <input name="director" class="form-control form-control-sm" value="{{ lead.director or '' }}"></div>
+            <div class="col-12 lpr-field"><label>Должность</label>
+              <input name="director_post" class="form-control form-control-sm" value="{{ lead.director_post or '' }}"></div>
+            <div class="col-6 lpr-field"><label>ИНН</label>
+              <input name="inn" class="form-control form-control-sm" value="{{ lead.inn or '' }}"></div>
+            <div class="col-6 lpr-field"><label>ОГРН</label>
+              <input name="ogrn" class="form-control form-control-sm" value="{{ lead.ogrn or '' }}"></div>
+            <div class="col-12 lpr-field"><label>Полное наименование</label>
+              <input name="company_name_full" class="form-control form-control-sm" value="{{ lead.company_name_full or '' }}"></div>
+            <div class="col-12 lpr-field"><label>Вид деятельности (ОКВЭД)</label>
+              <input name="okved" class="form-control form-control-sm" value="{{ lead.okved or '' }}"></div>
+          </div>
+          <div class="d-flex align-items-center gap-2 mt-3">
+            <button type="submit" class="btn btn-sm btn-success"><i class="bi bi-save me-1"></i>Сохранить</button>
+            {% if has_token %}<button type="button" id="ddBtn" class="btn btn-sm btn-outline-primary"><i class="bi bi-search me-1"></i>Найти в ЕГРЮЛ</button>{% endif %}
+            <span id="lprMsg" class="small text-muted"></span>
+          </div>
+          {% if lead.registration_date %}<div class="form-text mt-2">Дата регистрации: {{ lead.registration_date }}{% if lead.enrich_source %} · источник: {{ lead.enrich_source }}{% endif %}</div>{% endif %}
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Источники РФ -->
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h6 class="fw-semibold mb-1"><i class="bi bi-binoculars me-2 text-primary"></i>Источники для доразведки</h6>
+        <p class="text-muted small mb-3">Готовые ссылки с подставленными данными точки — открываются в новой вкладке.</p>
+        {% for group, items in links.items() %}
+          {% set is_phone = group == 'Телефон ЛПР' %}
+          <div class="src-group-title">{% if is_phone %}<i class="bi bi-telephone-plus me-1 text-warning"></i>{% endif %}{{ group }}</div>
+          <div class="row g-2 mb-2">
+            {% for it in items %}
+            <div class="col-md-6"><a class="src-link {% if is_phone %}hot{% endif %}" href="{{ it.url }}" target="_blank" rel="noopener">
+              <i class="bi {{ it.icon }}"></i><span>{{ it.title }}</span>
+              <i class="bi bi-box-arrow-up-right ms-auto text-muted" style="font-size:.8rem"></i>
+            </a></div>
+            {% endfor %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Кандидаты DaData -->
+    <div class="card border-0 shadow-sm mt-3 d-none" id="candCard">
+      <div class="card-body">
+        <h6 class="fw-semibold mb-2"><i class="bi bi-list-check me-2 text-success"></i>Кандидаты из ЕГРЮЛ/ЕГРИП</h6>
+        <div id="candList" class="vstack gap-2"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const LEAD_ID = {{ lead.id }};
+
+// Копировать телефон в буфер
+function copyPhone(num, btn){
+  navigator.clipboard.writeText(num).then(function(){
+    var i = btn.querySelector('i');
+    var old = i.className;
+    i.className = 'bi bi-check-lg text-success';
+    setTimeout(function(){ i.className = old; }, 1200);
+  });
+}
+
+// Сохранить ЛПР вручную
+document.getElementById('lprForm').addEventListener('submit', async function(e){
+  e.preventDefault();
+  var msg = document.getElementById('lprMsg');
+  var r = await fetch('/recon/' + LEAD_ID + '/lpr', { method:'POST', body:new FormData(this) });
+  var d = await r.json();
+  msg.textContent = d.ok ? '✔ Сохранено' : ('⚠ ' + (d.error||'ошибка'));
+  msg.className = 'small ' + (d.ok ? 'text-success' : 'text-danger');
+});
+
+// Поиск в DaData → показать кандидатов
+var ddBtn = document.getElementById('ddBtn');
+if(ddBtn){
+  ddBtn.addEventListener('click', async function(){
+    var q = (document.querySelector('[name=inn]').value || '').trim()
+          || ('{{ lead.name }} {{ lead.city or "" }}').trim();
+    ddBtn.disabled = true; ddBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    try{
+      var fd = new FormData(); fd.append('query', q);
+      var r = await fetch('/recon/' + LEAD_ID + '/dadata', { method:'POST', body:fd });
+      var d = await r.json();
+      if(d.error){ alert(d.error); return; }
+      renderCandidates(d.candidates || []);
+    } finally { ddBtn.disabled = false; ddBtn.innerHTML = '<i class="bi bi-search me-1"></i>Найти в ЕГРЮЛ'; }
+  });
+}
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function renderCandidates(list){
+  var card = document.getElementById('candCard'), box = document.getElementById('candList');
+  card.classList.remove('d-none');
+  if(!list.length){ box.innerHTML = '<div class="text-muted small">Ничего не найдено. Уточните название или впишите ИНН вручную.</div>'; return; }
+  box.innerHTML = list.map(function(c, i){
+    return '<div class="border rounded p-2">'
+      + '<div class="fw-semibold small">' + esc(c.company_name_full || c.value) + '</div>'
+      + '<div class="small text-muted">ИНН ' + esc(c.inn||'—') + (c.ogrn ? ' · ОГРН ' + esc(c.ogrn) : '') + (c.company_status ? ' · ' + esc(c.company_status) : '') + '</div>'
+      + (c.director ? '<div class="small mt-1"><i class="bi bi-person-badge text-success me-1"></i><b>' + esc(c.director) + '</b> — ' + esc(c.director_post||'') + '</div>' : '<div class="small text-warning mt-1">ЛПР не указан</div>')
+      + (c.okved ? '<div class="small text-muted">ОКВЭД: ' + esc(c.okved) + '</div>' : '')
+      + '<button class="btn btn-sm btn-success mt-2" onclick=\'applyCand(' + i + ')\'>'
+      + '<i class="bi bi-check-lg me-1"></i>Применить</button>'
+      + '</div>';
+  }).join('');
+  window._cands = list;
+}
+
+async function applyCand(i){
+  var c = window._cands[i]; if(!c) return;
+  var fd = new FormData();
+  ['inn','kpp','ogrn','company_name_full','director','director_post','company_status','okved','registration_date']
+    .forEach(function(k){ if(c[k]) fd.append(k, c[k]); });
+  var r = await fetch('/recon/' + LEAD_ID + '/apply', { method:'POST', body:fd });
+  var d = await r.json();
+  if(d.ok) location.reload(); else alert(d.error||'Ошибка');
+}
+</script>
+{% endblock %}

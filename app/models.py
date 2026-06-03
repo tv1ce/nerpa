@@ -266,6 +266,9 @@ class CompanySettings(Base):
     metafora_refresh  = Column(Text)          # Firebase refresh-token
     metafora_app_id   = Column(String(50))    # Glide appID (автоопределяется)
     metafora_url      = Column(String(500))   # URL выгрузки
+    # ── Разведка ЛПР (DaData) ──
+    dadata_token  = Column(String(100))       # API-ключ DaData (suggestions)
+    dadata_secret = Column(String(100))       # секретный ключ (для cleaning API, опц.)
 
 
 class MonthlyPlan(Base):
@@ -418,6 +421,20 @@ class SalesLead(Base):
     raw = Column(Text)                                # JSON исходной строки (на всякий случай)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
+    # ── Разведка / обогащение (ЛПР, реквизиты из открытых источников РФ) ──
+    inn = Column(String(12))                          # ИНН организации/ИП
+    kpp = Column(String(9))
+    ogrn = Column(String(15))
+    company_name_full = Column(String(500))           # полное наименование с ОПФ
+    director = Column(String(200))                    # ЛПР — ФИО руководителя
+    director_post = Column(String(200))               # должность ЛПР
+    company_status = Column(String(30))               # действующая / ликвидируется / ликвидирована
+    okved = Column(String(300))                       # основной вид деятельности (код + описание)
+    registration_date = Column(String(20))            # дата регистрации (как строка)
+    enriched_at = Column(DateTime)                    # когда последний раз обогащали
+    enrich_source = Column(String(50))                # источник: dadata / local / manual
+    recon_reviewed = Column(Boolean, default=False)   # карточку разведки открывали/проверяли
+    recon_reviewed_at = Column(DateTime)
     # Конвертация в контрагента
     converted_cp_id = Column(Integer, ForeignKey("counterparties.id"))
 

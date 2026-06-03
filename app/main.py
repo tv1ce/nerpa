@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon
 from app.database import init_db
 
 # Миграции запускаются при каждом старте (в т.ч. при --reload)
@@ -91,6 +91,7 @@ app.include_router(audit_log.router)
 app.include_router(board.router)
 app.include_router(logistics.router)
 app.include_router(leads.router)
+app.include_router(recon.router)
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────
@@ -119,6 +120,23 @@ _templates.env.filters["format_number"] = lambda v: f"{int(v):,}".replace(",", "
 # Глобальная переменная today доступна в каждом шаблоне
 _templates.env.globals["today"] = _date.today()
 
+
+def _safe_url(v):
+    """Безопасный href: рабочий URL или '#'. Не-URL текст (мусор в полях
+    соцсетей/сайта) не превращается в относительную ссылку — иначе клик уводит
+    на /recon/<текст> и ломает роут."""
+    if not v:
+        return "#"
+    v = str(v).strip()
+    if v.startswith(("http://", "https://", "mailto:", "tel:")):
+        return v
+    if "." in v and " " not in v and "@" not in v:
+        return "https://" + v.lstrip("/")
+    return "#"
+
+
+_templates.env.filters["safe_url"] = _safe_url
+
 # Патчим все роутеры, чтобы они использовали тот же env
 import app.routers.auth as _r_auth
 import app.routers.dashboard as _r_dash
@@ -138,6 +156,7 @@ import app.routers.audit_log as _r_audit
 import app.routers.board as _r_board
 import app.routers.logistics as _r_logistics
 import app.routers.leads as _r_leads
+import app.routers.recon as _r_recon
 
-for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads]:
+for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon]:
     _mod.templates = _templates

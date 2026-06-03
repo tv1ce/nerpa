@@ -87,6 +87,22 @@ def _migrate_db():
         ("company_settings", "board_cost_norm_pct",  "REAL DEFAULT 48.0"),
         ("company_settings", "board_cost_deviation", "REAL DEFAULT 5.0"),
         ("sales_leads", "converted_cp_id", "INTEGER REFERENCES counterparties(id)"),
+        # Разведка ЛПР по точкам прозвона
+        ("sales_leads", "inn",               "TEXT"),
+        ("sales_leads", "kpp",               "TEXT"),
+        ("sales_leads", "ogrn",              "TEXT"),
+        ("sales_leads", "company_name_full", "TEXT"),
+        ("sales_leads", "director",          "TEXT"),
+        ("sales_leads", "director_post",     "TEXT"),
+        ("sales_leads", "company_status",    "TEXT"),
+        ("sales_leads", "okved",             "TEXT"),
+        ("sales_leads", "registration_date", "TEXT"),
+        ("sales_leads", "enriched_at",       "TIMESTAMP"),
+        ("sales_leads", "enrich_source",     "TEXT"),
+        ("sales_leads", "recon_reviewed",    "INTEGER DEFAULT 0"),
+        ("sales_leads", "recon_reviewed_at", "TIMESTAMP"),
+        ("company_settings", "dadata_token",  "TEXT"),
+        ("company_settings", "dadata_secret", "TEXT"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]
