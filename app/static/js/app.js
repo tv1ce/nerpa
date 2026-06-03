@@ -37,6 +37,14 @@ function onProductChange(idx, selectEl) {
 function onFieldChange(idx, field, value) {
   _itemsData[idx][field] = (field === "name" || field === "unit") ? value : parseFloat(value) || 0;
   _itemsData[idx].amount = calcAmount(_itemsData[idx]);
+  const item = _itemsData[idx];
+  const discVal = item.discount_pct || 0;
+  const amountCell = document.getElementById(`item-amount-${idx}`);
+  if (amountCell) {
+    amountCell.innerHTML =
+      (discVal > 0 ? `<div style="font-size:.72rem;text-decoration:line-through;color:#aaa">${fmtMoney((item.quantity||0)*(item.price||0))}</div>` : "") +
+      fmtMoney(item.amount);
+  }
   updateTotals();
   syncHidden();
 }
@@ -77,7 +85,7 @@ function renderItems() {
         </div>
       </td>
       <td><input type="number" class="form-control form-control-sm" value="${item.vat_rate}" step="1" min="0" max="100" oninput="onFieldChange(${idx},'vat_rate',this.value)"></td>
-      <td class="text-end fw-semibold align-middle">
+      <td class="text-end fw-semibold align-middle" id="item-amount-${idx}">
         ${discVal > 0 ? `<div style="font-size:.72rem;text-decoration:line-through;color:#aaa">${fmtMoney((item.quantity||0)*(item.price||0))}</div>` : ''}
         ${fmtMoney(item.amount)}
       </td>
