@@ -49,6 +49,9 @@ class Counterparty(Base):
     # CRM — категория клиента
     category = Column(String(1))          # A / B / C / None
     category_manual = Column(Boolean, default=False)  # True = вручную, не пересчитывать
+    # Telegram-уведомления (для перевозчиков)
+    tg_chat_id = Column(String(100))            # ID чата / группы Telegram
+    tg_notify_enabled = Column(Boolean, default=False)  # вкл/выкл отправку заказов
 
     orders = relationship("Order", back_populates="counterparty", foreign_keys="Order.counterparty_id")
     invoices = relationship("Invoice", back_populates="counterparty")
@@ -101,6 +104,11 @@ class Order(Base):
     notes = Column(Text)
     created_by_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, server_default=func.now())
+    # Доставка — детали для отправки перевозчику
+    pickup_city = Column(String(100))        # город отправки
+    pickup_address = Column(String(500))     # адрес забора (откуда)
+    delivery_contact = Column(String(200))   # телефон + имя получателя, напр. «79119244416 Ольга»
+    delivery_time = Column(String(50))       # временной слот, напр. «12-19»
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
     supplier = relationship("Counterparty", foreign_keys=[supplier_id])
@@ -269,6 +277,8 @@ class CompanySettings(Base):
     # ── Разведка ЛПР (DaData) ──
     dadata_token  = Column(String(100))       # API-ключ DaData (suggestions)
     dadata_secret = Column(String(100))       # секретный ключ (для cleaning API, опц.)
+    # ── Telegram-бот ──
+    tg_bot_token  = Column(String(200))       # токен бота от @BotFather
 
 
 class MonthlyPlan(Base):

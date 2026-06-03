@@ -14,8 +14,11 @@
 {% macro cv(field, default='') %}{{ (field or default) if company else default }}{% endmacro %}
 
 <div class="row g-3">
-  <!-- Реквизиты компании -->
+
+  {# ══════════════ ЛЕВАЯ КОЛОНКА ══════════════ #}
   <div class="col-lg-8">
+
+    <!-- Реквизиты компании -->
     <div class="card border-0 shadow-sm p-4 mb-3">
       <div class="form-section-title">Реквизиты компании</div>
       <form method="post" action="/settings/company">
@@ -100,42 +103,84 @@
           </div>
 
           <div class="col-12">
-            <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить реквизиты</button>
+            <button type="submit" class="btn btn-accent">
+              <i class="bi bi-check-lg me-1"></i>Сохранить реквизиты
+            </button>
           </div>
         </div>
       </form>
     </div>
-  </div>
 
-  <!-- Логотип -->
-  <div class="col-lg-8">
-    <div class="card border-0 shadow-sm p-4 mb-3">
+    <!-- Логотип -->
+    <div class="card border-0 shadow-sm p-4">
       <div class="form-section-title">Логотип компании</div>
       <form method="post" action="/settings/logo" enctype="multipart/form-data">
         <div class="row g-3 align-items-center">
           {% if company and company.logo_path %}
           <div class="col-auto">
-            <img src="/static/uploads/{{ company.logo_path.split('/')[-1] }}" style="max-height:60px; max-width:180px; object-fit:contain;" class="border rounded p-1">
+            <img src="/static/uploads/{{ company.logo_path.split('/')[-1] }}"
+                 style="max-height:60px; max-width:180px; object-fit:contain;"
+                 class="border rounded p-1">
           </div>
           {% endif %}
           <div class="col">
-            <input type="file" name="logo" class="form-control form-control-sm" accept=".png,.jpg,.jpeg,.svg" required>
+            <input type="file" name="logo" class="form-control form-control-sm"
+                   accept=".png,.jpg,.jpeg,.svg" required>
             <div class="form-text">PNG или JPG, используется в PDF-счетах</div>
           </div>
           <div class="col-auto">
-            <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-upload me-1"></i>Загрузить</button>
+            <button type="submit" class="btn btn-sm btn-accent">
+              <i class="bi bi-upload me-1"></i>Загрузить
+            </button>
           </div>
         </div>
       </form>
     </div>
-  </div>
 
-  <!-- Пользователи -->
+  </div>{# /col-lg-8 #}
+
+  {# ══════════════ ПРАВАЯ КОЛОНКА ══════════════ #}
   <div class="col-lg-4">
+
+    <!-- Telegram-бот -->
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="form-section-title">
+        <i class="bi bi-telegram me-1 text-primary"></i>Telegram-бот
+      </div>
+      <form method="post" action="/settings/telegram">
+        <div class="mb-3">
+          <label class="form-label">
+            Токен бота
+            <span class="text-muted" style="font-size:.78rem">(от @BotFather)</span>
+          </label>
+          <input type="text" name="tg_bot_token"
+                 class="form-control font-monospace"
+                 placeholder="1234567890:AAF..."
+                 value="{{ company.tg_bot_token if company and company.tg_bot_token else '' }}">
+          <div class="form-text">Используется для отправки заказов перевозчикам в Telegram</div>
+        </div>
+        {% if company and company.tg_bot_token %}
+        <div class="alert alert-success py-2 px-3 mb-3" style="font-size:.82rem">
+          <i class="bi bi-check-circle me-1"></i>Токен настроен
+        </div>
+        {% else %}
+        <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.82rem">
+          <i class="bi bi-exclamation-triangle me-1"></i>Токен не задан — отправка перевозчикам недоступна
+        </div>
+        {% endif %}
+        <button type="submit" class="btn btn-accent w-100">
+          <i class="bi bi-check-lg me-1"></i>Сохранить токен
+        </button>
+      </form>
+    </div>
+
+    <!-- Пользователи -->
     <div class="card border-0 shadow-sm p-4">
       <div class="form-section-title">Пользователи</div>
       <table class="table table-sm tms-table mb-3">
-        <thead><tr><th>Логин</th><th>Имя</th><th>Роль</th><th></th></tr></thead>
+        <thead>
+          <tr><th>Логин</th><th>Имя</th><th>Роль</th><th></th></tr>
+        </thead>
         <tbody>
           {% for u in users %}
           <tr>
@@ -144,8 +189,12 @@
             <td><span class="badge bg-secondary">{{ role_labels.get(u.role, u.role) }}</span></td>
             <td>
               {% if u.id != request.session.get('user_id') %}
-              <form method="post" action="/settings/users/{{ u.id }}/delete" class="d-inline" data-confirm="Удалить пользователя {{ u.username }}?">
-                <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:.75rem"><i class="bi bi-trash"></i></button>
+              <form method="post" action="/settings/users/{{ u.id }}/delete"
+                    class="d-inline"
+                    data-confirm="Удалить пользователя {{ u.username }}?">
+                <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:.75rem">
+                  <i class="bi bi-trash"></i>
+                </button>
               </form>
               {% endif %}
             </td>
@@ -155,15 +204,18 @@
       </table>
 
       <div class="form-section-title">Добавить пользователя</div>
-      <form method="post" action="/settings/users/new">
+      <form method="post" action="/settings/users/new" autocomplete="off">
         <div class="mb-2">
-          <input type="text" name="username" class="form-control form-control-sm" placeholder="Логин" required>
+          <input type="text" name="username" class="form-control form-control-sm"
+                 placeholder="Логин" required autocomplete="off">
         </div>
         <div class="mb-2">
-          <input type="text" name="full_name" class="form-control form-control-sm" placeholder="ФИО" required>
+          <input type="text" name="full_name" class="form-control form-control-sm"
+                 placeholder="ФИО" required>
         </div>
         <div class="mb-2">
-          <input type="password" name="password" class="form-control form-control-sm" placeholder="Пароль" required>
+          <input type="password" name="password" class="form-control form-control-sm"
+                 placeholder="Пароль" required autocomplete="new-password">
         </div>
         <div class="mb-3">
           <select name="role" class="form-select form-select-sm">
@@ -174,10 +226,13 @@
             <option value="admin">Администратор</option>
           </select>
         </div>
-        <button type="submit" class="btn btn-sm btn-accent w-100"><i class="bi bi-person-plus me-1"></i>Добавить</button>
+        <button type="submit" class="btn btn-sm btn-accent w-100">
+          <i class="bi bi-person-plus me-1"></i>Добавить пользователя
+        </button>
       </form>
     </div>
-  </div>
-</div>
 
+  </div>{# /col-lg-4 #}
+
+</div>{# /row #}
 {% endblock %}

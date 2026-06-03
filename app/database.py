@@ -103,6 +103,16 @@ def _migrate_db():
         ("sales_leads", "recon_reviewed_at", "TIMESTAMP"),
         ("company_settings", "dadata_token",  "TEXT"),
         ("company_settings", "dadata_secret", "TEXT"),
+        # Поля доставки для отправки перевозчику через Telegram
+        ("orders", "pickup_city",      "TEXT"),
+        ("orders", "pickup_address",   "TEXT"),
+        ("orders", "delivery_contact", "TEXT"),
+        ("orders", "delivery_time",    "TEXT"),
+        # Telegram-настройки перевозчика
+        ("counterparties", "tg_chat_id",        "TEXT"),
+        ("counterparties", "tg_notify_enabled", "INTEGER DEFAULT 0"),
+        # Токен Telegram-бота (глобальные настройки)
+        ("company_settings", "tg_bot_token", "TEXT"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]

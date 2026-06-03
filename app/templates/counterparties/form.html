@@ -148,6 +148,36 @@
         </div>
       </div>
 
+      <!-- Telegram для перевозчиков — всегда в DOM, видимость через JS -->
+      <div class="card border-0 shadow-sm p-4 mb-3" id="tg-card" style="display:none">
+        <div class="form-section-title"><i class="bi bi-telegram me-1 text-primary"></i>Telegram-уведомления</div>
+        <div class="row g-3">
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="tg_notify_enabled" id="tg_notify_enabled"
+                     value="1" {% if cp and cp.tg_notify_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="tg_notify_enabled">
+                Отправлять заказы в Telegram
+              </label>
+            </div>
+            <div class="form-text">При включении кнопка «Отправить перевозчику» появится в карточке заказа</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Telegram Chat ID</label>
+            <input type="text" name="tg_chat_id" id="tg_chat_id" class="form-control" placeholder="-1001234567890"
+                   value="{{ cp.tg_chat_id if cp and cp.tg_chat_id else '' }}">
+            <div class="form-text">
+              ID чата, группы или канала. Узнать можно через
+              <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a>
+              или добавив <a href="https://t.me/getidsbot" target="_blank">@getidsbot</a> в группу.
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Скрытый инпут — гарантирует передачу tg_chat_id даже когда карточка скрыта -->
+      <input type="hidden" name="tg_chat_id_hidden" id="tg_chat_id_hidden"
+             value="{{ cp.tg_chat_id if cp and cp.tg_chat_id else '' }}">
+
       <div class="card border-0 shadow-sm p-4">
         <div class="form-section-title"><i class="bi bi-clock-history me-1"></i>Условия оплаты (дебиторка)</div>
         <div class="row g-3">
@@ -325,5 +355,29 @@ document.getElementById('f-entity_type').addEventListener('change', onEntityType
 
 // Инициализация при загрузке
 updateSignatoryVisibility();
+
+// ── Telegram-блок: показывать только для перевозчиков ─────────────────────
+// Скрипт запускается внизу страницы — DOM уже готов, DOMContentLoaded не нужен
+(function() {
+  var typeSel = document.querySelector('select[name="type"]');
+  var tgCard  = document.getElementById('tg-card');
+  var tgInput = document.getElementById('tg_chat_id');
+  var tgHidden = document.getElementById('tg_chat_id_hidden');
+
+  function syncHidden() {
+    if (tgInput && tgHidden) tgHidden.value = tgInput.value;
+  }
+
+  function updateTgCardVisibility() {
+    if (!typeSel || !tgCard) return;
+    tgCard.style.display = (typeSel.value === 'carrier') ? 'block' : 'none';
+  }
+
+  if (typeSel) typeSel.addEventListener('change', updateTgCardVisibility);
+  if (tgInput) tgInput.addEventListener('input', syncHidden);
+
+  updateTgCardVisibility();
+  syncHidden();
+})();
 </script>
 {% endblock %}

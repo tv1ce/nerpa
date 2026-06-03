@@ -1,9 +1,11 @@
 import json
+import os
 from datetime import date
 from fastapi import APIRouter, Request, Depends, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
 from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User, Contract
@@ -109,6 +111,10 @@ async def create_order(
     delivery_date: str = Form(default=""),
     delivery_address: str = Form(default=""),
     notes: str = Form(default=""),
+    pickup_city: str = Form(default=""),
+    pickup_address: str = Form(default=""),
+    delivery_contact: str = Form(default=""),
+    delivery_time: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -125,6 +131,10 @@ async def create_order(
         delivery_date=date.fromisoformat(delivery_date) if delivery_date else None,
         delivery_address=delivery_address,
         notes=notes,
+        pickup_city=pickup_city or None,
+        pickup_address=pickup_address or None,
+        delivery_contact=delivery_contact or None,
+        delivery_time=delivery_time or None,
         created_by_id=request.session.get("user_id"),
     )
     db.add(order)
@@ -215,6 +225,10 @@ async def update_order(
     delivery_date: str = Form(default=""),
     delivery_address: str = Form(default=""),
     notes: str = Form(default=""),
+    pickup_city: str = Form(default=""),
+    pickup_address: str = Form(default=""),
+    delivery_contact: str = Form(default=""),
+    delivery_time: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -232,6 +246,10 @@ async def update_order(
     order.delivery_date = date.fromisoformat(delivery_date) if delivery_date else None
     order.delivery_address = delivery_address
     order.notes = notes
+    order.pickup_city = pickup_city or None
+    order.pickup_address = pickup_address or None
+    order.delivery_contact = delivery_contact or None
+    order.delivery_time = delivery_time or None
     for item in order.items:
         db.delete(item)
     db.flush()
@@ -361,6 +379,78 @@ async def generate_tn(
     cd = f"attachment; filename=\"{fn_ascii}\"; filename*=UTF-8''{quote(fn_utf8)}"
     return Response(content=pdf_bytes, media_type="application/pdf",
                     headers={"Content-Disposition": cd})
+
+
+@router.post("/{order_id}/notify-carrier")
+@role_required("manager")
+async def notify_carrier(request: Request, order_id: int, db: Session = Depends(get_db)):
+    """Отправить заказ перевозчику в Telegram."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        return JSONResponse({"ok": False, "error": "Заказ не найден"}, status_code=404)
+
+    carrier = order.carrier
+    if not carrier:
+        return JSONResponse({"ok": False, "error": "Перевозчик не указан в заказе"}, status_code=400)
+    if not carrier.tg_notify_enabled:
+        return JSONResponse({"ok": False, "error": "У перевозчика отключены Telegram-уведомления"}, status_code=400)
+    if not carrier.tg_chat_id:
+        return JSONResponse({"ok": False, "error": "У перевозчика не указан Telegram chat ID"}, status_code=400)
+
+    # Токен: сначала из настроек компании, затем из .env
+    from app.models import CompanySettings
+    company = db.query(CompanySettings).first()
+    bot_token = (company.tg_bot_token or "").strip() if company else ""
+    if not bot_token:
+        bot_token = os.getenv("TMS_BOT_TOKEN", "").strip()
+    if not bot_token:
+        return JSONResponse({"ok": False, "error": "Токен Telegram-бота не настроен. Укажите его в Настройки → Telegram-бот"}, status_code=500)
+
+    # Собираем текст сообщения
+    cp = order.counterparty
+    cp_name = (cp.trade_name or cp.name) if cp else None
+
+    lines = []
+
+    # Дата
+    lines.append("Дата")
+    lines.append("")
+    lines.append(order.delivery_date.strftime("%d.%m.%Y") if order.delivery_date else "—")
+
+    # Адрес доставки + название заведения
+    lines.append("")
+    if order.delivery_address:
+        lines.append(order.delivery_address)
+    if cp_name:
+        lines.append(cp_name)
+
+    # Телефон / контактное лицо
+    if order.delivery_contact:
+        lines += ["", "Телефон", "", order.delivery_contact]
+
+    # Время
+    if order.delivery_time:
+        lines += ["", "Время", "", order.delivery_time]
+
+    text = "\n".join(lines)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json={"chat_id": carrier.tg_chat_id, "text": text},
+            )
+        data = resp.json()
+        if not data.get("ok"):
+            return JSONResponse({"ok": False, "error": data.get("description", "Ошибка Telegram")}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
+
+    log_action(db, "order", order_id, "notified_carrier",
+               request.session.get("user_id"),
+               f"Заказ отправлен перевозчику {carrier.trade_name or carrier.name} в Telegram")
+    db.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/{order_id}/delete")

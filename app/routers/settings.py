@@ -135,6 +135,22 @@ async def upload_logo(
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 
 
+@router.post("/telegram")
+@role_required("admin")
+async def save_telegram(
+    request: Request,
+    tg_bot_token: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.tg_bot_token = tg_bot_token.strip() or None
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1", status_code=302)
+
+
 @router.post("/users/new")
 @role_required("admin")
 async def create_user(

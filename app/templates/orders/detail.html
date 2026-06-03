@@ -158,8 +158,21 @@
         </div>
         {% endif %}
         <div class="col-md-6"><span class="text-muted">Дата доставки:</span> {{ order.delivery_date | date_fmt }}</div>
+        {% if order.pickup_city or order.pickup_address %}
+        <div class="col-md-6">
+          <span class="text-muted">Откуда:</span>
+          {% if order.pickup_city %}<strong>{{ order.pickup_city }}</strong>{% endif %}
+          {% if order.pickup_address %}{% if order.pickup_city %}, {% endif %}{{ order.pickup_address }}{% endif %}
+        </div>
+        {% endif %}
         {% if order.delivery_address %}
-        <div class="col-12"><span class="text-muted">Адрес доставки:</span> {{ order.delivery_address }}</div>
+        <div class="col-12"><span class="text-muted">Куда:</span> {{ order.delivery_address }}</div>
+        {% endif %}
+        {% if order.delivery_contact %}
+        <div class="col-md-6"><span class="text-muted">Контакт получателя:</span> {{ order.delivery_contact }}</div>
+        {% endif %}
+        {% if order.delivery_time %}
+        <div class="col-md-6"><span class="text-muted">Время доставки:</span> {{ order.delivery_time }}</div>
         {% endif %}
         {% if order.notes %}
         <div class="col-12"><span class="text-muted">Примечание:</span> {{ order.notes }}</div>
@@ -273,9 +286,25 @@
     <!-- Документы -->
     <div class="card border-0 shadow-sm p-3 mb-3">
       <div class="fw-semibold mb-2" style="font-size:.9rem">Документы</div>
-      <a href="/orders/{{ order.id }}/tn" class="btn btn-outline-danger btn-sm w-100">
+      <a href="/orders/{{ order.id }}/tn" class="btn btn-outline-danger btn-sm w-100 mb-2">
         <i class="bi bi-truck me-1"></i>Транспортная накладная
       </a>
+      {% if order.carrier_id and order.carrier and order.carrier.tg_notify_enabled and order.carrier.tg_chat_id %}
+      <button type="button" class="btn btn-outline-primary btn-sm w-100" id="btn-notify-carrier"
+              onclick="sendToCarrier({{ order.id }})">
+        <i class="bi bi-telegram me-1"></i>Отправить перевозчику
+      </button>
+      <div id="notify-carrier-result" class="mt-2" style="font-size:.82rem"></div>
+      {% elif order.carrier_id and order.carrier %}
+      <button type="button" class="btn btn-outline-secondary btn-sm w-100" disabled
+              title="У перевозчика не настроен Telegram — включите в карточке партнёра">
+        <i class="bi bi-telegram me-1"></i>Отправить перевозчику
+      </button>
+      <div class="text-muted mt-1" style="font-size:.75rem">
+        <i class="bi bi-info-circle me-1"></i>Telegram не настроен у перевозчика
+        <a href="/counterparties/{{ order.carrier_id }}/edit" class="ms-1">Настроить</a>
+      </div>
+      {% endif %}
     </div>
 
     <!-- Удаление -->
@@ -437,4 +466,33 @@
 </div>
 {% endif %}
 {% endif %}{# end desktop #}
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function sendToCarrier(orderId) {
+  const btn = document.getElementById('btn-notify-carrier');
+  const result = document.getElementById('notify-carrier-result');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отправка…';
+  result.innerHTML = '';
+  try {
+    const resp = await fetch(`/orders/${orderId}/notify-carrier`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Отправлено';
+      btn.classList.replace('btn-outline-primary', 'btn-success');
+      result.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Сообщение отправлено в Telegram</span>';
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-telegram me-1"></i>Отправить перевозчику';
+      result.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error || 'Ошибка'}</span>`;
+    }
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-telegram me-1"></i>Отправить перевозчику';
+    result.innerHTML = `<span class="text-danger">Сетевая ошибка: ${e}</span>`;
+  }
+}
+</script>
 {% endblock %}

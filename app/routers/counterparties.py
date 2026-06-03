@@ -134,11 +134,15 @@ async def create_counterparty(
     notes: str = Form(default=""),
     payment_delay_days: int = Form(default=2),
     payment_delay_type: str = Form(default="banking"),
+    tg_chat_id: str = Form(default=""),
+    tg_chat_id_hidden: str = Form(default=""),
+    tg_notify_enabled: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     resolved_entity = entity_type if entity_type in ENTITY_TYPES else "ooo"
     if resolved_entity == "ip" and not signatory.strip():
         signatory = _generate_signatory(contact_person or name)
+    effective_tg = (tg_chat_id.strip() or tg_chat_id_hidden.strip()) or None
     cp = Counterparty(
         name=name, trade_name=trade_name or None, short_name=short_name,
         inn=inn, kpp=kpp, ogrn=ogrn,
@@ -151,6 +155,8 @@ async def create_counterparty(
         bank_corr_account=bank_corr_account, notes=notes,
         payment_delay_days=max(0, payment_delay_days),
         payment_delay_type=payment_delay_type if payment_delay_type in ("banking", "calendar") else "banking",
+        tg_chat_id=effective_tg,
+        tg_notify_enabled=bool(tg_notify_enabled),
     )
     db.add(cp)
     db.commit()
@@ -335,6 +341,9 @@ async def update_counterparty(
     notes: str = Form(default=""),
     payment_delay_days: int = Form(default=2),
     payment_delay_type: str = Form(default="banking"),
+    tg_chat_id: str = Form(default=""),
+    tg_chat_id_hidden: str = Form(default=""),
+    tg_notify_enabled: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
@@ -342,6 +351,7 @@ async def update_counterparty(
         resolved_entity = entity_type if entity_type in ENTITY_TYPES else "ooo"
         if resolved_entity == "ip" and not signatory.strip():
             signatory = _generate_signatory(contact_person or name)
+        effective_tg = (tg_chat_id.strip() or tg_chat_id_hidden.strip()) or None
         cp.name = name; cp.trade_name = trade_name or None; cp.short_name = short_name
         cp.inn = inn; cp.kpp = kpp
         cp.ogrn = ogrn; cp.legal_address = legal_address; cp.actual_address = actual_address
@@ -353,6 +363,8 @@ async def update_counterparty(
         cp.bank_corr_account = bank_corr_account; cp.notes = notes
         cp.payment_delay_days = max(0, payment_delay_days)
         cp.payment_delay_type = payment_delay_type if payment_delay_type in ("banking", "calendar") else "banking"
+        cp.tg_chat_id = effective_tg
+        cp.tg_notify_enabled = bool(tg_notify_enabled)
         db.commit()
     return RedirectResponse(url=f"/counterparties/{cp_id}", status_code=302)
 
