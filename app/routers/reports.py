@@ -98,7 +98,7 @@ async def revenue_report(
         ProductModel, OrderItem.product_id == ProductModel.id
     ).filter(
         Order.date >= year_start,
-        func.lower(ProductModel.name).contains("орешк"),
+        ProductModel.name.contains("решк"),
     ).scalar() or 0.0
 
     # Выручка текущей недели

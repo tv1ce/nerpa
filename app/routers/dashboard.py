@@ -80,7 +80,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         Order, OrderItem.order_id == Order.id
     ).join(Product, OrderItem.product_id == Product.id).filter(
         Order.status.in_(_sold_orders),
-        func.lower(Product.name).contains("орешк"),
+        Product.name.contains("решк"),
     ).scalar() or 0.0
 
     nuts_this_month = db.query(func.sum(OrderItem.quantity)).join(
@@ -88,7 +88,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     ).join(Product, OrderItem.product_id == Product.id).filter(
         Order.status.in_(_sold_orders),
         Order.date >= month_start,
-        func.lower(Product.name).contains("орешк"),
+        Product.name.contains("решк"),
     ).scalar() or 0.0
 
     top_products = db.query(
