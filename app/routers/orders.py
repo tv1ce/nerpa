@@ -41,6 +41,12 @@ def _next_order_number(db: Session) -> str:
     return str(max_id + 1)
 
 
+def _assembly_queue_count(db: Session) -> int:
+    """Кол-во заказов на сборку — для бейджа в мобильном таббаре."""
+    candidates = db.query(Order).filter(Order.status.in_(["confirmed", "paid"])).all()
+    return sum(1 for o in candidates if o.ready_for_assembly)
+
+
 def _resolve_payment_type(db: Session, contract_id: int, fallback: str) -> str:
     """Тип оплаты заказа определяется выбранным договором; если договор
     не выбран — берётся значение из формы. Допустимые: prepay / deferred."""
@@ -62,6 +68,7 @@ async def list_orders(request: Request, q: str = "", status: str = "", db: Sessi
     orders = query.order_by(Order.date.desc(), Order.id.desc()).all()
     return templates.TemplateResponse(request, "orders/list.html", {
         "orders": orders, "q": q, "status": status, "statuses": ORDER_STATUSES,
+        "assembly_queue_count": _assembly_queue_count(db),
     })
 
 
@@ -166,6 +173,7 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
         "tasks": tasks, "comments": comments, "activity": activity, "users": users,
         "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
+        "assembly_queue_count": _assembly_queue_count(db),
     })
 
 

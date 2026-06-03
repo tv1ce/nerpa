@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0F1A2E">
+  <title>{% block title %}Склад{% endblock %} — TMS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/static/css/warehouse_mobile.css">
+</head>
+<body>
+
+<!-- ── Top header ── -->
+<header class="wm-header">
+  <div class="wm-header-title">
+    <div class="logo-dot"><i class="bi bi-box-seam" style="color:#fff; font-size:.85rem"></i></div>
+    {% block page_title %}Склад{% endblock %}
+  </div>
+  <div class="wm-header-right">
+    {% block header_actions %}{% endblock %}
+    <button id="notif-bell" onclick="toggleNotifDrawer()"
+      class="wm-icon-btn" title="Уведомления" style="display:none">
+      <i class="bi bi-bell"></i>
+      <span id="notif-badge" class="wm-badge" style="display:none"></span>
+    </button>
+    <a href="/auth/logout" class="wm-icon-btn" title="Выйти">
+      <i class="bi bi-box-arrow-right"></i>
+    </a>
+  </div>
+</header>
+
+<!-- ── Scroll area ── -->
+<main class="wm-content">
+  {% block content %}{% endblock %}
+</main>
+
+<!-- ── Bottom tab bar ── -->
+<nav class="wm-tabbar">
+  <a href="/warehouse/" class="wm-tab {% if '/warehouse' in request.url.path and 'journal' not in request.url.path and 'new' not in request.url.path and 'orders' not in request.url.path %}active{% endif %}"
+     title="Главная">
+    <i class="bi bi-house-door"></i>
+    <span>Главная</span>
+    {% if assembly_queue_count and assembly_queue_count > 0 %}
+    <span class="wm-tab-badge">{{ assembly_queue_count }}</span>
+    {% endif %}
+  </a>
+  <a href="/warehouse/new?mtype=in" class="wm-tab wm-tab-in {% if 'new' in request.url.path and request.query_params.get('mtype','in') == 'in' %}active{% endif %}"
+     title="Приход">
+    <i class="bi bi-plus-circle"></i>
+    <span>Приход</span>
+  </a>
+  <a href="/warehouse/new?mtype=out" class="wm-tab wm-tab-out {% if 'new' in request.url.path and request.query_params.get('mtype') == 'out' %}active{% endif %}"
+     title="Расход">
+    <i class="bi bi-dash-circle"></i>
+    <span>Расход</span>
+  </a>
+  <a href="/warehouse/journal" class="wm-tab {% if 'journal' in request.url.path %}active{% endif %}"
+     title="Журнал">
+    <i class="bi bi-journal-text"></i>
+    <span>Журнал</span>
+  </a>
+  <a href="/orders" class="wm-tab {% if '/orders' in request.url.path %}active{% endif %}"
+     title="Заказы">
+    <i class="bi bi-list-check"></i>
+    <span>Заказы</span>
+  </a>
+</nav>
+
+<!-- ── Notification drawer ── -->
+<div id="notif-overlay" style="position:fixed;inset:0;background:rgba(15,26,46,.32);z-index:1048;opacity:0;visibility:hidden;transition:opacity .22s,visibility .22s"></div>
+<div id="notif-drawer" role="dialog" aria-label="Уведомления"
+     style="position:fixed;top:56px;right:0;width:min(340px,100vw);height:calc(100vh - 56px);background:#fff;box-shadow:-6px 0 36px rgba(15,23,42,.18);z-index:1049;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1)">
+  <div style="padding:14px 16px;background:linear-gradient(135deg,#0f1a2e,#1e3a5f);color:#fff;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <span style="font-weight:600;font-size:.95rem;display:flex;align-items:center;gap:8px">
+      <i class="bi bi-bell-fill"></i> Уведомления
+      <span id="nd-unread-badge" style="background:#ef4444;color:#fff;font-size:.65rem;font-weight:700;border-radius:99px;padding:1px 7px;display:none"></span>
+    </span>
+    <button onclick="closeNotifDrawer()" style="background:none;border:none;color:rgba(255,255,255,.65);font-size:1.4rem;cursor:pointer;line-height:1;padding:2px 6px">&times;</button>
+  </div>
+  <div id="notif-list" style="flex:1;overflow-y:auto">
+    <div style="padding:40px 20px;text-align:center;color:#94a3b8"><i class="bi bi-arrow-clockwise" style="font-size:2rem;display:block;margin-bottom:8px"></i>Загрузка…</div>
+  </div>
+  <div id="nd-footer" style="padding:10px 16px;border-top:1px solid #e2e8f0;background:#f8fafc;flex-shrink:0">
+    <a href="/notifications/" style="display:block;text-align:right;font-size:.82rem;color:#2563eb">Все уведомления →</a>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function(){
+  var _open = false;
+
+  function updateBadge(count){
+    var bell=document.getElementById('notif-bell');
+    var badge=document.getElementById('notif-badge');
+    var ndBadge=document.getElementById('nd-unread-badge');
+    bell.style.display='';
+    if(count>0){
+      var label=count>99?'99+':count;
+      badge.textContent=label; badge.style.display='';
+      ndBadge.textContent=label; ndBadge.style.display='';
+    } else {
+      badge.style.display='none'; ndBadge.style.display='none';
+    }
+  }
+
+  function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+  function renderList(data){
+    var list=document.getElementById('notif-list');
+    var footer=document.getElementById('nd-footer');
+    if(!data.items.length){
+      list.innerHTML='<div style="padding:40px 20px;text-align:center;color:#94a3b8"><i class="bi bi-bell-slash" style="font-size:2rem;display:block;margin-bottom:8px"></i>Нет уведомлений</div>';
+      return;
+    }
+    list.innerHTML=data.items.map(function(n){
+      var icon=(n.type==='low_stock')?'bi-exclamation-triangle-fill text-warning':'bi-bell-fill text-primary';
+      return '<div style="display:flex;align-items:flex-start;gap:10px;padding:11px 16px;border-bottom:1px solid #f1f5f9'+(n.is_read?'':';background:#eff6ff')+'">'
+        +'<i class="bi '+icon+'" style="font-size:1rem;padding-top:1px;flex-shrink:0"></i>'
+        +'<div style="flex:1;min-width:0">'
+          +'<div style="font-weight:600;font-size:.83rem;color:#0f172a">'+_esc(n.title)+'</div>'
+          +(n.body?'<div style="font-size:.77rem;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+_esc(n.body)+'</div>':'')
+          +'<div style="font-size:.71rem;color:#94a3b8;margin-top:3px">'+n.time+'</div>'
+        +'</div>'
+        +(n.is_read?'':'<div style="width:7px;height:7px;border-radius:50%;background:#2563eb;flex-shrink:0;margin-top:6px"></div>')
+      +'</div>';
+    }).join('');
+    footer.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center">'
+      +(data.unread>0?'<button onclick="markAllRead()" style="border:1.5px solid #e2e8f0;background:#fff;border-radius:8px;padding:4px 10px;font-size:.78rem;cursor:pointer"><i class="bi bi-check2-all"></i> Прочитать все</button>':'<span></span>')
+      +'<a href="/notifications/" style="font-size:.82rem;color:#2563eb">Все →</a></div>';
+  }
+
+  async function fetchRecent(){
+    document.getElementById('notif-list').innerHTML='<div style="padding:40px 20px;text-align:center;color:#94a3b8"><span style="border:2px solid #94a3b8;border-top-color:transparent;border-radius:50%;width:24px;height:24px;display:inline-block;animation:spin .7s linear infinite"></span></div>';
+    try{
+      var r=await fetch('/notifications/recent');
+      if(!r.ok)throw new Error();
+      var data=await r.json();
+      renderList(data); updateBadge(data.unread);
+    }catch(e){
+      document.getElementById('notif-list').innerHTML='<div style="padding:40px 20px;text-align:center;color:#ef4444">Ошибка загрузки</div>';
+    }
+  }
+
+  function open_(){
+    document.getElementById('notif-drawer').style.transform='translateX(0)';
+    document.getElementById('notif-overlay').style.cssText+='opacity:1;visibility:visible';
+    _open=true; fetchRecent();
+  }
+  function closeNotifDrawer(){
+    document.getElementById('notif-drawer').style.transform='translateX(100%)';
+    document.getElementById('notif-overlay').style.cssText+='opacity:0;visibility:hidden';
+    _open=false;
+  }
+  async function markAllRead(){
+    await fetch('/notifications/mark-read',{method:'POST'});
+    updateBadge(0); fetchRecent();
+  }
+
+  fetch('/notifications/count').then(function(r){return r.ok?r.json():null;}).then(function(d){if(d)updateBadge(d.count);}).catch(function(){});
+
+  window.toggleNotifDrawer=function(){_open?closeNotifDrawer():open_();};
+  window.closeNotifDrawer=closeNotifDrawer;
+  window.markAllRead=markAllRead;
+  document.getElementById('notif-overlay').addEventListener('click',closeNotifDrawer);
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&_open)closeNotifDrawer();});
+})();
+</script>
+<style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+{% block scripts %}{% endblock %}
+</body>
+</html>

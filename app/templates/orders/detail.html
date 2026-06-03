@@ -1,8 +1,19 @@
-{% extends "base.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _base = "base_warehouse.html" if _role == "warehouse" else "base.html" %}
+{% extends _base %}
+
 {% block title %}Заказ {{ order.number }}{% endblock %}
 {% block page_title %}Заказ {{ order.number }}{% endblock %}
+
+{% block header_actions %}
+  {# Кнопка «Назад» в мобильном хедере для кладовщика #}
+  {% if _role == 'warehouse' %}
+  <a href="/orders" class="wm-icon-btn" title="Назад к заказам"><i class="bi bi-arrow-left"></i></a>
+  {% endif %}
+{% endblock %}
+
 {% block topbar_actions %}
-  {% if request.session.get('user_role') != 'warehouse' %}
+  {% if _role != 'warehouse' %}
   <a href="/orders/{{ order.id }}/edit" class="btn btn-accent btn-sm me-1"><i class="bi bi-pencil me-1"></i>Редактировать</a>
   <a href="/invoices/new?order_id={{ order.id }}" class="btn btn-outline-success btn-sm me-1"><i class="bi bi-receipt me-1"></i>Выставить счёт</a>
   {% endif %}
@@ -10,6 +21,119 @@
 {% endblock %}
 
 {% block content %}
+{% if _role == 'warehouse' %}
+{# ═══════════════════════════════════════════════════════════════
+   МОБИЛЬНАЯ КАРТОЧКА ЗАКАЗА ДЛЯ КЛАДОВЩИКА
+   ═══════════════════════════════════════════════════════════════ #}
+
+{# Баннер «На сборку» — если заказ ждёт кладовщика #}
+{% if order.ready_for_assembly %}
+<div class="wm-alert wm-alert-info" style="margin-bottom:12px">
+  <i class="bi bi-box-seam"></i>
+  <span>Этот заказ ожидает сборки</span>
+</div>
+<form method="post" action="/warehouse/orders/{{ order.id }}/assemble" style="margin-bottom:14px">
+  <button type="submit" class="wm-btn-assembled">
+    <i class="bi bi-check2-square"></i> Собрано — передаю на отгрузку
+  </button>
+</form>
+{% endif %}
+
+{# Мета-шапка #}
+<div class="wm-card" style="margin-bottom:12px">
+  <div class="wm-card-body">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">
+      <div>
+        <div style="font-size:1.1rem;font-weight:800;color:var(--wm-text)">{{ order.counterparty.trade_name or order.counterparty.name }}</div>
+        <div style="font-size:.8rem;color:var(--wm-muted);margin-top:2px">{{ order.date | date_fmt }}</div>
+      </div>
+      <span class="badge badge-{{ order.status }}" style="font-size:.82rem;flex-shrink:0">{{ statuses[order.status] }}</span>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:7px">
+      {% if order.is_prepay %}
+      <span class="wm-pill wm-pill-prepay"><i class="bi bi-check-circle-fill"></i>Предоплата</span>
+      {% else %}
+      <span class="wm-pill wm-pill-defer"><i class="bi bi-clock"></i>Отсрочка</span>
+      {% endif %}
+      {% if order.delivery_date %}
+      <span class="wm-pill wm-pill-date"><i class="bi bi-calendar3"></i>Доставка: {{ order.delivery_date | date_fmt }}</span>
+      {% endif %}
+    </div>
+
+    {% if order.delivery_address %}
+    <div style="margin-top:10px;font-size:.85rem;color:var(--wm-text)">
+      <span style="color:var(--wm-muted)"><i class="bi bi-geo-alt me-1"></i></span>{{ order.delivery_address }}
+    </div>
+    {% endif %}
+    {% if order.notes %}
+    <div style="margin-top:8px;font-size:.85rem;color:var(--wm-muted);font-style:italic">{{ order.notes }}</div>
+    {% endif %}
+  </div>
+</div>
+
+{# Позиции заказа — для кладовщика самое главное #}
+<div class="wm-section-title">
+  <span><i class="bi bi-list-ul me-1"></i>Позиции</span>
+</div>
+
+{% set ns2 = namespace(total=0, vat=0) %}
+{% for item in order.items %}
+  {% set ns2.total = ns2.total + item.amount %}
+  {% set ns2.vat   = ns2.vat   + item.amount * item.vat_rate / 100 %}
+{% endfor %}
+
+<div class="wm-card" style="margin-bottom:12px">
+  {% for item in order.items %}
+  <div style="padding:12px 14px;border-bottom:1px solid #F1F5F9;display:flex;align-items:center;gap:10px">
+    <div style="width:32px;height:32px;border-radius:8px;background:#EFF6FF;color:var(--wm-brand);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.8rem;font-weight:800">
+      {{ loop.index }}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;font-size:.9rem">{{ item.product.name }}</div>
+      {% if item.discount_pct %}
+      <div style="font-size:.75rem;color:var(--wm-danger)">−{{ item.discount_pct | int }}% скидка</div>
+      {% endif %}
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <div style="font-size:1.05rem;font-weight:800;color:var(--wm-brand)">
+        {{ item.quantity | int if item.quantity == item.quantity | int else item.quantity }}
+        <span style="font-size:.75rem;font-weight:600;color:var(--wm-muted)">{{ item.product.unit }}</span>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  <div style="padding:10px 14px;display:flex;justify-content:space-between;align-items:center;background:#F8FAFC">
+    <span style="font-size:.82rem;color:var(--wm-muted)">{{ order.items | length }} позиций</span>
+    <span style="font-size:1rem;font-weight:800;color:var(--wm-text)">{{ (ns2.total + ns2.vat) | round(2) | string | replace('.', ',') }} ₽</span>
+  </div>
+</div>
+
+{# Комментарии — кладовщик может читать #}
+{% if comments %}
+<div class="wm-section-title"><span><i class="bi bi-chat-left-text me-1"></i>Комментарии</span></div>
+<div class="wm-card" style="margin-bottom:12px">
+  {% for c in comments %}
+  <div style="padding:12px 14px;border-bottom:1px solid #F1F5F9;display:flex;gap:10px">
+    <div style="width:34px;height:34px;border-radius:50%;background:#2563EB;color:#fff;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;flex-shrink:0">
+      {{ c.created_by.full_name[:2]|upper if c.created_by else '??' }}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+        <span style="font-weight:700;font-size:.82rem">{{ c.created_by.full_name if c.created_by else '—' }}</span>
+        <span style="font-size:.72rem;color:var(--wm-muted)">{{ c.created_at | date_fmt }}</span>
+      </div>
+      <div style="font-size:.88rem;white-space:pre-wrap;color:var(--wm-text)">{{ c.body }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% else %}
+{# ═══════════════════════════════════════════════════════════════
+   ДЕСКТОП-ИНТЕРФЕЙС (оригинальный)
+   ═══════════════════════════════════════════════════════════════ #}
 <div class="row g-3">
   <!-- Основная информация -->
   <div class="col-lg-8">
@@ -162,9 +286,8 @@
   </div>
 </div>
 
-{# ── Задачи + Комментарии ────────────────────────────────────────────────── #}
+{# ── Задачи + Комментарии ── #}
 <div class="row g-3 mt-1">
-
   {# Задачи #}
   <div class="col-lg-6">
     <div class="card border-0 shadow-sm">
@@ -276,10 +399,9 @@
       {% endif %}
     </div>
   </div>
-
 </div>
 
-{# ── Лог изменений ───────────────────────────────────────────────────────── #}
+{# ── Лог изменений ── #}
 {% if activity %}
 <div class="card border-0 shadow-sm mt-3">
   <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
@@ -313,4 +435,5 @@
   </div>
 </div>
 {% endif %}
+{% endif %}{# end desktop #}
 {% endblock %}

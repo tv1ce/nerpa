@@ -1,13 +1,84 @@
-{% extends "base.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _base = "base_warehouse.html" if _role == "warehouse" else "base.html" %}
+{% extends _base %}
+
 {% block title %}Заказы{% endblock %}
-{% block page_title %}Заказы на поставку{% endblock %}
+{% block page_title %}Заказы{% endblock %}
+
 {% block topbar_actions %}
-  {% if request.session.get('user_role') != 'warehouse' %}
+  {% if _role != 'warehouse' %}
   <a href="/orders/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новый заказ</a>
   {% endif %}
 {% endblock %}
 
 {% block content %}
+{% if _role == 'warehouse' %}
+{# ═══════════════════════════════════════════════════════════════
+   МОБИЛЬНЫЙ СПИСОК ЗАКАЗОВ ДЛЯ КЛАДОВЩИКА
+   ═══════════════════════════════════════════════════════════════ #}
+
+{# Быстрые фильтры-пилюли #}
+<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;-webkit-overflow-scrolling:touch;scrollbar-width:none">
+  <a href="/orders" style="flex-shrink:0" class="wm-pill {% if not status %}wm-pill-prepay{% else %}wm-pill-items{% endif %}">Все</a>
+  {% for val, label in statuses.items() %}
+  <a href="/orders?status={{ val }}" style="flex-shrink:0"
+     class="wm-pill {% if status == val %}wm-pill-prepay{% else %}wm-pill-items{% endif %}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+{# Поиск #}
+<form method="get" style="margin-bottom:12px;display:flex;gap:8px">
+  {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+  <input type="text" name="q" value="{{ q }}"
+         style="flex:1;height:46px;border:1.5px solid var(--wm-border);border-radius:10px;padding:0 14px;font-size:.95rem;font-family:inherit;outline:none"
+         placeholder="Номер или клиент…">
+  <button type="submit" style="height:46px;padding:0 16px;border-radius:10px;border:none;background:var(--wm-brand);color:#fff;font-size:.95rem;font-weight:700">
+    <i class="bi bi-search"></i>
+  </button>
+  {% if q %}<a href="/orders?status={{ status }}" style="height:46px;padding:0 14px;border-radius:10px;border:1.5px solid var(--wm-border);display:flex;align-items:center;color:var(--wm-muted);text-decoration:none;font-size:.95rem"><i class="bi bi-x-lg"></i></a>{% endif %}
+</form>
+
+{# Карточки заказов #}
+{% for o in orders %}
+<div class="wm-card" style="margin-bottom:10px">
+  <a href="/orders/{{ o.id }}" style="display:block;text-decoration:none;color:inherit">
+    <div style="padding:12px 14px 8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div>
+          <div style="font-size:1.05rem;font-weight:800;color:var(--wm-text)">Заказ № {{ o.number }}</div>
+          <div style="font-size:.85rem;color:var(--wm-muted);margin-top:2px">{{ o.counterparty.trade_name or o.counterparty.name }}</div>
+        </div>
+        <span class="badge badge-{{ o.status }}" style="flex-shrink:0;margin-top:2px">{{ statuses[o.status] }}</span>
+      </div>
+    </div>
+    <div style="padding:0 14px 10px;display:flex;gap:8px;flex-wrap:wrap">
+      {% if o.delivery_date %}
+      <span class="wm-pill wm-pill-date"><i class="bi bi-calendar3"></i>{{ o.delivery_date | date_fmt }}</span>
+      {% endif %}
+      {% if o.payment_type == 'deferred' %}
+      <span class="wm-pill wm-pill-defer"><i class="bi bi-clock"></i>Отсрочка</span>
+      {% else %}
+      <span class="wm-pill wm-pill-prepay"><i class="bi bi-check-circle"></i>Предоплата</span>
+      {% endif %}
+      {% if o.items %}
+      <span class="wm-pill wm-pill-items"><i class="bi bi-list-ul"></i>{{ o.items|length }} поз.</span>
+      {% endif %}
+    </div>
+  </a>
+</div>
+{% else %}
+<div class="wm-card">
+  <div class="wm-empty">
+    <i class="bi bi-inbox"></i>
+    <p>Заказов не найдено</p>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+{# ═══════════════════════════════════════════════════════════════
+   ДЕСКТОП-ИНТЕРФЕЙС
+   ═══════════════════════════════════════════════════════════════ #}
 <div class="card border-0 shadow-sm">
   <div class="card-body pb-0">
     <form class="row g-2 mb-3" method="get">
@@ -78,4 +149,5 @@
     </table>
   </div>
 </div>
+{% endif %}
 {% endblock %}

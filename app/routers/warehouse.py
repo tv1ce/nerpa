@@ -27,6 +27,16 @@ REASONS = {
 }
 
 
+def _assembly_queue_count(db: Session) -> int:
+    """Количество заказов, ожидающих сборки — для бейджа в таббаре."""
+    candidates = (
+        db.query(Order)
+        .filter(Order.status.in_(["confirmed", "paid"]))
+        .all()
+    )
+    return sum(1 for o in candidates if o.ready_for_assembly)
+
+
 def _get_balances(db: Session) -> dict:
     """Возвращает словарь {product_id: current_balance}."""
     products = db.query(Product).filter(Product.is_active == True).all()
@@ -137,6 +147,7 @@ async def journal(
         "mtype": mtype,
         "date_from": date_from,
         "date_to": date_to,
+        "assembly_queue_count": _assembly_queue_count(db),
     })
 
 
@@ -166,6 +177,7 @@ async def new_movement(
         "selected_product": product_id,
         "selected_type": mtype,
         "today": date.today().isoformat(),
+        "assembly_queue_count": _assembly_queue_count(db),
     })
 
 

@@ -1,15 +1,92 @@
-{% extends "base.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _base = "base_warehouse.html" if _role == "warehouse" else "base.html" %}
+{% extends _base %}
+
 {% block title %}Журнал движений{% endblock %}
-{% block page_title %}Журнал движений склада{% endblock %}
+{% block page_title %}{% if _role == 'warehouse' %}Журнал{% else %}Журнал движений склада{% endif %}{% endblock %}
+
 {% block topbar_actions %}
-  {% if request.session.get('user_role') != 'warehouse' %}
+  {% if _role != 'warehouse' %}
   <a href="/warehouse/new" class="btn btn-sm btn-accent me-1"><i class="bi bi-plus-lg me-1"></i>Новая операция</a>
+  <a href="/warehouse/"    class="btn btn-sm btn-outline-secondary"><i class="bi bi-house me-1"></i>Остатки</a>
   {% endif %}
-  <a href="/warehouse/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-house me-1"></i>Остатки</a>
 {% endblock %}
 
 {% block content %}
-<!-- Фильтры -->
+{% if _role == 'warehouse' %}
+{# ═══════════════════════════════════════════════════════════════
+   МОБИЛЬНЫЙ ЖУРНАЛ
+   ═══════════════════════════════════════════════════════════════ #}
+
+{# Фильтры — компактные #}
+<form method="get" action="/warehouse/journal" style="margin-bottom:12px">
+  <div class="wm-filter-row">
+    <select name="product_id" class="wm-filter-select">
+      <option value="">Все товары</option>
+      {% for p in products %}
+      <option value="{{ p.id }}" {% if p.id == product_id %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="mtype" class="wm-filter-select">
+      <option value="">Все типы</option>
+      {% for k, v in movement_types.items() %}
+      <option value="{{ k }}" {% if k == mtype %}selected{% endif %}>{{ v }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="wm-filter-row">
+    <input type="date" name="date_from" class="wm-filter-select" value="{{ date_from }}" placeholder="От">
+    <input type="date" name="date_to"   class="wm-filter-select" value="{{ date_to }}"   placeholder="До">
+  </div>
+  <div class="wm-filter-row">
+    <button type="submit" class="wm-filter-btn" style="flex:1"><i class="bi bi-funnel me-1"></i>Применить</button>
+    <a href="/warehouse/journal" class="wm-filter-reset"><i class="bi bi-x-lg"></i></a>
+  </div>
+</form>
+
+{# Список движений #}
+{% if movements %}
+<div class="wm-card">
+  {% for mv in movements %}
+  <div class="wm-journal-item">
+    <div class="wm-journal-icon {{ mv.movement_type if mv.movement_type in ('in','out') else 'adj' }}">
+      {% if mv.movement_type == 'in' %}<i class="bi bi-plus-lg"></i>
+      {% elif mv.movement_type == 'out' %}<i class="bi bi-dash-lg"></i>
+      {% else %}<i class="bi bi-arrow-left-right"></i>{% endif %}
+    </div>
+    <div class="wm-journal-body">
+      <div class="wm-journal-product">{{ mv.product.name if mv.product else '—' }}</div>
+      <div class="wm-journal-meta">
+        {{ mv.date | date_fmt }}
+        {% if mv.reason %} · {{ mv.reason }}{% endif %}
+        {% if mv.order %} · Заказ <strong>{{ mv.order.number }}</strong>{% endif %}
+        {% if mv.notes %} · {{ mv.notes }}{% endif %}
+      </div>
+    </div>
+    <div class="wm-journal-qty {{ mv.movement_type if mv.movement_type in ('in','out') else 'adj' }}">
+      {% if mv.movement_type == 'in' %}+{% elif mv.movement_type == 'out' %}−{% endif %}{{ mv.quantity | int if mv.quantity == mv.quantity | int else mv.quantity }}
+      <div style="font-size:.7rem;font-weight:500;color:var(--wm-muted);text-align:right">{{ mv.product.unit if mv.product else '' }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<div style="text-align:center;font-size:.78rem;color:var(--wm-muted);margin-top:8px">
+  Показано {{ movements | length }} записей
+</div>
+
+{% else %}
+<div class="wm-card">
+  <div class="wm-empty">
+    <i class="bi bi-journal-x"></i>
+    <p>Нет записей по заданным фильтрам</p>
+  </div>
+</div>
+{% endif %}
+
+{% else %}
+{# ═══════════════════════════════════════════════════════════════
+   ДЕСКТОП-ИНТЕРФЕЙС
+   ═══════════════════════════════════════════════════════════════ #}
 <div class="card border-0 shadow-sm p-3 mb-3">
   <form method="get" action="/warehouse/journal" class="row g-2 align-items-end">
     <div class="col-md-3">
@@ -118,4 +195,5 @@
     </table>
   </div>
 </div>
+{% endif %}
 {% endblock %}
