@@ -1,5 +1,6 @@
 {% set _role = request.session.get('user_role') %}
-{% set _base = "base_warehouse.html" if _role == "warehouse" else "base.html" %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
 {% extends _base %}
 
 {% block title %}Заказ {{ order.number }}{% endblock %}

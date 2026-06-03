@@ -24,6 +24,12 @@
   </div>
   <div class="wm-header-right">
     {% block header_actions %}{% endblock %}
+    <form method="post" action="/warehouse/toggle-view" style="display:contents">
+      <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+      <button type="submit" class="wm-icon-btn" title="Переключить на десктоп-вид">
+        <i class="bi bi-display"></i>
+      </button>
+    </form>
     <button id="notif-bell" onclick="toggleNotifDrawer()"
       class="wm-icon-btn" title="Уведомления" style="display:none">
       <i class="bi bi-bell"></i>

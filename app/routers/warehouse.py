@@ -13,6 +13,15 @@ from app.utils import maybe_notify_low_stock, log_action
 ACTIVE_ORDER_STATUSES = ["confirmed", "paid", "assembled", "handed", "delivered"]
 
 router = APIRouter(prefix="/warehouse", tags=["warehouse"])
+
+
+@router.post("/toggle-view")
+@login_required
+async def toggle_view(request: Request, next: str = Form(default="/warehouse/")):
+    """Переключает вид склада между мобильным и десктопным для роли warehouse."""
+    current = request.session.get("warehouse_view", "mobile")
+    request.session["warehouse_view"] = "desktop" if current == "mobile" else "mobile"
+    return RedirectResponse(url=next, status_code=302)
 templates = Jinja2Templates(directory="app/templates")
 
 MOVEMENT_TYPES = {
