@@ -113,6 +113,8 @@ def _migrate_db():
         ("counterparties", "tg_notify_enabled", "INTEGER DEFAULT 0"),
         # Токен Telegram-бота (глобальные настройки)
         ("company_settings", "tg_bot_token", "TEXT"),
+        # Принудительная смена пароля при следующем входе
+        ("users", "must_change_password", "INTEGER DEFAULT 0"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]
@@ -138,13 +140,20 @@ def _seed_defaults():
     try:
         from app.models import User, CompanySettings
         if not db.query(User).first():
+            import sys
             admin = User(
                 username="admin",
                 password_hash=hash_password("admin"),
                 full_name="Администратор",
                 role="admin",
+                must_change_password=True,  # при первом входе потребуем смену пароля
             )
             db.add(admin)
+            print(
+                "\n[TMS] Создан пользователь admin. "
+                "При первом входе потребуется сменить пароль!\n",
+                file=sys.stderr,
+            )
         if not db.query(CompanySettings).first():
             db.add(CompanySettings(name="Моя компания"))
         db.commit()

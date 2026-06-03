@@ -5,6 +5,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
+from app.utils.crypto import EncryptedText
 
 
 class User(Base):
@@ -15,6 +16,7 @@ class User(Base):
     full_name = Column(String(100), nullable=False)
     role = Column(String(20), default="manager")
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False)  # принудительная смена при следующем входе
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -269,16 +271,16 @@ class CompanySettings(Base):
     board_cost_deviation = Column(Float, default=5.0)   # допустимое отклонение от нормы %
     # ── Интеграция с Метафорой ──
     metafora_email    = Column(String(200))
-    metafora_password = Column(String(200))   # не используется (PIN-вход), оставлено для совместимости
-    metafora_token    = Column(Text)          # Firebase ID-token
-    metafora_refresh  = Column(Text)          # Firebase refresh-token
-    metafora_app_id   = Column(String(50))    # Glide appID (автоопределяется)
-    metafora_url      = Column(String(500))   # URL выгрузки
+    metafora_password = Column(EncryptedText)   # зашифровано (PIN-вход, совместимость)
+    metafora_token    = Column(EncryptedText)   # Firebase ID-token (зашифровано)
+    metafora_refresh  = Column(EncryptedText)   # Firebase refresh-token (зашифровано)
+    metafora_app_id   = Column(String(50))      # Glide appID (автоопределяется)
+    metafora_url      = Column(String(500))     # URL выгрузки
     # ── Разведка ЛПР (DaData) ──
-    dadata_token  = Column(String(100))       # API-ключ DaData (suggestions)
-    dadata_secret = Column(String(100))       # секретный ключ (для cleaning API, опц.)
+    dadata_token  = Column(EncryptedText)       # API-ключ DaData (зашифровано)
+    dadata_secret = Column(EncryptedText)       # секретный ключ cleaning API (зашифровано)
     # ── Telegram-бот ──
-    tg_bot_token  = Column(String(200))       # токен бота от @BotFather
+    tg_bot_token  = Column(EncryptedText)       # токен бота от @BotFather (зашифровано)
 
 
 class MonthlyPlan(Base):

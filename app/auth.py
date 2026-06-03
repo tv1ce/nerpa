@@ -90,6 +90,9 @@ def _get_fresh_user(request: Request):
         db.close()
 
 
+_CHANGE_PWD_PATH = "/auth/change-password"
+
+
 def login_required(func):
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
@@ -97,6 +100,10 @@ def login_required(func):
         if not user:
             request.session.clear()
             return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
+        # Принудительная смена пароля — до этого никуда не пускаем
+        if getattr(user, "must_change_password", False):
+            if not request.url.path.startswith(_CHANGE_PWD_PATH):
+                return RedirectResponse(url=_CHANGE_PWD_PATH, status_code=302)
         denied = _warehouse_check(request)
         if denied:
             return denied
