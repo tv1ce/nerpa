@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
-from app.models import Order, OrderItem, Claim, CompanySettings
+from app.models import Order, OrderItem, Claim, CompanySettings, Product
 
 router = APIRouter(prefix="/board", tags=["board"])
 templates = Jinja2Templates(directory="app/templates")
@@ -85,7 +85,10 @@ def _collect_metrics(db: Session) -> dict:
     def _nuts(*filters):
         q = db.query(func.sum(OrderItem.quantity)).join(
             Order, OrderItem.order_id == Order.id
-        ).filter(Order.status.in_(_SOLD))
+        ).join(Product, OrderItem.product_id == Product.id).filter(
+            Order.status.in_(_SOLD),
+            func.lower(Product.name).contains("орешк"),
+        )
         for f in filters:
             q = q.filter(f)
         return int(q.scalar() or 0)
@@ -140,14 +143,19 @@ def _collect_metrics(db: Session) -> dict:
     last_claim_date    = db.query(func.max(Claim.date)).scalar()
     days_without_claims = (today - last_claim_date).days if last_claim_date else None
 
-    # Рекорд дня текущего месяца
+    # Рекорд дня текущего месяца (только орешки)
     best_day_row = (
         db.query(
             func.date(Order.date).label("day"),
             func.sum(OrderItem.quantity).label("total"),
         )
         .join(Order, OrderItem.order_id == Order.id)
-        .filter(Order.status.in_(_SOLD), Order.date >= month_start)
+        .join(Product, OrderItem.product_id == Product.id)
+        .filter(
+            Order.status.in_(_SOLD),
+            Order.date >= month_start,
+            func.lower(Product.name).contains("орешк"),
+        )
         .group_by(func.date(Order.date))
         .order_by(func.sum(OrderItem.quantity).desc())
         .first()

@@ -78,13 +78,17 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     _sold_orders = ["confirmed", "paid", "assembled", "handed", "delivered"]
     total_nuts_sold = db.query(func.sum(OrderItem.quantity)).join(
         Order, OrderItem.order_id == Order.id
-    ).filter(Order.status.in_(_sold_orders)).scalar() or 0.0
+    ).join(Product, OrderItem.product_id == Product.id).filter(
+        Order.status.in_(_sold_orders),
+        func.lower(Product.name).contains("орешк"),
+    ).scalar() or 0.0
 
     nuts_this_month = db.query(func.sum(OrderItem.quantity)).join(
         Order, OrderItem.order_id == Order.id
-    ).filter(
+    ).join(Product, OrderItem.product_id == Product.id).filter(
         Order.status.in_(_sold_orders),
         Order.date >= month_start,
+        func.lower(Product.name).contains("орешк"),
     ).scalar() or 0.0
 
     top_products = db.query(
