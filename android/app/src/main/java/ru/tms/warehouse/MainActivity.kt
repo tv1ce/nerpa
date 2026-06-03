@@ -66,6 +66,8 @@ class MainActivity : AppCompatActivity() {
 
         swipe.setOnRefreshListener { webView.reload() }
         swipe.setColorSchemeResources(R.color.blue, R.color.orange)
+        // Pull-to-refresh только когда WebView в самом верху — иначе мешает обычной прокрутке
+        swipe.setOnChildScrollUpCallback { _, _ -> webView.scrollY > 0 }
 
         findViewById<Button>(R.id.btnRetry).setOnClickListener {
             errorView.visibility = View.GONE
@@ -86,7 +88,15 @@ class MainActivity : AppCompatActivity() {
 
         if (savedInstanceState == null) {
             webView.loadUrl("$serverUrl/warehouse/")
+            // Проверка обновлений приложения при запуске
+            UpdateChecker(this, serverUrl).check()
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Сохраняем cookie на диск — чтобы вход «помнился» после перезапуска
+        CookieManager.getInstance().flush()
     }
 
     @SuppressLint("SetJavaScriptEnabled")

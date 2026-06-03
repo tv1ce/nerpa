@@ -35,6 +35,28 @@ gradle assembleDebug
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Автообновление приложения
+
+Приложение при каждом запуске запрашивает `<server>/app/version.json` и сравнивает
+`versionCode` с установленным. Если на сервере новее — показывает диалог
+«Доступно обновление» → скачивает APK с `<server>/app/download` → запускает установку.
+
+Сервер отдаёт файлы из папки **`app_dist/`** (рядом с `tms.db`):
+- `app_dist/version.json` — версия (в git, редактируется при релизе)
+- `app_dist/tms-sklad.apk` — сам файл (в git **не** хранится, кладётся на сервер вручную)
+
+### Как выпустить новую версию
+
+1. Поднять версию в `android/app/build.gradle` → `versionCode` (например 3) и `versionName`.
+2. Запушить — GitHub Actions соберёт новый `app-debug.apk` (вкладка Actions → артефакт).
+3. Скачать APK, положить на сервер как `app_dist/tms-sklad.apk`.
+4. Обновить `app_dist/version.json` — выставить тот же `versionCode` (3), `versionName`
+   и `notes` (что нового).
+5. У кладовщиков при следующем заходе появится предложение обновиться.
+
+> Важно: `versionCode` в `version.json` должен совпадать с `versionCode` собранного APK,
+> иначе после установки приложение снова будет считать, что есть обновление.
+
 ## Параметры
 
 - `applicationId`: `ru.tms.warehouse`

@@ -1,7 +1,8 @@
+import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads
 from app.database import init_db
@@ -11,8 +12,17 @@ init_db()
 
 app = FastAPI(title="TMS — Управление поставками")
 
-app.add_middleware(SessionMiddleware, secret_key="tms-secret-change-in-production-2024", max_age=86400)
+# Сессия живёт 30 дней — чтобы мобильное приложение/браузер «помнили» пользователя
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="tms-secret-change-in-production-2024",
+    max_age=60 * 60 * 24 * 30,
+    same_site="lax",
+)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Папка с дистрибутивом Android-приложения (APK + version.json)
+APP_DIST_DIR = "app_dist"
 
 
 # ── PWA: манифест и service worker (нужны на корне, без авторизации) ──────────
@@ -36,6 +46,32 @@ async def pwa_service_worker():
             "Cache-Control": "no-cache",
         },
     )
+
+
+# ── Автообновление Android-приложения ────────────────────────────────────────
+# Приложение при запуске запрашивает /app/version.json и сравнивает versionCode
+# с установленным. Если на сервере новее — скачивает APK с /app/download.
+
+@app.get("/app/version.json", include_in_schema=False)
+async def app_version():
+    path = os.path.join(APP_DIST_DIR, "version.json")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="application/json",
+                            headers={"Cache-Control": "no-cache"})
+    # Нет опубликованной версии — обновлений нет
+    return JSONResponse({"versionCode": 0, "versionName": "", "notes": ""})
+
+
+@app.get("/app/download", include_in_schema=False)
+async def app_download():
+    path = os.path.join(APP_DIST_DIR, "tms-sklad.apk")
+    if os.path.exists(path):
+        return FileResponse(
+            path,
+            media_type="application/vnd.android.package-archive",
+            filename="tms-sklad.apk",
+        )
+    return JSONResponse({"error": "apk not found"}, status_code=404)
 
 app.include_router(auth.router)
 app.include_router(dashboard.router)
