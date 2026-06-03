@@ -131,6 +131,19 @@ def _migrate_db():
     # Договоры с заполненной отсрочкой считаем договорами с отсрочкой платежа
     cur.execute("UPDATE contracts SET payment_type='deferred' WHERE payment_days IS NOT NULL AND payment_days > 0 AND (payment_type IS NULL OR payment_type='prepay')")
 
+    # Помечаем admin как требующего смены пароля, если пароль ещё не менялся.
+    # Проверяем по bcrypt-хэшу: если хэш совпадает с «admin» — пароль дефолтный.
+    row = cur.execute("SELECT password_hash FROM users WHERE username='admin' LIMIT 1").fetchone()
+    if row:
+        try:
+            import bcrypt as _bcrypt
+            if _bcrypt.checkpw(b"admin", row[0].encode("utf-8")):
+                cur.execute(
+                    "UPDATE users SET must_change_password=1 WHERE username='admin'"
+                )
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
 
