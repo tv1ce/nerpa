@@ -24,9 +24,17 @@
 /* ── Reset / base ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-html, body {
+html {
   height: 100%;
-  margin: 0; padding: 0;
+}
+body {
+  margin: 0;
+  min-height: 100%;
+  /* Скроллится сам документ (а не внутренний контейнер) — иначе в нативном
+     WebView webView.scrollY всегда 0 и pull-to-refresh срабатывает везде.
+     Шапка и таббар остаются fixed поверх — отсюда padding сверху/снизу. */
+  padding-top: var(--wm-header-h);
+  padding-bottom: var(--wm-tab-h);
   background: var(--wm-bg);
   font-family: 'Fira Sans', system-ui, 'Segoe UI', sans-serif;
   font-size: 16px;
@@ -99,14 +107,8 @@ html, body {
   border: 2px solid #0F1A2E;
 }
 
-/* ── Scroll area ──────────────────────────────────────────────────────────── */
+/* ── Контентная область (в обычном потоке, скроллит документ) ──────────────── */
 .wm-content {
-  position: fixed;
-  top: var(--wm-header-h);
-  bottom: var(--wm-tab-h);
-  left: 0; right: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   padding: 14px 12px 8px;
 }
 
@@ -636,8 +638,8 @@ html, body {
     padding-bottom: env(safe-area-inset-bottom);
     height: calc(var(--wm-tab-h) + env(safe-area-inset-bottom));
   }
-  .wm-content {
-    bottom: calc(var(--wm-tab-h) + env(safe-area-inset-bottom));
+  body {
+    padding-bottom: calc(var(--wm-tab-h) + env(safe-area-inset-bottom));
   }
 }
 
