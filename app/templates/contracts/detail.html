@@ -36,6 +36,14 @@
           {% endif %}
         </div>
         <div class="col-md-4"><span class="text-muted">Сумма:</span> {{ contract.amount | money if contract.amount else '—' }} ₽</div>
+        <div class="col-md-4">
+          <span class="text-muted">Оплата:</span>
+          {% if contract.payment_type == 'deferred' %}
+          <span class="badge bg-warning text-dark">Отсрочка платежа{% if contract.payment_days %} — {{ contract.payment_days }} дн.{% endif %}</span>
+          {% else %}
+          <span class="badge bg-success">Предоплата</span>
+          {% endif %}
+        </div>
         {% if contract.template %}
         <div class="col-12"><span class="text-muted">Шаблон:</span> {{ contract.template.name }}</div>
         {% endif %}

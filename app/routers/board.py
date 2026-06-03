@@ -22,8 +22,8 @@ templates = Jinja2Templates(directory="app/templates")
 # Токен доступа к табло. На проде задать переменную окружения TMS_BOARD_KEY.
 BOARD_KEY = os.getenv("TMS_BOARD_KEY", "tseh2026")
 
-# Статусы заказов, считающиеся отгрузкой
-_SOLD = ["confirmed", "shipped", "delivered"]
+# Статусы заказов, считающиеся отгрузкой (всё, кроме черновика и отмены)
+_SOLD = ["confirmed", "paid", "assembled", "handed", "delivered"]
 
 # Значения по умолчанию, если в настройках пусто
 DEFAULT_QUOTES = [

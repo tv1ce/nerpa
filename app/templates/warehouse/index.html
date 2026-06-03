@@ -22,6 +22,49 @@
 </div>
 {% endif %}
 
+<!-- Очередь сборки: заказы, упавшие кладовщику -->
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex align-items-center">
+    <span class="fw-semibold"><i class="bi bi-box-seam me-1 text-info"></i>На сборку</span>
+    {% if assembly_queue %}<span class="badge bg-info text-dark ms-2">{{ assembly_queue|length }}</span>{% endif %}
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">№ заказа</th>
+          <th>Клиент</th>
+          <th>Оплата</th>
+          <th>Доставка</th>
+          <th class="text-end">Позиций</th>
+          <th class="text-end pe-4" style="width:140px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in assembly_queue %}
+        <tr>
+          <td class="ps-4"><a href="/orders/{{ o.id }}" class="fw-semibold text-decoration-none">{{ o.number }}</a></td>
+          <td>{{ o.counterparty.trade_name or o.counterparty.name }}</td>
+          <td>
+            {% if o.is_prepay %}<span class="badge bg-success">Предоплата</span>
+            {% else %}<span class="badge bg-warning text-dark">Отсрочка</span>{% endif %}
+          </td>
+          <td>{{ o.delivery_date | date_fmt }}</td>
+          <td class="text-end">{{ o.items|length }}</td>
+          <td class="text-end pe-4">
+            <form method="post" action="/warehouse/orders/{{ o.id }}/assemble" class="d-inline">
+              <button type="submit" class="btn btn-sm btn-success py-0"><i class="bi bi-check2-square me-1"></i>Собран</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-3" style="font-size:.85rem">Нет заказов на сборку</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 <div class="row g-3">
 
   <!-- Таблица остатков -->

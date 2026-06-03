@@ -45,6 +45,30 @@
             </select>
           </div>
           <div class="col-md-6">
+            <label class="form-label">Договор</label>
+            <select name="contract_id" id="contract_id" class="form-select" onchange="onContractChange(this)">
+              <option value="0" data-payment="">— без договора —</option>
+              {% for c in contracts %}
+              <option value="{{ c.id }}" data-payment="{{ c.payment_type or 'prepay' }}"
+                {% if order and order.contract_id == c.id %}selected{% endif %}>
+                № {{ c.number }} — {{ c.counterparty.name }} ({{ payment_types.get(c.payment_type or 'prepay') }})
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Тип оплаты подставится из договора</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Тип оплаты *</label>
+            <select name="payment_type" id="payment_type" class="form-select">
+              {% for val, label in payment_types.items() %}
+              <option value="{{ val }}" {% if order and order.payment_type == val %}selected{% elif not order and val == 'prepay' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              Предоплата — сборка после оплаты. Отсрочка — сборка после подтверждения (оплата пропускается).
+            </div>
+          </div>
+          <div class="col-md-6">
             <label class="form-label">Перевозчик</label>
             <select name="carrier_id" class="form-select">
               <option value="0">— не указан —</option>
@@ -138,6 +162,35 @@ const initialItems = [
 ];
 
 initItemsEditor(initialItems, productsMap);
+
+// Подстановка типа оплаты из выбранного договора
+function onContractChange(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const pay = opt ? opt.dataset.payment : '';
+  const ptSel = document.getElementById('payment_type');
+  if (pay) {
+    ptSel.value = pay;
+    ptSel.setAttribute('disabled', 'disabled');
+    // disabled-поля не отправляются — дублируем значение скрытым input
+    let hidden = document.getElementById('payment_type_hidden');
+    if (!hidden) {
+      hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'payment_type';
+      hidden.id = 'payment_type_hidden';
+      ptSel.parentNode.appendChild(hidden);
+    }
+    hidden.value = pay;
+  } else {
+    ptSel.removeAttribute('disabled');
+    const hidden = document.getElementById('payment_type_hidden');
+    if (hidden) hidden.remove();
+  }
+}
+document.addEventListener('DOMContentLoaded', function() {
+  const sel = document.getElementById('contract_id');
+  if (sel) onContractChange(sel);
+});
 
 // Валидация перед отправкой формы
 document.getElementById('order-form').addEventListener('submit', function(e) {

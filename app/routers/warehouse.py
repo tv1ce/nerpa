@@ -7,7 +7,10 @@ from sqlalchemy import func
 from app.database import get_db
 from app.auth import login_required
 from app.models import Product, StockMovement, Order
-from app.utils import maybe_notify_low_stock
+from app.utils import maybe_notify_low_stock, log_action
+
+# Статусы заказа, считающиеся «в работе» (не черновик и не завершён/отменён)
+ACTIVE_ORDER_STATUSES = ["confirmed", "paid", "assembled", "handed", "delivered"]
 
 router = APIRouter(prefix="/warehouse", tags=["warehouse"])
 templates = Jinja2Templates(directory="app/templates")
@@ -59,13 +62,41 @@ async def warehouse_index(request: Request, db: Session = Depends(get_db)):
         .limit(10).all()
     )
 
+    # Очередь сборки: заказы, «упавшие» кладовщику
+    # (предоплата — после оплаты, отсрочка — после подтверждения)
+    assembly_candidates = (
+        db.query(Order)
+        .filter(Order.status.in_(["confirmed", "paid"]))
+        .order_by(Order.delivery_date.asc().nullslast(), Order.date.asc())
+        .all()
+    )
+    assembly_queue = [o for o in assembly_candidates if o.ready_for_assembly]
+
     return templates.TemplateResponse(request, "warehouse/index.html", {
         "products": products,
         "balances": balances,
         "low_stock": low_stock,
         "recent": recent,
+        "assembly_queue": assembly_queue,
         "movement_types": MOVEMENT_TYPES,
     })
+
+
+# ── Очередь сборки: кладовщик отмечает заказ собранным ────────────────────────
+
+@router.post("/orders/{order_id}/assemble")
+@login_required
+async def mark_assembled(request: Request, order_id: int, db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if order and order.ready_for_assembly:
+        old = order.status
+        order.status = "assembled"
+        log_action(db, "order", order_id, "status_changed",
+                   request.session.get("user_id"),
+                   "Заказ собран кладовщиком",
+                   field="status", old_value=old, new_value="assembled")
+        db.commit()
+    return RedirectResponse(url="/warehouse/", status_code=302)
 
 
 # ── Журнал движений ───────────────────────────────────────────────────────────
@@ -122,7 +153,7 @@ async def new_movement(
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     orders = (
         db.query(Order)
-        .filter(Order.status.in_(["confirmed", "shipped", "delivered"]))
+        .filter(Order.status.in_(ACTIVE_ORDER_STATUSES))
         .order_by(Order.date.desc()).limit(50).all()
     )
     balances = _get_balances(db)
@@ -163,10 +194,11 @@ async def create_movement(
         created_by_id=request.session.get("user_id"),
     )
     db.add(mv)
-    if linked_order_id:
+    if linked_order_id and movement_type == "out":
+        # Отгрузка со склада → заказ передан поставщику
         order = db.query(Order).filter(Order.id == linked_order_id).first()
-        if order and order.status not in ("shipped", "delivered", "cancelled"):
-            order.status = "shipped"
+        if order and order.status not in ("handed", "delivered", "cancelled"):
+            order.status = "handed"
     db.commit()
     maybe_notify_low_stock(db, product_id)
     db.commit()

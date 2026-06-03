@@ -50,8 +50,7 @@ async def revenue_report(
         tbl_from, tbl_to = month_start, today
 
     # ── Таблица отгрузок ──────────────────────────────────────────────────────
-    # Берём заказы со статусом "shipped" или "delivered" за период
-    # и подтягиваем связанный счёт
+    # Берём заказы за период и подтягиваем связанный счёт
     rows_q = (
         db.query(Order)
         .join(Counterparty, Order.counterparty_id == Counterparty.id)

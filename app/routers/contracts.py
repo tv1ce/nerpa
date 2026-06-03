@@ -17,6 +17,10 @@ CONTRACT_STATUSES = {
     "expired": "Истёк",
     "terminated": "Расторгнут",
 }
+PAYMENT_TYPES = {
+    "prepay": "Предоплата",
+    "deferred": "Отсрочка платежа",
+}
 GENERATED_DIR = "generated"
 
 
@@ -49,7 +53,8 @@ async def new_contract(request: Request, db: Session = Depends(get_db)):
     ).all()
     return templates.TemplateResponse(request, "contracts/form.html", {
         "contract": None, "counterparties": counterparties, "doc_templates": doc_templates,
-        "statuses": CONTRACT_STATUSES, "suggested_number": _next_contract_number(db),
+        "statuses": CONTRACT_STATUSES, "payment_types": PAYMENT_TYPES,
+        "suggested_number": _next_contract_number(db),
     })
 
 
@@ -66,10 +71,12 @@ async def create_contract(
     start_date: str = Form(default=""),
     end_date: str = Form(default=""),
     amount: str = Form(default=""),
+    payment_type: str = Form(default="prepay"),
     payment_days: str = Form(default=""),
     notes: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
+    payment_type = payment_type if payment_type in PAYMENT_TYPES else "prepay"
     contract = Contract(
         number=number, date=date.fromisoformat(contract_date),
         counterparty_id=counterparty_id, template_id=template_id or None,
@@ -77,7 +84,8 @@ async def create_contract(
         start_date=date.fromisoformat(start_date) if start_date else None,
         end_date=date.fromisoformat(end_date) if end_date else None,
         amount=float(amount) if amount else None,
-        payment_days=int(payment_days) if payment_days else None,
+        payment_type=payment_type,
+        payment_days=int(payment_days) if (payment_days and payment_type == "deferred") else None,
         notes=notes,
     )
     db.add(contract)
@@ -114,7 +122,8 @@ async def edit_contract(request: Request, contract_id: int, db: Session = Depend
     ).all()
     return templates.TemplateResponse(request, "contracts/form.html", {
         "contract": contract, "counterparties": counterparties, "doc_templates": doc_templates,
-        "statuses": CONTRACT_STATUSES, "suggested_number": contract.number,
+        "statuses": CONTRACT_STATUSES, "payment_types": PAYMENT_TYPES,
+        "suggested_number": contract.number,
     })
 
 
@@ -126,7 +135,8 @@ async def update_contract(
     counterparty_id: int = Form(...), template_id: int = Form(default=0),
     subject: str = Form(default=""), status: str = Form(default="draft"),
     start_date: str = Form(default=""), end_date: str = Form(default=""),
-    amount: str = Form(default=""), payment_days: str = Form(default=""),
+    amount: str = Form(default=""), payment_type: str = Form(default="prepay"),
+    payment_days: str = Form(default=""),
     notes: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
@@ -139,7 +149,8 @@ async def update_contract(
     contract.start_date = date.fromisoformat(start_date) if start_date else None
     contract.end_date = date.fromisoformat(end_date) if end_date else None
     contract.amount = float(amount) if amount else None
-    contract.payment_days = int(payment_days) if payment_days else None
+    contract.payment_type = payment_type if payment_type in PAYMENT_TYPES else "prepay"
+    contract.payment_days = int(payment_days) if (payment_days and contract.payment_type == "deferred") else None
     contract.notes = notes
     db.commit()
     return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)

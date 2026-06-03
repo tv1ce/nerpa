@@ -49,23 +49,21 @@
           <td>{{ o.date | date_fmt }}</td>
           <td>{{ o.delivery_date | date_fmt }}</td>
           <td class="text-end">{{ o.total_amount | money }}</td>
-          <td><span class="badge badge-{{ o.status }}">{{ statuses[o.status] }}</span></td>
-          <td class="text-end pe-3">
-            {% if o.status in ('draft', 'confirmed') %}
-            <form method="post" action="/orders/{{ o.id }}/status" class="d-inline">
-              <input type="hidden" name="status" value="shipped">
-              <input type="hidden" name="redirect_url" value="/orders?q={{ q }}&status={{ status }}">
-              <button type="submit" class="btn btn-sm btn-warning py-0" title="Отметить отгруженным">
-                <i class="bi bi-truck"></i> Отгружен
-              </button>
-            </form>
+          <td>
+            <span class="badge badge-{{ o.status }}">{{ statuses[o.status] }}</span>
+            {% if o.payment_type == 'deferred' %}
+            <span class="badge bg-warning text-dark" style="font-size:.62rem" title="Отсрочка платежа">отсрочка</span>
             {% endif %}
-            {% if o.status == 'shipped' %}
+          </td>
+          <td class="text-end pe-3">
+            {% set wf = o.workflow %}
+            {% if o.status in wf and wf.index(o.status) + 1 < wf|length %}
+            {% set nxt = wf[wf.index(o.status) + 1] %}
             <form method="post" action="/orders/{{ o.id }}/status" class="d-inline">
-              <input type="hidden" name="status" value="delivered">
+              <input type="hidden" name="status" value="{{ nxt }}">
               <input type="hidden" name="redirect_url" value="/orders?q={{ q }}&status={{ status }}">
-              <button type="submit" class="btn btn-sm btn-success py-0" title="Отметить доставленным">
-                <i class="bi bi-check-circle"></i> Доставлен
+              <button type="submit" class="btn btn-sm btn-outline-success py-0" title="Перевести в «{{ statuses[nxt] }}»">
+                <i class="bi bi-arrow-right-circle"></i> {{ statuses[nxt] }}
               </button>
             </form>
             {% endif %}

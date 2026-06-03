@@ -19,7 +19,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     month_start = today.replace(day=1)
 
     total_orders = db.query(Order).count()
-    active_orders = db.query(Order).filter(Order.status.in_(["confirmed", "shipped"])).count()
+    active_orders = db.query(Order).filter(Order.status.in_(["confirmed", "paid", "assembled", "handed"])).count()
     orders_this_month = db.query(Order).filter(Order.date >= month_start).count()
 
     total_invoices = db.query(Invoice).count()
@@ -72,10 +72,10 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
 
     order_status_counts = {
         s: db.query(Order).filter(Order.status == s).count()
-        for s in ["draft", "confirmed", "shipped", "delivered", "cancelled"]
+        for s in ["draft", "confirmed", "paid", "assembled", "handed", "delivered", "cancelled"]
     }
 
-    _sold_orders = ["confirmed", "shipped", "delivered"]
+    _sold_orders = ["confirmed", "paid", "assembled", "handed", "delivered"]
     total_nuts_sold = db.query(func.sum(OrderItem.quantity)).join(
         Order, OrderItem.order_id == Order.id
     ).filter(Order.status.in_(_sold_orders)).scalar() or 0.0

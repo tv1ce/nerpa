@@ -3,7 +3,7 @@
 {% block page_title %}Дашборд{% endblock %}
 
 {% block content %}
-{% set status_ru = {'draft':'Черновик','confirmed':'Подтверждён','shipped':'Отгружен','delivered':'Доставлен','cancelled':'Отменён'} %}
+{% set status_ru = {'draft':'Черновик','confirmed':'Подтверждён','paid':'Оплачен','assembled':'Собран','handed':'Передан поставщику','delivered':'Доставлено','cancelled':'Отменён'} %}
 
 <!-- ── Stat cards ── -->
 <div class="row g-3 mb-4">
@@ -206,10 +206,10 @@ const sc = {{ order_status_counts | tojson }};
 new Chart(document.getElementById('ordersChart'), {
   type: 'doughnut',
   data: {
-    labels: ['Черновик','Подтверждён','Отгружен','Доставлен','Отменён'],
+    labels: ['Черновик','Подтверждён','Оплачен','Собран','Передан','Доставлено','Отменён'],
     datasets: [{
-      data: [sc.draft, sc.confirmed, sc.shipped, sc.delivered, sc.cancelled],
-      backgroundColor: ['#94A3B8','#2563EB','#8B5CF6','#22C55E','#EF4444'],
+      data: [sc.draft, sc.confirmed, sc.paid, sc.assembled, sc.handed, sc.delivered, sc.cancelled],
+      backgroundColor: ['#94A3B8','#2563EB','#14B8A6','#EAB308','#8B5CF6','#22C55E','#EF4444'],
     }]
   },
   options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }, cutout: '65%' }

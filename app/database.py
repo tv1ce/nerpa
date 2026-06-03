@@ -60,6 +60,9 @@ def _migrate_db():
         ("order_items",    "discount_pct",    "REAL DEFAULT 0.0"),
         ("company_settings", "okpo",          "TEXT"),
         ("contracts",      "payment_days",    "INTEGER"),
+        ("contracts",      "payment_type",    "TEXT DEFAULT 'prepay'"),
+        ("orders",         "payment_type",    "TEXT DEFAULT 'prepay'"),
+        ("orders",         "contract_id",     "INTEGER REFERENCES contracts(id)"),
         ("company_settings", "board_nuts_plan",      "REAL DEFAULT 0.0"),
         ("company_settings", "board_quotes",         "TEXT"),
         ("company_settings", "board_stations",       "TEXT"),
@@ -93,6 +96,12 @@ def _migrate_db():
     # Перевод орешков с «Коробки» на «шт»
     cur.execute("UPDATE products SET unit='шт', sale_unit=NULL, units_per_box=1 WHERE unit='Коробки'")
     cur.execute("UPDATE invoice_items SET unit='шт' WHERE unit='Коробки'")
+
+    # Переход на новый цикл статусов заказа: старый «shipped» (Отгружен)
+    # соответствует новому «handed» (Передан поставщику)
+    cur.execute("UPDATE orders SET status='handed' WHERE status='shipped'")
+    # Договоры с заполненной отсрочкой считаем договорами с отсрочкой платежа
+    cur.execute("UPDATE contracts SET payment_type='deferred' WHERE payment_days IS NOT NULL AND payment_days > 0 AND (payment_type IS NULL OR payment_type='prepay')")
 
     conn.commit()
     conn.close()
