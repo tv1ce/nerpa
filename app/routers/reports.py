@@ -65,10 +65,16 @@ async def revenue_report(
     # Формируем строки таблицы
     shipments = []
     for order in rows_q:
-        qty = sum(i.quantity for i in order.items) if order.items else 0
-        # Ищем оплаченный счёт по этому заказу
-        inv = next((inv for inv in order.invoices if inv.status in ("paid", "issued")), None)
-        amount = inv.total_amount if inv else order.total_amount
+        # Считаем только орешки (исключаем сопутствующие товары — подставки и т.п.)
+        qty = sum(
+            i.quantity for i in order.items
+            if "орешк" in (i.product.name if i.product else "").lower()
+        ) if order.items else 0
+        # Сумма берётся напрямую из заказа — единственный источник правды
+        # (счёт может включать НДС или отличаться по составу)
+        amount = order.total_amount
+        # Ищем связанный оплаченный счёт (только для ссылки)
+        inv = next((inv for inv in order.invoices if inv.status == "paid"), None)
         shipments.append({
             "id": order.id,
             "counterparty": order.counterparty.name if order.counterparty else "—",
@@ -86,9 +92,13 @@ async def revenue_report(
         Invoice.status == "paid",
     ).scalar() or 0.0
 
-    # Орешков за год (сумма всех позиций заказов этого года)
-    nuts_year = db.query(func.sum(OrderItem.quantity)).join(Order).filter(
+    # Орешков за год (только позиции с "орешк" в названии товара)
+    from app.models import Product as ProductModel
+    nuts_year = db.query(func.sum(OrderItem.quantity)).join(Order).join(
+        ProductModel, OrderItem.product_id == ProductModel.id
+    ).filter(
         Order.date >= year_start,
+        func.lower(ProductModel.name).contains("орешк"),
     ).scalar() or 0.0
 
     # Выручка текущей недели
