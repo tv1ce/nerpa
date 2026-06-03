@@ -183,6 +183,32 @@
 {% block scripts %}{% endblock %}
 
 <script>
+// CSRF: автоматически добавляем скрытый токен во все POST-формы
+(function() {
+  var CSRF = {{ csrf_token(request) | tojson }};
+  // Добавляем в существующие формы
+  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function(f) {
+    if (!f.querySelector('[name="csrf_token"]')) {
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'csrf_token'; inp.value = CSRF;
+      f.appendChild(inp);
+    }
+  });
+  // Добавляем заголовок X-CSRF-Token ко всем AJAX fetch-запросам
+  var _origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    if (opts.method && opts.method.toUpperCase() !== 'GET') {
+      opts.headers = Object.assign({ 'X-CSRF-Token': CSRF }, opts.headers || {});
+    }
+    return _origFetch.call(this, url, opts);
+  };
+  // Экспортируем для использования в других скриптах
+  window._CSRF = CSRF;
+})();
+</script>
+
+<script>
 (function () {
   var _open = false;
 

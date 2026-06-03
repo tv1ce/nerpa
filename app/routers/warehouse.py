@@ -47,7 +47,16 @@ def _assembly_queue_count(db: Session) -> int:
 
 
 def _get_balances(db: Session) -> dict:
-    """Возвращает словарь {product_id: current_balance}."""
+    """Возвращает словарь {product_id: current_balance}.
+
+    Логика типов движений:
+      - in:         приход — увеличивает остаток
+      - out:        расход — уменьшает остаток
+      - adjustment: корректировка с явным знаком quantity:
+                    положительное значение → увеличивает (излишки),
+                    отрицательное значение → уменьшает (недостача).
+                    Quantity хранится как введённое (может быть < 0).
+    """
     products = db.query(Product).filter(Product.is_active == True).all()
     result = {}
     for p in products:
@@ -57,9 +66,14 @@ def _get_balances(db: Session) -> dict:
         ).scalar() or 0.0
         out_qty = db.query(func.sum(StockMovement.quantity)).filter(
             StockMovement.product_id == p.id,
-            StockMovement.movement_type.in_(["out", "adjustment"]),
+            StockMovement.movement_type == "out",
         ).scalar() or 0.0
-        result[p.id] = round((p.initial_stock or 0) + in_qty - out_qty, 3)
+        # adjustment: quantity хранится со знаком (+ излишки, - недостача)
+        adj_qty = db.query(func.sum(StockMovement.quantity)).filter(
+            StockMovement.product_id == p.id,
+            StockMovement.movement_type == "adjustment",
+        ).scalar() or 0.0
+        result[p.id] = round((p.initial_stock or 0) + in_qty - out_qty + adj_qty, 3)
     return result
 
 
@@ -204,11 +218,24 @@ async def create_movement(
     db: Session = Depends(get_db),
 ):
     linked_order_id = order_id or None
+    # Валидация типа движения
+    if movement_type not in ("in", "out", "adjustment"):
+        movement_type = "in"
+    # Для прихода/расхода quantity всегда положительный
+    # Для корректировки quantity хранится со знаком (+ излишки, - недостача)
+    if movement_type in ("in", "out"):
+        quantity = abs(quantity)
+    if quantity == 0 and movement_type != "adjustment":
+        return RedirectResponse(url="/warehouse/", status_code=302)
+    try:
+        parsed_date = date.fromisoformat(mov_date)
+    except (ValueError, TypeError):
+        parsed_date = date.today()
     mv = StockMovement(
         product_id=product_id,
         movement_type=movement_type,
-        quantity=abs(quantity),
-        date=date.fromisoformat(mov_date),
+        quantity=quantity,
+        date=parsed_date,
         reason=reason,
         order_id=linked_order_id,
         notes=notes,

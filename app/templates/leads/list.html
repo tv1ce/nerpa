@@ -303,12 +303,20 @@ async function showHistory(id){
     const r = await fetch(`/leads/${id}/history`); const d = await r.json();
     document.getElementById('histTitle').textContent = 'История: ' + d.name;
     if (!d.calls.length){ body.innerHTML = '<div class="text-muted text-center py-4">Звонков ещё не было</div>'; return; }
-    body.innerHTML = d.calls.map(c =>
-      '<div class="d-flex gap-2 pb-2 mb-2 border-bottom">' +
-        '<span class="badge bg-'+c.color+' align-self-start">'+c.label+'</span>' +
-        '<div class="flex-grow-1"><div class="small">'+(c.comment||'<span class="text-muted">без комментария</span>')+'</div>' +
-        '<div class="text-muted" style="font-size:.72rem">'+c.user+' · '+c.time+'</div></div>' +
-      '</div>').join('');
+    function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    // Допустимые CSS-классы Bootstrap для цвета бейджа
+    const SAFE_COLORS = new Set(['primary','secondary','success','danger','warning','info','light','dark']);
+    body.innerHTML = d.calls.map(c => {
+      const safeColor = SAFE_COLORS.has(c.color) ? c.color : 'secondary';
+      const comment = c.comment
+        ? '<span>' + esc(c.comment) + '</span>'
+        : '<span class="text-muted">без комментария</span>';
+      return '<div class="d-flex gap-2 pb-2 mb-2 border-bottom">' +
+        '<span class="badge bg-' + safeColor + ' align-self-start">' + esc(c.label) + '</span>' +
+        '<div class="flex-grow-1"><div class="small">' + comment + '</div>' +
+        '<div class="text-muted" style="font-size:.72rem">' + esc(c.user) + ' · ' + esc(c.time) + '</div></div>' +
+      '</div>';
+    }).join('');
   } catch(e){ body.innerHTML = '<div class="text-danger text-center py-4">Ошибка загрузки</div>'; }
 }
 function submitTo(formId, action){ const f=document.getElementById(formId); f.action=action; f.submit(); }

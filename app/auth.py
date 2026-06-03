@@ -3,6 +3,7 @@ from fastapi import Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from app.database import SessionLocal, verify_password
 from app.models import User
+import secrets as _secrets
 
 ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "viewer": 1, "warehouse": 1}
 
@@ -53,14 +54,62 @@ def _warehouse_check(request: Request):
     return None
 
 
+async def _verify_csrf(request: Request) -> bool:
+    """Проверяет CSRF-токен для POST-запросов.
+    Принимает токен из тела формы (csrf_token) или заголовка X-CSRF-Token."""
+    session_token = request.session.get("csrf_token")
+    if not session_token:
+        return False
+    # Сначала проверяем заголовок (для AJAX)
+    header_token = request.headers.get("X-CSRF-Token")
+    if header_token:
+        return _secrets.compare_digest(session_token, header_token)
+    # Затем из тела формы
+    try:
+        form = await request.form()
+        form_token = form.get("csrf_token", "")
+        return _secrets.compare_digest(session_token, str(form_token))
+    except Exception:
+        return False
+
+
+def _get_fresh_user(request: Request):
+    """Проверяет сессию и загружает актуального пользователя из БД.
+    Если пользователь деактивирован или удалён — возвращает None."""
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+        if user:
+            # Синхронизируем роль в сессии с актуальной ролью из БД
+            request.session["user_role"] = user.role
+        return user
+    finally:
+        db.close()
+
+
 def login_required(func):
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
-        if not request.session.get("user_id"):
+        user = _get_fresh_user(request)
+        if not user:
+            request.session.clear()
             return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
         denied = _warehouse_check(request)
         if denied:
             return denied
+        # CSRF-проверка для изменяющих запросов
+        if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+            if not await _verify_csrf(request):
+                return HTMLResponse(
+                    '<div style="font-family:sans-serif;text-align:center;padding:2rem">'
+                    '<h2>403 — Неверный CSRF-токен</h2>'
+                    '<p>Обновите страницу и попробуйте снова.</p>'
+                    '<a href="javascript:history.back()">Назад</a></div>',
+                    status_code=403,
+                )
         return await func(request, *args, **kwargs)
     return wrapper
 
@@ -70,15 +119,26 @@ def role_required(min_role: str = "viewer"):
     def decorator(func):
         @wraps(func)
         async def wrapper(request: Request, *args, **kwargs):
-            user_id = request.session.get("user_id")
-            if not user_id:
+            user = _get_fresh_user(request)
+            if not user:
+                request.session.clear()
                 return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
             denied = _warehouse_check(request)
             if denied:
                 return denied
-            role = request.session.get("user_role", "viewer")
+            role = user.role  # берём роль из БД, не из сессии
             if ROLE_LEVELS.get(role, 0) < ROLE_LEVELS.get(min_role, 0):
                 return HTMLResponse(_403_HTML, status_code=403)
+            # CSRF-проверка для изменяющих запросов
+            if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+                if not await _verify_csrf(request):
+                    return HTMLResponse(
+                        '<div style="font-family:sans-serif;text-align:center;padding:2rem">'
+                        '<h2>403 — Неверный CSRF-токен</h2>'
+                        '<p>Обновите страницу и попробуйте снова.</p>'
+                        '<a href="javascript:history.back()">Назад</a></div>',
+                        status_code=403,
+                    )
             return await func(request, *args, **kwargs)
         return wrapper
     return decorator

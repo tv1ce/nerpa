@@ -53,7 +53,7 @@ foreach ($url in $networkUrls) {
     Write-Host "   V seti  : $url" -ForegroundColor Yellow
 }
 Write-Host ""
-Write-Host "   Login: admin    Parol: admin" -ForegroundColor DarkGray
+Write-Host "   Login: admin" -ForegroundColor DarkGray
 Write-Host "   Dlya ostanovki nazhmite Ctrl+C" -ForegroundColor DarkGray
 Write-Host ""
 Sep

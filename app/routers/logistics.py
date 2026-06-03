@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 from io import BytesIO
-import re, json
+import os, re, json
 
 import httpx
 from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
@@ -460,9 +460,9 @@ async def upload_file(
 # ══════════════════════════════════════════════════════════════════════════════
 
 GLIDE_GW = "https://functions.prod.internal.glideapps.com"
-DEFAULT_APP_ID = "c1zFt3H3s7tBVg16UEKR"
-# Firebase API-ключ окружения glide-prod (для обмена custom-token → id-token)
-GLIDE_FB_KEY = "AIzaSyCdlydoa5aGY9eVkZODhJFbD_lx_q7Pmks"
+DEFAULT_APP_ID = os.getenv("GLIDE_APP_ID", "c1zFt3H3s7tBVg16UEKR")
+# Firebase API-ключ читается из .env
+GLIDE_FB_KEY = os.getenv("GLIDE_FB_KEY", "")
 FB_CUSTOM_URL  = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={GLIDE_FB_KEY}"
 FB_REFRESH_URL = f"https://securetoken.googleapis.com/v1/token?key={GLIDE_FB_KEY}"
 

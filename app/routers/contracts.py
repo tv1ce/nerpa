@@ -214,9 +214,23 @@ async def upload_template(
     db: Session = Depends(get_db),
 ):
     os.makedirs("document_templates", exist_ok=True)
-    safe_name = file.filename.replace(" ", "_")
+    # Защита от path traversal: берём только имя файла без пути
+    safe_name = os.path.basename(file.filename or "").replace(" ", "_")
+    if not safe_name:
+        return RedirectResponse(url="/contracts/templates/", status_code=302)
+    # Разрешаем только .docx файлы
+    if not safe_name.lower().endswith(".docx"):
+        return RedirectResponse(url="/contracts/templates/", status_code=302)
+    # Ограничение размера — 10 МБ
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        return RedirectResponse(url="/contracts/templates/", status_code=302)
     file_path = os.path.join("document_templates", safe_name)
-    content = await file.read()
+    # Финальная проверка что путь внутри разрешённой директории
+    abs_dir = os.path.abspath("document_templates")
+    abs_path = os.path.abspath(file_path)
+    if not abs_path.startswith(abs_dir + os.sep):
+        return RedirectResponse(url="/contracts/templates/", status_code=302)
     with open(file_path, "wb") as f:
         f.write(content)
     tpl = DocumentTemplate(name=name, type=type, file_path=file_path, description=description)

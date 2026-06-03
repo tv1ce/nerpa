@@ -28,7 +28,8 @@ def _generate_signatory(full_name: str) -> str:
         return f"{parts[0]} {parts[1][0].upper()}."
     return parts[0] if parts else ""
 
-DADATA_TOKEN = "f8e4e9a1543e8d8f79091bab8d1422a83ee2d573"
+import os as _os
+DADATA_TOKEN = _os.getenv("DADATA_TOKEN", "")
 DADATA_HEADERS = {
     "Authorization": f"Token {DADATA_TOKEN}",
     "Content-Type": "application/json",

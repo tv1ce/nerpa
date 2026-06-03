@@ -16,9 +16,20 @@ init_db()
 app = FastAPI(title="TMS — Управление поставками")
 
 # Сессия живёт 30 дней — чтобы мобильное приложение/браузер «помнили» пользователя
+_session_secret = os.environ.get("SECRET_KEY")
+if not _session_secret:
+    import secrets
+    _session_secret = secrets.token_hex(32)
+    import sys
+    print(
+        "\n[TMS WARNING] SECRET_KEY не задан в .env — используется временный ключ. "
+        "Все сессии сбросятся при перезапуске. Добавьте SECRET_KEY=<случайная строка> в .env\n",
+        file=sys.stderr,
+    )
+
 app.add_middleware(
     SessionMiddleware,
-    secret_key="tms-secret-change-in-production-2024",
+    secret_key=_session_secret,
     max_age=60 * 60 * 24 * 30,
     same_site="lax",
 )
@@ -116,12 +127,23 @@ def _fmt_date(value):
 
 # Регистрируем фильтры во всех шаблонах через Jinja2Templates
 from datetime import date as _date
+import secrets as _secrets
+
+def _get_csrf_token(request) -> str:
+    """Возвращает CSRF-токен из сессии, при необходимости создаёт новый."""
+    token = request.session.get("csrf_token")
+    if not token:
+        token = _secrets.token_hex(32)
+        request.session["csrf_token"] = token
+    return token
+
 _templates = Jinja2Templates(directory="app/templates")
 _templates.env.filters["money"] = _fmt_money
 _templates.env.filters["date_fmt"] = _fmt_date
 _templates.env.filters["format_number"] = lambda v: f"{int(v):,}".replace(",", " ")
-# Глобальная переменная today доступна в каждом шаблоне
-_templates.env.globals["today"] = _date.today()
+# today вычисляется динамически на каждый запрос через глобальную функцию
+_templates.env.globals["today"] = _date.today  # callable — Jinja2 вызовет при рендере
+_templates.env.globals["csrf_token"] = _get_csrf_token
 
 
 def _safe_url(v):

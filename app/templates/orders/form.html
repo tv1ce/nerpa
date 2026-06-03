@@ -169,14 +169,14 @@
 <script>
 const productsMap = {
   {% for p in products %}
-  "{{ p.id }}": { name: "{{ p.name | replace('"', '\\"') }}", unit: "{{ p.sale_unit or p.unit }}", price: {{ p.price }}, vat_rate: {{ p.vat_rate }} },
+  {{ p.id }}: { name: {{ p.name | tojson }}, unit: {{ (p.sale_unit or p.unit) | tojson }}, price: {{ p.price }}, vat_rate: {{ p.vat_rate }} },
   {% endfor %}
 };
 
 const initialItems = [
   {% if order %}
     {% for item in order.items %}
-    { product_id: "{{ item.product_id }}", name: "{{ item.product.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.product.sale_unit or item.product.unit }}", price: {{ item.price }}, discount_pct: {{ item.discount_pct or 0 }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
+    { product_id: {{ item.product_id }}, name: {{ item.product.name | tojson }}, quantity: {{ item.quantity }}, unit: {{ (item.product.sale_unit or item.product.unit) | tojson }}, price: {{ item.price }}, discount_pct: {{ item.discount_pct or 0 }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
     {% endfor %}
   {% endif %}
 ];
