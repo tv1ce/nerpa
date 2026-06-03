@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import role_required
+from app.auth import role_required, safe_redirect
 from app.models import Task, Comment, User
 
 router = APIRouter(prefix="/activity", tags=["activity"])
@@ -41,7 +41,7 @@ async def create_task(
             status="open",
         ))
         db.commit()
-    return RedirectResponse(url=redirect_url or "/", status_code=302)
+    return RedirectResponse(url=safe_redirect(redirect_url), status_code=302)
 
 
 @router.post("/tasks/{task_id}/toggle")
@@ -55,7 +55,7 @@ async def toggle_task(
     if task:
         task.status = "done" if task.status == "open" else "open"
         db.commit()
-    return RedirectResponse(url=redirect_url or "/", status_code=302)
+    return RedirectResponse(url=safe_redirect(redirect_url), status_code=302)
 
 
 @router.post("/tasks/{task_id}/delete")
@@ -69,7 +69,7 @@ async def delete_task(
     if task:
         db.delete(task)
         db.commit()
-    return RedirectResponse(url=redirect_url or "/", status_code=302)
+    return RedirectResponse(url=safe_redirect(redirect_url), status_code=302)
 
 
 # ── Комментарии ───────────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ async def create_comment(
             created_by_id=request.session.get("user_id"),
         ))
         db.commit()
-    return RedirectResponse(url=redirect_url or "/", status_code=302)
+    return RedirectResponse(url=safe_redirect(redirect_url), status_code=302)
 
 
 @router.post("/comments/{comment_id}/delete")
@@ -109,4 +109,4 @@ async def delete_comment(
         if comment.created_by_id == uid or role == "admin":
             db.delete(comment)
             db.commit()
-    return RedirectResponse(url=redirect_url or "/", status_code=302)
+    return RedirectResponse(url=safe_redirect(redirect_url), status_code=302)

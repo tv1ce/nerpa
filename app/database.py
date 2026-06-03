@@ -115,6 +115,8 @@ def _migrate_db():
         ("company_settings", "tg_bot_token", "TEXT"),
         # Принудительная смена пароля при следующем входе
         ("users", "must_change_password", "INTEGER DEFAULT 0"),
+        # Адресат уведомления (NULL = системное, видят все)
+        ("notifications", "user_id", "INTEGER REFERENCES users(id)"),
     ]
     for table, column, col_def in migrations:
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]

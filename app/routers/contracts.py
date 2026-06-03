@@ -175,9 +175,14 @@ async def download_contract(request: Request, contract_id: int, db: Session = De
     contract = db.query(Contract).filter(Contract.id == contract_id).first()
     if not contract or not contract.file_path or not os.path.exists(contract.file_path):
         return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
+    # Защита от path traversal: файл договора должен лежать внутри generated/
+    allowed_dir = os.path.abspath("generated")
+    abs_path = os.path.abspath(contract.file_path)
+    if not abs_path.startswith(allowed_dir + os.sep):
+        return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
     return FileResponse(
-        contract.file_path,
-        filename=os.path.basename(contract.file_path),
+        abs_path,
+        filename=os.path.basename(abs_path),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
 

@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.auth import login_required
+from app.auth import login_required, role_required
 from app.models import SalesLead, LeadCall, CompanySettings
 from app.utils import recon as R
 
@@ -131,7 +131,7 @@ async def save_config(request: Request, dadata_token: str = Form(default=""),
 
 
 @router.post("/run-local", response_class=JSONResponse)
-@login_required
+@role_required("manager")
 async def run_local(request: Request, source: str = Form(default=""),
                     db: Session = Depends(get_db)):
     """Локальное обогащение всей базы: соцсети/почта/телефон/ИНН + пересборка сетей."""
@@ -165,7 +165,7 @@ async def run_local(request: Request, source: str = Form(default=""),
 
 
 @router.post("/run-dadata", response_class=JSONResponse)
-@login_required
+@role_required("manager")
 async def run_dadata(request: Request, source: str = Form(default=""),
                      limit: int = Form(default=50), only_missing: str = Form(default="on"),
                      drop_dead: str = Form(default="on"),
@@ -226,7 +226,7 @@ async def run_dadata(request: Request, source: str = Form(default=""),
 
 
 @router.post("/cleanup-dead", response_class=JSONResponse)
-@login_required
+@role_required("manager")
 async def cleanup_dead(request: Request, db: Session = Depends(get_db)):
     """Разовая чистка: убрать из активной базы все уже помеченные как
     ликвидирующиеся / ликвидированные / банкроты (по ранее полученному статусу)."""
@@ -249,7 +249,7 @@ async def dedup_preview(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/dedup", response_class=JSONResponse)
-@login_required
+@role_required("manager")
 async def dedup(request: Request, db: Session = Depends(get_db)):
     """Склеивает истинные дубли (одинаковый ИНН+адрес или телефон):
     оставляет самую полную запись, переносит на неё историю звонков и лучший

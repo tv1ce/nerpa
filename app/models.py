@@ -374,10 +374,13 @@ class Notification(Base):
     title = Column(String(200), nullable=False)
     body = Column(Text)
     product_id = Column(Integer, ForeignKey("products.id"))
+    # user_id = NULL → системное уведомление, видят все (напр. low_stock склада)
+    user_id = Column(Integer, ForeignKey("users.id"))
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
 
     product = relationship("Product")
+    user = relationship("User")
 
 
 class StockMovement(Base):

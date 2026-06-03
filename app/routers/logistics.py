@@ -335,10 +335,12 @@ async def logistics_index(
             LogisticsCost.date <= d_to,
         ).scalar() or 0.0
 
-    # ID перевозчика берём из таблицы контрагентов один раз
+    # ID перевозчика «логистики 1 заказа» берём из таблицы контрагентов.
+    # Имя задаётся через env LOGI_CARRIER_NAME (по умолчанию — текущий перевозчик).
     from app.models import Counterparty as _CP
+    _carrier_name = os.getenv("LOGI_CARRIER_NAME", "Гоголев Николай Николаевич")
     _carrier = db.query(_CP).filter(
-        _CP.name.ilike("%Гоголев Николай Николаевич%")
+        _CP.name.ilike(f"%{_carrier_name}%")
     ).first()
     _carrier_id = _carrier.id if _carrier else None
 

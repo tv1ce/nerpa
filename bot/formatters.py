@@ -4,6 +4,17 @@ from __future__ import annotations
 from datetime import date
 
 
+def _esc(text) -> str:
+    """Экранирует спецсимволы Markdown v1 в пользовательских строках
+    (имена клиентов, продуктов), чтобы не сломать форматирование сообщения."""
+    if text is None:
+        return ""
+    s = str(text)
+    for ch in ("_", "*", "`", "["):
+        s = s.replace(ch, "\\" + ch)
+    return s
+
+
 def _fmt(amount: float) -> str:
     """Форматирует число: 123456.7 → '123 456 ₽'."""
     return f"{amount:,.0f} ₽".replace(",", " ")
@@ -106,7 +117,7 @@ def format_weekly(m: dict) -> str:
     if m["top_clients"]:
         lines += ["", "🏆 *Топ клиентов за неделю*"]
         for i, (name, total) in enumerate(m["top_clients"], 1):
-            lines.append(f"  {i}. {name}: `{_fmt(total)}`")
+            lines.append(f"  {i}. {_esc(name)}: `{_fmt(total)}`")
 
     return "\n".join(lines)
 
@@ -158,12 +169,12 @@ def format_monthly(m: dict) -> str:
     if m["top_clients"]:
         lines += ["", "🏆 *Топ-5 клиентов*"]
         for i, (name, total) in enumerate(m["top_clients"], 1):
-            lines.append(f"  {i}. {name}: `{_fmt(total)}`")
+            lines.append(f"  {i}. {_esc(name)}: `{_fmt(total)}`")
 
     if m["top_products"]:
         lines += ["", "🔝 *Топ продуктов*"]
         for i, (name, qty) in enumerate(m["top_products"], 1):
-            lines.append(f"  {i}. {name}: `{_qty(qty)}`")
+            lines.append(f"  {i}. {_esc(name)}: `{_qty(qty)}`")
 
     if m["claims_new"] > 0:
         lines += [

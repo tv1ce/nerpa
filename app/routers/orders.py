@@ -119,6 +119,8 @@ async def create_order(
     db: Session = Depends(get_db),
 ):
     payment_type = _resolve_payment_type(db, contract_id, payment_type)
+    if status not in ORDER_STATUSES:
+        status = "draft"
     order = Order(
         number=number,
         date=date.fromisoformat(order_date),
@@ -139,7 +141,10 @@ async def create_order(
     )
     db.add(order)
     db.flush()
-    items_data = json.loads(items_json)
+    try:
+        items_data = json.loads(items_json)
+    except (ValueError, TypeError):
+        items_data = []
     # Фильтруем позиции без выбранного товара (защита от невалидных данных)
     items_data = [i for i in items_data if i.get("product_id")]
     for item in items_data:
@@ -242,7 +247,8 @@ async def update_order(
     order.carrier_id = carrier_id or None
     order.contract_id = contract_id or None
     order.payment_type = _resolve_payment_type(db, contract_id, payment_type)
-    order.status = status
+    if status in ORDER_STATUSES:
+        order.status = status
     order.delivery_date = date.fromisoformat(delivery_date) if delivery_date else None
     order.delivery_address = delivery_address
     order.notes = notes
@@ -253,7 +259,10 @@ async def update_order(
     for item in order.items:
         db.delete(item)
     db.flush()
-    items_data = json.loads(items_json)
+    try:
+        items_data = json.loads(items_json)
+    except (ValueError, TypeError):
+        items_data = []
     items_data = [i for i in items_data if i.get("product_id")]
     for item in items_data:
         qty = float(item["quantity"])
@@ -283,7 +292,9 @@ async def change_status(request: Request, order_id: int,
                         db: Session = Depends(get_db)):
     from app.auth import ROLE_LEVELS
     role = request.session.get("user_role", "viewer")
-    order = db.query(Order).filter(Order.id == order_id).first()
+    # with_for_update блокирует строку до commit — защита от гонки
+    # одновременных смен статуса (на SQLite сводится к сериализации записи)
+    order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
 
     # Кладовщик может переводить заказ в «Собран» только когда он готов к сборке
     if role == "warehouse":

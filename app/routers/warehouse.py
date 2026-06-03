@@ -5,7 +5,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
-from app.auth import login_required
+from app.auth import login_required, role_required
 from app.models import Product, StockMovement, Order
 from app.utils import maybe_notify_low_stock, log_action
 
@@ -256,7 +256,7 @@ async def create_movement(
 # ── Удаление записи журнала ───────────────────────────────────────────────────
 
 @router.post("/journal/{movement_id}/delete")
-@login_required
+@role_required("manager")
 async def delete_movement(request: Request, movement_id: int, db: Session = Depends(get_db)):
     mv = db.query(StockMovement).filter(StockMovement.id == movement_id).first()
     if mv:
@@ -268,7 +268,7 @@ async def delete_movement(request: Request, movement_id: int, db: Session = Depe
 # ── Редактирование мин. остатка и нач. остатка прямо со страницы склада ──────
 
 @router.post("/product/{product_id}/stock-settings")
-@login_required
+@role_required("manager")
 async def update_stock_settings(
     request: Request,
     product_id: int,

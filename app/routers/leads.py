@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from app.database import get_db
-from app.auth import login_required
+from app.auth import login_required, role_required
 from app.models import SalesLead, LeadCall, User, Counterparty
 
 # Поля, которые можно сопоставлять колонкам (для превью-маппинга)
@@ -548,7 +548,7 @@ async def set_field(request: Request, lead_id: int,
 
 
 @router.post("/{lead_id}/delete")
-@login_required
+@role_required("manager")
 async def delete_lead(request: Request, lead_id: int, db: Session = Depends(get_db)):
     lead = db.query(SalesLead).filter(SalesLead.id == lead_id).first()
     if lead:
@@ -558,7 +558,7 @@ async def delete_lead(request: Request, lead_id: int, db: Session = Depends(get_
 
 
 @router.post("/clear")
-@login_required
+@role_required("manager")
 async def clear_source(request: Request, source: str = Form(default=""),
                        db: Session = Depends(get_db)):
     q = db.query(SalesLead).filter(SalesLead.is_active == True)
@@ -570,7 +570,7 @@ async def clear_source(request: Request, source: str = Form(default=""),
 
 
 @router.post("/bulk")
-@login_required
+@role_required("manager")
 async def bulk_action(request: Request, db: Session = Depends(get_db)):
     """Массовые действия над выбранными точками."""
     form = await request.form()

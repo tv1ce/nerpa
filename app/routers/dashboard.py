@@ -50,8 +50,9 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
 
     months_data = []
     for i in range(5, -1, -1):
-        d = today.replace(day=1) - timedelta(days=i * 28)
-        ms = d.replace(day=1)
+        # Корректный сдвиг на i месяцев назад (без приближения 28 дней)
+        total = (today.year * 12 + (today.month - 1)) - i
+        ms = date(total // 12, total % 12 + 1, 1)
         if ms.month == 12:
             me = ms.replace(year=ms.year + 1, month=1, day=1) - timedelta(days=1)
         else:

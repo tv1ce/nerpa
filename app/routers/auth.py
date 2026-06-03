@@ -4,15 +4,36 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db, verify_password, hash_password
 from app.models import User
-from app.auth import login_required
+from app.auth import login_required, safe_redirect as _safe_next
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 templates = Jinja2Templates(directory="app/templates")
 
 
+# ── Простой in-memory rate limiting на логин (H-13) ───────────────────────────
+import time as _time
+from collections import defaultdict
+
+_login_attempts: dict[str, list] = defaultdict(list)
+_MAX_ATTEMPTS = 5          # попыток
+_WINDOW_SEC = 300          # за 5 минут
+
+
+def _rate_limited(key: str) -> bool:
+    now = _time.time()
+    # чистим устаревшие отметки
+    attempts = [t for t in _login_attempts[key] if now - t < _WINDOW_SEC]
+    _login_attempts[key] = attempts
+    return len(attempts) >= _MAX_ATTEMPTS
+
+
+def _record_attempt(key: str) -> None:
+    _login_attempts[key].append(_time.time())
+
+
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, next: str = "/"):
-    return templates.TemplateResponse(request, "auth/login.html", {"next": next, "error": None})
+    return templates.TemplateResponse(request, "auth/login.html", {"next": _safe_next(next), "error": None})
 
 
 @router.post("/login")
@@ -23,13 +44,28 @@ async def login(
     next: str = Form(default="/"),
     db: Session = Depends(get_db),
 ):
+    next = _safe_next(next)
+    # Ключ ограничения — IP клиента + логин
+    client_ip = request.client.host if request.client else "?"
+    rl_key = f"{client_ip}:{username}"
+
+    if _rate_limited(rl_key):
+        return templates.TemplateResponse(
+            request, "auth/login.html",
+            {"next": next, "error": "Слишком много попыток входа. Попробуйте через 5 минут."},
+            status_code=429,
+        )
+
     user = db.query(User).filter(User.username == username, User.is_active == True).first()
     if not user or not verify_password(password, user.password_hash):
+        _record_attempt(rl_key)
         return templates.TemplateResponse(
             request, "auth/login.html",
             {"next": next, "error": "Неверный логин или пароль"},
             status_code=401,
         )
+    # Успешный вход — сбрасываем счётчик попыток
+    _login_attempts.pop(rl_key, None)
     request.session["user_id"] = user.id
     request.session["user_name"] = user.full_name
     request.session["user_role"] = user.role

@@ -7,6 +7,16 @@ import secrets as _secrets
 
 ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "viewer": 1, "warehouse": 1}
 
+
+def safe_redirect(url: str, default: str = "/") -> str:
+    """Защита от open redirect: разрешаем только локальные пути /path.
+    Внешние URL (//evil.com, http://...) → default."""
+    if not url:
+        return default
+    if url.startswith("/") and not url.startswith("//"):
+        return url
+    return default
+
 # Человекочитаемые названия ролей
 ROLE_LABELS = {
     "admin": "Администратор", "manager": "Менеджер", "sales": "Отдел продаж",

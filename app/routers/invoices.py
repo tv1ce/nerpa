@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import login_required
+from app.auth import login_required, role_required
 from app.models import Invoice, InvoiceItem, Counterparty, Order, Product, CompanySettings, Contract
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
@@ -85,7 +85,7 @@ async def new_invoice(request: Request, order_id: int = 0, db: Session = Depends
 
 
 @router.post("/new")
-@login_required
+@role_required("manager")
 async def create_invoice(
     request: Request,
     number: str = Form(...),
@@ -99,7 +99,10 @@ async def create_invoice(
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
-    items = json.loads(items_json)
+    try:
+        items = json.loads(items_json)
+    except (ValueError, TypeError):
+        items = []
     subtotal, vat_amount = _calc_totals(items)
     invoice = Invoice(
         number=number, date=date.fromisoformat(invoice_date),
@@ -145,7 +148,7 @@ async def edit_invoice(request: Request, invoice_id: int, db: Session = Depends(
 
 
 @router.post("/{invoice_id}/edit")
-@login_required
+@role_required("manager")
 async def update_invoice(
     request: Request, invoice_id: int,
     number: str = Form(...),
@@ -163,7 +166,10 @@ async def update_invoice(
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
         return RedirectResponse(url="/invoices", status_code=302)
-    items = json.loads(items_json)
+    try:
+        items = json.loads(items_json)
+    except (ValueError, TypeError):
+        items = []
     subtotal, vat_amount = _calc_totals(items)
     invoice.number = number; invoice.date = date.fromisoformat(invoice_date)
     invoice.counterparty_id = counterparty_id; invoice.order_id = order_id or None
@@ -183,7 +189,7 @@ async def update_invoice(
 
 
 @router.post("/{invoice_id}/status")
-@login_required
+@role_required("manager")
 async def change_status(request: Request, invoice_id: int,
                         status: str = Form(...), paid_date: str = Form(default=""),
                         db: Session = Depends(get_db)):
@@ -301,7 +307,7 @@ async def download_offer_supplier(request: Request, invoice_id: int, db: Session
 
 
 @router.post("/{invoice_id}/delete")
-@login_required
+@role_required("manager")
 async def delete_invoice(request: Request, invoice_id: int, db: Session = Depends(get_db)):
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if invoice:

@@ -34,7 +34,7 @@ from bot.metrics import (
     get_daily_metrics, get_weekly_metrics, get_monthly_metrics,
     get_callbacks_today,
 )
-from bot.formatters import format_daily, format_weekly, format_monthly
+from bot.formatters import format_daily, format_weekly, format_monthly, _esc as _esc_md
 
 load_dotenv()
 
@@ -47,19 +47,44 @@ logger = logging.getLogger(__name__)
 # ── Конфигурация ──────────────────────────────────────────────────────────────
 
 BOT_TOKEN = os.getenv("TMS_BOT_TOKEN", "")
-CHAT_IDS = [
-    int(x.strip())
-    for x in os.getenv("TMS_CHAT_IDS", "").split(",")
-    if x.strip()
-]
+
+
+def _parse_chat_ids(raw: str) -> list[int]:
+    """Парсит TMS_CHAT_IDS, пропуская нечисловые значения без падения."""
+    result = []
+    for x in raw.split(","):
+        x = x.strip()
+        if not x:
+            continue
+        try:
+            result.append(int(x))
+        except ValueError:
+            logger.warning("TMS_CHAT_IDS: пропущено нечисловое значение %r", x)
+    return result
+
+
+CHAT_IDS = _parse_chat_ids(os.getenv("TMS_CHAT_IDS", ""))
 
 TZ_NAME = os.getenv("TMS_TZ", "Europe/Moscow")
-TZ = ZoneInfo(TZ_NAME)
+try:
+    TZ = ZoneInfo(TZ_NAME)
+except Exception:
+    logger.warning("Неизвестный часовой пояс %r, используется Europe/Moscow", TZ_NAME)
+    TZ_NAME = "Europe/Moscow"
+    TZ = ZoneInfo(TZ_NAME)
 
 
 def _parse_time(env_var: str, default: str) -> time:
+    """Парсит HH:MM из env. При ошибке — использует значение по умолчанию."""
     raw = os.getenv(env_var, default)
-    h, m = map(int, raw.split(":"))
+    try:
+        h, m = map(int, raw.split(":"))
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"время вне диапазона: {raw}")
+    except (ValueError, AttributeError):
+        logger.warning("%s=%r — неверный формат (ожидается HH:MM), используется %s",
+                       env_var, raw, default)
+        h, m = map(int, default.split(":"))
     return time(hour=h, minute=m, tzinfo=TZ)
 
 
@@ -78,9 +103,25 @@ async def broadcast(bot: Bot, text: str) -> None:
                 chat_id=chat_id,
                 text=text,
                 parse_mode=ParseMode.MARKDOWN,
+                read_timeout=20, write_timeout=20, connect_timeout=10,
             )
         except Exception as e:
             logger.error("Ошибка отправки в chat_id=%s: %s", chat_id, e)
+
+
+def _authorized(update: Update) -> bool:
+    """Команды бота доступны только подписчикам из TMS_CHAT_IDS.
+    Если список пуст — доступ запрещён всем (безопасно по умолчанию)."""
+    chat = update.effective_chat
+    return bool(chat and chat.id in CHAT_IDS)
+
+
+async def _deny(update: Update) -> None:
+    if update.message:
+        await update.message.reply_text(
+            "⛔ Доступ запрещён. Этот бот обслуживает только сотрудников компании.\n"
+            "Сообщите администратору свой chat_id, чтобы получить доступ."
+        )
 
 
 # ── Генераторы отчётов ────────────────────────────────────────────────────────
@@ -123,11 +164,11 @@ def _callbacks_text() -> str:
     for it in items:
         by_mgr.setdefault(it["manager"] or "Без менеджера", []).append(it)
     for mgr, rows in by_mgr.items():
-        lines.append(f"\n👤 *{mgr}*")
+        lines.append(f"\n👤 *{_esc_md(mgr)}*")
         for r in rows:
             flag = "🔴 " if r["overdue"] else ""
             phone = f" — `{r['phone']}`" if r["phone"] else ""
-            lines.append(f"  {flag}{r['name']}{phone}")
+            lines.append(f"  {flag}{_esc_md(r['name'])}{phone}")
     return "\n".join(lines)
 
 
@@ -160,6 +201,8 @@ async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
 # ── Команды бота ─────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return await _deny(update)
     await update.message.reply_text(
         "👋 *TMS Report Bot*\n\n"
         "Доступные команды:\n"
@@ -172,23 +215,46 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def _safe_reply(update: Update, text_fn) -> None:
+    """Вызывает генератор текста отчёта с обработкой ошибок БД."""
+    try:
+        text = text_fn()
+    except Exception as e:
+        logger.exception("Ошибка формирования отчёта: %s", e)
+        await update.message.reply_text(
+            "⚠️ Не удалось сформировать отчёт. Попробуйте позже или обратитесь к администратору."
+        )
+        return
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
 async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(_daily_text(), parse_mode=ParseMode.MARKDOWN)
+    if not _authorized(update):
+        return await _deny(update)
+    await _safe_reply(update, _daily_text)
 
 
 async def cmd_weekly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(_weekly_text(), parse_mode=ParseMode.MARKDOWN)
+    if not _authorized(update):
+        return await _deny(update)
+    await _safe_reply(update, _weekly_text)
 
 
 async def cmd_monthly(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(_monthly_text(), parse_mode=ParseMode.MARKDOWN)
+    if not _authorized(update):
+        return await _deny(update)
+    await _safe_reply(update, _monthly_text)
 
 
 async def cmd_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(_callbacks_text(), parse_mode=ParseMode.MARKDOWN)
+    if not _authorized(update):
+        return await _deny(update)
+    await _safe_reply(update, _callbacks_text)
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return await _deny(update)
     today = date.today()
     last_day = calendar.monthrange(today.year, today.month)[1]
     text = (
