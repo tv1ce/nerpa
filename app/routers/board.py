@@ -82,12 +82,16 @@ def _collect_metrics(db: Session) -> dict:
     last_month_end   = month_start - timedelta(days=1)
     last_month_start = last_month_end.replace(day=1)
 
+    # KPI-фильтр берём из настроек компании (так же как в dashboard и reports)
+    _company_pre = db.query(CompanySettings).first()
+    _kpi = (_company_pre.kpi_product_filter if _company_pre and _company_pre.kpi_product_filter else "орешк")
+
     def _nuts(*filters):
         q = db.query(func.sum(OrderItem.quantity)).join(
             Order, OrderItem.order_id == Order.id
         ).join(Product, OrderItem.product_id == Product.id).filter(
             Order.status.in_(_SOLD),
-            Product.name.ilike("%орешк%"),
+            Product.name.ilike(f"%{_kpi}%"),
         )
         for f in filters:
             q = q.filter(f)
@@ -154,7 +158,7 @@ def _collect_metrics(db: Session) -> dict:
         .filter(
             Order.status.in_(_SOLD),
             Order.date >= month_start,
-            Product.name.ilike("%орешк%"),
+            Product.name.ilike(f"%{_kpi}%"),
         )
         .group_by(func.date(Order.date))
         .order_by(func.sum(OrderItem.quantity).desc())
