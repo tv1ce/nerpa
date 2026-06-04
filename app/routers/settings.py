@@ -121,9 +121,15 @@ async def upload_logo(
     db: Session = Depends(get_db),
 ):
     os.makedirs("app/static/uploads", exist_ok=True)
-    ext = os.path.splitext(logo.filename)[1].lower() or ".png"
+    ext = os.path.splitext(logo.filename or "")[1].lower()
+    # Разрешаем только изображения
+    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+        return RedirectResponse(url="/settings/?logo_error=1", status_code=302)
+    # Ограничение 5 МБ
+    content = await logo.read(5 * 1024 * 1024 + 1)
+    if len(content) > 5 * 1024 * 1024:
+        return RedirectResponse(url="/settings/?logo_error=1", status_code=302)
     logo_path = f"app/static/uploads/logo{ext}"
-    content = await logo.read()
     with open(logo_path, "wb") as f:
         f.write(content)
     company = db.query(CompanySettings).first()

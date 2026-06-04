@@ -1,6 +1,9 @@
 from datetime import date, timedelta
 from io import BytesIO
+import logging
 import os, re, json
+
+logger = logging.getLogger(__name__)
 
 import httpx
 from fastapi import APIRouter, Depends, Form, Request, UploadFile, File
@@ -102,8 +105,8 @@ def _parse_glide_html(html: str) -> list[dict]:
                 parsed = _parse_glide_snapshot(j)
                 if parsed:
                     return parsed
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Ошибка парсинга Glide snapshot: %s", e)
 
     # ── 2. Regex по паттерну строк таблицы ───────────────────────────────
     # Паттерн из скриншота: дата ДД.ММ.ГГГГ, адрес, сумма NNN₽ или NNN Р

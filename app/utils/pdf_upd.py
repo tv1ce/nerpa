@@ -18,6 +18,20 @@ from reportlab.pdfbase.ttfonts import TTFont
 _F  = "Helvetica"
 _FB = "Helvetica-Bold"
 
+# Маппинг ед.изм. → код ОКЕИ (дублирует xml_upd, чтобы pdf не зависел от xml)
+_OKEI_MAP = {
+    "кг": "166", "килограмм": "166",
+    "г":  "163", "грамм":     "163",
+    "шт": "796", "штука":     "796",
+    "л":  "112", "литр":      "112",
+    "м":  "006", "метр":      "006",
+    "уп": "778", "упаковка":  "778",
+}
+
+
+def _okei(unit: str) -> str:
+    return _OKEI_MAP.get((unit or "").lower().strip(), "796")
+
 def _try_register():
     global _F, _FB
     for reg, bold, n, nb in [
@@ -283,7 +297,7 @@ def generate_upd_pdf(invoice, company) -> bytes:
             _p(str(idx), sz=7, align="CENTER"),
             _p(item.name, sz=7),
             _p("", sz=7, align="CENTER"),
-            _p("796", sz=7, align="CENTER"),
+            _p(_okei(item.unit), sz=7, align="CENTER"),
             _p(item.unit, sz=7, align="CENTER"),
             _p(_qty(item.quantity), sz=7, align="RIGHT"),
             _p(_money(item.price) if item.price else "--", sz=7, align="RIGHT"),

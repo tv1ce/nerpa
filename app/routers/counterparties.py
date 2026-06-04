@@ -54,8 +54,13 @@ STATUS_COLORS = {
 }
 
 
+# Статусы, отражающие фактическую выручку (деньги получены или товар отгружен).
+# confirmed исключён — заказ подтверждён, но ещё не оплачен.
+REVENUE_STATUSES = ("paid", "assembled", "handed", "delivered")
+
+
 def _compute_category(cp: Counterparty) -> str | None:
-    revenue = sum(o.total_amount for o in cp.orders if o.status not in ("cancelled", "draft"))
+    revenue = sum(o.total_amount for o in cp.orders if o.status in REVENUE_STATUSES)
     if revenue >= 1_000_000:
         return "A"
     elif revenue >= 200_000:
@@ -90,9 +95,11 @@ async def list_counterparties(
 
 
 @router.post("/recalc-categories")
-@login_required
+@role_required("manager")
 async def recalc_categories(request: Request, db: Session = Depends(get_db)):
-    cps = db.query(Counterparty).filter(
+    from sqlalchemy.orm import joinedload
+    # joinedload подгружает заказы одним запросом (без N+1 на cp.orders)
+    cps = db.query(Counterparty).options(joinedload(Counterparty.orders)).filter(
         Counterparty.is_active == True,
         Counterparty.category_manual == False,
     ).all()
@@ -244,7 +251,8 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
 
     # Статистика
     active_orders = [o for o in cp.orders if o.status not in ("cancelled",)]
-    total_revenue = sum(o.total_amount for o in cp.orders if o.status not in ("cancelled", "draft"))
+    # Выручка — только фактически оплаченные/отгруженные заказы (без confirmed)
+    total_revenue = sum(o.total_amount for o in cp.orders if o.status in REVENUE_STATUSES)
     open_invoices = [inv for inv in cp.invoices if inv.status in ("issued", "overdue")]
     open_debt = sum(inv.total_amount for inv in open_invoices)
     claims = db.query(Claim).filter(Claim.counterparty_id == cp_id).order_by(Claim.date.desc()).all()

@@ -17,6 +17,13 @@
 {% endblock %}
 
 {% block content %}
+{% if request.query_params.get('doc_error') %}
+<div class="alert alert-warning alert-dismissible fade show" role="alert">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  <strong>Документ не сформирован.</strong> Не удалось сгенерировать .docx по шаблону. Проверьте шаблон или попробуйте <a href="/contracts/{{ contract.id }}/generate">перегенерировать</a>.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
 <div class="row g-3">
   <div class="col-lg-8">
     <div class="card border-0 shadow-sm p-4">

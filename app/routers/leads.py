@@ -16,7 +16,7 @@ from datetime import datetime, date
 from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
 from app.database import get_db
@@ -660,7 +660,8 @@ async def export_csv(
         query = query.filter(SalesLead.source_file == source)
     if category:
         query = query.filter(SalesLead.category.ilike(f"%{category}%"))
-    leads = query.order_by(SalesLead.is_network.desc(), SalesLead.brand, SalesLead.name).all()
+    leads = query.options(joinedload(SalesLead.assigned_to))\
+        .order_by(SalesLead.is_network.desc(), SalesLead.brand, SalesLead.name).all()
 
     buf = io.StringIO()
     buf.write("﻿")  # BOM для Excel
@@ -707,7 +708,8 @@ async def export_xlsx(
         query = query.filter(SalesLead.source_file == source)
     if category:
         query = query.filter(SalesLead.category.ilike(f"%{category}%"))
-    leads = query.order_by(SalesLead.is_network.desc(), SalesLead.brand, SalesLead.name).all()
+    leads = query.options(joinedload(SalesLead.assigned_to))\
+        .order_by(SalesLead.is_network.desc(), SalesLead.brand, SalesLead.name).all()
 
     wb = Workbook()
     ws = wb.active

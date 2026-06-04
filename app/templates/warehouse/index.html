@@ -76,7 +76,8 @@
   {% endif %}
 
   <div class="wm-queue-footer">
-    <form method="post" action="/warehouse/orders/{{ o.id }}/assemble">
+    <form method="post" action="/warehouse/orders/{{ o.id }}/assemble"
+          data-confirm="Подтвердите: заказ {{ o.number }} собран и передаётся на отгрузку?">
       <button type="submit" class="wm-btn-assembled">
         <i class="bi bi-check2-square"></i> Собрано — передаю на отгрузку
       </button>
@@ -343,8 +344,7 @@
 </div>
 
 {% block scripts_desktop %}{% endblock %}
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="/static/js/app.js"></script>
+{# Bootstrap и app.js уже подключены в base.html — не дублируем #}
 <script>
 function openStockModal(pid, name, minStock, initStock) {
   document.getElementById('stockProductName').textContent = name;

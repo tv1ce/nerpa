@@ -87,7 +87,7 @@ def _collect_metrics(db: Session) -> dict:
             Order, OrderItem.order_id == Order.id
         ).join(Product, OrderItem.product_id == Product.id).filter(
             Order.status.in_(_SOLD),
-            Product.name.contains("решк"),
+            Product.name.ilike("%орешк%"),
         )
         for f in filters:
             q = q.filter(f)
@@ -154,7 +154,7 @@ def _collect_metrics(db: Session) -> dict:
         .filter(
             Order.status.in_(_SOLD),
             Order.date >= month_start,
-            Product.name.contains("решк"),
+            Product.name.ilike("%орешк%"),
         )
         .group_by(func.date(Order.date))
         .order_by(func.sum(OrderItem.quantity).desc())

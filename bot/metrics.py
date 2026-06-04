@@ -34,13 +34,13 @@ def get_callbacks_today(db: Session) -> list[dict]:
         .all()
     )
     result = []
-    for l in rows:
+    for lead in rows:
         result.append({
-            "name": l.name,
-            "phone": l.phone or "",
-            "manager": l.assigned_to.full_name if l.assigned_to else None,
-            "overdue": l.callback_at < date.today(),
-            "date": l.callback_at,
+            "name": lead.name,
+            "phone": lead.phone or "",
+            "manager": lead.assigned_to.full_name if lead.assigned_to else None,
+            "overdue": lead.callback_at < date.today(),
+            "date": lead.callback_at,
         })
     return result
 

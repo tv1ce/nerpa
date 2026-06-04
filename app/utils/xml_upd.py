@@ -14,6 +14,23 @@
 import uuid
 from datetime import date, datetime
 
+# Маппинг единицы измерения → код ОКЕИ
+# 166 = кг, 796 = штука, 112 = литр, 006 = метр
+_OKEI_MAP = {
+    "кг":   "166", "килограмм": "166",
+    "г":    "163", "грамм":     "163",
+    "шт":   "796", "штука":     "796", "штук": "796",
+    "л":    "112", "литр":      "112",
+    "м":    "006", "метр":      "006",
+    "уп":   "778", "упаковка":  "778",
+    "компл": "839", "комплект": "839",
+}
+
+
+def _okei(unit: str) -> str:
+    """Возвращает код ОКЕИ по названию единицы. По умолчанию 796 (шт)."""
+    return _OKEI_MAP.get((unit or "").lower().strip(), "796")
+
 
 def _fmt_date(d) -> str:
     if isinstance(d, (date, datetime)):
@@ -40,25 +57,44 @@ def _money(v) -> str:
 
 
 def _esc(s) -> str:
-    """Экранирование для XML-атрибутов/текста."""
+    """Экранирование для XML-атрибутов/текста (все 5 спецсимволов XML)."""
     s = "" if s is None else str(s)
     return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-             .replace('"', "&quot;"))
+             .replace('"', "&quot;").replace("'", "&apos;"))
 
 
 def _split_fio(name: str):
-    """Грубо разбирает строку имени ИП на Фамилию/Имя/Отчество.
+    """Разбирает строку ФИО на (Фамилия, Имя, Отчество).
 
-    'ИП Грачева М. С.' -> ('Грачева', 'М.', 'С.')
+    Поддерживает форматы:
+      'Иванов Иван Иванович'       -> ('Иванов', 'Иван', 'Иванович')
+      'ИП Грачева М. С.'           -> ('Грачева', 'М.', 'С.')
+      'Иванов И.И.'                -> ('Иванов', 'И.', 'И.')
+    Если строка не похожа на ФИО (содержит пробел+цифры, слишком короткая,
+    содержит слова «директор»/«генеральный» и т.п.) — возвращает ('', '', '')
+    чтобы ФНС не получила мусорные теги.
     """
     s = (name or "").strip()
-    for pref in ("Индивидуальный предприниматель", "ИП "):
+    for pref in ("Индивидуальный предприниматель ", "ИП "):
         if s.startswith(pref):
             s = s[len(pref):].strip()
+    # Проверка: строка похожа на должность/название, а не на ФИО
+    bad_words = ("директор", "генеральный", "ооо", "ао ", "гл.", "главный", "бухгалтер")
+    if any(w in s.lower() for w in bad_words):
+        return "", "", ""
     parts = s.split()
-    fam = parts[0] if len(parts) > 0 else ""
-    im  = parts[1] if len(parts) > 1 else ""
-    ot  = " ".join(parts[2:]) if len(parts) > 2 else ""
+    # Если одно слово или пустая строка — не разбираем
+    if len(parts) < 2:
+        return parts[0] if parts else "", "", ""
+    fam = parts[0]
+    # Обрабатываем случай «Иванов И.И.» — второй элемент содержит точки
+    if len(parts) == 2 and "." in parts[1]:
+        initials = [p for p in parts[1].replace(".", " ").split() if p]
+        im = initials[0] + "." if initials else ""
+        ot = initials[1] + "." if len(initials) > 1 else ""
+        return fam, im, ot
+    im = parts[1] if len(parts) > 1 else ""
+    ot = " ".join(parts[2:]) if len(parts) > 2 else ""
     return fam, im, ot
 
 
@@ -131,7 +167,7 @@ def generate_upd_xml(invoice, company):
             sum_nal = '<СумНал><БезНДС>без НДС</БезНДС></СумНал>'
         rows.append(
             f'      <СведТов НомСтр="{idx}" НаимТов="{_esc(item.name)}" '
-            f'ОКЕИ_Тов="796" КолТов="{_num(item.quantity)}" '
+            f'ОКЕИ_Тов="{_okei(item.unit)}" КолТов="{_num(item.quantity)}" '
             f'ЦенаТов="{_money(item.price)}" СтТовБезНДС="{_money(without)}" '
             f'НалСт="{nal_st}" СтТовУчНал="{_money(with_t)}">\n'
             f'        <Акциз><БезАкциз>без акциза</БезАкциз></Акциз>\n'

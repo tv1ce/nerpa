@@ -5,6 +5,7 @@ from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
@@ -44,9 +45,20 @@ def _next_order_number(db: Session) -> str:
 
 
 def _assembly_queue_count(db: Session) -> int:
-    """Кол-во заказов на сборку — для бейджа в мобильном таббаре."""
-    candidates = db.query(Order).filter(Order.status.in_(["confirmed", "paid"])).all()
-    return sum(1 for o in candidates if o.ready_for_assembly)
+    """Кол-во заказов на сборку — для бейджа в мобильном таббаре.
+    ready_for_assembly = (prepay AND paid) OR (deferred AND confirmed).
+    Считаем прямо в SQL без загрузки объектов в память."""
+    from sqlalchemy import case, and_
+    count = db.query(func.count(Order.id)).filter(
+        Order.status.in_(["confirmed", "paid"]),
+        # предоплата → ждём статуса paid; отсрочка → ждём confirmed
+        case(
+            (and_(Order.payment_type == "prepay",    Order.status == "paid"),      1),
+            (and_(Order.payment_type == "deferred",  Order.status == "confirmed"), 1),
+            else_=0,
+        ) == 1,
+    ).scalar() or 0
+    return count
 
 
 def _resolve_payment_type(db: Session, contract_id: int, fallback: str) -> str:

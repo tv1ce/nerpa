@@ -28,9 +28,13 @@ WAREHOUSE_ALLOWED_PREFIXES = (
     "/orders",
     "/warehouse",
     "/counterparties",
+    "/products",   # кладовщику нужен список товаров
+    "/board",      # табло цеха
     "/auth",
     "/notifications",
     "/static",
+    "/manifest.webmanifest",
+    "/sw.js",
 )
 
 _403_HTML = (

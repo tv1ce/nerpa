@@ -256,6 +256,7 @@
     <div class="card border-0 shadow-sm p-3 mb-3">
       <div class="fw-semibold mb-2">Сменить статус</div>
       <form method="post" action="/orders/{{ order.id }}/status">
+        <input type="hidden" name="redirect_url" value="/orders/{{ order.id }}">
         <div class="d-flex gap-2">
           <select name="status" class="form-select form-select-sm">
             {% for val, label in order_statuses.items() %}
@@ -486,12 +487,19 @@ async function sendToCarrier(orderId) {
     } else {
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-telegram me-1"></i>Отправить перевозчику';
-      result.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error || 'Ошибка'}</span>`;
+      const errSpan = document.createElement('span');
+      errSpan.className = 'text-danger';
+      errSpan.textContent = data.error || 'Ошибка';
+      errSpan.prepend(Object.assign(document.createElement('i'), {className:'bi bi-x-circle me-1'}));
+      result.appendChild(errSpan);
     }
   } catch(e) {
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-telegram me-1"></i>Отправить перевозчику';
-    result.innerHTML = `<span class="text-danger">Сетевая ошибка: ${e}</span>`;
+    const errSpan = document.createElement('span');
+    errSpan.className = 'text-danger';
+    errSpan.textContent = 'Сетевая ошибка: ' + e;
+    result.appendChild(errSpan);
   }
 }
 </script>

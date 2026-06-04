@@ -37,15 +37,38 @@ def get_balance(db: Session, product_id: int) -> float:
     ).scalar() or 0.0
     out_qty = db.query(func.sum(StockMovement.quantity)).filter(
         StockMovement.product_id == product_id,
-        StockMovement.movement_type.in_(["out", "adjustment"]),
+        StockMovement.movement_type == "out",
     ).scalar() or 0.0
-    return round((p.initial_stock or 0) + in_qty - out_qty, 3)
+    # adjustment: quantity хранится со знаком (+ излишки, - недостача)
+    adj_qty = db.query(func.sum(StockMovement.quantity)).filter(
+        StockMovement.product_id == product_id,
+        StockMovement.movement_type == "adjustment",
+    ).scalar() or 0.0
+    return round((p.initial_stock or 0) + in_qty - out_qty + adj_qty, 3)
 
 
 def get_balances(db: Session) -> dict:
-    from app.models import Product
+    """Остатки всех активных товаров одним запросом (без N+1).
+    Логика adjustment: со знаком (+ излишки, - недостача)."""
+    from app.models import Product, StockMovement
+    # Агрегируем движения по товару и типу одним GROUP BY
+    rows = db.query(
+        StockMovement.product_id,
+        StockMovement.movement_type,
+        func.sum(StockMovement.quantity),
+    ).group_by(StockMovement.product_id, StockMovement.movement_type).all()
+
+    moves: dict[int, dict] = {}
+    for pid, mtype, qty in rows:
+        moves.setdefault(pid, {})[mtype] = qty or 0.0
+
     products = db.query(Product).filter(Product.is_active == True).all()
-    return {p.id: get_balance(db, p.id) for p in products}
+    result = {}
+    for p in products:
+        m = moves.get(p.id, {})
+        bal = (p.initial_stock or 0) + m.get("in", 0.0) - m.get("out", 0.0) + m.get("adjustment", 0.0)
+        result[p.id] = round(bal, 3)
+    return result
 
 
 def maybe_notify_low_stock(db: Session, product_id: int) -> None:

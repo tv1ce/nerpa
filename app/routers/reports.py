@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import date, timedelta
 from app.database import get_db
-from app.auth import login_required
+from app.auth import login_required, role_required
 from app.models import Order, OrderItem, Invoice, Counterparty, CompanySettings, MonthlyPlan, LogisticsCost
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -92,13 +92,13 @@ async def revenue_report(
         Invoice.status == "paid",
     ).scalar() or 0.0
 
-    # Орешков за год (только позиции с "орешк" в названии товара)
+    # Орешков за год (фильтр "орешк" — единообразно с таблицей отгрузок)
     from app.models import Product as ProductModel
     nuts_year = db.query(func.sum(OrderItem.quantity)).join(Order).join(
         ProductModel, OrderItem.product_id == ProductModel.id
     ).filter(
         Order.date >= year_start,
-        ProductModel.name.contains("решк"),
+        ProductModel.name.ilike("%орешк%"),
     ).scalar() or 0.0
 
     # Выручка текущей недели
@@ -220,7 +220,7 @@ async def plans_page(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/plans/set")
-@login_required
+@role_required("manager")
 async def set_plan(
     request: Request,
     year: int = Form(...),
@@ -229,6 +229,13 @@ async def set_plan(
     notes: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
+    # Валидация диапазонов
+    if not (1 <= month <= 12):
+        return RedirectResponse(url="/reports/plans", status_code=302)
+    if not (2000 <= year <= 2100):
+        return RedirectResponse(url="/reports/plans", status_code=302)
+    if plan_amount < 0:
+        plan_amount = 0.0
     existing = db.query(MonthlyPlan).filter(
         MonthlyPlan.year == year,
         MonthlyPlan.month == month,

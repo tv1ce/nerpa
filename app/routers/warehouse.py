@@ -247,9 +247,8 @@ async def create_movement(
         order = db.query(Order).filter(Order.id == linked_order_id).first()
         if order and order.status not in ("handed", "delivered", "cancelled"):
             order.status = "handed"
-    db.commit()
-    maybe_notify_low_stock(db, product_id)
-    db.commit()
+    maybe_notify_low_stock(db, product_id)  # добавляет Notification без commit
+    db.commit()  # единый коммит — движение + уведомление атомарно
     return RedirectResponse(url="/warehouse/", status_code=302)
 
 
@@ -280,7 +279,6 @@ async def update_stock_settings(
     if p:
         p.min_stock = min_stock
         p.initial_stock = initial_stock
-        db.commit()
-        maybe_notify_low_stock(db, product_id)
-        db.commit()
+        maybe_notify_low_stock(db, product_id)  # добавляет Notification без commit
+        db.commit()  # единый коммит
     return RedirectResponse(url="/warehouse/", status_code=302)

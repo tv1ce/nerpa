@@ -90,12 +90,19 @@ async def create_contract(
     )
     db.add(contract)
     db.flush()
+    doc_error = None
     if template_id:
         try:
             _generate_contract_doc(contract, db)
         except Exception as e:
-            print(f"[WARN] Не удалось сформировать документ договора: {e}")
+            import logging
+            logging.getLogger(__name__).error("Ошибка генерации договора %s: %s", contract.number, e)
+            doc_error = str(e)
     db.commit()
+    if doc_error:
+        return RedirectResponse(
+            url=f"/contracts/{contract.id}?doc_error=1", status_code=302
+        )
     return RedirectResponse(url=f"/contracts/{contract.id}", status_code=302)
 
 
@@ -165,6 +172,8 @@ async def generate_contract(request: Request, contract_id: int, db: Session = De
             _generate_contract_doc(contract, db)
             db.commit()
         except Exception as e:
+            import logging
+            logging.getLogger(__name__).error("Ошибка генерации договора: %s", e)
             print(f"[WARN] Не удалось сформировать документ: {e}")
     return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
 
