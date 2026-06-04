@@ -1,0 +1,46 @@
+# /etc/systemd/system/tms-bot.service
+#
+# Установка:
+#   sudo cp tms-bot.service /etc/systemd/system/tms-bot.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable tms-bot
+#   sudo systemctl start tms-bot
+#
+# Управление:
+#   sudo systemctl status tms-bot
+#   sudo systemctl restart tms-bot
+#   journalctl -u tms-bot -f
+
+[Unit]
+Description=TMS Telegram Bot — отчёты и уведомления
+After=network-online.target tms.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=tms
+Group=tms
+WorkingDirectory=/opt/tms
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/opt/tms/.env
+
+ExecStart=/opt/tms/.venv/bin/python bot/main.py
+
+Restart=on-failure
+RestartSec=15
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+LimitNOFILE=4096
+
+PrivateTmp=true
+ProtectSystem=full
+NoNewPrivileges=true
+ProtectHome=read-only
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tms-bot
+
+[Install]
+WantedBy=multi-user.target
