@@ -199,7 +199,6 @@ async def generate_contract(request: Request, contract_id: int, db: Session = De
         except Exception as e:
             import logging
             logging.getLogger(__name__).error("Ошибка генерации договора: %s", e)
-            print(f"[WARN] Не удалось сформировать документ: {e}")
     return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
 
 

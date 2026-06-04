@@ -19,19 +19,20 @@ from sqlalchemy import TypeDecorator, Text
 def _load_fernet():
     """Загружает Fernet с ключом из ENCRYPT_KEY.
     Если ключ не задан — возвращает None (режим без шифрования)."""
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
     try:
         from cryptography.fernet import Fernet
     except ImportError:
-        print("[TMS WARNING] Пакет cryptography не установлен. Секреты хранятся без шифрования.", file=sys.stderr)
+        _log.warning("Пакет cryptography не установлен — секреты хранятся без шифрования")
         return None
 
     raw_key = os.environ.get("ENCRYPT_KEY", "").strip()
     if not raw_key:
-        print(
-            "\n[TMS WARNING] ENCRYPT_KEY не задан в .env — секреты (токены, пароли) "
-            "хранятся в БД без шифрования. Добавьте ENCRYPT_KEY в .env.\n"
-            "Сгенерировать ключ: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"\n",
-            file=sys.stderr,
+        _log.warning(
+            "ENCRYPT_KEY не задан в .env — секреты (токены, пароли) хранятся в БД без шифрования. "
+            "Добавьте ENCRYPT_KEY в .env (сгенерировать: python -c "
+            "\"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")"
         )
         return None
 

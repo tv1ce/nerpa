@@ -28,6 +28,18 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      # Автоинкремент versionCode — используем номер CI-запуска (всегда возрастает)
+      - name: Bump versionCode
+        run: |
+          node -e "
+            const fs = require('fs');
+            const f = 'app_dist/version.json';
+            const v = JSON.parse(fs.readFileSync(f));
+            v.versionCode = ${{ github.run_number }};
+            fs.writeFileSync(f, JSON.stringify(v, null, 2) + '\n');
+            console.log('versionCode ->', v.versionCode, '| versionName ->', v.versionName);
+          "
+
       # Декодируем keystore из GitHub Secret (base64) в файл release.jks
       # Как сгенерировать keystore и добавить в Secrets — см. android/README.md
       - name: Decode release keystore

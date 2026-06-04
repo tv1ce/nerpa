@@ -26,7 +26,11 @@
         <div class="icon" style="background:#D1FAE5"><i class="bi bi-receipt fs-4" style="color:#166534"></i></div>
         <div>
           <div class="value">{{ revenue_this_month | money }}</div>
-          <div class="label">Выручка за месяц, ₽</div>
+          <div class="label">Выручка за месяц, ₽
+            <a href="/reports/plans" title="Планы продаж" class="text-muted ms-1" style="font-size:.7rem">
+              <i class="bi bi-bar-chart-line"></i>
+            </a>
+          </div>
           <div class="text-muted" style="font-size:.75rem">{{ unpaid_invoices }} не оплачено</div>
         </div>
       </div>

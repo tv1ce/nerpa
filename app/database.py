@@ -215,24 +215,21 @@ def _migrate_db():
 
 
 def _seed_defaults():
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
     db = SessionLocal()
     try:
         from app.models import User, CompanySettings
         if not db.query(User).first():
-            import sys
             admin = User(
                 username="admin",
                 password_hash=hash_password("admin"),
                 full_name="Администратор",
                 role="admin",
-                must_change_password=True,  # при первом входе потребуем смену пароля
+                must_change_password=True,
             )
             db.add(admin)
-            print(
-                "\n[TMS] Создан пользователь admin. "
-                "При первом входе потребуется сменить пароль!\n",
-                file=sys.stderr,
-            )
+            _log.warning("Создан пользователь admin — при первом входе потребуется сменить пароль!")
         if not db.query(CompanySettings).first():
             db.add(CompanySettings(name="Моя компания"))
         db.commit()

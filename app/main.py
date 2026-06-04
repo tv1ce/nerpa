@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import time as _time
+from contextlib import asynccontextmanager
 from datetime import date as _date
 from dotenv import load_dotenv
 load_dotenv()  # загружаем .env до инициализации всего остального
@@ -21,6 +22,7 @@ init_db()
 
 app = FastAPI(
     title="TMS — Управление поставками",
+    lifespan=lifespan,
     # /docs и /redoc закрыты в production — схема API не должна быть публичной
     docs_url=None,
     redoc_url=None,
@@ -97,25 +99,25 @@ def _rotate_generated(max_age_days: int = 90) -> int:
     return deleted
 
 
-@app.on_event("startup")
-async def on_startup():
-    # Перевод просроченных счетов
-    _mark_overdue_invoices()
-    # Ротация сгенерированных документов
-    _rotate_generated(max_age_days=90)
-    # Фоновая задача — повтор каждый час
-    asyncio.create_task(_overdue_loop())
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
+    # ── startup ──────────────────────────────────────────────────────────────
+    _mark_overdue_invoices()          # перевести просроченные счета
+    _rotate_generated(max_age_days=90)  # удалить старые docx
+    asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
+    yield
+    # ── shutdown (ничего освобождать не нужно) ────────────────────────────────
+
 
 # Сессия живёт 30 дней — чтобы мобильное приложение/браузер «помнили» пользователя
 _session_secret = os.environ.get("SECRET_KEY")
 if not _session_secret:
     import secrets
     _session_secret = secrets.token_hex(32)
-    import sys
-    print(
-        "\n[TMS WARNING] SECRET_KEY не задан в .env — используется временный ключ. "
-        "Все сессии сбросятся при перезапуске. Добавьте SECRET_KEY=<случайная строка> в .env\n",
-        file=sys.stderr,
+    logger.warning(
+        "SECRET_KEY не задан в .env — используется временный ключ. "
+        "Все сессии сбросятся при перезапуске. Добавьте SECRET_KEY в .env"
     )
 
 app.add_middleware(
