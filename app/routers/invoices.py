@@ -223,49 +223,6 @@ async def download_pdf(request: Request, invoice_id: int, db: Session = Depends(
     )
 
 
-@router.get("/{invoice_id}/upd")
-@login_required
-async def download_upd(request: Request, invoice_id: int, db: Session = Depends(get_db)):
-    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-    if not invoice:
-        return RedirectResponse(url="/invoices", status_code=302)
-    company = db.query(CompanySettings).first()
-    if not company:
-        company = CompanySettings(name="Моя компания")
-    from app.utils.pdf_upd import generate_upd_pdf
-    from urllib.parse import quote
-    pdf_bytes = generate_upd_pdf(invoice, company)
-    filename_ascii = f"upd_{invoice.id}.pdf"
-    date_s = invoice.date.strftime("%d.%m.%Y") if invoice.date else ""
-    filename_utf8  = f"Универсальный передаточный документ № {invoice.number} от {date_s}.pdf"
-    cd = f"attachment; filename=\"{filename_ascii}\"; filename*=UTF-8''{quote(filename_utf8)}"
-    return Response(
-        content=pdf_bytes, media_type="application/pdf",
-        headers={"Content-Disposition": cd},
-    )
-
-
-@router.get("/{invoice_id}/upd.xml")
-@login_required
-async def download_upd_xml(request: Request, invoice_id: int, db: Session = Depends(get_db)):
-    """Черновая выгрузка УПД в XML для ЭДО (формат ФНС 5.03)."""
-    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-    if not invoice:
-        return RedirectResponse(url="/invoices", status_code=302)
-    company = db.query(CompanySettings).first()
-    if not company:
-        company = CompanySettings(name="Моя компания")
-    from app.utils.xml_upd import generate_upd_xml
-    from urllib.parse import quote
-    filename, xml_bytes = generate_upd_xml(invoice, company)
-    cd = f"attachment; filename=\"{filename}\"; filename*=UTF-8''{quote(filename)}"
-    return Response(
-        content=xml_bytes,
-        media_type="application/xml; charset=windows-1251",
-        headers={"Content-Disposition": cd},
-    )
-
-
 @router.get("/{invoice_id}/offer-buyer")
 @login_required
 async def download_offer_buyer(request: Request, invoice_id: int, db: Session = Depends(get_db)):
