@@ -1,5 +1,8 @@
+import asyncio
+import logging
 import os
 import time as _time
+from datetime import date as _date
 from dotenv import load_dotenv
 load_dotenv()  # загружаем .env до инициализации всего остального
 
@@ -11,6 +14,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon
 from app.database import init_db
 
+logger = logging.getLogger(__name__)
+
 # Миграции запускаются при каждом старте (в т.ч. при --reload)
 init_db()
 
@@ -18,6 +23,59 @@ app = FastAPI(title="TMS — Управление поставками")
 
 # Фиксируем момент старта для /health → uptime
 _APP_START = _time.monotonic()
+
+
+# ── Авто-перевод просроченных счетов в статус overdue ────────────────────────
+
+def _mark_overdue_invoices() -> int:
+    """Переводит счета issued→overdue если due_date < сегодня.
+    Возвращает количество обновлённых записей."""
+    from app.database import SessionLocal
+    from app.models import Invoice
+    from sqlalchemy import and_
+
+    today = _date.today()
+    db = SessionLocal()
+    try:
+        updated = (
+            db.query(Invoice)
+            .filter(
+                Invoice.status == "issued",
+                Invoice.due_date != None,
+                Invoice.due_date < today,
+            )
+            .all()
+        )
+        for inv in updated:
+            inv.status = "overdue"
+        if updated:
+            db.commit()
+            logger.info("Авто-просрочка: %d счетов → overdue", len(updated))
+        return len(updated)
+    except Exception as e:
+        logger.error("Ошибка авто-просрочки счетов: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
+async def _overdue_loop():
+    """Фоновая задача: проверяет просрочку каждый час."""
+    while True:
+        try:
+            _mark_overdue_invoices()
+        except Exception as e:
+            logger.error("overdue_loop: %s", e)
+        await asyncio.sleep(3600)  # раз в час
+
+
+@app.on_event("startup")
+async def on_startup():
+    # Первый запуск сразу — догоняем пропущенное
+    _mark_overdue_invoices()
+    # Запускаем фоновую задачу
+    asyncio.create_task(_overdue_loop())
 
 # Сессия живёт 30 дней — чтобы мобильное приложение/браузер «помнили» пользователя
 _session_secret = os.environ.get("SECRET_KEY")

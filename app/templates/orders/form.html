@@ -35,14 +35,20 @@
           </div>
           <div class="col-12">
             <label class="form-label">Клиент *</label>
-            <select name="counterparty_id" class="form-select" required>
+            <select name="counterparty_id" id="counterparty_id" class="form-select" required onchange="applyClientDiscount(this)">
               <option value="">— выберите клиента —</option>
               {% for cp in counterparties %}
-              <option value="{{ cp.id }}" {% if order and order.counterparty_id == cp.id %}selected{% endif %}>
+              <option value="{{ cp.id }}"
+                      data-discount="{{ cp.default_discount_pct or 0 }}"
+                      {% if order and order.counterparty_id == cp.id %}selected{% endif %}>
                 {{ cp.trade_name or cp.name }}{% if cp.trade_name %} ({{ cp.name }}){% endif %}
               </option>
               {% endfor %}
             </select>
+            <div class="form-text" id="client-discount-hint" style="display:none">
+              <i class="bi bi-tag-fill text-warning"></i>
+              Скидка клиента <strong id="client-discount-val"></strong>% применена к позициям
+            </div>
           </div>
           <div class="col-md-6">
             <label class="form-label">Договор</label>
@@ -210,6 +216,33 @@ function onContractChange(sel) {
 document.addEventListener('DOMContentLoaded', function() {
   const sel = document.getElementById('contract_id');
   if (sel) onContractChange(sel);
+});
+
+// Скидка клиента — применяется ко всем позициям при выборе контрагента
+function applyClientDiscount(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  const disc = opt ? parseFloat(opt.dataset.discount || '0') : 0;
+  const hint = document.getElementById('client-discount-hint');
+  const val  = document.getElementById('client-discount-val');
+  if (disc > 0) {
+    _itemsData.forEach((item, idx) => { _itemsData[idx].discount_pct = disc; });
+    renderItems();
+    if (hint) { hint.style.display = ''; val.textContent = disc; }
+  } else {
+    if (hint) hint.style.display = 'none';
+  }
+}
+// При загрузке страницы — не сбрасываем скидки существующего заказа
+document.addEventListener('DOMContentLoaded', function() {
+  const cpSel = document.getElementById('counterparty_id');
+  // Подсветить хинт если у выбранного клиента есть скидка (и позиции пустые — новый заказ)
+  if (cpSel && _itemsData.length === 0) {
+    const opt = cpSel.options[cpSel.selectedIndex];
+    const disc = opt ? parseFloat(opt.dataset.discount || '0') : 0;
+    const hint = document.getElementById('client-discount-hint');
+    const val  = document.getElementById('client-discount-val');
+    if (disc > 0 && hint) { hint.style.display = ''; val.textContent = disc; }
+  }
 });
 
 // Валидация перед отправкой формы

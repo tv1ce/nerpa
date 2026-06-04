@@ -348,7 +348,8 @@
             </div>
           </div>
           {% if request.session.get('user_role') in ('admin','manager') %}
-          <form method="post" action="/activity/tasks/{{ t.id }}/delete">
+          <form method="post" action="/activity/tasks/{{ t.id }}/delete"
+                data-confirm="Удалить задачу «{{ t.title }}»?">
             <input type="hidden" name="redirect_url" value="/orders/{{ order.id }}">
             <button class="btn btn-xs p-0 border-0 bg-transparent text-muted" style="font-size:.8rem"><i class="bi bi-x-lg"></i></button>
           </form>
@@ -407,7 +408,8 @@
           </div>
           {% set uid = request.session.get('user_id') %}
           {% if request.session.get('user_role') == 'admin' or c.created_by_id == uid %}
-          <form method="post" action="/activity/comments/{{ c.id }}/delete" class="flex-shrink-0">
+          <form method="post" action="/activity/comments/{{ c.id }}/delete" class="flex-shrink-0"
+                data-confirm="Удалить комментарий?">
             <input type="hidden" name="redirect_url" value="/orders/{{ order.id }}">
             <button class="btn btn-xs p-0 border-0 bg-transparent text-muted"><i class="bi bi-x-lg" style="font-size:.75rem"></i></button>
           </form>

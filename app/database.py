@@ -139,6 +139,8 @@ def _migrate_db():
         ("notifications", "user_id", "INTEGER REFERENCES users(id)"),
         # KPI-фильтр продукта для дашборда и отчётов
         ("company_settings", "kpi_product_filter", "TEXT DEFAULT 'орешк'"),
+        # Скидка по умолчанию для контрагента (подставляется в новые заказы)
+        ("counterparties", "default_discount_pct", "REAL DEFAULT 0.0"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

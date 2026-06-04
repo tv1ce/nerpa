@@ -48,6 +48,8 @@ class Counterparty(Base):
     payment_delay_days = Column(Integer, default=2)           # дней отсрочки
     payment_delay_type = Column(String(10), default="banking") # 'banking' или 'calendar'
 
+    # Скидка по умолчанию (подставляется в новые заказы автоматически)
+    default_discount_pct = Column(Float, default=0.0)
     # CRM — категория клиента
     category = Column(String(1))          # A / B / C / None
     category_manual = Column(Boolean, default=False)  # True = вручную, не пересчитывать

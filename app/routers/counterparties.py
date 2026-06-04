@@ -166,6 +166,7 @@ async def create_counterparty(
     notes: str = Form(default=""),
     payment_delay_days: int = Form(default=2),
     payment_delay_type: str = Form(default="banking"),
+    default_discount_pct: float = Form(default=0.0),
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
@@ -187,6 +188,7 @@ async def create_counterparty(
         bank_corr_account=bank_corr_account, notes=notes,
         payment_delay_days=max(0, payment_delay_days),
         payment_delay_type=payment_delay_type if payment_delay_type in ("banking", "calendar") else "banking",
+        default_discount_pct=min(max(default_discount_pct, 0.0), 100.0),
         tg_chat_id=effective_tg,
         tg_notify_enabled=bool(tg_notify_enabled),
     )
@@ -374,6 +376,7 @@ async def update_counterparty(
     notes: str = Form(default=""),
     payment_delay_days: int = Form(default=2),
     payment_delay_type: str = Form(default="banking"),
+    default_discount_pct: float = Form(default=0.0),
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
@@ -396,6 +399,7 @@ async def update_counterparty(
         cp.bank_corr_account = bank_corr_account; cp.notes = notes
         cp.payment_delay_days = max(0, payment_delay_days)
         cp.payment_delay_type = payment_delay_type if payment_delay_type in ("banking", "calendar") else "banking"
+        cp.default_discount_pct = min(max(default_discount_pct, 0.0), 100.0)
         cp.tg_chat_id = effective_tg
         cp.tg_notify_enabled = bool(tg_notify_enabled)
         db.commit()
