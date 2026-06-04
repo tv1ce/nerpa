@@ -82,16 +82,24 @@ def _collect_metrics(db: Session) -> dict:
     last_month_end   = month_start - timedelta(days=1)
     last_month_start = last_month_end.replace(day=1)
 
-    # KPI-фильтр берём из настроек компании (так же как в dashboard и reports)
+    # KPI-фильтр берём из настроек компании (так же как в dashboard и reports).
+    # SQLite lower() не работает с Кириллицей, поэтому фильтруем на Python-стороне
+    # и передаём в SQL готовый список product_id — тот же подход, что в dashboard.
     _company_pre = db.query(CompanySettings).first()
     _kpi = (_company_pre.kpi_product_filter if _company_pre and _company_pre.kpi_product_filter else "орешк")
+    _kpi_ids = [
+        p.id for p in db.query(Product.id, Product.name).all()
+        if _kpi.lower() in p.name.lower()
+    ]
 
     def _nuts(*filters):
+        if not _kpi_ids:
+            return 0
         q = db.query(func.sum(OrderItem.quantity)).join(
             Order, OrderItem.order_id == Order.id
-        ).join(Product, OrderItem.product_id == Product.id).filter(
+        ).filter(
             Order.status.in_(_SOLD),
-            Product.name.ilike(f"%{_kpi}%"),
+            OrderItem.product_id.in_(_kpi_ids),
         )
         for f in filters:
             q = q.filter(f)
@@ -147,18 +155,17 @@ def _collect_metrics(db: Session) -> dict:
     last_claim_date    = db.query(func.max(Claim.date)).scalar()
     days_without_claims = (today - last_claim_date).days if last_claim_date else None
 
-    # Рекорд дня текущего месяца (только орешки)
+    # Рекорд дня текущего месяца (только KPI-товары)
     best_day_row = (
         db.query(
             func.date(Order.date).label("day"),
             func.sum(OrderItem.quantity).label("total"),
         )
         .join(Order, OrderItem.order_id == Order.id)
-        .join(Product, OrderItem.product_id == Product.id)
         .filter(
             Order.status.in_(_SOLD),
             Order.date >= month_start,
-            Product.name.ilike(f"%{_kpi}%"),
+            OrderItem.product_id.in_(_kpi_ids) if _kpi_ids else False,
         )
         .group_by(func.date(Order.date))
         .order_by(func.sum(OrderItem.quantity).desc())
