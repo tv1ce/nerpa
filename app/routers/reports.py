@@ -97,14 +97,22 @@ async def revenue_report(
         Invoice.status == "paid",
     ).scalar() or 0.0
 
-    # Орешков за год (фильтр "орешк" — единообразно с таблицей отгрузок)
+    # Орешков за год — SQLite LOWER() не работает с кириллицей, поэтому
+    # фильтруем product_id через Python, агрегируем через SQL IN().
     from app.models import Product as ProductModel
-    nuts_year = db.query(func.sum(OrderItem.quantity)).join(Order).join(
-        ProductModel, OrderItem.product_id == ProductModel.id
-    ).filter(
-        Order.date >= year_start,
-        ProductModel.name.ilike(f"%{kpi_filter}%"),
-    ).scalar() or 0.0
+    _kpi_ids = [
+        p.id for p in db.query(ProductModel.id, ProductModel.name).all()
+        if kpi_filter.lower() in p.name.lower()
+    ]
+    if _kpi_ids:
+        nuts_year = db.query(func.sum(OrderItem.quantity)).join(
+            Order, OrderItem.order_id == Order.id
+        ).filter(
+            Order.date >= year_start,
+            OrderItem.product_id.in_(_kpi_ids),
+        ).scalar() or 0.0
+    else:
+        nuts_year = 0.0
 
     # Выручка текущей недели
     revenue_week = db.query(func.sum(Invoice.total_amount)).filter(

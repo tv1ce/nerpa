@@ -81,20 +81,32 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     }
 
     _sold_orders = ["confirmed", "paid", "assembled", "handed", "delivered"]
-    total_nuts_sold = db.query(func.sum(OrderItem.quantity)).join(
-        Order, OrderItem.order_id == Order.id
-    ).join(Product, OrderItem.product_id == Product.id).filter(
-        Order.status.in_(_sold_orders),
-        Product.name.ilike(f"%{kpi_filter}%"),
-    ).scalar() or 0.0
 
-    nuts_this_month = db.query(func.sum(OrderItem.quantity)).join(
-        Order, OrderItem.order_id == Order.id
-    ).join(Product, OrderItem.product_id == Product.id).filter(
-        Order.status.in_(_sold_orders),
-        Order.date >= month_start,
-        Product.name.ilike(f"%{kpi_filter}%"),
-    ).scalar() or 0.0
+    # SQLite LOWER() не работает с кириллицей — ищем product_id через Python,
+    # потом агрегируем SQL-запросом с IN (эффективно, без N+1).
+    _kpi_ids = [
+        p.id for p in db.query(Product.id, Product.name).all()
+        if kpi_filter.lower() in p.name.lower()
+    ]
+
+    if _kpi_ids:
+        total_nuts_sold = db.query(func.sum(OrderItem.quantity)).join(
+            Order, OrderItem.order_id == Order.id
+        ).filter(
+            Order.status.in_(_sold_orders),
+            OrderItem.product_id.in_(_kpi_ids),
+        ).scalar() or 0.0
+
+        nuts_this_month = db.query(func.sum(OrderItem.quantity)).join(
+            Order, OrderItem.order_id == Order.id
+        ).filter(
+            Order.status.in_(_sold_orders),
+            Order.date >= month_start,
+            OrderItem.product_id.in_(_kpi_ids),
+        ).scalar() or 0.0
+    else:
+        total_nuts_sold = 0.0
+        nuts_this_month = 0.0
 
     top_products = db.query(
         Product.name,
