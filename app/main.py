@@ -66,6 +66,12 @@ async def pwa_service_worker():
 # Приложение при запуске запрашивает /app/version.json и сравнивает versionCode
 # с установленным. Если на сервере новее — скачивает APK с /app/download.
 
+@app.get("/health", include_in_schema=False)
+async def health():
+    """Используется nginx upstream_check, Docker HEALTHCHECK, systemd WatchdogSec."""
+    return {"status": "ok"}
+
+
 @app.get("/app/version.json", include_in_schema=False)
 async def app_version():
     path = os.path.join(APP_DIST_DIR, "version.json")

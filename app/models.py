@@ -281,6 +281,8 @@ class CompanySettings(Base):
     dadata_secret = Column(EncryptedText)       # секретный ключ cleaning API (зашифровано)
     # ── Telegram-бот ──
     tg_bot_token  = Column(EncryptedText)       # токен бота от @BotFather (зашифровано)
+    # ── KPI-фильтр продукта (дашборд и отчёты) ──
+    kpi_product_filter = Column(String(100), default="орешк")  # ilike-подстрока для фильтра KPI
 
 
 class MonthlyPlan(Base):

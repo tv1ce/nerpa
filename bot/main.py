@@ -225,7 +225,7 @@ async def _safe_reply(update: Update, text_fn) -> None:
             "⚠️ Не удалось сформировать отчёт. Попробуйте позже или обратитесь к администратору."
         )
         return
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def cmd_daily(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -266,7 +266,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"  По пятницам (недельный): `{WEEKLY_TIME.strftime('%H:%M')}`\n"
         f"  Последний день месяца (сейчас {today.day}/{last_day}): `{MONTHLY_TIME.strftime('%H:%M')}`"
     )
-    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 
 
 # ── Точка входа ───────────────────────────────────────────────────────────────

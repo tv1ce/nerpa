@@ -1,0 +1,54 @@
+# /etc/systemd/system/tms.service
+#
+# Установка:
+#   sudo cp tms.service /etc/systemd/system/tms.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable tms
+#   sudo systemctl start tms
+#
+# Управление:
+#   sudo systemctl status tms     — статус
+#   sudo systemctl restart tms    — перезапуск
+#   journalctl -u tms -f          — живые логи
+#   journalctl -u tms --since today  — логи за сегодня
+
+[Unit]
+Description=TMS — Система управления поставками
+Documentation=https://github.com/ВАШ_РЕПОЗИТОРИЙ
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=tms
+Group=tms
+WorkingDirectory=/opt/tms
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/opt/tms/.env
+
+# Команда запуска — uvicorn через run.py
+ExecStart=/opt/tms/.venv/bin/python run.py
+
+# Перезапуск при падении (5 попыток с задержкой 10с)
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Ограничение ресурсов
+LimitNOFILE=65536
+
+# Безопасность: процесс не может читать /home других пользователей,
+# не может менять системные файлы
+PrivateTmp=true
+ProtectSystem=full
+NoNewPrivileges=true
+ProtectHome=read-only
+
+# Логи идут в journald — смотреть: journalctl -u tms -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tms
+
+[Install]
+WantedBy=multi-user.target

@@ -6,7 +6,7 @@ from sqlalchemy import func
 from datetime import date, timedelta
 from app.database import get_db
 from app.auth import login_required
-from app.models import Order, OrderItem, Invoice, Counterparty, Contract, Product
+from app.models import Order, OrderItem, Invoice, Counterparty, Contract, Product, CompanySettings
 from app.routers.orders import ORDER_STATUSES
 
 router = APIRouter(tags=["dashboard"])
@@ -18,6 +18,9 @@ templates = Jinja2Templates(directory="app/templates")
 async def dashboard(request: Request, db: Session = Depends(get_db)):
     today = date.today()
     month_start = today.replace(day=1)
+
+    company = db.query(CompanySettings).first()
+    kpi_filter = (company.kpi_product_filter if company and company.kpi_product_filter else "орешк")
 
     total_orders = db.query(Order).count()
     active_orders = db.query(Order).filter(Order.status.in_(["confirmed", "paid", "assembled", "handed"])).count()
@@ -82,7 +85,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         Order, OrderItem.order_id == Order.id
     ).join(Product, OrderItem.product_id == Product.id).filter(
         Order.status.in_(_sold_orders),
-        Product.name.ilike("%орешк%"),
+        Product.name.ilike(f"%{kpi_filter}%"),
     ).scalar() or 0.0
 
     nuts_this_month = db.query(func.sum(OrderItem.quantity)).join(
@@ -90,7 +93,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     ).join(Product, OrderItem.product_id == Product.id).filter(
         Order.status.in_(_sold_orders),
         Order.date >= month_start,
-        Product.name.ilike("%орешк%"),
+        Product.name.ilike(f"%{kpi_filter}%"),
     ).scalar() or 0.0
 
     top_products = db.query(

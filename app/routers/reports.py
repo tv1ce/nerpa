@@ -65,10 +65,10 @@ async def revenue_report(
     # Формируем строки таблицы
     shipments = []
     for order in rows_q:
-        # Считаем только орешки (исключаем сопутствующие товары — подставки и т.п.)
+        # Считаем только целевые товары (фильтр задаётся в настройках компании)
         qty = sum(
             i.quantity for i in order.items
-            if "орешк" in (i.product.name if i.product else "").lower()
+            if kpi_filter.lower() in (i.product.name if i.product else "").lower()
         ) if order.items else 0
         # Сумма берётся напрямую из заказа — единственный источник правды
         # (счёт может включать НДС или отличаться по составу)
@@ -98,7 +98,7 @@ async def revenue_report(
         ProductModel, OrderItem.product_id == ProductModel.id
     ).filter(
         Order.date >= year_start,
-        ProductModel.name.ilike("%орешк%"),
+        ProductModel.name.ilike(f"%{kpi_filter}%"),
     ).scalar() or 0.0
 
     # Выручка текущей недели
@@ -127,10 +127,10 @@ async def revenue_report(
         Invoice.status == "paid",
     ).scalar() or 0.0
 
-    # Настройки компании (план)
+    # Настройки компании (план + KPI-фильтр)
     company = db.query(CompanySettings).first()
-    # Берём план из настроек компании; 0 = не задан → показываем "план не задан"
     monthly_plan = getattr(company, "monthly_plan", None) or 0.0
+    kpi_filter = (company.kpi_product_filter if company and company.kpi_product_filter else "орешк")
 
     plan_pct = round(revenue_month / monthly_plan * 100, 1) if monthly_plan > 0 else 0
 

@@ -65,6 +65,18 @@
               <i class="bi bi-info-circle"></i> Используется в отчёте «Выручка» для расчёта % выполнения плана
             </span>
           </div>
+          <div class="col-md-6">
+            <label class="form-label">KPI-фильтр продукта</label>
+            <input type="text" name="kpi_product_filter" class="form-control"
+                   placeholder="орешк"
+                   value="{{ company.kpi_product_filter if company and company.kpi_product_filter else 'орешк' }}">
+            <div class="form-text">Подстрока для подсчёта штук в дашборде и отчёте «Выручка». Например: <code>орешк</code>, <code>кофе</code>, <code>торт</code></div>
+          </div>
+          <div class="col-md-6 d-flex align-items-end pb-1">
+            <span class="text-muted" style="font-size:.82rem">
+              <i class="bi bi-info-circle"></i> Используется ilike-поиск: подойдут «Орешки», «орешки жареные» и т.п.
+            </span>
+          </div>
 
           <div class="col-12 mt-1">
             <div class="form-section-title">Подписанты (для счетов)</div>

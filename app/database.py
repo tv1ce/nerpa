@@ -1,8 +1,9 @@
+import os
 import bcrypt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-DATABASE_URL = "sqlite:///./tms.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tms.db")
 
 
 def _set_wal(connection, _):
@@ -136,6 +137,8 @@ def _migrate_db():
         ("users", "must_change_password", "INTEGER DEFAULT 0"),
         # Адресат уведомления (NULL = системное, видят все)
         ("notifications", "user_id", "INTEGER REFERENCES users(id)"),
+        # KPI-фильтр продукта для дашборда и отчётов
+        ("company_settings", "kpi_product_filter", "TEXT DEFAULT 'орешк'"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

@@ -59,6 +59,7 @@ async def save_company(
     bank_bik: str = Form(default=""),
     bank_corr_account: str = Form(default=""),
     monthly_plan: float = Form(default=225000.0),
+    kpi_product_filter: str = Form(default="орешк"),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -74,6 +75,7 @@ async def save_company(
     company.bank_name = bank_name; company.bank_account = bank_account
     company.bank_bik = bank_bik; company.bank_corr_account = bank_corr_account
     company.monthly_plan = monthly_plan
+    company.kpi_product_filter = kpi_product_filter.strip() or "орешк"
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 

@@ -19,11 +19,25 @@ android {
         buildConfig true
     }
 
+    signingConfigs {
+        release {
+            // Ключи задаются через переменные окружения (локально или GitHub Secrets).
+            // Если KEYSTORE_BASE64 не задан — Gradle падает с понятной ошибкой при попытке
+            // собрать release без подписи. Debug-сборка использует стандартный debug keystore.
+            storeFile     file("${rootDir}/release.jks")
+            storePassword (System.getenv("KEYSTORE_PASS") ?: "")
+            keyAlias      (System.getenv("KEY_ALIAS")     ?: "tms")
+            keyPassword   (System.getenv("KEY_PASS")      ?: "")
+        }
+    }
+
     buildTypes {
+        debug {
+            // debug-сборка остаётся с debug keystore — для разработки
+        }
         release {
             minifyEnabled false
-            // Подписываем release debug-ключом — чтобы APK ставился без возни с keystore
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
         }
     }
 
