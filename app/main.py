@@ -145,8 +145,24 @@ _templates = Jinja2Templates(directory="app/templates")
 _templates.env.filters["money"] = _fmt_money
 _templates.env.filters["date_fmt"] = _fmt_date
 _templates.env.filters["format_number"] = lambda v: f"{int(v):,}".replace(",", " ")
-# today вычисляется динамически на каждый запрос через глобальную функцию
-_templates.env.globals["today"] = _date.today  # callable — Jinja2 вызовет при рендере
+# today — прокси-объект, который всегда возвращает ТЕКУЩУЮ дату.
+# Шаблоны используют его без скобок: {{ today }}, today <= date, today.isoformat() —
+# всё работает как с обычным date-объектом, но значение свежее при каждом рендере.
+class _TodayProxy:
+    """Прокси вокруг date.today() — обновляется при каждом обращении к атрибуту."""
+    def __getattr__(self, name):
+        return getattr(_date.today(), name)
+    def __str__(self):   return str(_date.today())
+    def __repr__(self):  return repr(_date.today())
+    def __format__(self, fmt): return format(_date.today(), fmt)
+    def __eq__(self, other):   return _date.today() == other
+    def __lt__(self, other):   return _date.today() <  other
+    def __le__(self, other):   return _date.today() <= other
+    def __gt__(self, other):   return _date.today() >  other
+    def __ge__(self, other):   return _date.today() >= other
+    def __hash__(self):        return hash(_date.today())
+
+_templates.env.globals["today"] = _TodayProxy()
 _templates.env.globals["csrf_token"] = _get_csrf_token
 
 
