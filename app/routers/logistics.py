@@ -64,8 +64,8 @@ def _parse_glide_snapshot(j: dict) -> list[dict]:
                     if any(x in kl for x in ("расход", "сумма", "amount", "стоимость", "cost")):
                         try:
                             amt = abs(float(str(v).replace(" ", "").replace(",", ".")))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Glide CSV: не удалось распарсить сумму %r: %s", v, e)
                     if any(x in kl for x in ("дата", "date")):
                         try:
                             from datetime import datetime
@@ -75,8 +75,8 @@ def _parse_glide_snapshot(j: dict) -> list[dict]:
                                         row_date = datetime.strptime(v[:10], fmt).date(); break
                                     except Exception:
                                         pass
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug("Glide CSV: не удалось распарсить дату %r: %s", v, e)
                     if any(x in kl for x in ("опис", "наим", "адрес", "name", "desc", "address")):
                         desc = str(v)
                 if amt and amt > 0:
@@ -135,8 +135,8 @@ def _parse_glide_html(html: str) -> list[dict]:
             if any(x in desc.lower() for x in ("расход", "доставка", "внесение", "кол-во")):
                 continue  # пропускаем заголовки
             result.append({"date": row_date, "description": desc, "amount": amt, "external_id": ""})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("_parse_glide_html: пропущена строка: %s", e)
 
     return result
 
@@ -203,8 +203,8 @@ def _parse_excel_bytes(data: bytes) -> list[dict]:
                 else:
                     from datetime import datetime
                     row_date = datetime.strptime(str(d)[:10], "%Y-%m-%d").date()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Excel: не удалось распарсить дату %r: %s", row[date_col], e)
 
         description = str(row[desc_col]).strip() if desc_col is not None and row[desc_col] else ""
         ext_id = str(row[ext_col]).strip() if ext_col is not None and row[ext_col] else ""
@@ -231,8 +231,8 @@ def _parse_csv_bytes(data: bytes) -> list[dict]:
             if any(x in kl for x in ("сумма", "стоимость", "amount", "итого", "cost")):
                 try:
                     amt = float(str(v).replace(" ", "").replace(",", ".").replace("₽", ""))
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("CSV: не удалось распарсить сумму %r: %s", v, e)
             if any(x in kl for x in ("дата", "date", "период")):
                 try:
                     from datetime import datetime
@@ -481,8 +481,8 @@ async def _resolve_app_id(client: httpx.AsyncClient, base_url: str) -> str:
         m = re.search(r'appID["\s:=]{1,4}["\'`]([a-zA-Z0-9]{10,30})["\'`]', r.text)
         if m:
             return m.group(1)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Не удалось определить Glide appID: %s", e)
     return DEFAULT_APP_ID
 
 
@@ -604,8 +604,8 @@ async def _refresh_token(client: httpx.AsyncClient, refresh: str) -> str | None:
                               data={"grant_type": "refresh_token", "refresh_token": refresh})
         if r.status_code == 200:
             return r.json().get("id_token") or r.json().get("access_token")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Не удалось обновить токен Метафоры: %s", e)
     return None
 
 
@@ -674,8 +674,8 @@ def _parse_finance_rows(rows: list) -> list[dict]:
                     amount = abs(float(str(data[k]).replace(",", ".")))
                     if amount > 0:
                         break
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Glide snapshot: не удалось распарсить сумму: %s", e)
         if not amount:
             continue
         # Описание
@@ -718,8 +718,8 @@ async def _fetch_glide_api(client: httpx.AsyncClient, app_id: str, token: str) -
             rds = await client.get(ds_url)
             if rds.status_code == 200:
                 return _parse_glide_snapshot(rds.json())
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Синхронизация Glide не удалась: %s", e)
     return []
 
 

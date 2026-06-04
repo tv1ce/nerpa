@@ -19,7 +19,12 @@ logger = logging.getLogger(__name__)
 # Миграции запускаются при каждом старте (в т.ч. при --reload)
 init_db()
 
-app = FastAPI(title="TMS — Управление поставками")
+app = FastAPI(
+    title="TMS — Управление поставками",
+    # /docs и /redoc закрыты в production — схема API не должна быть публичной
+    docs_url=None,
+    redoc_url=None,
+)
 
 # Фиксируем момент старта для /health → uptime
 _APP_START = _time.monotonic()
@@ -70,11 +75,35 @@ async def _overdue_loop():
         await asyncio.sleep(3600)  # раз в час
 
 
+def _rotate_generated(max_age_days: int = 90) -> int:
+    """Удаляет файлы из generated/ старше max_age_days дней.
+    Возвращает количество удалённых файлов."""
+    import glob as _glob
+    from pathlib import Path
+
+    cutoff = _time.time() - max_age_days * 86400
+    deleted = 0
+    for path in Path("generated").glob("*"):
+        if not path.is_file():
+            continue
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                deleted += 1
+        except Exception as e:
+            logger.warning("Не удалось удалить %s: %s", path, e)
+    if deleted:
+        logger.info("Ротация generated/: удалено %d файлов старше %d дней", deleted, max_age_days)
+    return deleted
+
+
 @app.on_event("startup")
 async def on_startup():
-    # Первый запуск сразу — догоняем пропущенное
+    # Перевод просроченных счетов
     _mark_overdue_invoices()
-    # Запускаем фоновую задачу
+    # Ротация сгенерированных документов
+    _rotate_generated(max_age_days=90)
+    # Фоновая задача — повтор каждый час
     asyncio.create_task(_overdue_loop())
 
 # Сессия живёт 30 дней — чтобы мобильное приложение/браузер «помнили» пользователя

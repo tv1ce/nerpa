@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
-    ForeignKey, Text, Date,
+    ForeignKey, Text, Date, Index,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -489,3 +489,28 @@ class LogisticsCost(Base):
     external_id = Column(String(100))              # ID из внешней системы (для дедупликации)
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
+
+
+# ── Индексы для часто фильтруемых колонок ────────────────────────────────────
+# SQLAlchemy создаёт их через Base.metadata.create_all(); для существующей БД
+# добавляются отдельной миграцией в database._migrate_db().
+
+Index("ix_orders_status",          Order.status)
+Index("ix_orders_date",            Order.date)
+Index("ix_orders_counterparty_id", Order.counterparty_id)
+
+Index("ix_invoices_status",          Invoice.status)
+Index("ix_invoices_date",            Invoice.date)
+Index("ix_invoices_counterparty_id", Invoice.counterparty_id)
+
+Index("ix_invoice_items_invoice_id", InvoiceItem.invoice_id)
+
+Index("ix_order_items_order_id",   OrderItem.order_id)
+Index("ix_order_items_product_id", OrderItem.product_id)
+
+Index("ix_sales_leads_call_status",    SalesLead.call_status)
+Index("ix_sales_leads_assigned_to_id", SalesLead.assigned_to_id)
+
+Index("ix_audit_logs_entity", AuditLog.entity_type, AuditLog.entity_id)
+
+Index("ix_stock_movements_product_id", StockMovement.product_id)

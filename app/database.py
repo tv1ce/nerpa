@@ -183,6 +183,33 @@ def _migrate_db():
         except Exception:
             pass
 
+    # ── Индексы (CREATE INDEX IF NOT EXISTS — идемпотентно) ──────────────────
+    indexes = [
+        ("ix_orders_status",            "orders",         "status"),
+        ("ix_orders_date",              "orders",         "date"),
+        ("ix_orders_counterparty_id",   "orders",         "counterparty_id"),
+        ("ix_invoices_status",          "invoices",       "status"),
+        ("ix_invoices_date",            "invoices",       "date"),
+        ("ix_invoices_counterparty_id", "invoices",       "counterparty_id"),
+        ("ix_invoice_items_invoice_id", "invoice_items",  "invoice_id"),
+        ("ix_order_items_order_id",     "order_items",    "order_id"),
+        ("ix_order_items_product_id",   "order_items",    "product_id"),
+        ("ix_sales_leads_call_status",  "sales_leads",    "call_status"),
+        ("ix_sales_leads_assigned",     "sales_leads",    "assigned_to_id"),
+        ("ix_stock_movements_product",  "stock_movements","product_id"),
+    ]
+    for idx_name, tbl, col in indexes:
+        if not _ident.match(idx_name) or not _ident.match(tbl) or not _ident.match(col):
+            continue
+        cur.execute(
+            f"CREATE INDEX IF NOT EXISTS {idx_name} ON {tbl}({col})"
+        )
+    # Составной индекс для audit_logs
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_entity "
+        "ON audit_logs(entity_type, entity_id)"
+    )
+
     conn.commit()
     conn.close()
 
