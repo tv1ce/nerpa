@@ -20,14 +20,6 @@ logger = logging.getLogger(__name__)
 # Миграции запускаются при каждом старте (в т.ч. при --reload)
 init_db()
 
-app = FastAPI(
-    title="TMS — Управление поставками",
-    lifespan=lifespan,
-    # /docs и /redoc закрыты в production — схема API не должна быть публичной
-    docs_url=None,
-    redoc_url=None,
-)
-
 # Фиксируем момент старта для /health → uptime
 _APP_START = _time.monotonic()
 
@@ -108,6 +100,15 @@ async def lifespan(_app: FastAPI):
     asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
     yield
     # ── shutdown (ничего освобождать не нужно) ────────────────────────────────
+
+
+app = FastAPI(
+    title="TMS — Управление поставками",
+    lifespan=lifespan,
+    # /docs и /redoc закрыты в production — схема API не должна быть публичной
+    docs_url=None,
+    redoc_url=None,
+)
 
 
 # Сессия живёт 30 дней — чтобы мобильное приложение/браузер «помнили» пользователя
