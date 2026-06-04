@@ -27,8 +27,11 @@ Thumbs.db
 .vscode/
 *.swp
 
-# Logs
+# Logs (ротируемые файлы тоже: tms.log.1, tms.log.2 …)
+logs/*
+!logs/.gitkeep
 *.log
+*.log.*
 
 # Generated documents
 generated/

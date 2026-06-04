@@ -1,4 +1,5 @@
 import os
+import time as _time
 from dotenv import load_dotenv
 load_dotenv()  # загружаем .env до инициализации всего остального
 
@@ -14,6 +15,9 @@ from app.database import init_db
 init_db()
 
 app = FastAPI(title="TMS — Управление поставками")
+
+# Фиксируем момент старта для /health → uptime
+_APP_START = _time.monotonic()
 
 # Сессия живёт 30 дней — чтобы мобильное приложение/браузер «помнили» пользователя
 _session_secret = os.environ.get("SECRET_KEY")
@@ -68,8 +72,42 @@ async def pwa_service_worker():
 
 @app.get("/health", include_in_schema=False)
 async def health():
-    """Используется nginx upstream_check, Docker HEALTHCHECK, systemd WatchdogSec."""
-    return {"status": "ok"}
+    """
+    Расширенный health-check.
+
+    Возвращает HTTP 200 когда всё OK, HTTP 503 если БД недоступна.
+    Используется nginx upstream_check, Docker HEALTHCHECK, мониторингом.
+
+    Поля ответа:
+      status   — "ok" | "degraded"
+      db       — "ok" | "error"
+      db_ms    — время ответа БД в мс
+      uptime_s — секунд с момента запуска процесса
+    """
+    from sqlalchemy import text
+    from app.database import SessionLocal
+
+    uptime_s = int(_time.monotonic() - _APP_START)
+
+    db_ok = False
+    db_ms = 0.0
+    try:
+        t0 = _time.monotonic()
+        _db = SessionLocal()
+        _db.execute(text("SELECT 1"))
+        _db.close()
+        db_ok = True
+        db_ms = round((_time.monotonic() - t0) * 1000, 1)
+    except Exception:
+        pass
+
+    payload = {
+        "status":   "ok" if db_ok else "degraded",
+        "db":       "ok" if db_ok else "error",
+        "db_ms":    db_ms,
+        "uptime_s": uptime_s,
+    }
+    return JSONResponse(content=payload, status_code=200 if db_ok else 503)
 
 
 @app.get("/app/version.json", include_in_schema=False)
