@@ -49,6 +49,11 @@ async def revenue_report(
     else:  # month (default)
         tbl_from, tbl_to = month_start, today
 
+    # ── Настройки компании (план + KPI-фильтр) ───────────────────────────────
+    company = db.query(CompanySettings).first()
+    monthly_plan = getattr(company, "monthly_plan", None) or 0.0
+    kpi_filter = (company.kpi_product_filter if company and company.kpi_product_filter else "орешк")
+
     # ── Таблица отгрузок ──────────────────────────────────────────────────────
     # Берём заказы за период и подтягиваем связанный счёт
     rows_q = (
@@ -126,11 +131,6 @@ async def revenue_report(
         Invoice.date >= month_start,
         Invoice.status == "paid",
     ).scalar() or 0.0
-
-    # Настройки компании (план + KPI-фильтр)
-    company = db.query(CompanySettings).first()
-    monthly_plan = getattr(company, "monthly_plan", None) or 0.0
-    kpi_filter = (company.kpi_product_filter if company and company.kpi_product_filter else "орешк")
 
     plan_pct = round(revenue_month / monthly_plan * 100, 1) if monthly_plan > 0 else 0
 
