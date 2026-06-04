@@ -1,33 +1,21 @@
 /* TMS Склад — Service Worker
    Стратегия:
-   - навигация (HTML): network-first, при оффлайне — заглушка;
+   - навигация (HTML): network-first, при оффлайне — /static/offline.html из кеша;
    - статика (/static/, шрифты, CDN): stale-while-revalidate;
    - POST и прочее: всегда сеть (не кэшируем мутации).
    Кэш намеренно лёгкий — это инструмент локальной сети, данные всегда свежие. */
 
-const VERSION    = 'tms-wh-v2';
+const VERSION      = 'tms-wh-v3';
 const STATIC_CACHE = `${VERSION}-static`;
+const OFFLINE_URL  = '/static/offline.html';
 
-// Базовая статика для мгновенной загрузки оболочки
+// Базовая статика + offline-страница — кешируем при установке
 const PRECACHE = [
+  OFFLINE_URL,
   '/static/css/warehouse_mobile.css',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
 ];
-
-const OFFLINE_HTML = `<!doctype html><html lang="ru"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Нет связи</title>
-<style>body{font-family:system-ui,sans-serif;background:#0F1A2E;color:#fff;height:100vh;margin:0;
-display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
-.box{font-size:3rem;margin-bottom:12px}h1{font-size:1.2rem;margin:0 0 8px}p{color:#94a3b8;margin:0 0 20px}
-button{background:#2563EB;color:#fff;border:none;border-radius:12px;padding:14px 28px;font-size:1rem;font-weight:700}</style>
-</head><body>
-<div class="box">📦</div>
-<h1>Нет связи с сервером</h1>
-<p>Проверьте Wi-Fi и подключение к серверу TMS</p>
-<button onclick="location.reload()">Повторить</button>
-</body></html>`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -62,11 +50,16 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(req.url);
 
-  // Навигация по страницам — сеть в приоритете
+  // Навигация по страницам — сеть в приоритете, при сбое — offline.html из кеша
   if (req.mode === 'navigate') {
     event.respondWith(
       fetch(req).catch(() =>
-        new Response(OFFLINE_HTML, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+        caches.match(OFFLINE_URL).then((cached) =>
+          cached || new Response(
+            '<h1>Нет связи</h1><button onclick="location.reload()">Повторить</button>',
+            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          )
+        )
       )
     );
     return;
