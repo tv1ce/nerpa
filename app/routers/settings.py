@@ -149,6 +149,7 @@ async def upload_logo(
 async def save_telegram(
     request: Request,
     tg_bot_token: str = Form(default=""),
+    tg_report_chat_ids: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -156,6 +157,17 @@ async def save_telegram(
         company = CompanySettings()
         db.add(company)
     company.tg_bot_token = tg_bot_token.strip() or None
+    # Нормализуем список chat_id: оставляем только числа (с возможным минусом), через запятую
+    ids = []
+    for part in tg_report_chat_ids.replace(";", ",").replace("\n", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(str(int(part)))
+        except ValueError:
+            continue
+    company.tg_report_chat_ids = ",".join(ids) or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 

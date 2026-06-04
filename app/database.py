@@ -133,6 +133,8 @@ def _migrate_db():
         ("counterparties", "tg_notify_enabled", "INTEGER DEFAULT 0"),
         # Токен Telegram-бота (глобальные настройки)
         ("company_settings", "tg_bot_token", "TEXT"),
+        # Получатели отчётов о выручке (chat_id через запятую)
+        ("company_settings", "tg_report_chat_ids", "TEXT"),
         # Принудительная смена пароля при следующем входе
         ("users", "must_change_password", "INTEGER DEFAULT 0"),
         # Адресат уведомления (NULL = системное, видят все)

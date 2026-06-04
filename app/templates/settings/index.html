@@ -171,6 +171,20 @@
                  value="{{ company.tg_bot_token if company and company.tg_bot_token else '' }}">
           <div class="form-text">Используется для отправки заказов перевозчикам в Telegram</div>
         </div>
+        <div class="mb-3">
+          <label class="form-label">
+            Чат для отчётов о выручке
+            <span class="text-muted" style="font-size:.78rem">(chat_id, через запятую)</span>
+          </label>
+          <input type="text" name="tg_report_chat_ids"
+                 class="form-control font-monospace"
+                 placeholder="-1001234567890, 987654321"
+                 value="{{ company.tg_report_chat_ids if company and company.tg_report_chat_ids else '' }}">
+          <div class="form-text">
+            Куда бот шлёт ежедневные / еженедельные / ежемесячные отчёты.
+            Узнать chat_id группы можно у <code>@getmyid_bot</code>. Если пусто — берётся из <code>.env</code>.
+          </div>
+        </div>
         {% if company and company.tg_bot_token %}
         <div class="alert alert-success py-2 px-3 mb-3" style="font-size:.82rem">
           <i class="bi bi-check-circle me-1"></i>Токен настроен

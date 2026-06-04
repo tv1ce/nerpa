@@ -96,8 +96,25 @@ CALLBACK_TIME = _parse_time("TMS_CALLBACK_TIME", "09:30")
 
 # ── Отправка сообщения всем подписчикам ───────────────────────────────────────
 
+def _report_chat_ids() -> list[int]:
+    """Получатели отчётов: сначала из настроек компании (БД), иначе — из .env.
+    Читается при каждой отправке, поэтому смена в настройках применяется без рестарта бота."""
+    db = SessionLocal()
+    try:
+        from app.models import CompanySettings
+        company = db.query(CompanySettings).first()
+        raw = (company.tg_report_chat_ids or "") if company else ""
+    except Exception as e:
+        logger.error("Не удалось прочитать chat_id из настроек: %s", e)
+        raw = ""
+    finally:
+        db.close()
+    ids = _parse_chat_ids(raw)
+    return ids or CHAT_IDS
+
+
 async def broadcast(bot: Bot, text: str) -> None:
-    for chat_id in CHAT_IDS:
+    for chat_id in _report_chat_ids():
         try:
             await bot.send_message(
                 chat_id=chat_id,
