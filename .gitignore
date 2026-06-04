@@ -15,7 +15,7 @@ venv/
 env/
 
 # Database
-# *.db  -- temporarily allowed for deployment
+*.db
 *.sqlite3
 
 # OS
@@ -35,10 +35,10 @@ logs/*
 
 # Generated documents
 generated/
-# *.docx  -- temporarily allowed for deployment
+*.docx
 
 # User uploads
-# app/static/uploads/  -- temporarily allowed for deployment
+app/static/uploads/
 
 # Claude Code local tooling
 .claude/
