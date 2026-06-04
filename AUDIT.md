@@ -172,3 +172,82 @@
 | C-10 | ✅ | `{{ p.name \| tojson }}` вместо ручного replace — безопасное экранирование |
 | C-11 | ✅ | CSRF-токен в сессии, JS-автоинъекция в формы и fetch, валидация в декораторах |
 | C-12 | ✅ | `adjustment` хранится со знаком (+/-), формула баланса исправлена |
+
+### Высокий приоритет
+| # | Статус | Что сделано |
+|---|--------|-------------|
+| H-1 | ✅ | @role_required("manager") на create/update/status/delete счетов |
+| H-2 | ✅ | @role_required("manager") на delete/clear/bulk лидов |
+| H-3 | ✅ | @role_required("manager") на удаление движений и stock-settings |
+| H-4 | ✅ | @role_required("manager") на run_dadata/run_local/cleanup_dead/dedup |
+| H-5 | ✅ | Notification.user_id + фильтрация по владельцу + миграция |
+| H-6 | ✅ | _authorized()/_deny() — команды бота только для CHAT_IDS |
+| H-7 | ✅ | with_for_update() при смене статуса |
+| H-8 | ✅ | try/except вокруг json.loads в orders и invoices |
+| H-9 | ✅ | today как callable (_date.today) |
+| H-10 | ✅ | Корректный сдвиг месяцев через year*12+month |
+| H-11 | ✅ | LOGI_CARRIER_NAME из env |
+| H-12 | ✅ | abspath проверка внутри generated/ |
+| H-13 | ✅ | Rate limiting 5 попыток / 5 мин по IP+логин |
+| H-14 | ✅ | safe_redirect — только относительные пути /path |
+| H-15 | ✅ | safe_redirect во всех redirect_url в activity.py |
+| H-16 | ✅ | Серверная инвалидация через is_active при каждом запросе |
+
+### Средний приоритет
+| # | Статус | Что сделано |
+|---|--------|-------------|
+| M-1 | ✅ | get_balances: единый GROUP BY запрос |
+| M-2 | ✅ | joinedload(orders) в recalc-categories |
+| M-3 | ✅ | joinedload(assigned_to) в CSV/XLSX экспорте |
+| M-4 | ✅ | _assembly_queue_count: COUNT в SQL |
+| M-5 | ⚠️ | Источники задокументированы; полное выравнивание — отдельная задача |
+| M-6 | ✅ | Единый фильтр "орешк" (ilike) везде |
+| M-7 | ✅ | REVENUE_STATUSES — только оплаченные/отгруженные заказы |
+| M-8 | ✅ | Динамический ОКЕИ через _okei(unit) в xml_upd и pdf_upd |
+| M-9 | ✅ | _split_fio с защитой от должностей в поле директора |
+| M-10 | ⚠️ | Требует реального ID оператора ЭДО — внешняя зависимость |
+| M-11 | ✅ | Редирект ?doc_error=1 + алерт в шаблоне договора |
+| M-12 | ✅ | try/except в create_movement (исправлено ранее) |
+| M-13 | ✅ | _safe_reply с try/except в командах бота |
+| M-14 | ✅ | _parse_chat_ids с обработкой ValueError |
+| M-15 | ✅ | _parse_time с fallback на default |
+| M-16 | ✅ | logger.debug вместо голого except/pass |
+| M-17 | ✅ | Валидация status по ORDER_STATUSES |
+| M-18 | ⚠️ | Валидация ИНН/КПП/ОГРН — требует отдельного компонента |
+| M-19 | ✅ | Валидация month 1-12, year 2000-2100, plan_amount >= 0 |
+| M-20 | ✅ | abs() убран для adjustment, нулевое количество — redirect |
+| M-21 | ✅ | Whitelist расширений + лимит 5МБ для логотипа |
+| M-22 | ✅ | createElement+textContent вместо innerHTML |
+| M-23 | ✅ | SAFE_COLORS whitelist (исправлено в C-9 блоке) |
+| M-24 | ✅ | Убраны дублированные Bootstrap + app.js |
+| M-25 | ✅ | redirect_url в форме смены статуса на детальной странице |
+| M-26 | ✅ | _esc() в formatters.py для имён клиентов и продуктов |
+| M-27 | ⚠️ | MARKDOWN_V2 — требует полного рефактора formatters |
+| M-28 | ✅ | read_timeout/write_timeout на send_message |
+| M-29 | ⚠️ | date.today() vs TZ — требует timezone-aware date |
+| M-30 | ⚠️ | f-string в DDL — значения захардкожены, риск низкий |
+| M-31 | ⚠️ | SQLite + 2 процесса — архитектурная проблема |
+| M-32 | ⚠️ | sqlite3 + SQLAlchemy параллельно при миграциях |
+| M-33 | ⚠️ | Порядок маршрутов contracts /{id} vs /templates/ |
+| M-34 | ⚠️ | utils импортирует из router — архитектурный рефактор |
+| M-35 | ⚠️ | _next_order_number race condition |
+
+### Низкий приоритет
+| # | Статус | Что сделано |
+|---|--------|-------------|
+| L-1 | ⚠️ | Файл договора не удаляется с диска при удалении |
+| L-2 | ⚠️ | Хардкод плана 225_000 |
+| L-3 | ✅ | /app/download требует авторизации |
+| L-4 | ✅ | Кладовщик получил доступ к /products и /board |
+| L-5 | ⚠️ | Менеджер может удалять чужие задачи |
+| L-6 | ✅ | Единый commit для движения + уведомления |
+| L-7 | ✅ | Переменная lead вместо l (PEP8) |
+| L-8 | ⚠️ | Хардкод адреса "Лиговский 289" в шаблоне |
+| L-9 | ⚠️ | Дублирование ORDER_STATUSES в шаблоне дашборда |
+| L-10 | ⚠️ | Нет mobile breakpoint <576px в CSS |
+| L-11 | ⚠️ | btn-xs не существует в Bootstrap 5 |
+| L-12 | ✅ | data-confirm при кнопке «Собрано» на мобильном |
+| L-13 | ⚠️ | Зависимости бота без верхней границы версий |
+| L-14 | ⚠️ | TMS_CALLBACK_TIME не в .env.example |
+| L-15 | ✅ | _esc() экранирует &apos; |
+| L-16 | ⚠️ | _next_contract_number повторяется после удаления |
