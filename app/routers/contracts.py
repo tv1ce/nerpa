@@ -1,7 +1,9 @@
 import os
+import uuid as _uuid
 from datetime import date
 from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from sqlalchemy.exc import IntegrityError
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -85,7 +87,8 @@ async def create_contract(
 ):
     payment_type = payment_type if payment_type in PAYMENT_TYPES else "prepay"
     contract = Contract(
-        number=number, date=date.fromisoformat(contract_date),
+        number=f"~{_uuid.uuid4().hex[:12]}",  # уникальный temp-номер до получения ID
+        date=date.fromisoformat(contract_date),
         counterparty_id=counterparty_id, template_id=template_id or None,
         subject=subject, status=status,
         start_date=date.fromisoformat(start_date) if start_date else None,
@@ -96,7 +99,15 @@ async def create_contract(
         notes=notes,
     )
     db.add(contract)
-    db.flush()
+    db.flush()  # получаем contract.id
+
+    # Разрешаем финальный номер: предпочитаем пользовательский, fallback — ID
+    desired_number = (number or "").strip() or str(contract.id)
+    conflict = db.query(Contract.id).filter(
+        Contract.number == desired_number, Contract.id != contract.id
+    ).scalar()
+    contract.number = desired_number if not conflict else str(contract.id)
+
     doc_error = None
     if template_id:
         try:

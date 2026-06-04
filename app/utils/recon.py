@@ -307,19 +307,12 @@ def extract_phones(lead) -> list[str]:
 
 def get_dadata_token(settings) -> str | None:
     """Токен DaData по приоритету:
-    1) настройки раздела (CompanySettings.dadata_token),
-    2) переменная окружения DADATA_TOKEN,
-    3) общий ключ из модуля контрагентов (тот же аккаунт, что и автозаполнение по ИНН).
+    1) настройки компании (CompanySettings.dadata_token — зашифровано),
+    2) переменная окружения DADATA_TOKEN.
     """
     if settings and getattr(settings, "dadata_token", None):
         return settings.dadata_token.strip()
-    if os.environ.get("DADATA_TOKEN"):
-        return os.environ["DADATA_TOKEN"]
-    try:
-        from app.routers.counterparties import DADATA_TOKEN as _CP_TOKEN
-        return _CP_TOKEN or None
-    except Exception:
-        return None
+    return os.environ.get("DADATA_TOKEN") or None
 
 
 async def dadata_suggest(token: str, query: str, count: int = 5) -> list[dict]:

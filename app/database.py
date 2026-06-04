@@ -6,9 +6,14 @@ DATABASE_URL = "sqlite:///./tms.db"
 
 
 def _set_wal(connection, _):
-    """Включаем WAL-mode для снижения блокировок при параллельном доступе (бот + сервер)."""
+    """WAL-mode + оптимизация для двух процессов (бот + сервер) на одном SQLite файле.
+    WAL позволяет читателям не блокировать писателей. busy_timeout даёт 10с на retry
+    вместо немедленного SQLITE_BUSY. synchronous=NORMAL безопасен с WAL и быстрее FULL."""
     connection.execute("PRAGMA journal_mode=WAL")
-    connection.execute("PRAGMA busy_timeout=5000")   # ждём до 5с вместо немедленного LOCKED
+    connection.execute("PRAGMA busy_timeout=10000")
+    connection.execute("PRAGMA synchronous=NORMAL")
+    connection.execute("PRAGMA cache_size=-8000")       # 8 MB page cache
+    connection.execute("PRAGMA wal_autocheckpoint=100") # checkpoint каждые 100 страниц
 
 
 engine = create_engine(
@@ -132,12 +137,20 @@ def _migrate_db():
         # Адресат уведомления (NULL = системное, видят все)
         ("notifications", "user_id", "INTEGER REFERENCES users(id)"),
     ]
-    # Whitelist: только буквы, цифры и подчёркивание в именах таблиц/колонок
+    # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
     _ident = _re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+    _col_def_re = _re.compile(
+        r"^(TEXT|INTEGER|REAL|BLOB|NUMERIC|BOOLEAN|TIMESTAMP|DATE)"
+        r"(\s+DEFAULT\s+(-?\d[\d.]*|'[^']*'))?"
+        r"(\s+REFERENCES\s+[a-zA-Z_]\w*\([a-zA-Z_]\w*\))?$",
+        _re.IGNORECASE,
+    )
     for table, column, col_def in migrations:
         if not _ident.match(table) or not _ident.match(column):
             raise ValueError(f"Небезопасное имя в миграции: table={table!r}, column={column!r}")
+        if not _col_def_re.match(col_def.strip()):
+            raise ValueError(f"Небезопасный col_def в миграции: {col_def!r}")
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in existing:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")

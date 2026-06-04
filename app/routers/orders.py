@@ -1,11 +1,13 @@
 import json
 import os
+import uuid as _uuid
 from datetime import date
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
@@ -142,7 +144,7 @@ async def create_order(
     if status not in ORDER_STATUSES:
         status = "draft"
     order = Order(
-        number=number,
+        number=f"~{_uuid.uuid4().hex[:12]}",  # уникальный temp-номер до получения ID
         date=date.fromisoformat(order_date),
         counterparty_id=counterparty_id,
         supplier_id=supplier_id or None,
@@ -160,7 +162,15 @@ async def create_order(
         created_by_id=request.session.get("user_id"),
     )
     db.add(order)
-    db.flush()
+    db.flush()  # получаем order.id, гарантированно уникальный
+
+    # Разрешаем финальный номер: предпочитаем пользовательский, fallback — ID
+    desired_number = (number or "").strip() or str(order.id)
+    conflict = db.query(Order.id).filter(
+        Order.number == desired_number, Order.id != order.id
+    ).scalar()
+    order.number = desired_number if not conflict else str(order.id)
+
     try:
         items_data = json.loads(items_json)
     except (ValueError, TypeError):
