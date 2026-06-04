@@ -39,9 +39,15 @@ def _statuses_for(order: Order) -> dict:
 
 
 def _next_order_number(db: Session) -> str:
-    from sqlalchemy import func
-    max_id = db.query(func.max(Order.id)).scalar() or 0
-    return str(max_id + 1)
+    """Следующий номер заказа — max по числовой части поля number."""
+    rows = db.query(Order.number).all()
+    nums = []
+    for (n,) in rows:
+        try:
+            nums.append(int(str(n).split("/")[0].strip()))
+        except (ValueError, TypeError):
+            pass
+    return str((max(nums) + 1) if nums else 1)
 
 
 def _assembly_queue_count(db: Session) -> int:
@@ -100,11 +106,13 @@ async def new_order(request: Request, db: Session = Depends(get_db)):
     ).order_by(Counterparty.name).all()
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     contracts = db.query(Contract).order_by(Contract.date.desc()).all()
+    company = db.query(CompanySettings).first()
     return templates.TemplateResponse(request, "orders/form.html", {
         "order": None, "counterparties": counterparties, "suppliers": suppliers,
         "carriers": carriers, "products": products, "contracts": contracts,
         "statuses": ORDER_STATUSES, "payment_types": PAYMENT_TYPES,
         "suggested_number": _next_order_number(db),
+        "company": company,
     })
 
 
@@ -219,11 +227,13 @@ async def edit_order(request: Request, order_id: int, db: Session = Depends(get_
     ).order_by(Counterparty.name).all()
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     contracts = db.query(Contract).order_by(Contract.date.desc()).all()
+    company = db.query(CompanySettings).first()
     return templates.TemplateResponse(request, "orders/form.html", {
         "order": order, "counterparties": counterparties, "suppliers": suppliers,
         "carriers": carriers, "products": products, "contracts": contracts,
         "statuses": ORDER_STATUSES, "payment_types": PAYMENT_TYPES,
         "suggested_number": order.number,
+        "company": company,
     })
 
 

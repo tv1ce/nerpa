@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import login_required
+from app.auth import login_required, role_required
 from app.models import Contract, Counterparty, DocumentTemplate, CompanySettings
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
@@ -25,9 +25,16 @@ GENERATED_DIR = "generated"
 
 
 def _next_contract_number(db: Session) -> str:
+    """Следующий номер договора — max по текстовому полю number (числовая часть)."""
     from sqlalchemy import func
-    max_id = db.query(func.max(Contract.id)).scalar() or 0
-    return str(max_id + 1)
+    rows = db.query(Contract.number).all()
+    nums = []
+    for (n,) in rows:
+        try:
+            nums.append(int(str(n).split("/")[0].strip()))
+        except (ValueError, TypeError):
+            pass
+    return str((max(nums) + 1) if nums else 1)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -104,6 +111,13 @@ async def create_contract(
             url=f"/contracts/{contract.id}?doc_error=1", status_code=302
         )
     return RedirectResponse(url=f"/contracts/{contract.id}", status_code=302)
+
+
+@router.get("/templates", response_class=HTMLResponse)
+@login_required
+async def templates_redirect(request: Request):
+    """M-33: /contracts/templates без слэша — FastAPI иначе пытает str→int и даёт 422."""
+    return RedirectResponse(url="/contracts/templates/", status_code=302)
 
 
 @router.get("/{contract_id}", response_class=HTMLResponse)
@@ -197,10 +211,19 @@ async def download_contract(request: Request, contract_id: int, db: Session = De
 
 
 @router.post("/{contract_id}/delete")
-@login_required
+@role_required("manager")
 async def delete_contract(request: Request, contract_id: int, db: Session = Depends(get_db)):
     contract = db.query(Contract).filter(Contract.id == contract_id).first()
     if contract:
+        # Удаляем файл с диска (в разрешённой директории)
+        if contract.file_path:
+            allowed_dir = os.path.abspath(GENERATED_DIR)
+            abs_path = os.path.abspath(contract.file_path)
+            if abs_path.startswith(allowed_dir + os.sep) and os.path.exists(abs_path):
+                try:
+                    os.remove(abs_path)
+                except OSError:
+                    pass
         db.delete(contract)
         db.commit()
     return RedirectResponse(url="/contracts", status_code=302)

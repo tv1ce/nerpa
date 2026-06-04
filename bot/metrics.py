@@ -5,7 +5,18 @@
 from __future__ import annotations
 
 import calendar
+import os
 from datetime import date, timedelta
+from zoneinfo import ZoneInfo
+
+# Дата берётся в TZ бота, чтобы отчёт в 20:00 МСК был за сегодня, а не завтра
+_TZ = ZoneInfo(os.getenv("TMS_TZ", "Europe/Moscow"))
+
+
+def _today() -> date:
+    """Текущая дата в часовом поясе бота (не UTC системы)."""
+    from datetime import datetime
+    return datetime.now(tz=_TZ).date()
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -27,7 +38,7 @@ def get_callbacks_today(db: Session) -> list[dict]:
         .filter(
             SalesLead.is_active == True,
             SalesLead.callback_at.isnot(None),
-            SalesLead.callback_at <= date.today(),
+            SalesLead.callback_at <= _today(),
             SalesLead.call_status.notin_(["deal", "refused", "invalid"]),
         )
         .order_by(SalesLead.callback_at, SalesLead.assigned_to_id)
@@ -39,7 +50,7 @@ def get_callbacks_today(db: Session) -> list[dict]:
             "name": lead.name,
             "phone": lead.phone or "",
             "manager": lead.assigned_to.full_name if lead.assigned_to else None,
-            "overdue": lead.callback_at < date.today(),
+            "overdue": lead.callback_at < _today(),
             "date": lead.callback_at,
         })
     return result
@@ -68,7 +79,7 @@ def _fmt(amount: float) -> str:
 
 def get_daily_metrics(db: Session, day: date | None = None) -> dict:
     """Метрики за один день (по умолчанию сегодня)."""
-    today = day or date.today()
+    today = day or _today()
 
     orders_today = db.query(Order).filter(Order.date == today).count()
     orders_shipped = db.query(Order).filter(
@@ -121,7 +132,7 @@ def get_daily_metrics(db: Session, day: date | None = None) -> dict:
 
 def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
     """Метрики за текущую неделю + сравнение с прошлой."""
-    today = ref_date or date.today()
+    today = ref_date or _today()
     ws, we = _week_bounds(today)
     pws, pwe = ws - timedelta(days=7), we - timedelta(days=7)
 
@@ -212,7 +223,7 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
 
 def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
     """Полные метрики за месяц."""
-    today = ref_date or date.today()
+    today = ref_date or _today()
     ms, me = _month_bounds(today)
     year_start = today.replace(month=1, day=1)
 

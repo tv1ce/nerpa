@@ -93,12 +93,12 @@
           <div class="col-md-4">
             <label class="form-label">Город отправки <span class="text-muted" style="font-size:.8rem">(откуда)</span></label>
             <input type="text" name="pickup_city" class="form-control" placeholder="Санкт-Петербург"
-                   value="{{ order.pickup_city if order and order.pickup_city else 'Санкт-Петербург' }}">
+                   value="{{ order.pickup_city if order and order.pickup_city else (company.actual_address.split(',')[0] if company and company.actual_address else '') }}">
           </div>
           <div class="col-md-8">
             <label class="form-label">Адрес забора <span class="text-muted" style="font-size:.8rem">(откуда)</span></label>
-            <input type="text" name="pickup_address" class="form-control" placeholder="Лиговский 289"
-                   value="{{ order.pickup_address if order and order.pickup_address else 'Лиговский 289' }}">
+            <input type="text" name="pickup_address" class="form-control" placeholder="Введите адрес"
+                   value="{{ order.pickup_address if order and order.pickup_address else (company.actual_address if company and company.actual_address else '') }}">
           </div>
           <div class="col-md-8">
             <label class="form-label">Контакт получателя <span class="text-muted" style="font-size:.8rem">(телефон + имя)</span></label>

@@ -67,8 +67,13 @@ async def delete_task(
 ):
     task = db.query(Task).filter(Task.id == task_id).first()
     if task:
-        db.delete(task)
-        db.commit()
+        from app.auth import ROLE_LEVELS
+        user_id = request.session.get("user_id")
+        role = request.session.get("user_role", "viewer")
+        # Менеджер может удалить только собственную задачу; admin — любую
+        if ROLE_LEVELS.get(role, 0) >= ROLE_LEVELS.get("admin", 0) or task.created_by_id == user_id:
+            db.delete(task)
+            db.commit()
     return RedirectResponse(url=safe_redirect(redirect_url), status_code=302)
 
 

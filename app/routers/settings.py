@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db, hash_password
 from app.auth import login_required, role_required
 from app.models import CompanySettings, User
+from app.routers.counterparties import _validate_inn, _validate_kpp, _validate_ogrn
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 templates = Jinja2Templates(directory="app/templates")
@@ -65,7 +66,7 @@ async def save_company(
         company = CompanySettings()
         db.add(company)
     company.name = name; company.short_name = short_name
-    company.inn = inn; company.kpp = kpp; company.ogrn = ogrn
+    company.inn = _validate_inn(inn); company.kpp = _validate_kpp(kpp); company.ogrn = _validate_ogrn(ogrn)
     company.legal_address = legal_address; company.actual_address = actual_address
     company.phone = phone; company.email = email
     company.director = director; company.director_basis = director_basis

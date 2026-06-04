@@ -4,7 +4,21 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DATABASE_URL = "sqlite:///./tms.db"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+def _set_wal(connection, _):
+    """Включаем WAL-mode для снижения блокировок при параллельном доступе (бот + сервер)."""
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA busy_timeout=5000")   # ждём до 5с вместо немедленного LOCKED
+
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False},
+)
+
+from sqlalchemy import event
+event.listen(engine, "connect", _set_wal)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -41,9 +55,9 @@ def init_db():
 
 
 def _migrate_db():
-    """Добавляет новые колонки в существующие таблицы (SQLite не поддерживает ALTER COLUMN)."""
-    import sqlite3
-    conn = sqlite3.connect("tms.db")
+    """Добавляет новые колонки в существующие таблицы (SQLite не поддерживает ALTER COLUMN).
+    Использует тот же SQLAlchemy engine — без второго соединения."""
+    conn = engine.raw_connection()
     cur = conn.cursor()
     migrations = [
         ("company_settings", "monthly_plan", "REAL DEFAULT 225000.0"),
@@ -118,7 +132,12 @@ def _migrate_db():
         # Адресат уведомления (NULL = системное, видят все)
         ("notifications", "user_id", "INTEGER REFERENCES users(id)"),
     ]
+    # Whitelist: только буквы, цифры и подчёркивание в именах таблиц/колонок
+    import re as _re
+    _ident = _re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
     for table, column, col_def in migrations:
+        if not _ident.match(table) or not _ident.match(column):
+            raise ValueError(f"Небезопасное имя в миграции: table={table!r}, column={column!r}")
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in existing:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")

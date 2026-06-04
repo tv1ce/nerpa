@@ -3,7 +3,8 @@
 {% block page_title %}Дашборд{% endblock %}
 
 {% block content %}
-{% set status_ru = {'draft':'Черновик','confirmed':'Подтверждён','paid':'Оплачен','assembled':'Собран','handed':'Передан поставщику','delivered':'Доставлено','cancelled':'Отменён'} %}
+{# L-9: метки статусов приходят из бэкенда в order_statuses — не дублируем #}
+{% set status_ru = order_statuses %}
 
 <!-- ── Stat cards ── -->
 <div class="row g-3 mb-4">
@@ -203,12 +204,14 @@ new Chart(document.getElementById('revenueChart'), {
 });
 
 const sc = {{ order_status_counts | tojson }};
+const statusLabels = {{ order_statuses | tojson }};
+const statusKeys = ['draft','confirmed','paid','assembled','handed','delivered','cancelled'];
 new Chart(document.getElementById('ordersChart'), {
   type: 'doughnut',
   data: {
-    labels: ['Черновик','Подтверждён','Оплачен','Собран','Передан','Доставлено','Отменён'],
+    labels: statusKeys.map(k => statusLabels[k] || k),
     datasets: [{
-      data: [sc.draft, sc.confirmed, sc.paid, sc.assembled, sc.handed, sc.delivered, sc.cancelled],
+      data: statusKeys.map(k => sc[k] || 0),
       backgroundColor: ['#94A3B8','#2563EB','#14B8A6','#EAB308','#8B5CF6','#22C55E','#EF4444'],
     }]
   },

@@ -102,7 +102,7 @@ async def broadcast(bot: Bot, text: str) -> None:
             await bot.send_message(
                 chat_id=chat_id,
                 text=text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode=ParseMode.MARKDOWN_V2,
                 read_timeout=20, write_timeout=20, connect_timeout=10,
             )
         except Exception as e:
@@ -211,7 +211,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/monthly — отчёт за текущий месяц\n"
         "/callbacks — перезвоны на сегодня\n"
         "/status — статус бота и расписание",
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode=ParseMode.MARKDOWN_V2,
     )
 
 

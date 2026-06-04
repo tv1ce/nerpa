@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from app.database import get_db
 from app.auth import login_required
 from app.models import Order, OrderItem, Invoice, Counterparty, Contract, Product
+from app.routers.orders import ORDER_STATUSES
 
 router = APIRouter(tags=["dashboard"])
 templates = Jinja2Templates(directory="app/templates")
@@ -81,7 +82,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         Order, OrderItem.order_id == Order.id
     ).join(Product, OrderItem.product_id == Product.id).filter(
         Order.status.in_(_sold_orders),
-        Product.name.contains("решк"),
+        Product.name.ilike("%орешк%"),
     ).scalar() or 0.0
 
     nuts_this_month = db.query(func.sum(OrderItem.quantity)).join(
@@ -89,7 +90,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
     ).join(Product, OrderItem.product_id == Product.id).filter(
         Order.status.in_(_sold_orders),
         Order.date >= month_start,
-        Product.name.contains("решк"),
+        Product.name.ilike("%орешк%"),
     ).scalar() or 0.0
 
     top_products = db.query(
@@ -119,4 +120,5 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         "total_nuts_sold": total_nuts_sold,
         "nuts_this_month": nuts_this_month,
         "top_products": top_products,
+        "order_statuses": ORDER_STATUSES,  # L-9: не дублировать в шаблоне
     })

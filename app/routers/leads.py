@@ -22,6 +22,10 @@ from sqlalchemy import func
 from app.database import get_db
 from app.auth import login_required, role_required
 from app.models import SalesLead, LeadCall, User, Counterparty
+from app.utils.leads_utils import (
+    _normalize_brand, _extract_socials, _ensure_scheme, _norm_phone,
+    PHONE_PATTERN, URL_PATTERN,
+)
 
 # Поля, которые можно сопоставлять колонкам (для превью-маппинга)
 MAPPABLE_FIELDS = {
@@ -76,30 +80,7 @@ SOCIAL_PATTERNS = {
     "telegram":  re.compile(r"(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/[\w.\-/]+", re.I),
     "whatsapp":  re.compile(r"(?:https?://)?(?:www\.)?(?:wa\.me|api\.whatsapp\.com)/[\w.\-/?=&]+", re.I),
 }
-URL_PATTERN = re.compile(r"(?:https?://)?(?:www\.)?[\w\-]+\.[a-zA-Zрф]{2,}(?:/[\w.\-/?=&%]*)?", re.I)
-PHONE_PATTERN = re.compile(r"(?:\+?\d[\s\-()]?){7,15}\d")
-
-# Юр.формы и шумовые слова, которые убираем при нормализации бренда
-_BRAND_NOISE = re.compile(
-    r'\b(ооо|оао|зао|пао|ип|ао|тд|тк|нко|общество|с ограниченной|ответственностью|'
-    r'индивидуальный|предприниматель|кофейня|кафе|кондитерская|пекарня|ресторан|бар|'
-    r'магазин|сеть|сети|филиал|точка|street|coffee|cafe|shop|bakery)\b',
-    re.I,
-)
-
-
-def _normalize_brand(name: str) -> str:
-    """Грубая нормализация названия в «бренд» для группировки сетей."""
-    if not name:
-        return ""
-    s = name.lower().replace("ё", "е")
-    s = re.sub(r"\(.*?\)", " ", s)              # убрать скобки с содержимым
-    s = re.sub(r"[«»\"'`]", " ", s)             # кавычки
-    s = _BRAND_NOISE.sub(" ", s)                # юр.формы и общие слова
-    s = re.sub(r"\d+", " ", s)                  # номера филиалов
-    s = re.sub(r"[^\w\s]", " ", s, flags=re.U)  # пунктуация
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
+# URL_PATTERN, PHONE_PATTERN, _normalize_brand, _extract_socials, _ensure_scheme, _norm_phone — из leads_utils
 
 
 def _match_columns(headers: list[str]) -> dict:
@@ -118,30 +99,7 @@ def _match_columns(headers: list[str]) -> dict:
     return mapping
 
 
-def _extract_socials(cells: list[str]) -> dict:
-    """Достаёт соцсети / сайт / телефон из всех ячеек строки."""
-    blob = " ".join(c for c in cells if c)
-    found = {}
-    for key, pat in SOCIAL_PATTERNS.items():
-        m = pat.search(blob)
-        if m:
-            url = m.group(0)
-            if not url.startswith("http"):
-                url = "https://" + url
-            found[key] = url
-    # сайт — первый URL, не являющийся соцсетью
-    for m in URL_PATTERN.finditer(blob):
-        url = m.group(0)
-        low = url.lower()
-        if any(d in low for d in ("vk.com", "vk.ru", "instagram.com", "t.me",
-                                  "telegram.me", "wa.me", "whatsapp.com",
-                                  "@", "mail.")):
-            continue
-        if not url.startswith("http"):
-            url = "https://" + url
-        found.setdefault("website", url)
-        break
-    return found
+# _extract_socials — из leads_utils
 
 
 def _clean(v) -> str:
@@ -150,16 +108,7 @@ def _clean(v) -> str:
     return str(v).strip()
 
 
-def _ensure_scheme(url: str) -> str:
-    """Добавляет https:// к ссылке из колонки, если схемы нет."""
-    url = (url or "").strip()
-    if not url or "@" in url and "/" not in url:   # это похоже на e-mail/логин, не трогаем
-        return url
-    if url.startswith(("http://", "https://")):
-        return url
-    if "." in url or url.startswith("t.me") or "vk.com" in url:
-        return "https://" + url.lstrip("/")
-    return url   # просто текст (например, «@shoko») — оставляем как есть
+# _ensure_scheme — из leads_utils
 
 
 def _parse_rows(filename: str, data: bytes) -> tuple[list[str], list[list[str]]]:
@@ -284,12 +233,7 @@ async def list_leads(
     })
 
 
-def _norm_phone(phone: str) -> str:
-    """Нормализует телефон до цифр (для дедупликации). 8XXX → 7XXX."""
-    digits = re.sub(r"\D", "", phone or "")
-    if len(digits) == 11 and digits[0] == "8":
-        digits = "7" + digits[1:]
-    return digits
+# _norm_phone — из leads_utils
 
 
 def _build_lead(cells, cols, headers) -> dict | None:

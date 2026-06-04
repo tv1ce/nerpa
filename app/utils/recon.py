@@ -18,7 +18,7 @@ from urllib.parse import quote_plus
 
 import httpx
 
-from app.routers.leads import (
+from app.utils.leads_utils import (
     _extract_socials, _ensure_scheme, _norm_phone, _normalize_brand,
     PHONE_PATTERN,
 )

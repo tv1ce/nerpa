@@ -129,7 +129,8 @@ async def revenue_report(
 
     # Настройки компании (план)
     company = db.query(CompanySettings).first()
-    monthly_plan = getattr(company, "monthly_plan", None) or 225_000.0
+    # Берём план из настроек компании; 0 = не задан → показываем "план не задан"
+    monthly_plan = getattr(company, "monthly_plan", None) or 0.0
 
     plan_pct = round(revenue_month / monthly_plan * 100, 1) if monthly_plan > 0 else 0
 

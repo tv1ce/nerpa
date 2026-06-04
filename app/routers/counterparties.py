@@ -29,7 +29,31 @@ def _generate_signatory(full_name: str) -> str:
     return parts[0] if parts else ""
 
 import os as _os
+import re as _re
 DADATA_TOKEN = _os.getenv("DADATA_TOKEN", "")
+
+
+def _clean_digits(s: str) -> str:
+    """Оставляет только цифры."""
+    return _re.sub(r"\D", "", s or "")
+
+
+def _validate_inn(inn: str) -> str:
+    """Возвращает ИНН (10 или 12 цифр) или пустую строку."""
+    d = _clean_digits(inn)
+    return d if len(d) in (10, 12) else ""
+
+
+def _validate_kpp(kpp: str) -> str:
+    """Возвращает КПП (9 цифр) или пустую строку."""
+    d = _clean_digits(kpp)
+    return d if len(d) == 9 else ""
+
+
+def _validate_ogrn(ogrn: str) -> str:
+    """Возвращает ОГРН/ОГРНИП (13 или 15 цифр) или пустую строку."""
+    d = _clean_digits(ogrn)
+    return d if len(d) in (13, 15) else ""
 DADATA_HEADERS = {
     "Authorization": f"Token {DADATA_TOKEN}",
     "Content-Type": "application/json",
@@ -153,7 +177,7 @@ async def create_counterparty(
     effective_tg = (tg_chat_id.strip() or tg_chat_id_hidden.strip()) or None
     cp = Counterparty(
         name=name, trade_name=trade_name or None, short_name=short_name,
-        inn=inn, kpp=kpp, ogrn=ogrn,
+        inn=_validate_inn(inn), kpp=_validate_kpp(kpp), ogrn=_validate_ogrn(ogrn),
         legal_address=legal_address, actual_address=actual_address,
         phone=phone, email=email, contact_person=contact_person,
         signatory=signatory or None,
@@ -362,8 +386,8 @@ async def update_counterparty(
             signatory = _generate_signatory(contact_person or name)
         effective_tg = (tg_chat_id.strip() or tg_chat_id_hidden.strip()) or None
         cp.name = name; cp.trade_name = trade_name or None; cp.short_name = short_name
-        cp.inn = inn; cp.kpp = kpp
-        cp.ogrn = ogrn; cp.legal_address = legal_address; cp.actual_address = actual_address
+        cp.inn = _validate_inn(inn); cp.kpp = _validate_kpp(kpp)
+        cp.ogrn = _validate_ogrn(ogrn); cp.legal_address = legal_address; cp.actual_address = actual_address
         cp.phone = phone; cp.email = email; cp.contact_person = contact_person
         cp.signatory = signatory or None
         cp.type = type
