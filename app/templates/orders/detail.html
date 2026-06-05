@@ -276,7 +276,9 @@
     <div class="card border-0 shadow-sm p-3 mb-3">
       <div class="d-flex justify-content-between mb-2">
         <div class="fw-semibold" style="font-size:.9rem">Счета</div>
+        {% if _role != 'warehouse' %}
         <a href="/invoices/new?order_id={{ order.id }}" class="btn btn-xs btn-outline-success" style="font-size:.75rem; padding: 2px 8px">+ Создать</a>
+        {% endif %}
       </div>
       {% for inv in order.invoices %}
       <div class="d-flex justify-content-between border-bottom py-1" style="font-size:.82rem">
@@ -291,9 +293,11 @@
     <!-- Документы -->
     <div class="card border-0 shadow-sm p-3 mb-3">
       <div class="fw-semibold mb-2" style="font-size:.9rem">Документы</div>
+      {% if _role != 'warehouse' %}
       <a href="/orders/{{ order.id }}/tn" class="btn btn-outline-danger btn-sm w-100 mb-2">
         <i class="bi bi-truck me-1"></i>Транспортная накладная
       </a>
+      {% endif %}
       {% if order.carrier_id and order.carrier and order.carrier.tg_notify_enabled and order.carrier.tg_chat_id %}
       <button type="button" class="btn btn-outline-primary btn-sm w-100" id="btn-notify-carrier"
               onclick="sendToCarrier({{ order.id }})">

@@ -2,7 +2,9 @@
 {% block title %}{{ cp.trade_name or cp.name }}{% endblock %}
 {% block page_title %}{{ cp.trade_name or cp.name }}{% endblock %}
 {% block topbar_actions %}
+  {% if request.session.get('user_role') != 'warehouse' %}
   <a href="/counterparties/{{ cp.id }}/edit" class="btn btn-accent btn-sm me-2"><i class="bi bi-pencil me-1"></i>Редактировать</a>
+  {% endif %}
   <a href="/counterparties" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Назад</a>
 {% endblock %}
 
@@ -77,12 +79,14 @@
 </div>
 
 {# ── Быстрые действия ─────────────────────────────────────────────────────── #}
+{% if request.session.get('user_role') != 'warehouse' %}
 <div class="d-flex gap-2 mb-3 flex-wrap">
   <a href="/orders/new" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus me-1"></i>Заказ</a>
   <a href="/invoices/new" class="btn btn-sm btn-outline-success"><i class="bi bi-plus me-1"></i>Счёт</a>
   <a href="/contracts/new" class="btn btn-sm btn-outline-secondary"><i class="bi bi-plus me-1"></i>Договор</a>
   <a href="/claims/new?cp_id={{ cp.id }}" class="btn btn-sm btn-outline-danger"><i class="bi bi-plus me-1"></i>Рекламация</a>
 </div>
+{% endif %}
 
 {# ── Табы ─────────────────────────────────────────────────────────────────── #}
 <div class="card border-0 shadow-sm">
@@ -251,9 +255,11 @@
 
     {# ─ Рекламации ─ #}
     <div class="tab-pane fade" id="tab-claims">
+      {% if request.session.get('user_role') != 'warehouse' %}
       <div class="p-3 pb-2 d-flex justify-content-end">
         <a href="/claims/new?cp_id={{ cp.id }}" class="btn btn-sm btn-outline-danger"><i class="bi bi-plus me-1"></i>Создать рекламацию</a>
       </div>
+      {% endif %}
       <div class="table-responsive">
         <table class="table table-sm tms-table mb-0">
           <thead>
