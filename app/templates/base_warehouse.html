@@ -221,10 +221,19 @@
 </div>
 
 <script>
-// Регистрация service worker
+// Регистрация service worker + авто-применение обновлений
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {});
+    navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' })
+      .then(function (reg) { reg.update(); })
+      .catch(function () {});
+  });
+  // Когда новый SW берёт контроль — один раз перезагружаем, чтобы показать свежую версию
+  var _swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (_swReloaded) return;
+    _swReloaded = true;
+    location.reload();
   });
 }
 

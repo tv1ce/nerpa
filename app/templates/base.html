@@ -323,5 +323,22 @@
   });
 })();
 </script>
+
+<script>
+// Десктоп контролируется тем же service worker (scope '/'). Принудительно
+// проверяем обновление SW и перезагружаем страницу один раз, когда новый
+// SW берёт контроль — чтобы после деплоя не показывались старые страницы.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistration().then(function (reg) {
+    if (reg) reg.update();
+  });
+  var _swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (_swReloaded) return;
+    _swReloaded = true;
+    location.reload();
+  });
+}
+</script>
 </body>
 </html>
