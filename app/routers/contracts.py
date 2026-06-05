@@ -50,6 +50,7 @@ async def list_contracts(request: Request, q: str = "", status: str = "", db: Se
     contracts = query.order_by(Contract.date.desc(), Contract.id.desc()).all()
     return templates.TemplateResponse(request, "contracts/list.html", {
         "contracts": contracts, "q": q, "status": status, "statuses": CONTRACT_STATUSES,
+        "today": date.today(),
     })
 
 

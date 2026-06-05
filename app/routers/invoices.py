@@ -58,15 +58,50 @@ def _next_invoice_number(db: Session) -> str:
 
 @router.get("/", response_class=HTMLResponse)
 @login_required
-async def list_invoices(request: Request, q: str = "", status: str = "", db: Session = Depends(get_db)):
+async def list_invoices(
+    request: Request,
+    q: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    counterparty_id: int = 0,
+    overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    from datetime import date as _date
+    today = _date.today()
     query = db.query(Invoice).join(Counterparty)
     if q:
         query = query.filter(Invoice.number.ilike(f"%{q}%") | Counterparty.name.ilike(f"%{q}%"))
     if status:
         query = query.filter(Invoice.status == status)
+    if date_from:
+        try:
+            query = query.filter(Invoice.date >= _date.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            query = query.filter(Invoice.date <= _date.fromisoformat(date_to))
+        except ValueError:
+            pass
+    if counterparty_id:
+        query = query.filter(Invoice.counterparty_id == counterparty_id)
+    if overdue:
+        query = query.filter(
+            Invoice.status.in_(["issued", "overdue"]),
+            Invoice.due_date < today,
+            Invoice.due_date.isnot(None),
+        )
     invoices = query.order_by(Invoice.date.desc(), Invoice.id.desc()).all()
+    counterparties = db.query(Counterparty).filter(
+        Counterparty.is_active == True
+    ).order_by(Counterparty.name).all()
     return templates.TemplateResponse(request, "invoices/list.html", {
         "invoices": invoices, "q": q, "status": status, "statuses": INVOICE_STATUSES,
+        "date_from": date_from, "date_to": date_to,
+        "counterparty_id": counterparty_id, "overdue": overdue,
+        "counterparties": counterparties, "today": today,
     })
 
 

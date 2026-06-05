@@ -59,11 +59,41 @@ def _mark_overdue_invoices() -> int:
         db.close()
 
 
+def _mark_expired_contracts() -> int:
+    """Переводит договора active→expired если end_date < сегодня."""
+    from app.database import SessionLocal
+    from app.models import Contract
+
+    today = _date.today()
+    db = SessionLocal()
+    try:
+        updated = (
+            db.query(Contract)
+            .filter(
+                Contract.status == "active",
+                Contract.end_date.isnot(None),
+                Contract.end_date < today,
+            )
+            .update({"status": "expired"}, synchronize_session=False)
+        )
+        if updated:
+            db.commit()
+            logger.info("Договора: переведено в expired: %d", updated)
+        return updated
+    except Exception as e:
+        logger.error("_mark_expired_contracts: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
 async def _overdue_loop():
-    """Фоновая задача: проверяет просрочку каждый час."""
+    """Фоновая задача: проверяет просрочку счетов и договоров каждый час."""
     while True:
         try:
             _mark_overdue_invoices()
+            _mark_expired_contracts()
         except Exception as e:
             logger.error("overdue_loop: %s", e)
         await asyncio.sleep(3600)  # раз в час
@@ -96,6 +126,7 @@ async def lifespan(_app: FastAPI):
     """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
     # ── startup ──────────────────────────────────────────────────────────────
     _mark_overdue_invoices()          # перевести просроченные счета
+    _mark_expired_contracts()         # перевести истёкшие договора
     _rotate_generated(max_age_days=90)  # удалить старые docx
     asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
     yield

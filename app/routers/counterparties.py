@@ -197,6 +197,29 @@ async def create_counterparty(
     return RedirectResponse(url="/counterparties", status_code=302)
 
 
+@router.get("/check-inn", response_class=JSONResponse)
+@login_required
+async def check_inn(request: Request, inn: str = "", exclude_id: int = 0, db: Session = Depends(get_db)):
+    """AJAX: проверяет существует ли КА с таким ИНН. exclude_id — текущий КА при редактировании."""
+    inn = _clean_digits(inn)
+    if len(inn) not in (10, 12):
+        return JSONResponse({"duplicate": False})
+    q = db.query(Counterparty).filter(
+        Counterparty.inn == inn,
+        Counterparty.is_active == True,
+    )
+    if exclude_id:
+        q = q.filter(Counterparty.id != exclude_id)
+    existing = q.first()
+    if existing:
+        return JSONResponse({
+            "duplicate": True,
+            "id": existing.id,
+            "name": existing.trade_name or existing.name,
+        })
+    return JSONResponse({"duplicate": False})
+
+
 @router.get("/dadata/party", response_class=JSONResponse)
 @login_required
 async def dadata_party(request: Request, inn: str = ""):

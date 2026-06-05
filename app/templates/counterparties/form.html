@@ -67,7 +67,10 @@
           </div>
           <div class="col-md-4">
             <label class="form-label">ИНН</label>
-            <input type="text" name="inn" id="f-inn" class="form-control" maxlength="12" value="{{ cp.inn if cp else '' }}">
+            <input type="text" name="inn" id="f-inn" class="form-control" maxlength="12"
+                   value="{{ cp.inn if cp else '' }}"
+                   oninput="checkInnDuplicate(this.value)">
+            <div id="inn-duplicate-alert" class="mt-1" style="font-size:.82rem"></div>
           </div>
           <div class="col-md-4">
             <label class="form-label">КПП</label>
@@ -390,5 +393,25 @@ updateSignatoryVisibility();
   updateTgCardVisibility();
   syncHidden();
 })();
+
+// ── Проверка дублей по ИНН ───────────────────────────────────────────────────
+let _innTimer = null;
+async function checkInnDuplicate(val) {
+  const el = document.getElementById('inn-duplicate-alert');
+  if (!el) return;
+  clearTimeout(_innTimer);
+  const digits = val.replace(/\D/g, '');
+  if (digits.length !== 10 && digits.length !== 12) { el.innerHTML = ''; return; }
+  _innTimer = setTimeout(async () => {
+    const excludeId = {{ cp.id if cp else 0 }};
+    const resp = await fetch(`/counterparties/check-inn?inn=${digits}&exclude_id=${excludeId}`);
+    const data = await resp.json();
+    if (data.duplicate) {
+      el.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>КА с таким ИНН уже есть: <a href="/counterparties/${data.id}" target="_blank">${data.name}</a></span>`;
+    } else {
+      el.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>ИНН свободен</span>';
+    }
+  }, 400);
+}
 </script>
 {% endblock %}
