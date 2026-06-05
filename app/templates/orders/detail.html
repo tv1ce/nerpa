@@ -255,6 +255,7 @@
   <!-- Панель действий -->
   <div class="col-lg-4">
     <!-- Сменить статус -->
+    {% if _role != 'warehouse' %}
     <div class="card border-0 shadow-sm p-3 mb-3">
       <div class="fw-semibold mb-2">Сменить статус</div>
       <form method="post" action="/orders/{{ order.id }}/status">
@@ -269,6 +270,7 @@
         </div>
       </form>
     </div>
+    {% endif %}
 
     <!-- Связанные счета -->
     <div class="card border-0 shadow-sm p-3 mb-3">
@@ -311,11 +313,13 @@
     </div>
 
     <!-- Удаление -->
+    {% if _role != 'warehouse' %}
     <div class="card border-0 shadow-sm p-3">
       <form method="post" action="/orders/{{ order.id }}/delete" data-confirm="Удалить заказ {{ order.number }}? Это действие нельзя отменить.">
         <button class="btn btn-outline-danger btn-sm w-100"><i class="bi bi-trash me-1"></i>Удалить заказ</button>
       </form>
     </div>
+    {% endif %}
   </div>
 </div>
 

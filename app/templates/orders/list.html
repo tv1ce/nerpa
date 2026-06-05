@@ -129,7 +129,7 @@
           </td>
           <td class="text-end pe-3">
             {% set wf = o.workflow %}
-            {% if o.status in wf and wf.index(o.status) + 1 < wf|length %}
+            {% if _role != 'warehouse' and o.status in wf and wf.index(o.status) + 1 < wf|length %}
             {% set nxt = wf[wf.index(o.status) + 1] %}
             <form method="post" action="/orders/{{ o.id }}/status" class="d-inline">
               <input type="hidden" name="status" value="{{ nxt }}">
