@@ -31,6 +31,7 @@
     {% block header_actions %}{% endblock %}
     <form method="post" action="/warehouse/toggle-view" style="display:contents">
       <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
       <button type="submit" class="wm-icon-btn" title="Переключить на десктоп-вид">
         <i class="bi bi-display"></i>
       </button>
@@ -103,6 +104,29 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// CSRF: автоматически добавляем скрытый токен во все POST-формы и заголовок в AJAX.
+// (Тот же механизм, что в base.html — мобильный склад его раньше не имел → POST падали с 403.)
+(function() {
+  var CSRF = {{ csrf_token(request) | tojson }};
+  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function(f) {
+    if (!f.querySelector('[name="csrf_token"]')) {
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'csrf_token'; inp.value = CSRF;
+      f.appendChild(inp);
+    }
+  });
+  var _origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    if (opts.method && opts.method.toUpperCase() !== 'GET') {
+      opts.headers = Object.assign({ 'X-CSRF-Token': CSRF }, opts.headers || {});
+    }
+    return _origFetch.call(this, url, opts);
+  };
+  window._CSRF = CSRF;
+})();
+</script>
 <script>
 (function(){
   var _open = false;
