@@ -173,10 +173,26 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         Counterparty.type.in_(["client", "both"]),
     ).count()
 
-    logistics_week = db.query(func.sum(LogisticsCost.amount)).filter(
+    _logi_raw_week = db.query(func.sum(LogisticsCost.amount)).filter(
         LogisticsCost.date >= ws,
         LogisticsCost.date <= we,
     ).scalar() or 0.0
+    _TAX = 1.06
+    logistics_week = round(_logi_raw_week * _TAX, 2)
+
+    # Кол-во заказов перевозчика (как в отчёте «Логистика») — для «на 1 заказ»
+    _carrier_name = os.getenv("LOGI_CARRIER_NAME", "Гоголев Николай Николаевич")
+    from app.models import Counterparty as _CP
+    _carrier = db.query(_CP).filter(_CP.name.ilike(f"%{_carrier_name}%")).first()
+    _carrier_id = _carrier.id if _carrier else None
+    _carrier_orders_week = (
+        db.query(func.count(Order.id)).filter(
+            Order.date >= ws,
+            Order.date <= we,
+            Order.carrier_id == _carrier_id,
+        ).scalar() or 0
+    ) if _carrier_id else 0
+    logistics_per_order_week = round(logistics_week / _carrier_orders_week, 2) if _carrier_orders_week else 0.0
 
     # Топ-3 клиента за неделю
     top_clients = (
@@ -282,13 +298,28 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
     )
 
     # Логистика
-    logistics_month = db.query(func.sum(LogisticsCost.amount)).filter(
+    _TAX = 1.06
+    _logi_raw_month = db.query(func.sum(LogisticsCost.amount)).filter(
         LogisticsCost.date >= ms, LogisticsCost.date <= me,
     ).scalar() or 0.0
-    logistics_year = db.query(func.sum(LogisticsCost.amount)).filter(
+    logistics_month = round(_logi_raw_month * _TAX, 2)
+    logistics_year = round((db.query(func.sum(LogisticsCost.amount)).filter(
         LogisticsCost.date >= year_start,
-    ).scalar() or 0.0
-    logistics_per_order_month = round(logistics_month / orders_month, 2) if orders_month else 0.0
+    ).scalar() or 0.0) * _TAX, 2)
+
+    # Кол-во заказов перевозчика для «на 1 заказ»
+    _carrier_name = os.getenv("LOGI_CARRIER_NAME", "Гоголев Николай Николаевич")
+    from app.models import Counterparty as _CP
+    _carrier = db.query(_CP).filter(_CP.name.ilike(f"%{_carrier_name}%")).first()
+    _carrier_id = _carrier.id if _carrier else None
+    _carrier_orders_month = (
+        db.query(func.count(Order.id)).filter(
+            Order.date >= ms,
+            Order.date <= me,
+            Order.carrier_id == _carrier_id,
+        ).scalar() or 0
+    ) if _carrier_id else 0
+    logistics_per_order_month = round(logistics_month / _carrier_orders_month, 2) if _carrier_orders_month else 0.0
 
     margin_month = revenue_month - logistics_month
 
