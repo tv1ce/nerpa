@@ -17,7 +17,7 @@
 {% endblock %}
 
 {% block content %}
-{% if _role == 'warehouse' %}
+{% if _role == 'warehouse' and _wview != 'desktop' %}
 {# ═══════════════════════════════════════════════════════════════
    МОБИЛЬНАЯ ФОРМА ОПЕРАЦИИ
    ═══════════════════════════════════════════════════════════════ #}
@@ -206,7 +206,7 @@ function updateBalance(sel) {
   const bal = parseFloat(opt.dataset.balance) || 0;
   const unit = opt.dataset.unit || 'ед.';
 
-  {% if _role == 'warehouse' %}
+  {% if _role == 'warehouse' and _wview != 'desktop' %}
   const hint = document.getElementById('balanceInfo');
   if (opt.value) {
     hint.innerHTML = 'Сейчас на складе: <strong>' + bal + ' ' + unit + '</strong>';
@@ -227,7 +227,7 @@ window.addEventListener('load', function() {
   if (sel && sel.value) updateBalance(sel);
 });
 
-{% if _role == 'warehouse' %}
+{% if _role == 'warehouse' and _wview != 'desktop' %}
 // Убрать лишние 0 при фокусе на поле количества
 const qtyInput = document.getElementById('qtyInput');
 if (qtyInput) {
