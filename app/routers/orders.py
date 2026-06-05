@@ -81,15 +81,60 @@ def _resolve_payment_type(db: Session, contract_id: int, fallback: str) -> str:
 
 @router.get("/", response_class=HTMLResponse)
 @login_required
-async def list_orders(request: Request, q: str = "", status: str = "", db: Session = Depends(get_db)):
+async def list_orders(
+    request: Request,
+    q: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    counterparty_id: int = 0,
+    carrier_id: int = 0,
+    payment_type: str = "",
+    overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    today = date.today()
     query = db.query(Order).join(Counterparty, Order.counterparty_id == Counterparty.id)
     if q:
         query = query.filter(Order.number.ilike(f"%{q}%") | Counterparty.name.ilike(f"%{q}%"))
     if status:
         query = query.filter(Order.status == status)
+    if date_from:
+        try:
+            query = query.filter(Order.date >= date.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            query = query.filter(Order.date <= date.fromisoformat(date_to))
+        except ValueError:
+            pass
+    if counterparty_id:
+        query = query.filter(Order.counterparty_id == counterparty_id)
+    if carrier_id:
+        query = query.filter(Order.carrier_id == carrier_id)
+    if payment_type:
+        query = query.filter(Order.payment_type == payment_type)
+    if overdue:
+        query = query.filter(
+            Order.delivery_date < today,
+            Order.status.notin_(["delivered", "cancelled"]),
+            Order.delivery_date.isnot(None),
+        )
     orders = query.order_by(Order.date.desc(), Order.id.desc()).all()
+    counterparties = db.query(Counterparty).filter(
+        Counterparty.is_active == True, Counterparty.type.in_(["client", "both"])
+    ).order_by(Counterparty.name).all()
+    carriers = db.query(Counterparty).filter(
+        Counterparty.is_active == True, Counterparty.type == "carrier"
+    ).order_by(Counterparty.name).all()
     return templates.TemplateResponse(request, "orders/list.html", {
         "orders": orders, "q": q, "status": status, "statuses": ORDER_STATUSES,
+        "date_from": date_from, "date_to": date_to,
+        "counterparty_id": counterparty_id, "carrier_id": carrier_id,
+        "payment_type": payment_type, "overdue": overdue,
+        "counterparties": counterparties, "carriers": carriers,
+        "payment_types": PAYMENT_TYPES, "today": today,
         "assembly_queue_count": _assembly_queue_count(db),
     })
 
@@ -494,6 +539,50 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
                f"Заказ отправлен перевозчику {carrier.trade_name or carrier.name} в Telegram")
     db.commit()
     return JSONResponse({"ok": True})
+
+
+@router.post("/{order_id}/duplicate")
+@role_required("manager")
+async def duplicate_order(request: Request, order_id: int, db: Session = Depends(get_db)):
+    src = db.query(Order).filter(Order.id == order_id).first()
+    if not src:
+        return RedirectResponse(url="/orders", status_code=302)
+    new_order = Order(
+        number=f"~{_uuid.uuid4().hex[:12]}",
+        date=date.today(),
+        counterparty_id=src.counterparty_id,
+        supplier_id=src.supplier_id,
+        carrier_id=src.carrier_id,
+        contract_id=src.contract_id,
+        payment_type=src.payment_type,
+        status="draft",
+        delivery_address=src.delivery_address,
+        notes=src.notes,
+        pickup_city=src.pickup_city,
+        pickup_address=src.pickup_address,
+        delivery_contact=src.delivery_contact,
+        delivery_time=src.delivery_time,
+        created_by_id=request.session.get("user_id"),
+    )
+    db.add(new_order)
+    db.flush()
+    new_order.number = _next_order_number(db)
+    for item in src.items:
+        db.add(OrderItem(
+            order_id=new_order.id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            price=item.price,
+            discount_pct=item.discount_pct,
+            vat_rate=item.vat_rate,
+            amount=item.amount,
+        ))
+    db.commit()
+    log_action(db, "order", new_order.id, "created",
+               request.session.get("user_id"),
+               f"Заказ {new_order.number} создан как копия #{src.number}")
+    db.commit()
+    return RedirectResponse(url=f"/orders/{new_order.id}/edit", status_code=302)
 
 
 @router.post("/{order_id}/delete")

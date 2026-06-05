@@ -83,10 +83,10 @@
 <div class="card border-0 shadow-sm">
   <div class="card-body pb-0">
     <form class="row g-2 mb-3" method="get">
-      <div class="col-md-5">
+      <div class="col-md-3">
         <input type="text" name="q" class="form-control form-control-sm" placeholder="Номер или клиент…" value="{{ q }}">
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <select name="status" class="form-select form-select-sm">
           <option value="">Все статусы</option>
           {% for val, label in statuses.items() %}
@@ -94,7 +94,37 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-auto">
+      <div class="col-md-2">
+        <select name="payment_type" class="form-select form-select-sm">
+          <option value="">Любой тип оплаты</option>
+          {% for val, label in payment_types.items() %}
+          <option value="{{ val }}" {% if payment_type == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="counterparty_id" class="form-select form-select-sm">
+          <option value="0">Все клиенты</option>
+          {% for cp in counterparties %}
+          <option value="{{ cp.id }}" {% if counterparty_id == cp.id %}selected{% endif %}>{{ cp.trade_name or cp.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="carrier_id" class="form-select form-select-sm">
+          <option value="0">Все перевозчики</option>
+          {% for cp in carriers %}
+          <option value="{{ cp.id }}" {% if carrier_id == cp.id %}selected{% endif %}>{{ cp.trade_name or cp.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-auto d-flex align-items-center gap-2 flex-wrap">
+        <input type="date" name="date_from" class="form-control form-control-sm" style="width:140px" value="{{ date_from }}" title="Дата с">
+        <input type="date" name="date_to" class="form-control form-control-sm" style="width:140px" value="{{ date_to }}" title="Дата по">
+        <div class="form-check form-check-inline mb-0">
+          <input class="form-check-input" type="checkbox" name="overdue" id="chk_overdue" value="1" {% if overdue %}checked{% endif %}>
+          <label class="form-check-label text-danger fw-semibold" for="chk_overdue" style="font-size:.82rem">Просроченные</label>
+        </div>
         <button class="btn btn-sm btn-outline-secondary">Найти</button>
         <a href="/orders" class="btn btn-sm btn-link text-muted">Сбросить</a>
       </div>
@@ -115,11 +145,19 @@
       </thead>
       <tbody>
         {% for o in orders %}
-        <tr>
-          <td class="ps-3"><a href="/orders/{{ o.id }}" class="fw-semibold text-decoration-none">{{ o.number }}</a></td>
+        {% set is_overdue = o.delivery_date and o.delivery_date < today and o.status not in ['delivered', 'cancelled'] %}
+        <tr {% if is_overdue %}class="table-danger"{% endif %}>
+          <td class="ps-3">
+            <a href="/orders/{{ o.id }}" class="fw-semibold text-decoration-none">{{ o.number }}</a>
+            {% if is_overdue %}<i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="Доставка просрочена"></i>{% endif %}
+          </td>
           <td>{{ o.counterparty.trade_name or o.counterparty.name }}</td>
           <td>{{ o.date | date_fmt }}</td>
-          <td>{{ o.delivery_date | date_fmt }}</td>
+          <td>
+            {% if o.delivery_date %}
+              <span {% if is_overdue %}class="text-danger fw-semibold"{% endif %}>{{ o.delivery_date | date_fmt }}</span>
+            {% endif %}
+          </td>
           <td class="text-end">{{ o.total_amount | money }}</td>
           <td>
             <span class="badge badge-{{ o.status }}">{{ statuses[o.status] }}</span>

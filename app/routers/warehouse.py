@@ -128,6 +128,19 @@ async def mark_assembled(request: Request, order_id: int, db: Session = Depends(
                    request.session.get("user_id"),
                    "Заказ собран кладовщиком",
                    field="status", old_value=old, new_value="assembled")
+        # Автосписание: создаём движение "out" по каждой позиции заказа
+        user_id = request.session.get("user_id")
+        for item in order.items:
+            db.add(StockMovement(
+                product_id=item.product_id,
+                movement_type="out",
+                quantity=abs(item.quantity),
+                date=date.today(),
+                reason="Продажа",
+                order_id=order_id,
+                created_by_id=user_id,
+            ))
+            maybe_notify_low_stock(db, item.product_id)
         db.commit()
     return RedirectResponse(url="/warehouse/", status_code=302)
 
