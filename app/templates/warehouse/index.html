@@ -43,10 +43,10 @@
 {% for o in assembly_queue %}
 <div class="wm-queue-card {{ 'prepay' if o.is_prepay else 'deferred' }}">
   <div class="wm-queue-card-head">
-    <div>
-      <div class="wm-queue-num">Заказ № {{ o.number }}</div>
+    <a href="/orders/{{ o.id }}" style="text-decoration:none;color:inherit">
+      <div class="wm-queue-num">Заказ № {{ o.number }} <i class="bi bi-box-arrow-up-right" style="font-size:.78rem;opacity:.55"></i></div>
       <div class="wm-queue-client">{{ o.counterparty.trade_name or o.counterparty.name }}</div>
-    </div>
+    </a>
     <div style="text-align:right">
       <div style="font-size:.78rem;color:var(--wm-muted);font-weight:600">{{ o.date | date_fmt }}</div>
     </div>
@@ -76,6 +76,10 @@
   {% endif %}
 
   <div class="wm-queue-footer">
+    <a href="/warehouse/orders/{{ o.id }}/label" target="_blank"
+       style="display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:11px;margin-bottom:8px;border:1.5px solid var(--wm-brand);border-radius:10px;color:var(--wm-brand);background:#fff;font-weight:700;font-size:.95rem;text-decoration:none">
+      <i class="bi bi-printer"></i> Печать наклейки на коробку
+    </a>
     <form method="post" action="/warehouse/orders/{{ o.id }}/assemble"
           data-confirm="Подтвердите: заказ {{ o.number }} собран и передаётся на отгрузку?">
       <button type="submit" class="wm-btn-assembled">

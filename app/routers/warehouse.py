@@ -132,6 +132,19 @@ async def mark_assembled(request: Request, order_id: int, db: Session = Depends(
     return RedirectResponse(url="/warehouse/", status_code=302)
 
 
+# ── Печатная наклейка на коробку ──────────────────────────────────────────────
+
+@router.get("/orders/{order_id}/label", response_class=HTMLResponse)
+@login_required
+async def order_label(request: Request, order_id: int, db: Session = Depends(get_db)):
+    """Печатная наклейка на коробку: клиент, адрес, дата, состав заказа.
+    Отдельная страница без меню — удобно печатать и клеить на коробку."""
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        return HTMLResponse("<h2 style='font-family:sans-serif'>Заказ не найден</h2>", status_code=404)
+    return templates.TemplateResponse(request, "warehouse/label.html", {"order": order})
+
+
 # ── Журнал движений ───────────────────────────────────────────────────────────
 
 @router.get("/journal", response_class=HTMLResponse)
