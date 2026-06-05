@@ -115,6 +115,7 @@ def format_weekly(m: dict) -> str:
         "",
         "🚚 *Логистика*",
         f"  Расходы за неделю: `{_fmt(m['logistics_week'])}`",
+        f"  На 1 заказ: `{_fmt(m['logistics_per_order_week'])}`",
     ]
 
     if m["unpaid_issued"] > 0:
@@ -167,6 +168,7 @@ def format_monthly(m: dict) -> str:
         "",
         "🚚 *Логистика*",
         f"  Расходы за месяц: `{_fmt(m['logistics_month'])}`",
+        f"  На 1 заказ: `{_fmt(m['logistics_per_order_month'])}`",
         f"  За год: `{_fmt(m['logistics_year'])}`",
     ]
 

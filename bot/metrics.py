@@ -198,6 +198,8 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         Invoice.status.in_(["issued", "overdue"]),
     ).scalar() or 0.0
 
+    logistics_per_order_week = round(logistics_week / orders_week, 2) if orders_week else 0.0
+
     return {
         "week_start": ws,
         "week_end": we,
@@ -212,6 +214,7 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         "orders_week": orders_week,
         "new_clients": new_clients,
         "logistics_week": logistics_week,
+        "logistics_per_order_week": logistics_per_order_week,
         "top_clients": top_clients,
         "unpaid_issued": unpaid_issued,
     }
@@ -285,6 +288,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
     logistics_year = db.query(func.sum(LogisticsCost.amount)).filter(
         LogisticsCost.date >= year_start,
     ).scalar() or 0.0
+    logistics_per_order_month = round(logistics_month / orders_month, 2) if orders_month else 0.0
 
     margin_month = revenue_month - logistics_month
 
@@ -361,6 +365,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
         "orders_month": orders_month,
         "orders_new_clients": orders_new_clients,
         "logistics_month": logistics_month,
+        "logistics_per_order_month": logistics_per_order_month,
         "logistics_year": logistics_year,
         "margin_month": margin_month,
         "unpaid_total": unpaid_total,
