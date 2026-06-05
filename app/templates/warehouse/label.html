@@ -31,6 +31,10 @@
     th, td { border:1px solid #111; padding:9px 12px; font-size:1.12rem; text-align:left; }
     th { background:#111; color:#fff; }
     td.qty, th.qty { text-align:right; white-space:nowrap; font-weight:800; }
+    .promo-note {
+      margin-top:14px; padding:12px 14px; border:2px dashed #111; border-radius:8px;
+      font-size:1.12rem; font-weight:800; text-align:center; background:#fff3cd; line-height:1.35;
+    }
     @media print {
       body { background:#fff; padding:0; }
       .toolbar { display:none; }
@@ -56,6 +60,14 @@
     {% if _addr %}<div class="row"><span class="k">Адрес:</span><span class="v">{{ _addr }}</span></div>{% endif %}
     {% if order.delivery_contact %}<div class="row"><span class="k">Получатель:</span><span class="v">{{ order.delivery_contact }}</span></div>{% endif %}
     {% if order.delivery_time %}<div class="row"><span class="k">Время:</span><span class="v">{{ order.delivery_time }}</span></div>{% endif %}
+
+    {% set ns = namespace(promo=false) %}
+    {% for it in order.items %}
+      {% if it.product and 'промо' in it.product.name|lower and 'подставк' in it.product.name|lower %}{% set ns.promo = true %}{% endif %}
+    {% endfor %}
+    {% if ns.promo %}
+    <div class="promo-note">📌 В одной из коробок этого заказа находится промо-подставка. Пожалуйста, найдите её при распаковке.</div>
+    {% endif %}
 
     <table>
       <thead><tr><th>Позиция</th><th class="qty">Кол-во</th></tr></thead>
