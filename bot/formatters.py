@@ -1,4 +1,4 @@
-"""Форматирование отчётов в Telegram Markdown."""
+"""Форматирование отчётов в Telegram MarkdownV2."""
 from __future__ import annotations
 
 from datetime import date
@@ -10,19 +10,23 @@ def _esc(text) -> str:
     if text is None:
         return ""
     s = str(text)
-    # Полный список спецсимволов MarkdownV2 по документации Telegram
     for ch in r"\_*[]()~`>#+-=|{}.!":
         s = s.replace(ch, "\\" + ch)
     return s
 
 
+def _esc_date(s: str) -> str:
+    """Экранирует точки и дефисы в строках дат для MarkdownV2."""
+    return s.replace(".", "\\.").replace("-", "\\-")
+
+
 def _fmt(amount: float) -> str:
     """Форматирует число: 123456.7 → '123 456 ₽'."""
-    return f"{amount:,.0f} ₽".replace(",", " ")
+    return f"{amount:,.0f} ₽".replace(",", " ")
 
 
 def _qty(q: float) -> str:
-    return f"{q:,.0f} шт".replace(",", " ")
+    return f"{q:,.0f} шт".replace(",", " ")
 
 
 def _pct(val: float | None, positive_good: bool = True) -> str:
@@ -33,7 +37,9 @@ def _pct(val: float | None, positive_good: bool = True) -> str:
         sign = "✅" if val >= 0 else "🔴"
     else:
         sign = "🔴" if val > 0 else "✅"
-    return f"{sign} {arrow} {abs(val):.1f}%"
+    # Экранируем точку в числе процентов
+    pct_str = f"{abs(val):.1f}%".replace(".", "\\.")
+    return f"{sign} {arrow} {pct_str}"
 
 
 def _plan_bar(pct: float | None) -> str:
@@ -42,15 +48,17 @@ def _plan_bar(pct: float | None) -> str:
     filled = min(int(pct / 10), 10)
     bar = "█" * filled + "░" * (10 - filled)
     emoji = "🎯" if pct >= 100 else ("⚡" if pct >= 70 else "📉")
-    return f"{emoji} [{bar}] {pct:.1f}%"
+    pct_str = f"{pct:.1f}%".replace(".", "\\.")
+    return f"{emoji} \\[{bar}\\] {pct_str}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 
 def format_daily(m: dict) -> str:
     d: date = m["date"]
+    date_str = _esc_date(d.strftime("%d.%m.%Y"))
     lines = [
-        f"📊 *Ежедневный отчёт — {d.strftime('%d.%m.%Y')}*",
+        f"📊 *Ежедневный отчёт — {date_str}*",
         "",
         "━━━━━━━━━━━━━━━━━━━━",
         "📦 *Заказы*",
@@ -81,19 +89,19 @@ def format_daily(m: dict) -> str:
 
 
 def format_weekly(m: dict) -> str:
-    ws = m["week_start"].strftime("%d.%m")
-    we = m["week_end"].strftime("%d.%m.%Y")
-    pws = m["prev_week_start"].strftime("%d.%m")
-    pwe = m["prev_week_end"].strftime("%d.%m")
+    ws  = _esc_date(m["week_start"].strftime("%d.%m"))
+    we  = _esc_date(m["week_end"].strftime("%d.%m.%Y"))
+    pws = _esc_date(m["prev_week_start"].strftime("%d.%m"))
+    pwe = _esc_date(m["prev_week_end"].strftime("%d.%m"))
 
     lines = [
-        f"📈 *Еженедельный отчёт*",
+        "📈 *Еженедельный отчёт*",
         f"_{ws} – {we}_",
         "",
         "━━━━━━━━━━━━━━━━━━━━",
         "💰 *Выручка*",
         f"  Эта неделя: `{_fmt(m['revenue_week'])}`",
-        f"  Прошлая ({pws}–{pwe}): `{_fmt(m['revenue_prev'])}`",
+        f"  Прошлая \\({pws}–{pwe}\\): `{_fmt(m['revenue_prev'])}`",
         f"  Динамика: {_pct(m['delta_rev_pct'])}",
         "",
         "📦 *Орешки отгружено*",
@@ -118,23 +126,26 @@ def format_weekly(m: dict) -> str:
     if m["top_clients"]:
         lines += ["", "🏆 *Топ клиентов за неделю*"]
         for i, (name, total) in enumerate(m["top_clients"], 1):
-            lines.append(f"  {i}. {_esc(name)}: `{_fmt(total)}`")
+            lines.append(f"  {i}\\. {_esc(name)}: `{_fmt(total)}`")
 
     return "\n".join(lines)
 
 
 def format_monthly(m: dict) -> str:
+    month_lbl      = _esc(m["month_label"])
+    prev_month_lbl = _esc(m["prev_month_label"])
+
     lines = [
-        f"🗓 *Итоги месяца — {m['month_label']}*",
+        f"🗓 *Итоги месяца — {month_lbl}*",
         "",
         "━━━━━━━━━━━━━━━━━━━━",
         "💰 *Выручка*",
         f"  Месяц: `{_fmt(m['revenue_month'])}`",
-        f"  {m['prev_month_label']}: `{_fmt(m['revenue_prev'])}`",
+        f"  {prev_month_lbl}: `{_fmt(m['revenue_prev'])}`",
         f"  Динамика: {_pct(m['delta_month_pct'])}",
         f"  С начала года: `{_fmt(m['revenue_year'])}`",
         "",
-        f"🎯 *Выполнение плана*",
+        "🎯 *Выполнение плана*",
     ]
 
     if m["plan_amount"]:
@@ -147,7 +158,7 @@ def format_monthly(m: dict) -> str:
         "",
         "📦 *Орешки*",
         f"  Отгружено за месяц: `{_qty(m['qty_month'])}`",
-        f"  За {m['prev_month_label']}: `{_qty(m['qty_prev'])}`",
+        f"  За {prev_month_lbl}: `{_qty(m['qty_prev'])}`",
         f"  Динамика: {_pct(m['delta_qty_pct'])}",
         "",
         "📋 *Заказы*",
@@ -163,24 +174,24 @@ def format_monthly(m: dict) -> str:
         lines += [
             "",
             "💳 *Дебиторская задолженность*",
-            f"  К оплате (выставлены): `{_fmt(m['unpaid_total'])}`",
-            f"  Просроченные ({m['overdue_count']} шт): `{_fmt(m['overdue_total'])}`",
+            f"  К оплате \\(выставлены\\): `{_fmt(m['unpaid_total'])}`",
+            f"  Просроченные \\({m['overdue_count']} шт\\): `{_fmt(m['overdue_total'])}`",
         ]
 
     if m["top_clients"]:
-        lines += ["", "🏆 *Топ-5 клиентов*"]
+        lines += ["", "🏆 *Топ\\-5 клиентов*"]
         for i, (name, total) in enumerate(m["top_clients"], 1):
-            lines.append(f"  {i}. {_esc(name)}: `{_fmt(total)}`")
+            lines.append(f"  {i}\\. {_esc(name)}: `{_fmt(total)}`")
 
     if m["top_products"]:
         lines += ["", "🔝 *Топ продуктов*"]
         for i, (name, qty) in enumerate(m["top_products"], 1):
-            lines.append(f"  {i}. {_esc(name)}: `{_qty(qty)}`")
+            lines.append(f"  {i}\\. {_esc(name)}: `{_qty(qty)}`")
 
     if m["claims_new"] > 0:
         lines += [
             "",
-            f"🚨 *Рекламации за месяц*",
+            "🚨 *Рекламации за месяц*",
             f"  Открыто: `{m['claims_new']}`",
             f"  Закрыто: `{m['claims_resolved']}`",
         ]
@@ -188,7 +199,7 @@ def format_monthly(m: dict) -> str:
     if m["expiring_contracts"] > 0:
         lines += [
             "",
-            f"⚠️ Договоров истекает (30 дней): `{m['expiring_contracts']}`",
+            f"⚠️ Договоров истекает \\(30 дней\\): `{m['expiring_contracts']}`",
         ]
 
     return "\n".join(lines)

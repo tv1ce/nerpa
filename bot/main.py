@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 from telegram import Bot, Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.request import HTTPXRequest
 
 # Подключаем корень проекта для импорта app.*
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -296,11 +297,15 @@ def main() -> None:
     if not CHAT_IDS:
         logger.warning("TMS_CHAT_IDS не задан — отчёты никуда не отправятся")
 
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .build()
-    )
+    # SOCKS5-прокси через Shadowsocks (обход блокировки Telegram в РФ).
+    # sslocal слушает на 127.0.0.1:1080 (systemd-сервис shadowsocks.service).
+    proxy_url = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080")
+    request = HTTPXRequest(proxy=proxy_url) if proxy_url else None
+
+    builder = Application.builder().token(BOT_TOKEN)
+    if request:
+        builder = builder.request(request)
+    app = builder.build()
 
     # Команды
     app.add_handler(CommandHandler("start",   cmd_start))
