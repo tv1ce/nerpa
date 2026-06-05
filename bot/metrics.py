@@ -216,6 +216,36 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
 
     logistics_per_order_week = round(logistics_week / orders_week, 2) if orders_week else 0.0
 
+    # Статус месяца: выручка с начала месяца, план, остаток
+    ms, _me = _month_bounds(today)
+    revenue_month_so_far = db.query(func.sum(Invoice.total_amount)).filter(
+        Invoice.date >= ms, Invoice.date <= today,
+        Invoice.status == "paid",
+    ).scalar() or 0.0
+
+    plan_row = db.query(MonthlyPlan).filter(
+        MonthlyPlan.year == today.year,
+        MonthlyPlan.month == today.month,
+    ).first()
+    plan_amount = plan_row.plan_amount if plan_row else None
+    plan_pct = round(revenue_month_so_far / plan_amount * 100, 1) if plan_amount else None
+    plan_remaining = max(plan_amount - revenue_month_so_far, 0) if plan_amount else None
+
+    # Орешки за всё время
+    qty_all_time = (
+        db.query(func.sum(OrderItem.quantity))
+        .join(Order)
+        .filter(Order.status.in_(["handed", "delivered"]))
+        .scalar() or 0.0
+    )
+
+    # Выручка за текущий год
+    year_start = today.replace(month=1, day=1)
+    revenue_year = db.query(func.sum(Invoice.total_amount)).filter(
+        Invoice.date >= year_start, Invoice.date <= today,
+        Invoice.status == "paid",
+    ).scalar() or 0.0
+
     return {
         "week_start": ws,
         "week_end": we,
@@ -233,6 +263,14 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         "logistics_per_order_week": logistics_per_order_week,
         "top_clients": top_clients,
         "unpaid_issued": unpaid_issued,
+        # статус месяца
+        "revenue_month_so_far": revenue_month_so_far,
+        "plan_amount": plan_amount,
+        "plan_pct": plan_pct,
+        "plan_remaining": plan_remaining,
+        # сводные показатели
+        "qty_all_time": qty_all_time,
+        "revenue_year": revenue_year,
     }
 
 

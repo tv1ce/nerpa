@@ -124,6 +124,31 @@ def format_weekly(m: dict) -> str:
             f"💳 Выставлено, не оплачено: `{_fmt(m['unpaid_issued'])}`",
         ]
 
+    # Статус месяца
+    lines += [
+        "",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "🗓 *Статус месяца*",
+        f"  Выручка с начала месяца: `{_fmt(m['revenue_month_so_far'])}`",
+    ]
+    if m["plan_amount"]:
+        lines.append(f"  {_plan_bar(m['plan_pct'])}")
+        if m["plan_remaining"] and m["plan_remaining"] > 0:
+            lines.append(f"  До выполнения плана: `{_fmt(m['plan_remaining'])}`")
+        else:
+            lines.append("  ✅ План выполнен\\!")
+    else:
+        lines.append("  план не задан")
+
+    # Сводные показатели
+    lines += [
+        "",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "📊 *Сводные показатели*",
+        f"  Выручка за {m['week_start'].year} год: `{_fmt(m['revenue_year'])}`",
+        f"  Орешков продано за всё время: `{_qty(m['qty_all_time'])}`",
+    ]
+
     if m["top_clients"]:
         lines += ["", "🏆 *Топ клиентов за неделю*"]
         for i, (name, total) in enumerate(m["top_clients"], 1):
