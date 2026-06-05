@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Мой профиль{% endblock %}
+{% block page_title %}Мой профиль{% endblock %}
+
+{% block content %}
+{% if saved %}
+<div class="alert alert-success alert-dismissible fade show">
+  <i class="bi bi-check-circle me-1"></i>Сохранено!
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+{% if pwd_error %}
+<div class="alert alert-danger alert-dismissible fade show">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  {% if pwd_error == 'wrong' %}Текущий пароль введён неверно.
+  {% elif pwd_error == 'short' %}Новый пароль должен содержать минимум 6 символов.
+  {% elif pwd_error == 'mismatch' %}Новые пароли не совпадают.
+  {% else %}Ошибка смены пароля.{% endif %}
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<div class="row g-3" style="max-width:780px">
+
+  <!-- Личные данные -->
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm p-4 h-100">
+      <div class="form-section-title">Личные данные</div>
+      <form method="post" action="/settings/profile">
+        <div class="mb-3">
+          <label class="form-label">Логин</label>
+          <input type="text" class="form-control" value="{{ user.username }}" disabled>
+          <div class="form-text">Логин менять нельзя</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">ФИО</label>
+          <input type="text" name="full_name" class="form-control" value="{{ user.full_name }}" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">День рождения</label>
+          <input type="date" name="birthday" class="form-control"
+                 value="{{ user.birthday.isoformat() if user.birthday else '' }}">
+          <div class="form-text"><i class="bi bi-balloon-heart me-1"></i>Коллеги увидят поздравление на табло цеха</div>
+        </div>
+        <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Смена пароля -->
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm p-4 h-100">
+      <div class="form-section-title">Смена пароля</div>
+      <form method="post" action="/settings/profile/password" autocomplete="off">
+        <div class="mb-3">
+          <label class="form-label">Текущий пароль</label>
+          <input type="password" name="current_password" class="form-control" required autocomplete="current-password">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Новый пароль</label>
+          <input type="password" name="new_password" class="form-control" required minlength="6" autocomplete="new-password">
+          <div class="form-text">Минимум 6 символов</div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Подтвердите новый пароль</label>
+          <input type="password" name="confirm_password" class="form-control" required autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-outline-primary"><i class="bi bi-key me-1"></i>Сменить пароль</button>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

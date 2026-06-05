@@ -198,6 +198,30 @@ async def create_user(
     return RedirectResponse(url="/settings/", status_code=302)
 
 
+@router.post("/users/{user_id}/edit")
+@role_required("admin")
+async def edit_user(
+    request: Request,
+    user_id: int,
+    full_name: str = Form(...),
+    role: str = Form(default="manager"),
+    password: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    from app.auth import ROLE_LABELS
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        user.full_name = full_name.strip() or user.full_name
+        if role in ROLE_LABELS:
+            user.role = role
+        # Пароль меняем только если задан новый
+        if password.strip():
+            user.password_hash = hash_password(password.strip())
+            user.must_change_password = False
+        db.commit()
+    return RedirectResponse(url="/settings/", status_code=302)
+
+
 @router.post("/users/{user_id}/delete")
 @role_required("admin")
 async def delete_user(request: Request, user_id: int, db: Session = Depends(get_db)):
@@ -207,3 +231,67 @@ async def delete_user(request: Request, user_id: int, db: Session = Depends(get_
             user.is_active = False
             db.commit()
     return RedirectResponse(url="/settings/", status_code=302)
+
+
+# ── Профиль текущего пользователя (доступен всем ролям) ───────────────────────
+
+@router.get("/profile", response_class=HTMLResponse)
+@login_required
+async def profile_page(request: Request, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == request.session.get("user_id")).first()
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=302)
+    return templates.TemplateResponse(request, "settings/profile.html", {
+        "user": user,
+        "saved": request.query_params.get("saved"),
+        "pwd_error": request.query_params.get("pwd_error"),
+    })
+
+
+@router.post("/profile")
+@login_required
+async def profile_save(
+    request: Request,
+    full_name: str = Form(...),
+    birthday: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    from datetime import date as _date
+    user = db.query(User).filter(User.id == request.session.get("user_id")).first()
+    if user:
+        user.full_name = full_name.strip() or user.full_name
+        if birthday:
+            try:
+                user.birthday = _date.fromisoformat(birthday)
+            except ValueError:
+                pass
+        else:
+            user.birthday = None
+        db.commit()
+        request.session["user_name"] = user.full_name
+    return RedirectResponse(url="/settings/profile?saved=1", status_code=302)
+
+
+@router.post("/profile/password")
+@login_required
+async def profile_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    from app.database import verify_password
+    user = db.query(User).filter(User.id == request.session.get("user_id")).first()
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=302)
+    if not verify_password(current_password, user.password_hash):
+        return RedirectResponse(url="/settings/profile?pwd_error=wrong", status_code=302)
+    if len(new_password) < 6:
+        return RedirectResponse(url="/settings/profile?pwd_error=short", status_code=302)
+    if new_password != confirm_password:
+        return RedirectResponse(url="/settings/profile?pwd_error=mismatch", status_code=302)
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    db.commit()
+    return RedirectResponse(url="/settings/profile?saved=1", status_code=302)

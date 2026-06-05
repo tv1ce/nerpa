@@ -364,6 +364,25 @@ async def logistics_index(
     total_prev_month = round(_logi_sum(prev_month_start, prev_month_end) * TAX, 2)
     total_year       = round(_logi_sum(year_start, today)          * TAX, 2)
 
+    # Выручка по периодам (оплаченные счета) — для расчёта доли логистики
+    from app.models import Invoice as _Invoice
+
+    def _revenue_sum(d_from, d_to):
+        return db.query(func.sum(_Invoice.total_amount)).filter(
+            _Invoice.date >= d_from,
+            _Invoice.date <= d_to,
+            _Invoice.status == "paid",
+        ).scalar() or 0.0
+
+    def _pct_of_revenue(logi, d_from, d_to):
+        rev = _revenue_sum(d_from, d_to)
+        return round(logi / rev * 100, 1) if rev > 0 else None
+
+    pct_week       = _pct_of_revenue(total_week,       week_start, week_end)
+    pct_month      = _pct_of_revenue(total_month,      month_start, month_end)
+    pct_prev_month = _pct_of_revenue(total_prev_month, prev_month_start, prev_month_end)
+    pct_year       = _pct_of_revenue(total_year,       year_start, today)
+
     orders_week       = _orders_count(week_start, week_end)
     orders_month      = _orders_count(month_start, month_end)
     orders_prev_month = _orders_count(prev_month_start, prev_month_end)
@@ -382,6 +401,11 @@ async def logistics_index(
         "per_order_month":      _per_order(total_month,      orders_month),
         "per_order_prev_month": _per_order(total_prev_month, orders_prev_month),
         "per_order_year":       _per_order(total_year,       orders_year),
+        # доля логистики в выручке (%)
+        "pct_week":       pct_week,
+        "pct_month":      pct_month,
+        "pct_prev_month": pct_prev_month,
+        "pct_year":       pct_year,
         # кол-во заказов
         "orders_week":       orders_week,
         "orders_month":      orders_month,

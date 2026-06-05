@@ -54,6 +54,7 @@ async def notifications_recent(request: Request, db: Session = Depends(get_db)):
                 "type": n.type,
                 "title": n.title,
                 "body": n.body or "",
+                "link": n.link or "",
                 "is_read": n.is_read,
                 "time": fmt_time(n.created_at),
             }

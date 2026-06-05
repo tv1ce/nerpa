@@ -163,6 +163,49 @@
       <div class="text-muted mt-2" style="font-size:.75rem">
         Осталось: <strong>{{ [monthly_plan - revenue_month, 0] | max | money }} ₽</strong>
       </div>
+
+      <!-- Прогноз выполнения плана -->
+      {% if forecast_pct %}
+      <div class="mt-2 pt-2 border-top">
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-muted" style="font-size:.75rem">
+            <i class="bi bi-graph-up"></i> Прогноз на конец месяца
+            <span class="text-muted" style="font-size:.7rem">(прошло {{ days_passed }} из {{ days_in_month }} дн.)</span>
+          </span>
+          <span class="fw-bold {% if forecast_pct >= 100 %}text-success{% elif forecast_pct >= 80 %}text-warning{% else %}text-danger{% endif %}" style="font-size:.95rem">
+            {{ forecast_pct }}%
+          </span>
+        </div>
+        <div class="text-muted" style="font-size:.72rem">
+          При текущем темпе ≈ <strong>{{ projected_revenue | money }} ₽</strong>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Сравнение с прошлым годом -->
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <div style="width:34px;height:34px;border-radius:8px;background:#e7f1ff;display:flex;align-items:center;justify-content:center">
+          <i class="bi bi-calendar2-week text-primary"></i>
+        </div>
+        <span class="text-muted" style="font-size:.82rem">Этот месяц vs прошлый год</span>
+      </div>
+      {% if yoy_delta_pct is not none %}
+      <div class="d-flex justify-content-between align-items-end">
+        <div>
+          <span style="font-size:1.3rem;font-weight:700;color:#1e2a3a">{{ revenue_month | money }}</span>
+          <span class="text-muted" style="font-size:.78rem"> vs {{ revenue_last_year_month | money }} ₽</span>
+        </div>
+        {% if yoy_delta_pct >= 0 %}
+        <span class="text-success fw-semibold" style="font-size:.95rem"><i class="bi bi-arrow-up-short"></i>+{{ yoy_delta_pct }}%</span>
+        {% else %}
+        <span class="text-danger fw-semibold" style="font-size:.95rem"><i class="bi bi-arrow-down-short"></i>{{ yoy_delta_pct }}%</span>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="text-muted" style="font-size:.8rem">Нет данных за тот же месяц прошлого года</div>
+      {% endif %}
     </div>
 
     <!-- Затраты на логистику -->

@@ -38,16 +38,16 @@
   </div>
 </div>
 
-{# ── Таблица ─────────────────────────────────────────────────────────────────── #}
+{# ── Таблица, сгруппированная по контрагентам ───────────────────────────────── #}
 {% if rows %}
 <div class="card border-0 shadow-sm">
   <div class="table-responsive">
-    <table class="table tms-table mb-0">
+    <table class="table tms-table mb-0 align-middle">
       <thead>
         <tr>
-          <th>Счёт №</th>
+          <th style="width:40px"></th>
+          <th>Контрагент / Счёт №</th>
           <th>Дата</th>
-          <th>Контрагент</th>
           <th>Срок оплаты</th>
           <th>Отсрочка</th>
           <th class="text-end">Сумма, ₽</th>
@@ -57,16 +57,36 @@
         </tr>
       </thead>
       <tbody>
-        {% for row in rows %}
-        {% set inv = row.invoice %}
-        <tr class="{% if row.is_overdue %}table-danger{% endif %}">
-          <td class="fw-semibold">{{ inv.number }}</td>
-          <td class="text-nowrap">{{ inv.date | date_fmt }}</td>
+        {% for g in groups %}
+        {# ── Строка-заголовок группы (кликабельна, раскрывает счета) ── #}
+        <tr class="table-light fw-semibold" style="cursor:pointer"
+            data-bs-toggle="collapse" data-bs-target=".grp-{{ g.cp_id }}" role="button">
+          <td class="text-center"><i class="bi bi-chevron-down text-muted" style="font-size:.75rem"></i></td>
           <td>
-            <a href="/counterparties/{{ inv.counterparty_id }}" class="text-reset text-decoration-none">
-              {{ inv.counterparty.short_name or inv.counterparty.name if inv.counterparty else '—' }}
+            <a href="/counterparties/{{ g.cp_id }}" class="text-reset text-decoration-none" onclick="event.stopPropagation()">
+              {{ g.cp_name }}
             </a>
+            <span class="badge bg-secondary ms-1" style="font-size:.66rem">{{ g.rows | length }}</span>
           </td>
+          <td colspan="3" class="text-muted" style="font-size:.82rem">
+            {% if g.overdue_count %}
+              <span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ g.overdue_count }} просрочено, до {{ g.max_overdue }} дн.</span>
+            {% else %}
+              <span class="text-muted">просрочек нет</span>
+            {% endif %}
+          </td>
+          <td class="text-end fw-bold text-nowrap {% if g.overdue_count %}text-danger{% else %}text-primary{% endif %}">{{ g.total | money }}</td>
+          <td colspan="3"></td>
+        </tr>
+        {# ── Счета группы (свёрнуты по умолчанию) ── #}
+        {% for row in g.rows %}
+        {% set inv = row.invoice %}
+        <tr class="collapse grp-{{ g.cp_id }} {% if row.is_overdue %}table-danger{% endif %}">
+          <td></td>
+          <td class="ps-4">
+            <a href="/invoices/{{ inv.id }}" class="text-reset text-decoration-none">№ {{ inv.number }}</a>
+          </td>
+          <td class="text-nowrap">{{ inv.date | date_fmt }}</td>
           <td class="text-nowrap {% if row.is_overdue %}text-danger fw-semibold{% endif %}">
             {{ inv.due_date | date_fmt if inv.due_date else '—' }}
           </td>
@@ -102,6 +122,7 @@
             </a>
           </td>
         </tr>
+        {% endfor %}
         {% endfor %}
       </tbody>
       <tfoot class="table-light">

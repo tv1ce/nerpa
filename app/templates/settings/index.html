@@ -213,7 +213,11 @@
             <td>{{ u.username }}</td>
             <td>{{ u.full_name }}</td>
             <td><span class="badge bg-secondary">{{ role_labels.get(u.role, u.role) }}</span></td>
-            <td>
+            <td class="text-nowrap">
+              <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:.75rem"
+                      data-bs-toggle="modal" data-bs-target="#editUser{{ u.id }}" title="Редактировать">
+                <i class="bi bi-pencil"></i>
+              </button>
               {% if u.id != request.session.get('user_id') %}
               <form method="post" action="/settings/users/{{ u.id }}/delete"
                     class="d-inline"
@@ -261,4 +265,44 @@
   </div>{# /col-lg-4 #}
 
 </div>{# /row #}
+
+{# ── Модалы редактирования пользователей ── #}
+{% for u in users %}
+<div class="modal fade" id="editUser{{ u.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/settings/users/{{ u.id }}/edit">
+        <div class="modal-header">
+          <h5 class="modal-title">Пользователь: {{ u.username }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">ФИО</label>
+            <input type="text" name="full_name" class="form-control" value="{{ u.full_name }}" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Роль</label>
+            <select name="role" class="form-select">
+              <option value="manager"   {% if u.role == 'manager'   %}selected{% endif %}>Менеджер</option>
+              <option value="sales"     {% if u.role == 'sales'     %}selected{% endif %}>Отдел продаж</option>
+              <option value="viewer"    {% if u.role == 'viewer'    %}selected{% endif %}>Просмотр</option>
+              <option value="warehouse" {% if u.role == 'warehouse' %}selected{% endif %}>Склад</option>
+              <option value="admin"     {% if u.role == 'admin'     %}selected{% endif %}>Администратор</option>
+            </select>
+          </div>
+          <div class="mb-1">
+            <label class="form-label">Новый пароль <span class="text-muted" style="font-size:.78rem">(оставьте пустым — не менять)</span></label>
+            <input type="password" name="password" class="form-control" autocomplete="new-password" placeholder="••••••">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
 {% endblock %}

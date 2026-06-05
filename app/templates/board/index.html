@@ -174,6 +174,34 @@
       background-clip:text;-webkit-text-fill-color:transparent}
     .ticker .quote.show{opacity:1}
 
+    /* ── День рождения ── */
+    .bday-banner{
+      display:flex;align-items:center;justify-content:center;gap:2vw;
+      background:linear-gradient(135deg,#FFE7A0,#FFC1E3 60%,#C7B6FF);
+      border:1px solid #F3C9E8;border-radius:2.4vh;padding:1.6vh 3vw;margin-bottom:1.8vh;
+      box-shadow:var(--shadow);animation:bday-pulse 2.2s ease-in-out infinite;
+    }
+    @keyframes bday-pulse{
+      0%,100%{transform:scale(1);box-shadow:0 1.4vh 3vh rgba(199,182,255,.3)}
+      50%{transform:scale(1.012);box-shadow:0 1.8vh 4vh rgba(229,124,200,.45)}
+    }
+    .bday-emoji{font-size:6vh;line-height:1;animation:bday-bounce 1.4s ease-in-out infinite}
+    @keyframes bday-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.2vh)}}
+    .bday-text{text-align:center}
+    .bday-title{font-size:3.4vh;font-weight:800;color:#B5377E;letter-spacing:.4px}
+    .bday-names{font-size:4.2vh;font-weight:800;color:var(--ink);line-height:1.05}
+
+    .bday-upcoming{
+      display:flex;align-items:center;gap:1.4vw;flex-wrap:wrap;
+      background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
+      padding:1.1vh 2vw;margin-bottom:1.4vh;box-shadow:var(--shadow);
+    }
+    .bday-up-ico{font-size:3vh}
+    .bday-up-label{font-size:2vh;font-weight:700;color:var(--muted)}
+    .bday-up-item{font-size:2.2vh;color:var(--ink);background:var(--track);
+      border-radius:1.2vh;padding:.5vh 1.4vw}
+    .bday-up-item b{color:var(--purple)}
+
     /* ── Ночной режим ── */
     #night-overlay{
       position:fixed;inset:0;
@@ -198,6 +226,18 @@
       <div class="date" id="clock-date"></div>
     </div>
   </header>
+
+  {% if data.birthdays_today %}
+  <!-- Поздравление с днём рождения -->
+  <div class="bday-banner" id="bday-banner">
+    <div class="bday-emoji">🎂</div>
+    <div class="bday-text">
+      <div class="bday-title">С Днём Рождения!</div>
+      <div class="bday-names">{{ data.birthdays_today | join(', ') }}</div>
+    </div>
+    <div class="bday-emoji">🎉</div>
+  </div>
+  {% endif %}
 
   <!-- Главный показатель -->
   <div class="hero" id="hero">
@@ -268,6 +308,17 @@
     <div class="stations" id="stations"></div>
     <button class="sound-btn" id="sound-btn" style="display:none">▶ Включить звук</button>
   </div>
+
+  {% if data.birthdays_upcoming %}
+  <!-- Ближайшие дни рождения -->
+  <div class="bday-upcoming">
+    <span class="bday-up-ico">🎈</span>
+    <span class="bday-up-label">Скоро ДР:</span>
+    {% for b in data.birthdays_upcoming %}
+    <span class="bday-up-item">{{ b.name }} <b>{{ b.date }}</b></span>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <!-- Лента мотивашек -->
   <div class="ticker"><div class="quote" id="quote"></div></div>

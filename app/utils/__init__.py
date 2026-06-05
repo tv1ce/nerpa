@@ -89,6 +89,7 @@ def maybe_notify_low_stock(db: Session, product_id: int) -> None:
                 title=f"Низкий остаток: {p.name}",
                 body=f"Текущий остаток {balance} {p.unit} ≤ минимум {p.min_stock} {p.unit}",
                 product_id=product_id,
+                link="/warehouse/",
             ))
     else:
         db.query(Notification).filter(

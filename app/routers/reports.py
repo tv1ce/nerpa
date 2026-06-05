@@ -142,6 +142,31 @@ async def revenue_report(
 
     plan_pct = round(revenue_month / monthly_plan * 100, 1) if monthly_plan > 0 else 0
 
+    # ── Прогноз выполнения плана (линейная экстраполяция по темпу) ────────────
+    import calendar as _cal
+    days_in_month = _cal.monthrange(today.year, today.month)[1]
+    days_passed = today.day
+    if days_passed > 0 and revenue_month > 0:
+        projected_revenue = revenue_month / days_passed * days_in_month
+        forecast_pct = round(projected_revenue / monthly_plan * 100, 1) if monthly_plan > 0 else 0
+    else:
+        projected_revenue = 0.0
+        forecast_pct = 0
+
+    # ── Сравнение: текущий месяц vs тот же месяц прошлого года ────────────────
+    ly_month_start = month_start.replace(year=month_start.year - 1)
+    ly_days_in_month = _cal.monthrange(ly_month_start.year, ly_month_start.month)[1]
+    ly_month_end = ly_month_start.replace(day=ly_days_in_month)
+    revenue_last_year_month = db.query(func.sum(Invoice.total_amount)).filter(
+        Invoice.date >= ly_month_start,
+        Invoice.date <= ly_month_end,
+        Invoice.status == "paid",
+    ).scalar() or 0.0
+    if revenue_last_year_month > 0:
+        yoy_delta_pct = round((revenue_month - revenue_last_year_month) / revenue_last_year_month * 100, 1)
+    else:
+        yoy_delta_pct = None
+
     # Затраты на логистику за месяц и год
     logistics_month = db.query(func.sum(LogisticsCost.amount)).filter(
         LogisticsCost.date >= month_start,
@@ -169,6 +194,12 @@ async def revenue_report(
         "revenue_month": revenue_month,
         "monthly_plan": monthly_plan,
         "plan_pct": plan_pct,
+        "projected_revenue": projected_revenue,
+        "forecast_pct": forecast_pct,
+        "days_passed": days_passed,
+        "days_in_month": days_in_month,
+        "revenue_last_year_month": revenue_last_year_month,
+        "yoy_delta_pct": yoy_delta_pct,
         "logistics_month": logistics_month,
         "logistics_year": logistics_year,
         # Фильтр

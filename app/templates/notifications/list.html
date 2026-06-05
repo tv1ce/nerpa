@@ -42,7 +42,11 @@
             {% if n.type == 'low_stock' %}
             <i class="bi bi-exclamation-triangle-fill text-warning me-1"></i>
             {% endif %}
+            {% if n.link %}
+            <a href="{{ n.link }}" class="text-reset text-decoration-none">{{ n.title }} <i class="bi bi-box-arrow-up-right text-muted" style="font-size:.72rem"></i></a>
+            {% else %}
             {{ n.title }}
+            {% endif %}
           </td>
           <td class="text-muted" style="font-size:.88rem">{{ n.body or '—' }}</td>
           <td class="text-end text-muted" style="font-size:.82rem; white-space:nowrap">{{ n.created_at | date_fmt }}</td>

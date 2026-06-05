@@ -17,6 +17,7 @@ class User(Base):
     role = Column(String(20), default="manager")
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False)  # принудительная смена при следующем входе
+    birthday = Column(Date)  # день рождения — для поздравлений на табло цеха
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -378,6 +379,7 @@ class Notification(Base):
     type = Column(String(30), default="low_stock")
     title = Column(String(200), nullable=False)
     body = Column(Text)
+    link = Column(String(300))  # ссылка на объект: клик по уведомлению → переход
     product_id = Column(Integer, ForeignKey("products.id"))
     # user_id = NULL → системное уведомление, видят все (напр. low_stock склада)
     user_id = Column(Integer, ForeignKey("users.id"))

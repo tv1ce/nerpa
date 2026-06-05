@@ -127,7 +127,7 @@
   {% endif %}
   <div class="user-block">
     <span class="avatar" aria-hidden="true"><i class="bi bi-person-fill"></i></span>
-    <span class="uname">{{ request.session.get('user_name', 'Пользователь') }}</span>
+    <a href="/settings/profile" class="uname text-reset text-decoration-none" title="Мой профиль">{{ request.session.get('user_name', 'Пользователь') }}</a>
     <a href="/auth/logout" title="Выйти" aria-label="Выйти"><i class="bi bi-box-arrow-right"></i></a>
   </div>
 </nav>
@@ -243,15 +243,18 @@
     var icons = { low_stock: 'bi-exclamation-triangle-fill text-warning' };
     list.innerHTML = data.items.map(function (n) {
       var icon = icons[n.type] || 'bi-bell-fill text-primary';
-      return '<div class="nd-item' + (n.is_read ? '' : ' unread') + '">' +
+      var inner =
         '<div class="nd-icon"><i class="bi ' + icon + '"></i></div>' +
         '<div class="nd-body">' +
-          '<div class="nd-title">' + _esc(n.title) + '</div>' +
+          '<div class="nd-title">' + _esc(n.title) + (n.link ? ' <i class="bi bi-box-arrow-up-right" style="font-size:.7rem;opacity:.5"></i>' : '') + '</div>' +
           (n.body ? '<div class="nd-text">' + _esc(n.body) + '</div>' : '') +
           '<div class="nd-time">' + n.time + '</div>' +
         '</div>' +
-        (n.is_read ? '' : '<div class="nd-dot"></div>') +
-      '</div>';
+        (n.is_read ? '' : '<div class="nd-dot"></div>');
+      if (n.link) {
+        return '<a href="' + _esc(n.link) + '" class="nd-item' + (n.is_read ? '' : ' unread') + '" style="text-decoration:none;color:inherit">' + inner + '</a>';
+      }
+      return '<div class="nd-item' + (n.is_read ? '' : ' unread') + '">' + inner + '</div>';
     }).join('');
 
     var hasMore = data.total > data.items.length;

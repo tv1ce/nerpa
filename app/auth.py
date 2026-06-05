@@ -30,6 +30,7 @@ WAREHOUSE_ALLOWED_PREFIXES = (
     "/counterparties",
     "/products",   # кладовщику нужен список товаров
     "/board",      # табло цеха
+    "/settings/profile",  # свой профиль (ДР, пароль) — доступен всем ролям
     "/auth",
     "/notifications",
     "/static",

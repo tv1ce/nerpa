@@ -143,6 +143,10 @@ def _migrate_db():
         ("company_settings", "kpi_product_filter", "TEXT DEFAULT 'орешк'"),
         # Скидка по умолчанию для контрагента (подставляется в новые заказы)
         ("counterparties", "default_discount_pct", "REAL DEFAULT 0.0"),
+        # День рождения сотрудника (для поздравлений на табло цеха)
+        ("users", "birthday", "DATE"),
+        # Ссылка на объект в уведомлении (клик → переход на страницу)
+        ("notifications", "link", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

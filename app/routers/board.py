@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
-from app.models import Order, OrderItem, Claim, CompanySettings, Product
+from app.models import Order, OrderItem, Claim, CompanySettings, Product, User
 
 router = APIRouter(prefix="/board", tags=["board"])
 templates = Jinja2Templates(directory="app/templates")
@@ -155,6 +155,29 @@ def _collect_metrics(db: Session) -> dict:
     last_claim_date    = db.query(func.max(Claim.date)).scalar()
     days_without_claims = (today - last_claim_date).days if last_claim_date else None
 
+    # ── Дни рождения сотрудников ──────────────────────────────────────────────
+    birthdays_today = []
+    birthdays_upcoming = []
+    users_with_bd = db.query(User).filter(
+        User.is_active == True, User.birthday.isnot(None)
+    ).all()
+    for u in users_with_bd:
+        bd = u.birthday
+        if bd.month == today.month and bd.day == today.day:
+            birthdays_today.append(u.full_name)
+            continue
+        # Ближайшие ДР в пределах 7 дней вперёд (без учёта года)
+        for delta in range(1, 8):
+            d = today + timedelta(days=delta)
+            if bd.month == d.month and bd.day == d.day:
+                birthdays_upcoming.append({
+                    "name": u.full_name,
+                    "date": d.strftime("%d.%m"),
+                    "in_days": delta,
+                })
+                break
+    birthdays_upcoming.sort(key=lambda x: x["in_days"])
+
     # Рекорд дня текущего месяца (только KPI-товары)
     best_day_row = (
         db.query(
@@ -208,6 +231,8 @@ def _collect_metrics(db: Session) -> dict:
         "quotes":              quotes,
         "stations":            stations,
         "active_station":      active,
+        "birthdays_today":     birthdays_today,
+        "birthdays_upcoming":  birthdays_upcoming,
     }
 
 

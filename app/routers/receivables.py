@@ -100,8 +100,40 @@ async def receivables_list(request: Request, db: Session = Depends(get_db)):
     overdue_count = sum(1 for r in rows if r["is_overdue"])
     max_overdue_days = max((r["days_overdue"] for r in rows if r["is_overdue"]), default=0)
 
+    # ── Группировка по контрагентам ──────────────────────────────────────────
+    from collections import OrderedDict
+    grouped: "OrderedDict[int, dict]" = OrderedDict()
+    for r in rows:
+        inv = r["invoice"]
+        cp = inv.counterparty
+        cp_id = inv.counterparty_id or 0
+        if cp_id not in grouped:
+            grouped[cp_id] = {
+                "cp_id": cp_id,
+                "cp_name": (cp.short_name or cp.name) if cp else "—",
+                "rows": [],
+                "total": 0.0,
+                "overdue_total": 0.0,
+                "overdue_count": 0,
+                "max_overdue": 0,
+            }
+        g = grouped[cp_id]
+        g["rows"].append(r)
+        g["total"] += inv.total_amount
+        if r["is_overdue"]:
+            g["overdue_total"] += inv.total_amount
+            g["overdue_count"] += 1
+            g["max_overdue"] = max(g["max_overdue"], r["days_overdue"])
+    # Сортируем: сначала с просрочкой, потом по сумме долга
+    groups = sorted(
+        grouped.values(),
+        key=lambda g: (g["overdue_count"] > 0, g["total"]),
+        reverse=True,
+    )
+
     return templates.TemplateResponse(request, "receivables/index.html", {
         "rows": rows,
+        "groups": groups,
         "total_amount": total_amount,
         "overdue_amount": overdue_amount,
         "overdue_count": overdue_count,

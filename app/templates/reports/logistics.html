@@ -97,25 +97,34 @@
       <div class="form-section-title mb-3">Сводка</div>
 
       {% set kpi_rows = [
-        ('Текущая неделя',   total_week,       per_order_week,       orders_week),
-        ('Текущий месяц',    total_month,      per_order_month,      orders_month),
-        (prev_month_label | capitalize, total_prev_month, per_order_prev_month, orders_prev_month),
-        ('Текущий год',      total_year,       per_order_year,       orders_year),
+        ('Текущая неделя',   total_week,       per_order_week,       orders_week,       pct_week),
+        ('Текущий месяц',    total_month,      per_order_month,      orders_month,      pct_month),
+        (prev_month_label | capitalize, total_prev_month, per_order_prev_month, orders_prev_month, pct_prev_month),
+        ('Текущий год',      total_year,       per_order_year,       orders_year,       pct_year),
       ] %}
 
-      {% for label, logi_total, per_order, n_orders in kpi_rows %}
+      {% for label, logi_total, per_order, n_orders, pct_rev in kpi_rows %}
       <div class="mb-3 pb-2 {% if not loop.last %}border-bottom{% endif %}">
         <div class="d-flex justify-content-between align-items-center mb-1">
           <span class="text-muted" style="font-size:.8rem">{{ label }}</span>
           <span class="fw-bold text-danger" style="font-size:.9rem">{{ logi_total | money }} ₽</span>
         </div>
-        <div class="d-flex justify-content-between align-items-center">
+        <div class="d-flex justify-content-between align-items-center mb-1">
           <span class="text-muted" style="font-size:.75rem">
             <i class="bi bi-box-seam me-1"></i>Логистика 1 заказа
             <span class="text-muted ms-1">({{ n_orders }} зак.)</span>
           </span>
           <span style="font-size:.82rem; font-weight:600; color:#6c757d">
             {% if per_order is not none %}{{ per_order | money }} ₽{% else %}<span class="text-muted">—</span>{% endif %}
+          </span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-muted" style="font-size:.75rem">
+            <i class="bi bi-percent me-1"></i>Доля в выручке
+          </span>
+          <span style="font-size:.82rem; font-weight:600"
+                class="{% if pct_rev is not none and pct_rev > 20 %}text-danger{% elif pct_rev is not none %}text-success{% else %}text-muted{% endif %}">
+            {% if pct_rev is not none %}{{ pct_rev }}%{% else %}—{% endif %}
           </span>
         </div>
       </div>
