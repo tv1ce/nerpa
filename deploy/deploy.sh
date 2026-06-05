@@ -162,6 +162,9 @@ chmod -R 750 "$APP_DIR"
 chmod 600 "$APP_DIR/.env"
 # Статика и шаблоны читаются nginx напрямую
 chmod -R 755 "$APP_DIR/app/static"
+# nginx (www-data) должен иметь возможность ПРОЙТИ в каталоги до статики.
+# Без o+x на /opt/tms и /opt/tms/app nginx получает 403 на /static/* (Permission denied).
+chmod o+x "$APP_DIR" "$APP_DIR/app"
 ok "Права установлены"
 
 # ─────────────────────────────────────────────────────────────────────────────

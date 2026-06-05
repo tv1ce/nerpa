@@ -66,11 +66,13 @@ if __name__ == "__main__":
 
     init_db()
 
-    logging.getLogger(__name__).info("TMS server starting on 0.0.0.0:8080")
+    logging.getLogger(__name__).info("TMS server starting on 127.0.0.1:8080 (за nginx)")
 
     uvicorn.run(
         "app.main:app",
-        host="0.0.0.0",
+        # Слушаем только localhost — наружу приложение отдаёт ТОЛЬКО nginx (с TLS).
+        # Так бэкенд не торчит в интернет в обход HTTPS, и боты не стучатся прямо в uvicorn.
+        host="127.0.0.1",
         port=8080,
         reload=False,
         # log_config=None — говорим uvicorn не сбрасывать нашу конфигурацию logging.

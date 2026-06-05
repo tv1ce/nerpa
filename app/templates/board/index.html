@@ -483,6 +483,51 @@
     renderStations();
     playActive().then(()=> soundBtn.style.display='none').catch(()=> soundBtn.style.display='');
 
+    // ── Авто-переподключение радио ───────────────────────────────────────────
+    // Интернет-радио (icecast) при сетевом сбое или обрыве со стороны станции
+    // останавливает <audio> и сам не возобновляется. Следим за событиями обрыва
+    // и за тем, что воспроизведение реально идёт; при зависании — переподключаемся.
+    let lastProgressAt = Date.now();
+    let reconnecting = false;
+
+    function reconnectStream(reason){
+      if (MUTE || reconnecting) return;
+      const s = STATIONS[active];
+      if (!s) return;
+      reconnecting = true;
+      try {
+        player.src = s.url;   // повторная установка + load() = новое соединение
+        player.load();
+      } catch(e){}
+      player.play()
+        .then(()=> { soundBtn.style.display='none'; lastProgressAt = Date.now(); })
+        .catch(()=> { soundBtn.style.display=''; })
+        .finally(()=> { setTimeout(()=> { reconnecting = false; }, 1500); });
+    }
+
+    // Прогресс воспроизведения — обновляем «время последней активности»
+    ['playing','timeupdate'].forEach(ev =>
+      player.addEventListener(ev, () => { lastProgressAt = Date.now(); })
+    );
+    // События обрыва потока — переподключаемся с небольшой задержкой
+    ['error','stalled','ended','emptied','abort'].forEach(ev =>
+      player.addEventListener(ev, () => { if (!MUTE) setTimeout(()=> reconnectStream(ev), 2000); })
+    );
+
+    // Сторожевой таймер: каждые 10с проверяем, что звук идёт.
+    // Если не на паузе пользователем, но прогресса нет > 20с или плеер «встал» — реконнект.
+    setInterval(() => {
+      if (MUTE || !STATIONS[active]) return;
+      const stuck = (Date.now() - lastProgressAt) > 20000;
+      if (player.paused || stuck) reconnectStream('watchdog');
+    }, 10000);
+
+    // Возврат вкладки в фокус / восстановление сети — сразу проверяем поток
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && !MUTE && player.paused) reconnectStream('visible');
+    });
+    window.addEventListener('online', () => { if (!MUTE) reconnectStream('online'); });
+
     // ── Себестоимость: цвет и полоса ──
     function renderCost(pct, norm, dev){
       const card    = document.getElementById('stat-cost');
