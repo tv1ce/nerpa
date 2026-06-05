@@ -84,7 +84,7 @@ def get_daily_metrics(db: Session, day: date | None = None) -> dict:
     orders_today = db.query(Order).filter(Order.date == today).count()
     orders_shipped = db.query(Order).filter(
         Order.date == today,
-        Order.status.in_(["shipped", "delivered"]),
+        Order.status.in_(["handed", "delivered"]),
     ).count()
 
     revenue_today = db.query(func.sum(Invoice.total_amount)).filter(
@@ -99,7 +99,7 @@ def get_daily_metrics(db: Session, day: date | None = None) -> dict:
         .join(Order)
         .filter(
             Order.date == today,
-            Order.status.in_(["shipped", "delivered"]),
+            Order.status.in_(["handed", "delivered"]),
         )
         .scalar() or 0.0
     )
@@ -150,7 +150,7 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
             .filter(
                 Order.date >= d_from,
                 Order.date <= d_to,
-                Order.status.in_(["shipped", "delivered"]),
+                Order.status.in_(["handed", "delivered"]),
             )
             .scalar() or 0.0
         )
@@ -256,7 +256,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
             .join(Order)
             .filter(
                 Order.date >= d_from, Order.date <= d_to,
-                Order.status.in_(["shipped", "delivered"]),
+                Order.status.in_(["handed", "delivered"]),
             )
             .scalar() or 0.0
         )
@@ -318,7 +318,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
         .join(Order, OrderItem.order_id == Order.id)
         .filter(
             Order.date >= ms, Order.date <= me,
-            Order.status.in_(["shipped", "delivered"]),
+            Order.status.in_(["handed", "delivered"]),
         )
         .group_by(Product.id)
         .order_by(func.sum(OrderItem.quantity).desc())
