@@ -147,6 +147,9 @@ def _migrate_db():
         ("users", "birthday", "DATE"),
         # Ссылка на объект в уведомлении (клик → переход на страницу)
         ("notifications", "link", "TEXT"),
+        # Пороги напоминаний (за сколько дней предупреждать), 0 = выключено
+        ("company_settings", "notify_contract_days", "INTEGER DEFAULT 14"),
+        ("company_settings", "notify_invoice_days",  "INTEGER DEFAULT 3"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

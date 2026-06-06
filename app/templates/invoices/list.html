@@ -2,6 +2,8 @@
 {% block title %}Счета на оплату{% endblock %}
 {% block page_title %}Счета на оплату{% endblock %}
 {% block topbar_actions %}
+  <a href="/invoices/export.xlsx?q={{ q }}&status={{ status }}&date_from={{ date_from }}&date_to={{ date_to }}&counterparty_id={{ counterparty_id }}&overdue={{ overdue }}"
+     class="btn btn-outline-success btn-sm me-1"><i class="bi bi-file-earmark-excel me-1"></i>Excel</a>
   <a href="/invoices/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новый счёт</a>
 {% endblock %}
 

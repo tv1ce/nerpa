@@ -240,7 +240,11 @@
       return;
     }
 
-    var icons = { low_stock: 'bi-exclamation-triangle-fill text-warning' };
+    var icons = {
+      low_stock: 'bi-exclamation-triangle-fill text-warning',
+      contract_expiry: 'bi-file-earmark-text-fill text-primary',
+      invoice_due: 'bi-cash-coin text-success'
+    };
     list.innerHTML = data.items.map(function (n) {
       var icon = icons[n.type] || 'bi-bell-fill text-primary';
       var inner =

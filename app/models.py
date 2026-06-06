@@ -287,6 +287,9 @@ class CompanySettings(Base):
     tg_report_chat_ids = Column(Text)           # chat_id для отчётов (выручка), через запятую
     # ── KPI-фильтр продукта (дашборд и отчёты) ──
     kpi_product_filter = Column(String(100), default="орешк")  # ilike-подстрока для фильтра KPI
+    # ── Пороги напоминаний (за сколько дней предупреждать), 0 = выключено ──
+    notify_contract_days = Column(Integer, default=14)  # до истечения договора
+    notify_invoice_days  = Column(Integer, default=3)   # до дедлайна оплаты счёта
 
 
 class MonthlyPlan(Base):

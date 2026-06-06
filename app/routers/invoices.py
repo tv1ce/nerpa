@@ -155,6 +155,49 @@ async def create_invoice(
     return RedirectResponse(url=f"/invoices/{invoice.id}", status_code=302)
 
 
+@router.get("/export.xlsx")
+@login_required
+async def export_invoices(
+    request: Request,
+    q: str = "", status: str = "", date_from: str = "", date_to: str = "",
+    counterparty_id: int = 0, overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    from datetime import date as _date
+    from app.routers.reports import _xlsx_response
+    today = _date.today()
+    query = db.query(Invoice).join(Counterparty)
+    if q:
+        query = query.filter(Invoice.number.ilike(f"%{q}%") | Counterparty.name.ilike(f"%{q}%"))
+    if status:
+        query = query.filter(Invoice.status == status)
+    if date_from:
+        try: query = query.filter(Invoice.date >= _date.fromisoformat(date_from))
+        except ValueError: pass
+    if date_to:
+        try: query = query.filter(Invoice.date <= _date.fromisoformat(date_to))
+        except ValueError: pass
+    if counterparty_id:
+        query = query.filter(Invoice.counterparty_id == counterparty_id)
+    if overdue:
+        query = query.filter(Invoice.status.in_(["issued", "overdue"]),
+                             Invoice.due_date < today, Invoice.due_date.isnot(None))
+    invoices = query.order_by(Invoice.date.desc(), Invoice.id.desc()).all()
+    rows = [[
+        inv.number,
+        inv.counterparty.name if inv.counterparty else "—",
+        inv.date.strftime("%d.%m.%Y") if inv.date else "",
+        inv.due_date.strftime("%d.%m.%Y") if inv.due_date else "",
+        round(inv.total_amount, 2),
+        INVOICE_STATUSES.get(inv.status, inv.status),
+        inv.paid_date.strftime("%d.%m.%Y") if inv.paid_date else "",
+    ] for inv in invoices]
+    return _xlsx_response(
+        ["№ счёта", "Клиент", "Дата", "Оплатить до", "Сумма с НДС ₽", "Статус", "Оплачен"],
+        rows, "Счета.xlsx", widths=[14, 40, 14, 14, 18, 16, 14],
+    )
+
+
 @router.get("/{invoice_id}", response_class=HTMLResponse)
 @login_required
 async def view_invoice(request: Request, invoice_id: int, db: Session = Depends(get_db)):

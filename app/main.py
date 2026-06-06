@@ -88,12 +88,128 @@ def _mark_expired_contracts() -> int:
         db.close()
 
 
+def _notify_expiring_contracts() -> int:
+    """Создаёт уведомления о договорах, истекающих в ближайшие N дней.
+    N берётся из CompanySettings.notify_contract_days (0 = выключено).
+    Дедуп: не плодим повтор, если по этому договору уже есть непрочитанное."""
+    from datetime import timedelta
+    from app.database import SessionLocal
+    from app.models import Contract, Notification, CompanySettings
+
+    today = _date.today()
+    db = SessionLocal()
+    try:
+        company = db.query(CompanySettings).first()
+        days = (company.notify_contract_days if company else 14) or 0
+        if days <= 0:
+            return 0
+        horizon = today + timedelta(days=days)
+        created = 0
+        contracts = (
+            db.query(Contract)
+            .filter(
+                Contract.status == "active",
+                Contract.end_date.isnot(None),
+                Contract.end_date >= today,
+                Contract.end_date <= horizon,
+            )
+            .all()
+        )
+        for c in contracts:
+            link = f"/contracts/{c.id}"
+            exists = db.query(Notification).filter(
+                Notification.type == "contract_expiry",
+                Notification.link == link,
+                Notification.is_read == False,
+            ).first()
+            if exists:
+                continue
+            left = (c.end_date - today).days
+            cp = c.counterparty
+            db.add(Notification(
+                type="contract_expiry",
+                title=f"Договор №{c.number} истекает через {left} дн.",
+                body=f"Контрагент: {cp.name if cp else '—'}. Дата окончания: {c.end_date.strftime('%d.%m.%Y')}.",
+                link=link,
+            ))
+            created += 1
+        if created:
+            db.commit()
+            logger.info("Уведомления об истечении договоров: создано %d", created)
+        return created
+    except Exception as e:
+        logger.error("_notify_expiring_contracts: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
+def _notify_due_invoices() -> int:
+    """Создаёт уведомления о счетах, у которых дедлайн оплаты в ближайшие N дней.
+    N из CompanySettings.notify_invoice_days (0 = выключено). Дедлайн с учётом отсрочки КА."""
+    from datetime import timedelta
+    from app.database import SessionLocal
+    from app.models import Invoice, Notification, CompanySettings
+    from app.routers.receivables import overdue_deadline
+
+    today = _date.today()
+    db = SessionLocal()
+    try:
+        company = db.query(CompanySettings).first()
+        days = (company.notify_invoice_days if company else 3) or 0
+        if days <= 0:
+            return 0
+        created = 0
+        invoices = (
+            db.query(Invoice)
+            .filter(Invoice.status == "issued", Invoice.due_date.isnot(None))
+            .all()
+        )
+        for inv in invoices:
+            deadline = overdue_deadline(inv)
+            if not deadline:
+                continue
+            left = (deadline - today).days
+            if left < 0 or left > days:
+                continue  # уже просрочен или ещё далеко
+            link = f"/invoices/{inv.id}"
+            exists = db.query(Notification).filter(
+                Notification.type == "invoice_due",
+                Notification.link == link,
+                Notification.is_read == False,
+            ).first()
+            if exists:
+                continue
+            cp = inv.counterparty
+            when = "сегодня" if left == 0 else f"через {left} дн."
+            db.add(Notification(
+                type="invoice_due",
+                title=f"Счёт №{inv.number}: оплата {when}",
+                body=f"Контрагент: {cp.name if cp else '—'}. Сумма: {inv.total_amount:,.0f} ₽. Срок: {deadline.strftime('%d.%m.%Y')}.".replace(",", " "),
+                link=link,
+            ))
+            created += 1
+        if created:
+            db.commit()
+            logger.info("Напоминания об оплате счетов: создано %d", created)
+        return created
+    except Exception as e:
+        logger.error("_notify_due_invoices: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
 async def _overdue_loop():
-    """Фоновая задача: проверяет просрочку счетов и договоров каждый час."""
+    """Фоновая задача: просрочка счетов/договоров + напоминания, каждый час."""
     while True:
         try:
             _mark_overdue_invoices()
             _mark_expired_contracts()
+            _notify_expiring_contracts()
+            _notify_due_invoices()
         except Exception as e:
             logger.error("overdue_loop: %s", e)
         await asyncio.sleep(3600)  # раз в час
@@ -127,6 +243,8 @@ async def lifespan(_app: FastAPI):
     # ── startup ──────────────────────────────────────────────────────────────
     _mark_overdue_invoices()          # перевести просроченные счета
     _mark_expired_contracts()         # перевести истёкшие договора
+    _notify_expiring_contracts()      # уведомления об истечении договоров
+    _notify_due_invoices()            # напоминания об оплате счетов
     _rotate_generated(max_age_days=90)  # удалить старые docx
     asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
     yield

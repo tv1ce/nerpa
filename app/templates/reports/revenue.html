@@ -13,6 +13,8 @@
     <input type="date" name="date_to"   class="form-control form-control-sm" value="{{ date_to }}"   style="width:130px">
     <button class="btn btn-sm btn-outline-secondary">Применить</button>
   </form>
+  <a href="/reports/revenue.xlsx?period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}"
+     class="btn btn-sm btn-outline-success"><i class="bi bi-file-earmark-excel me-1"></i>Excel</a>
 </div>
 {% endblock %}
 
@@ -87,6 +89,47 @@
             </tr>
           </tfoot>
           {% endif %}
+        </table>
+      </div>
+    </div>
+
+    <!-- ── По клиентам за период ──────────────────────────────────── -->
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex justify-content-between align-items-center">
+        <span class="fw-semibold"><i class="bi bi-people me-1 text-primary"></i>По клиентам</span>
+        <span class="text-muted" style="font-size:.82rem">{{ by_client|length }} клиентов</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm tms-table mb-0">
+          <thead>
+            <tr>
+              <th class="ps-4">Клиент</th>
+              <th class="text-end">Сумма, ₽</th>
+              <th class="text-end">Доля</th>
+              <th class="text-end">Орешков</th>
+              <th class="text-end pe-4">Заказов</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in by_client %}
+            <tr>
+              <td class="ps-4" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">{{ c.name }}</td>
+              <td class="text-end text-success fw-semibold">{{ c.amount | money }}</td>
+              <td class="text-end">
+                <span class="d-inline-flex align-items-center gap-1">
+                  <span class="text-muted" style="font-size:.8rem">{{ c.share_pct }}%</span>
+                  <span style="display:inline-block;width:40px;height:6px;background:#eef2f7;border-radius:3px;overflow:hidden">
+                    <span style="display:block;height:100%;width:{{ [c.share_pct, 100] | min }}%;background:#198754"></span>
+                  </span>
+                </span>
+              </td>
+              <td class="text-end">{% if c.qty %}{{ c.qty | int }}{% else %}—{% endif %}</td>
+              <td class="text-end pe-4">{{ c.orders }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-4">Нет данных за период</td></tr>
+            {% endfor %}
+          </tbody>
         </table>
       </div>
     </div>

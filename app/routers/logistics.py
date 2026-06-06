@@ -444,6 +444,53 @@ async def add_cost(
     return RedirectResponse(url="/reports/logistics", status_code=302)
 
 
+# ── Экспорт в Excel ───────────────────────────────────────────────────────────
+
+@router.get("/export.xlsx")
+@login_required
+async def export_logistics(
+    request: Request,
+    period: str = "month", date_from: str = "", date_to: str = "",
+    db: Session = Depends(get_db),
+):
+    from app.routers.reports import _xlsx_response
+    today = date.today()
+    month_start, month_end = _month_bounds(today)
+    year_start = today.replace(month=1, day=1)
+    week_start = today - timedelta(days=today.weekday())
+    prev_month_last = month_start - timedelta(days=1)
+    prev_month_start, prev_month_end = _month_bounds(prev_month_last)
+    if period == "week":
+        tbl_from, tbl_to = week_start, week_start + timedelta(days=6)
+    elif period == "year":
+        tbl_from, tbl_to = year_start, today
+    elif period == "prev_month":
+        tbl_from, tbl_to = prev_month_start, prev_month_end
+    elif period == "custom" and date_from and date_to:
+        try: tbl_from, tbl_to = date.fromisoformat(date_from), date.fromisoformat(date_to)
+        except ValueError: tbl_from, tbl_to = month_start, today
+    else:
+        tbl_from, tbl_to = month_start, today
+
+    TAX = 1.06
+    raw = db.query(LogisticsCost).filter(
+        LogisticsCost.date >= tbl_from, LogisticsCost.date <= tbl_to,
+    ).order_by(LogisticsCost.date.desc()).all()
+    src_label = {"metafora": "Метафора", "manual": "Вручную"}
+    rows = [[
+        r.date.strftime("%d.%m.%Y") if r.date else "",
+        r.description or "",
+        round((r.amount or 0) * TAX, 2),
+        src_label.get(r.source, "Файл"),
+        r.notes or "",
+    ] for r in raw]
+    fn = f"Логистика {tbl_from.strftime('%d.%m.%Y')}-{tbl_to.strftime('%d.%m.%Y')}.xlsx"
+    return _xlsx_response(
+        ["Дата", "Описание", "Сумма ₽ (с налогом)", "Источник", "Заметки"],
+        rows, fn, widths=[14, 44, 20, 14, 30],
+    )
+
+
 # ── Удаление ──────────────────────────────────────────────────────────────────
 
 @router.post("/{cost_id}/delete")

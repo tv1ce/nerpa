@@ -114,6 +114,22 @@
             <input type="text" name="bank_corr_account" class="form-control" maxlength="20" value="{{ cv(company.bank_corr_account) if company else '' }}">
           </div>
 
+          <div class="col-12 mt-1">
+            <div class="form-section-title">Напоминания (только в TMS)</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">За сколько дней предупреждать об истечении договора</label>
+            <input type="number" name="notify_contract_days" class="form-control" min="0" max="365"
+                   value="{{ company.notify_contract_days if company and company.notify_contract_days is not none else 14 }}">
+            <div class="form-text">0 — не напоминать</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">За сколько дней предупреждать о сроке оплаты счёта</label>
+            <input type="number" name="notify_invoice_days" class="form-control" min="0" max="180"
+                   value="{{ company.notify_invoice_days if company and company.notify_invoice_days is not none else 3 }}">
+            <div class="form-text">0 — не напоминать. Учитывает отсрочку контрагента</div>
+          </div>
+
           <div class="col-12">
             <button type="submit" class="btn btn-accent">
               <i class="bi bi-check-lg me-1"></i>Сохранить реквизиты
