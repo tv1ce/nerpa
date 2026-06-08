@@ -150,6 +150,9 @@ def _migrate_db():
         # Пороги напоминаний (за сколько дней предупреждать), 0 = выключено
         ("company_settings", "notify_contract_days", "INTEGER DEFAULT 14"),
         ("company_settings", "notify_invoice_days",  "INTEGER DEFAULT 3"),
+        # Напоминания о прозвонах — отдельный чат и флаг вкл/выкл
+        ("company_settings", "tg_callback_chat_ids", "TEXT"),
+        ("company_settings", "tg_callback_enabled",  "INTEGER DEFAULT 1"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

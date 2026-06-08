@@ -148,22 +148,10 @@ async def upload_logo(
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 
 
-@router.post("/telegram")
-@role_required("admin")
-async def save_telegram(
-    request: Request,
-    tg_bot_token: str = Form(default=""),
-    tg_report_chat_ids: str = Form(default=""),
-    db: Session = Depends(get_db),
-):
-    company = db.query(CompanySettings).first()
-    if not company:
-        company = CompanySettings()
-        db.add(company)
-    company.tg_bot_token = tg_bot_token.strip() or None
-    # Нормализуем список chat_id: оставляем только числа (с возможным минусом), через запятую
+def _normalize_chat_ids(raw: str) -> str | None:
+    """Нормализует строку chat_id: оставляет только числа через запятую."""
     ids = []
-    for part in tg_report_chat_ids.replace(";", ",").replace("\n", ",").split(","):
+    for part in raw.replace(";", ",").replace("\n", ",").split(","):
         part = part.strip()
         if not part:
             continue
@@ -171,7 +159,27 @@ async def save_telegram(
             ids.append(str(int(part)))
         except ValueError:
             continue
-    company.tg_report_chat_ids = ",".join(ids) or None
+    return ",".join(ids) or None
+
+
+@router.post("/telegram")
+@role_required("admin")
+async def save_telegram(
+    request: Request,
+    tg_bot_token: str = Form(default=""),
+    tg_report_chat_ids: str = Form(default=""),
+    tg_callback_chat_ids: str = Form(default=""),
+    tg_callback_enabled: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.tg_bot_token = tg_bot_token.strip() or None
+    company.tg_report_chat_ids = _normalize_chat_ids(tg_report_chat_ids)
+    company.tg_callback_chat_ids = _normalize_chat_ids(tg_callback_chat_ids)
+    company.tg_callback_enabled = (tg_callback_enabled == "1")
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 

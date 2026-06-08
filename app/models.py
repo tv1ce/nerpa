@@ -285,6 +285,8 @@ class CompanySettings(Base):
     # ── Telegram-бот ──
     tg_bot_token  = Column(EncryptedText)       # токен бота от @BotFather (зашифровано)
     tg_report_chat_ids = Column(Text)           # chat_id для отчётов (выручка), через запятую
+    tg_callback_chat_ids = Column(Text)         # chat_id для напоминаний о прозвонах (отдельно от отчётов)
+    tg_callback_enabled = Column(Boolean, default=True)  # вкл/выкл авторассылку напоминаний о прозвонах
     # ── KPI-фильтр продукта (дашборд и отчёты) ──
     kpi_product_filter = Column(String(100), default="орешк")  # ilike-подстрока для фильтра KPI
     # ── Пороги напоминаний (за сколько дней предупреждать), 0 = выключено ──

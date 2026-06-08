@@ -197,10 +197,35 @@
                  placeholder="-1001234567890, 987654321"
                  value="{{ company.tg_report_chat_ids if company and company.tg_report_chat_ids else '' }}">
           <div class="form-text">
-            Куда бот шлёт ежедневные / еженедельные / ежемесячные отчёты.
-            Узнать chat_id группы можно у <code>@getmyid_bot</code>. Если пусто — берётся из <code>.env</code>.
+            Куда бот шлёт ежедневные / еженедельные / ежемесячные отчёты о выручке.
+            Узнать chat_id можно у <code>@getmyid_bot</code>. Если пусто — берётся из <code>.env</code>.
           </div>
         </div>
+
+        <hr class="my-3">
+
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label mb-0">
+            <i class="bi bi-telephone me-1 text-primary"></i>Напоминания о прозвонах
+          </label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="tg_callback_enabled" value="1" id="tgCallbackEnabled"
+                   {% if not company or company.tg_callback_enabled is none or company.tg_callback_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="tgCallbackEnabled" style="font-size:.82rem">Включены</label>
+          </div>
+        </div>
+        <div class="mb-3">
+          <input type="text" name="tg_callback_chat_ids"
+                 class="form-control font-monospace"
+                 placeholder="-1009876543210"
+                 value="{{ company.tg_callback_chat_ids if company and company.tg_callback_chat_ids else '' }}">
+          <div class="form-text">
+            Отдельный чат для ежеутренних напоминаний о прозвонах (📞).
+            Если пусто — шлются в тот же чат, что и отчёты о выручке.
+          </div>
+        </div>
+
         {% if company and company.tg_bot_token %}
         <div class="alert alert-success py-2 px-3 mb-3" style="font-size:.82rem">
           <i class="bi bi-check-circle me-1"></i>Токен настроен
@@ -211,7 +236,7 @@
         </div>
         {% endif %}
         <button type="submit" class="btn btn-accent w-100">
-          <i class="bi bi-check-lg me-1"></i>Сохранить токен
+          <i class="bi bi-check-lg me-1"></i>Сохранить настройки Telegram
         </button>
       </form>
     </div>

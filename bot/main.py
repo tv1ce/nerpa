@@ -114,6 +114,29 @@ def _report_chat_ids() -> list[int]:
     return ids or CHAT_IDS
 
 
+def _callback_settings() -> tuple[bool, list[int]]:
+    """Возвращает (enabled, chat_ids) для напоминаний о прозвонах.
+    Читается при каждой отправке — изменения применяются без рестарта бота.
+    Если chat_ids не заданы — падает на _report_chat_ids()."""
+    db = SessionLocal()
+    try:
+        from app.models import CompanySettings
+        company = db.query(CompanySettings).first()
+        if not company:
+            return True, []
+        enabled = company.tg_callback_enabled
+        if enabled is None:
+            enabled = True
+        raw = company.tg_callback_chat_ids or ""
+        ids = _parse_chat_ids(raw)
+        return bool(enabled), ids
+    except Exception as e:
+        logger.error("Не удалось прочитать настройки прозвонов: %s", e)
+        return True, []
+    finally:
+        db.close()
+
+
 async def broadcast(bot: Bot, text: str) -> None:
     for chat_id in _report_chat_ids():
         try:
@@ -125,6 +148,25 @@ async def broadcast(bot: Bot, text: str) -> None:
             )
         except Exception as e:
             logger.error("Ошибка отправки в chat_id=%s: %s", chat_id, e)
+
+
+async def broadcast_callbacks(bot: Bot, text: str) -> None:
+    """Рассылка напоминаний о прозвонах — в отдельный чат (или в чат отчётов если не задан)."""
+    enabled, ids = _callback_settings()
+    if not enabled:
+        logger.info("Напоминания о прозвонах отключены в настройках — пропуск")
+        return
+    targets = ids or _report_chat_ids()
+    for chat_id in targets:
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                read_timeout=20, write_timeout=20, connect_timeout=10,
+            )
+        except Exception as e:
+            logger.error("Ошибка отправки прозвонов в chat_id=%s: %s", chat_id, e)
 
 
 def _authorized(update: Update) -> bool:
@@ -204,7 +246,7 @@ async def cb_weekly(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cb_callbacks(context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info("Отправка напоминания о перезвонах")
-    await broadcast(context.bot, _callbacks_text())
+    await broadcast_callbacks(context.bot, _callbacks_text())
 
 
 async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
