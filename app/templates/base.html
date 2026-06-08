@@ -97,7 +97,12 @@
       <i class="bi bi-journal-text"></i> <span>Журнал движений</span>
     </a>
 
-    {% if _role != 'warehouse' %}
+    {% if _role == 'warehouse' %}
+    <div class="nav-section">Система</div>
+    <a href="/settings/board/" class="nav-link {% if '/settings/board' in request.url.path %}active{% endif %}">
+      <i class="bi bi-display"></i> <span>Табло цеха</span>
+    </a>
+    {% else %}
     <div class="nav-section">Система</div>
     <a href="/settings/" class="nav-link {% if '/settings' in request.url.path and '/settings/board' not in request.url.path %}active{% endif %}">
       <i class="bi bi-gear"></i> <span>Настройки</span>
