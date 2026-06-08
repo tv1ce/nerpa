@@ -85,7 +85,7 @@ async def save_company(
 
 
 @router.post("/board/")
-@role_required("admin")
+@login_required
 async def save_board(
     request: Request,
     brand_name: str = Form(default=""),
@@ -101,6 +101,10 @@ async def save_board(
     board_active_station: int = Form(default=0),
     db: Session = Depends(get_db),
 ):
+    role = request.session.get("user_role", "viewer")
+    if role not in ("admin", "warehouse"):
+        from fastapi.responses import HTMLResponse as _HTML
+        return _HTML("<h2>403 — Нет доступа</h2>", status_code=403)
     company = db.query(CompanySettings).first()
     if not company:
         company = CompanySettings()
