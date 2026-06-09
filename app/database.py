@@ -106,6 +106,9 @@ def _migrate_db():
         ("company_settings", "board_cost_pct",       "REAL DEFAULT 0.0"),
         ("company_settings", "board_cost_norm_pct",  "REAL DEFAULT 48.0"),
         ("company_settings", "board_cost_deviation", "REAL DEFAULT 5.0"),
+        ("sales_leads", "district",         "TEXT"),
+        ("sales_leads", "lat",              "REAL"),
+        ("sales_leads", "lng",              "REAL"),
         ("sales_leads", "converted_cp_id", "INTEGER REFERENCES counterparties(id)"),
         # Разведка ЛПР по точкам прозвона
         ("sales_leads", "inn",               "TEXT"),

@@ -10,6 +10,8 @@ import json
 import os
 import re
 import tempfile
+import threading
+import time
 import uuid
 from datetime import datetime, date
 
@@ -30,7 +32,7 @@ from app.utils.leads_utils import (
 # Поля, которые можно сопоставлять колонкам (для превью-маппинга)
 MAPPABLE_FIELDS = {
     "name": "Название", "phone": "Телефон", "email": "Email",
-    "city": "Город", "address": "Адрес", "category": "Рубрика",
+    "city": "Город", "district": "Район", "address": "Адрес", "category": "Рубрика",
     "contact_person": "Контактное лицо", "website": "Сайт",
     "vk": "VK", "instagram": "Instagram", "telegram": "Telegram", "whatsapp": "WhatsApp",
 }
@@ -61,8 +63,9 @@ COLUMN_HINTS = {
                 "name", "title", "фирма", "объект", "бренд"],
     "phone":   ["телефон", "тел.", "тел ", "phone", "моб", "контактный тел", "номер"],
     "email":   ["e-mail", "email", "почта", "mail"],
-    "city":    ["город", "city", "населен"],
-    "address": ["адрес", "address", "местоположен", "улиц"],
+    "city":     ["город", "city", "населен"],
+    "district": ["район", "district", "р-н", "округ"],
+    "address":  ["адрес", "address", "местоположен", "улиц"],
     "category":["рубрик", "категор", "вид деятельн", "сфера", "тип заведен",
                 "профиль", "catalog", "отрасл"],
     "contact_person": ["контактное лицо", "контактн", "контакт", "фио", "директор", "руковод"],
@@ -81,6 +84,25 @@ SOCIAL_PATTERNS = {
     "whatsapp":  re.compile(r"(?:https?://)?(?:www\.)?(?:wa\.me|api\.whatsapp\.com)/[\w.\-/?=&]+", re.I),
 }
 # URL_PATTERN, PHONE_PATTERN, _normalize_brand, _extract_socials, _ensure_scheme, _norm_phone — из leads_utils
+
+# Регулярка для авто-извлечения района из строки адреса:
+# «Центральный р-н», «р-н Советский», «Октябрьский район», «район Коминтерна»
+_DISTRICT_RE = re.compile(
+    r'([А-ЯЁа-яё][а-яёА-ЯЁ\w\s\-]{1,40}?)\s+(?:р[-‐–\s]?н\.?|район)'
+    r'|(?:р[-‐–\s]?н\.?|район)\s+([А-ЯЁа-яё][а-яёА-ЯЁ\w\s\-]{1,40})',
+    re.UNICODE,
+)
+
+
+def _extract_district(address: str) -> str:
+    """Пытается извлечь название района из строки адреса. Возвращает '' если не найдено."""
+    if not address:
+        return ""
+    m = _DISTRICT_RE.search(address)
+    if not m:
+        return ""
+    raw = (m.group(1) or m.group(2) or "").strip().rstrip(",;. ")
+    return raw[:150] if raw else ""
 
 
 def _match_columns(headers: list[str]) -> dict:
@@ -150,7 +172,7 @@ def _parse_rows(filename: str, data: bytes) -> tuple[list[str], list[list[str]]]
 async def list_leads(
     request: Request,
     q: str = "", status: str = "", kind: str = "",
-    category: str = "", assigned: str = "", source: str = "", due: str = "",
+    category: str = "", district: str = "", assigned: str = "", source: str = "", due: str = "",
     db: Session = Depends(get_db),
 ):
     query = db.query(SalesLead).filter(SalesLead.is_active == True)
@@ -168,6 +190,8 @@ async def list_leads(
         query = query.filter(SalesLead.is_network == False)
     if category:
         query = query.filter(SalesLead.category.ilike(f"%{category}%"))
+    if district:
+        query = query.filter(SalesLead.district.ilike(f"%{district}%"))
     if assigned == "none":
         query = query.filter(SalesLead.assigned_to_id.is_(None))
     elif assigned:
@@ -201,6 +225,8 @@ async def list_leads(
                .distinct().all()]
     categories = sorted({c[0] for c in db.query(SalesLead.category)
                          .filter(SalesLead.is_active == True, SalesLead.category.isnot(None)).all() if c[0]})
+    districts = sorted({d[0] for d in db.query(SalesLead.district)
+                        .filter(SalesLead.is_active == True, SalesLead.district.isnot(None)).all() if d[0]})
 
     # ── Группировка: сетевые точки сворачиваем в одну группу по бренду ──
     from collections import OrderedDict
@@ -226,10 +252,10 @@ async def list_leads(
 
     return templates.TemplateResponse(request, "leads/list.html", {
         "leads": leads, "groups": groups, "stats": stats, "users": users,
-        "sources": sources, "categories": categories,
+        "sources": sources, "categories": categories, "districts": districts,
         "statuses": LEAD_STATUSES, "status_colors": STATUS_COLORS,
         "q": q, "status": status, "kind": kind, "category": category,
-        "assigned": assigned, "source": source, "due": due,
+        "district": district, "assigned": assigned, "source": source, "due": due,
     })
 
 
@@ -253,12 +279,15 @@ def _build_lead(cells, cols, headers) -> dict | None:
     # бренд для группировки сетей; если нормализация всё «съела» — берём само название,
     # чтобы идентичные названия гарантированно попадали в одну сеть
     brand = _normalize_brand(name) or name.lower().strip()
+    address_val = g("address")
+    district_val = g("district") or _extract_district(address_val)
     return {
         "name": name[:300],
         "brand": brand[:300],
         "category": g("category")[:150],
         "city": g("city")[:150],
-        "address": g("address")[:500],
+        "district": district_val[:150],
+        "address": address_val[:500],
         "phone": phone[:150],
         "email": g("email")[:150],
         "contact_person": g("contact_person")[:150],
@@ -372,7 +401,7 @@ async def import_commit(request: Request, db: Session = Depends(get_db)):
             networks.add(p["brand"])
         db.add(SalesLead(
             **{k: p[k] for k in (
-                "name", "brand", "category", "city", "address", "phone", "email",
+                "name", "brand", "category", "city", "district", "address", "phone", "email",
                 "contact_person", "website", "vk", "instagram", "telegram", "whatsapp", "raw"
             )},
             is_network=is_net, network_size=size,
@@ -481,6 +510,8 @@ async def set_field(request: Request, lead_id: int,
         lead.contact_person = value or None
     elif field == "phone":
         lead.phone = value or None
+    elif field == "district":
+        lead.district = value.strip()[:150] or None
     elif field == "assigned_to_id":
         lead.assigned_to_id = int(value) if value else None
     elif field == "callback_at":
@@ -610,13 +641,13 @@ async def export_csv(
     buf = io.StringIO()
     buf.write("﻿")  # BOM для Excel
     w = csv.writer(buf, delimiter=";")
-    w.writerow(["Название", "Сеть", "Размер сети", "Рубрика", "Город", "Адрес",
+    w.writerow(["Название", "Сеть", "Размер сети", "Рубрика", "Город", "Район", "Адрес",
                 "Телефон", "Email", "Контакт", "Сайт", "VK", "Instagram",
                 "Telegram", "WhatsApp", "Статус", "Менеджер", "Перезвон", "Заметки"])
     for l in leads:
         w.writerow([
             l.name, "Сеть" if l.is_network else "Одиночка", l.network_size or 1,
-            l.category or "", l.city or "", l.address or "", l.phone or "",
+            l.category or "", l.city or "", l.district or "", l.address or "", l.phone or "",
             l.email or "", l.contact_person or "", l.website or "", l.vk or "",
             l.instagram or "", l.telegram or "", l.whatsapp or "",
             LEAD_STATUSES.get(l.call_status, l.call_status),
@@ -689,3 +720,108 @@ async def export_xlsx(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=prozvon.xlsx"},
     )
+
+
+# ── Карта ────────────────────────────────────────────────────────────────────
+
+# Состояние фонового геокодирования (singleton, один сервер)
+_geo_state: dict = {"running": False, "done": 0, "total": 0, "errors": 0}
+
+
+@router.get("/map", response_class=HTMLResponse)
+@login_required
+async def leads_map(request: Request, db: Session = Depends(get_db)):
+    base = db.query(SalesLead).filter(SalesLead.is_active == True)
+    total = base.count()
+    geocoded = base.filter(SalesLead.lat.isnot(None)).count()
+    users = db.query(User).filter(User.is_active == True, User.role == "sales").order_by(User.full_name).all()
+    return templates.TemplateResponse(request, "leads/map.html", {
+        "total": total, "geocoded": geocoded,
+        "users": users,
+        "statuses": LEAD_STATUSES, "status_colors": STATUS_COLORS,
+        "geo_state": dict(_geo_state),
+    })
+
+
+@router.get("/map/data", response_class=JSONResponse)
+@login_required
+async def map_data(request: Request, db: Session = Depends(get_db)):
+    """Возвращает все геокодированные лиды для отображения на карте."""
+    rows = db.query(SalesLead).filter(
+        SalesLead.is_active == True,
+        SalesLead.lat.isnot(None),
+        SalesLead.lng.isnot(None),
+    ).options(joinedload(SalesLead.assigned_to)).all()
+    return [
+        {
+            "id": l.id,
+            "name": l.name,
+            "lat": l.lat,
+            "lng": l.lng,
+            "status": l.call_status,
+            "phone": l.phone or "",
+            "category": l.category or "",
+            "district": l.district or "",
+            "city": l.city or "",
+            "address": l.address or "",
+            "assigned": l.assigned_to.full_name if l.assigned_to else "",
+            "is_network": l.is_network,
+            "callback_at": l.callback_at.isoformat() if l.callback_at else None,
+        }
+        for l in rows
+    ]
+
+
+@router.get("/geocode/status", response_class=JSONResponse)
+@login_required
+async def geocode_status(request: Request):
+    return dict(_geo_state)
+
+
+@router.post("/geocode", response_class=JSONResponse)
+@login_required
+async def geocode_leads(request: Request, db: Session = Depends(get_db)):
+    """Запускает фоновое геокодирование точек без координат."""
+    if _geo_state["running"]:
+        return JSONResponse({"error": "already_running", **_geo_state}, status_code=409)
+
+    pending = db.query(SalesLead.id, SalesLead.city, SalesLead.address).filter(
+        SalesLead.is_active == True,
+        SalesLead.lat.is_(None),
+    ).all()
+
+    if not pending:
+        return JSONResponse({"ok": True, "done": 0, "total": 0})
+
+    items = [
+        (row.id, f"{row.city or ''} {row.address or ''}".strip())
+        for row in pending
+        if (row.city or row.address)
+    ]
+
+    def _run():
+        from app.database import SessionLocal
+        from app.utils.geocode import geocode_address_sync
+        _geo_state.update({"running": True, "done": 0, "total": len(items), "errors": 0})
+        s = SessionLocal()
+        try:
+            for i, (lead_id, query) in enumerate(items):
+                result = geocode_address_sync(query)
+                if result:
+                    lead = s.get(SalesLead, lead_id)
+                    if lead:
+                        lead.lat, lead.lng = result
+                        s.commit()
+                else:
+                    _geo_state["errors"] += 1
+                _geo_state["done"] = i + 1
+                if i < len(items) - 1:
+                    time.sleep(1.15)
+        except Exception:
+            pass
+        finally:
+            s.close()
+            _geo_state["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return JSONResponse({"ok": True, "started": True, "total": len(items)})

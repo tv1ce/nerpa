@@ -425,7 +425,10 @@ class SalesLead(Base):
     network_size = Column(Integer, default=1)         # сколько точек в сети в этой загрузке
     category = Column(String(150))                    # рубрика: кофейня / кондитерская / …
     city = Column(String(150))
+    district = Column(String(150))                    # район города
     address = Column(String(500))
+    lat = Column(Float)                               # координаты (геокодинг)
+    lng = Column(Float)
     phone = Column(String(150))
     email = Column(String(150))
     contact_person = Column(String(150))

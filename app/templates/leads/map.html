@@ -1,0 +1,399 @@
+{% extends "base.html" %}
+{% block title %}Карта прозвона{% endblock %}
+{% block page_title %}Карта точек{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/leads/" class="btn btn-sm btn-outline-secondary me-2">
+    <i class="bi bi-list-ul me-1"></i>Список
+  </a>
+  <a href="/leads/stats" class="btn btn-sm btn-outline-secondary me-2">
+    <i class="bi bi-bar-chart-line me-1"></i>Аналитика
+  </a>
+{% endblock %}
+
+{% block content %}
+<style>
+  /* Карта на всю высоту, без отступов */
+  .content-area { padding: 0 !important; overflow: hidden; }
+  #map { height: calc(100vh - 56px); width: 100%; }
+
+  /* ── Геокодирование ── */
+  #geo-bar {
+    position: absolute; top: 68px; left: calc(var(--sidebar-width) + 14px);
+    z-index: 1000; background: #fff; border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.15);
+    padding: 10px 14px; min-width: 260px; max-width: 320px;
+  }
+  @media (max-width: 991px) { #geo-bar { left: 86px; } }
+  @media (max-width: 575px) { #geo-bar { left: 10px; top: 65px; } }
+
+  /* ── Панель выделения зоны ── */
+  #zone-panel {
+    display: none;
+    position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; background: #fff; border-radius: 14px;
+    box-shadow: 0 4px 24px rgba(0,0,0,.18);
+    padding: 16px 20px; min-width: 340px; max-width: 520px;
+  }
+
+  /* ── Легенда ── */
+  #legend {
+    position: absolute; bottom: 24px; right: 14px; z-index: 1000;
+    background: rgba(255,255,255,.95); border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.13); padding: 10px 14px; font-size: .8rem;
+  }
+  .leg-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 5px; }
+</style>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+
+<!-- Карта -->
+<div id="map"></div>
+
+<!-- Панель геокодирования -->
+<div id="geo-bar">
+  <div class="d-flex align-items-center justify-content-between mb-1">
+    <span class="fw-semibold" style="font-size:.85rem">
+      <i class="bi bi-geo-alt-fill text-primary me-1"></i>Геокодирование
+    </span>
+    <span id="geo-count" class="badge bg-secondary">{{ geocoded }}/{{ total }}</span>
+  </div>
+  <div class="progress mb-2" style="height:5px">
+    <div id="geo-progress" class="progress-bar bg-primary"
+      style="width:{% if total %}{{ (geocoded/total*100)|round|int }}{% else %}0{% endif %}%"></div>
+  </div>
+  {% if geocoded < total %}
+  <div class="d-flex align-items-center gap-2">
+    <button id="geo-btn" class="btn btn-sm btn-primary w-100" onclick="startGeocode()">
+      <i class="bi bi-magic me-1"></i>Геокодировать оставшиеся {{ total - geocoded }}
+    </button>
+  </div>
+  <p class="text-muted mb-0 mt-1" style="font-size:.72rem">
+    Через Nominatim (OpenStreetMap) · ~{{ total - geocoded }} сек
+  </p>
+  {% else %}
+  <p class="text-success mb-0" style="font-size:.8rem"><i class="bi bi-check-circle-fill me-1"></i>Все точки геокодированы</p>
+  {% endif %}
+  <div id="geo-status" class="text-muted mt-1" style="font-size:.75rem; display:none"></div>
+</div>
+
+<!-- Панель выбранной зоны -->
+<div id="zone-panel">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <div>
+      <span class="fw-bold fs-5" id="zone-count">0</span>
+      <span class="text-muted ms-1">точек в зоне</span>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" onclick="clearZone()">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+
+  <!-- Мини-список -->
+  <div id="zone-list" style="max-height:160px; overflow-y:auto; font-size:.8rem" class="mb-3"></div>
+
+  <!-- Массовые действия -->
+  <form id="zone-form" method="post" action="/leads/bulk">
+    <input type="hidden" name="action" id="zone-action">
+    <input type="hidden" name="value"  id="zone-value">
+    <div id="zone-ids"></div>
+    <div class="d-flex flex-wrap gap-2">
+      <div class="btn-group">
+        <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">
+          <i class="bi bi-person-check me-1"></i>Назначить
+        </button>
+        <ul class="dropdown-menu">
+          <li><a class="dropdown-item" href="#" onclick="bulkAction('assign','')">— снять —</a></li>
+          {% for u in users %}
+          <li><a class="dropdown-item" href="#" onclick="bulkAction('assign','{{ u.id }}')">{{ u.full_name }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+          <i class="bi bi-flag me-1"></i>Статус
+        </button>
+        <ul class="dropdown-menu">
+          {% for val, label in statuses.items() %}
+          <li><a class="dropdown-item" href="#" onclick="bulkAction('status','{{ val }}')">{{ label }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+      <a id="zone-export-btn" href="#" class="btn btn-sm btn-outline-success">
+        <i class="bi bi-download me-1"></i>Экспорт
+      </a>
+    </div>
+  </form>
+</div>
+
+<!-- Легенда -->
+<div id="legend">
+  <div class="fw-semibold mb-1" style="font-size:.78rem">Статус</div>
+  <div><span class="leg-dot" style="background:#6c757d"></span>Новый</div>
+  <div><span class="leg-dot" style="background:#0dcaf0"></span>Перезвонить</div>
+  <div><span class="leg-dot" style="background:#ffc107"></span>Не дозвонился</div>
+  <div><span class="leg-dot" style="background:#0d6efd"></span>Заинтересован</div>
+  <div><span class="leg-dot" style="background:#6f42c1"></span>Думает</div>
+  <div><span class="leg-dot" style="background:#dc3545"></span>Отказ</div>
+  <div><span class="leg-dot" style="background:#198754"></span>Продажа</div>
+  <div><span class="leg-dot" style="background:#212529"></span>Невалид</div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<!-- Leaflet JS -->
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<script>
+// ── Цвета по статусу ─────────────────────────────────────────────────────
+const STATUS_COLOR = {
+  new:        '#6c757d',
+  callback:   '#0dcaf0',
+  no_answer:  '#ffc107',
+  interested: '#0d6efd',
+  thinking:   '#6f42c1',
+  refused:    '#dc3545',
+  deal:       '#198754',
+  invalid:    '#212529',
+};
+const STATUS_LABEL = {
+  new:'Новый', callback:'Перезвонить', no_answer:'Не дозвонился',
+  interested:'Заинтересован', thinking:'Думает', refused:'Отказ',
+  deal:'Продажа', invalid:'Невалид',
+};
+
+// ── Инициализация карты ───────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true }).setView([55.75, 37.62], 10);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
+  maxZoom: 19,
+}).addTo(map);
+
+// ── Кластер маркеров ──────────────────────────────────────────────────────
+const cluster = L.markerClusterGroup({ maxClusterRadius: 40 });
+map.addLayer(cluster);
+
+// Хранилище: id → {marker, data}
+const allMarkers = {};
+
+function makeMarker(d) {
+  const color = STATUS_COLOR[d.status] || '#6c757d';
+  const m = L.circleMarker([d.lat, d.lng], {
+    radius: 8, fillColor: color, color: '#fff',
+    weight: 2, opacity: 1, fillOpacity: 0.88,
+    leadId: d.id,
+  });
+  const popupHtml = `
+    <div style="min-width:180px">
+      <div class="fw-bold mb-1">${d.name}</div>
+      ${d.category ? `<div class="text-muted" style="font-size:.8rem">${d.category}</div>` : ''}
+      ${d.district ? `<div style="font-size:.8rem"><i class="bi bi-geo-alt"></i> ${d.district}</div>` : ''}
+      ${d.address ? `<div style="font-size:.78rem text-muted">${d.city ? d.city+', ' : ''}${d.address}</div>` : ''}
+      ${d.phone ? `<div class="mt-1"><a href="tel:${d.phone}">${d.phone}</a></div>` : ''}
+      <div class="mt-1">
+        <span class="badge" style="background:${color};font-size:.72rem">${STATUS_LABEL[d.status]||d.status}</span>
+        ${d.assigned ? `<span class="ms-1 text-muted" style="font-size:.75rem">${d.assigned}</span>` : ''}
+      </div>
+      <div class="mt-2">
+        <a href="/leads/?q=${encodeURIComponent(d.name)}" target="_blank"
+           class="btn btn-outline-secondary" style="font-size:.72rem;padding:2px 7px">
+          Открыть в списке →
+        </a>
+      </div>
+    </div>`;
+  m.bindPopup(popupHtml);
+  return m;
+}
+
+// ── Загрузка данных ────────────────────────────────────────────────────────
+async function loadMarkers() {
+  const resp = await fetch('/leads/map/data');
+  const data = await resp.json();
+  cluster.clearLayers();
+  Object.keys(allMarkers).forEach(k => delete allMarkers[k]);
+  data.forEach(d => {
+    const m = makeMarker(d);
+    allMarkers[d.id] = { marker: m, data: d };
+    cluster.addLayer(m);
+  });
+  if (data.length > 0) {
+    map.fitBounds(cluster.getBounds(), { padding: [40, 40] });
+  }
+}
+loadMarkers();
+
+// ── Leaflet.draw ───────────────────────────────────────────────────────────
+const drawnItems = new L.FeatureGroup();
+map.addLayer(drawnItems);
+
+const drawControl = new L.Control.Draw({
+  draw: {
+    polygon:   { shapeOptions: { color: '#0d6efd', fillOpacity: .08 } },
+    rectangle: { shapeOptions: { color: '#0d6efd', fillOpacity: .08 } },
+    circle: false, marker: false, circlemarker: false, polyline: false,
+  },
+  edit: { featureGroup: drawnItems, remove: true },
+});
+map.addControl(drawControl);
+
+// Точка внутри полигона (ray-casting)
+function pointInPolygon(lat, lng, verts) {
+  let inside = false;
+  for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+    const xi = verts[i].lat, yi = verts[i].lng;
+    const xj = verts[j].lat, yj = verts[j].lng;
+    if (((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi))
+      inside = !inside;
+  }
+  return inside;
+}
+
+function isInside(latlng, layer) {
+  if (layer instanceof L.Rectangle || layer instanceof L.Polygon) {
+    const verts = layer.getLatLngs()[0];
+    return pointInPolygon(latlng.lat, latlng.lng, verts);
+  }
+  return false;
+}
+
+let selectedIds = [];
+let activeLayer = null;
+
+map.on(L.Draw.Event.CREATED, function(e) {
+  drawnItems.clearLayers();
+  activeLayer = e.layer;
+  drawnItems.addLayer(activeLayer);
+  selectInZone(activeLayer);
+});
+
+map.on(L.Draw.Event.DELETED, clearZone);
+map.on(L.Draw.Event.EDITED, function() {
+  const layers = drawnItems.getLayers();
+  if (layers.length) selectInZone(layers[0]);
+  else clearZone();
+});
+
+function selectInZone(layer) {
+  selectedIds = [];
+  // Сброс стиля всех маркеров
+  Object.values(allMarkers).forEach(({ marker, data }) => {
+    marker.setStyle({ color: '#fff', weight: 2, fillColor: STATUS_COLOR[data.status] || '#6c757d' });
+  });
+  // Найти маркеры внутри зоны
+  Object.values(allMarkers).forEach(({ marker, data }) => {
+    if (isInside(marker.getLatLng(), layer)) {
+      selectedIds.push(data.id);
+      marker.setStyle({ color: '#0d6efd', weight: 3, fillColor: STATUS_COLOR[data.status] || '#6c757d' });
+    }
+  });
+  showZonePanel(selectedIds);
+}
+
+function showZonePanel(ids) {
+  const panel = document.getElementById('zone-panel');
+  document.getElementById('zone-count').textContent = ids.length;
+
+  // Мини-список (первые 8)
+  const listEl = document.getElementById('zone-list');
+  const preview = ids.slice(0, 8).map(id => {
+    const d = allMarkers[id]?.data;
+    if (!d) return '';
+    const color = STATUS_COLOR[d.status] || '#6c757d';
+    return `<div class="d-flex align-items-center gap-1 py-1 border-bottom">
+      <span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>
+      <span class="text-truncate flex-grow-1">${d.name}</span>
+      <span class="text-muted" style="font-size:.72rem;white-space:nowrap">${d.phone||''}</span>
+    </div>`;
+  }).join('');
+  listEl.innerHTML = preview + (ids.length > 8 ? `<div class="text-muted pt-1" style="font-size:.75rem">…ещё ${ids.length - 8}</div>` : '');
+
+  // Скрытые поля id для формы
+  const idsEl = document.getElementById('zone-ids');
+  idsEl.innerHTML = ids.map(id => `<input type="hidden" name="ids" value="${id}">`).join('');
+
+  // Экспорт-ссылка
+  document.getElementById('zone-export-btn').href =
+    '/leads/export.csv?' + ids.map(id => `ids=${id}`).join('&');
+
+  panel.style.display = 'block';
+}
+
+function clearZone() {
+  drawnItems.clearLayers();
+  activeLayer = null;
+  selectedIds = [];
+  Object.values(allMarkers).forEach(({ marker, data }) => {
+    marker.setStyle({ color: '#fff', weight: 2, fillColor: STATUS_COLOR[data.status] || '#6c757d' });
+  });
+  document.getElementById('zone-panel').style.display = 'none';
+}
+
+function bulkAction(action, value) {
+  if (!selectedIds.length) return;
+  document.getElementById('zone-action').value = action;
+  document.getElementById('zone-value').value = value;
+  document.getElementById('zone-form').submit();
+}
+
+// ── Геокодирование ────────────────────────────────────────────────────────
+let geoPolling = null;
+
+async function startGeocode() {
+  const btn = document.getElementById('geo-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Запуск…';
+  const resp = await fetch('/leads/geocode', { method: 'POST' });
+  const data = await resp.json();
+  if (data.error === 'already_running') {
+    btn.innerHTML = '<i class="bi bi-hourglass me-1"></i>Уже идёт…';
+  }
+  if (data.started || data.error === 'already_running') {
+    geoPolling = setInterval(pollGeoStatus, 2000);
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-magic me-1"></i>Геокодировать';
+  }
+}
+
+async function pollGeoStatus() {
+  const resp = await fetch('/leads/geocode/status');
+  const s = await resp.json();
+  const pct = s.total ? Math.round(s.done / s.total * 100) : 0;
+  document.getElementById('geo-progress').style.width = pct + '%';
+  document.getElementById('geo-count').textContent = s.done + '/' + s.total;
+  document.getElementById('geo-status').style.display = 'block';
+  document.getElementById('geo-status').textContent =
+    s.running ? `Геокодировано ${s.done} из ${s.total}…` : `Готово: ${s.done} из ${s.total}`;
+
+  if (!s.running) {
+    clearInterval(geoPolling);
+    geoPolling = null;
+    // Перезагружаем маркеры и скрываем кнопку
+    await loadMarkers();
+    const btn = document.getElementById('geo-btn');
+    if (btn) {
+      if (s.done >= s.total) {
+        btn.closest('div').previousElementSibling?.remove();  // убрать кнопку-строку
+        btn.closest('div').remove();
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="bi bi-magic me-1"></i>Геокодировать оставшиеся`;
+      }
+    }
+  }
+}
+
+// Если геокодирование уже идёт — подключаемся к статусу
+{% if geo_state.running %}
+geoPolling = setInterval(pollGeoStatus, 2000);
+{% endif %}
+</script>
+{% endblock %}

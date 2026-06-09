@@ -2,6 +2,7 @@
 {% block title %}Прозвон{% endblock %}
 {% block page_title %}Прозвон{% endblock %}
 {% block topbar_actions %}
+  <a href="/leads/map" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-map me-1"></i>На карте</a>
   <a href="/leads/stats" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-bar-chart-line me-1"></i>Аналитика</a>
   <div class="btn-group me-2">
     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-download me-1"></i>Экспорт</button>
@@ -136,6 +137,14 @@
           {% for c in categories %}<option value="{{ c }}" {% if category==c %}selected{% endif %}>{{ c }}</option>{% endfor %}
         </select>
       </div>
+      {% if districts %}
+      <div class="col-md-2">
+        <select name="district" class="form-select form-select-sm">
+          <option value="">Все районы</option>
+          {% for d in districts %}<option value="{{ d }}" {% if district==d %}selected{% endif %}>{{ d }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
       <div class="col-md-2">
         <select name="assigned" class="form-select form-select-sm">
           <option value="">Все менеджеры</option>
