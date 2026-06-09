@@ -360,11 +360,7 @@ async def app_version():
 
 
 @app.get("/app/download", include_in_schema=False)
-async def app_download(request: Request):
-    # APK только для авторизованных пользователей
-    if not request.session.get("user_id"):
-        from fastapi.responses import RedirectResponse as _R
-        return _R(url="/auth/login", status_code=302)
+async def app_download():
     path = os.path.join(APP_DIST_DIR, "tms-sklad.apk")
     if os.path.exists(path):
         return FileResponse(
