@@ -86,9 +86,11 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        // Всегда загружаем страницу заново — LOAD_NO_CACHE гарантирует свежий HTML,
+        // поэтому нет смысла восстанавливать предыдущее состояние WebView.
+        webView.loadUrl("$serverUrl/warehouse/")
         if (savedInstanceState == null) {
-            webView.loadUrl("$serverUrl/warehouse/")
-            // Проверка обновлений приложения при запуске
+            // Проверка обновлений только при первом запуске (не при восстановлении)
             UpdateChecker(this, serverUrl).check()
         }
     }
@@ -184,16 +186,4 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        webView.saveState(outState)
-    }
-
-    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-        super.onRestoreInstanceState(savedInstanceState)
-        // Намеренно НЕ вызываем webView.restoreState() — он восстанавливал
-        // закешированный HTML (например, десктоп-вид) в обход серверной сессии.
-        // Вместо этого грузим свежую страницу — сервер сам выберет вид по сессии.
-        webView.loadUrl("$serverUrl/warehouse/")
-    }
 }
