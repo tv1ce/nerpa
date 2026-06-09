@@ -130,8 +130,10 @@ class MainActivity : AppCompatActivity() {
                     startActivity(Intent(Intent.ACTION_VIEW, request.url))
                     return true
                 }
-                // Свой сервер — внутри WebView; чужие http(s) — во внешний браузер
-                return if (url.startsWith(serverUrl)) {
+                // Свой сервер (сравниваем по хосту — порт может отличаться) — внутри WebView
+                val reqHost = request.url.host ?: ""
+                val serverHost = android.net.Uri.parse(serverUrl).host ?: ""
+                return if (serverHost.isNotEmpty() && reqHost == serverHost) {
                     false
                 } else if (url.startsWith("http")) {
                     startActivity(Intent(Intent.ACTION_VIEW, request.url))
