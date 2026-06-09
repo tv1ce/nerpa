@@ -104,7 +104,11 @@ class MainActivity : AppCompatActivity() {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true            // localStorage для PWA-логики
-            cacheMode = WebSettings.LOAD_DEFAULT
+            // LOAD_NO_CACHE: HTML-страницы всегда с сервера (или SW network-first),
+            // статика по-прежнему кешируется Service Worker через Cache API.
+            // Без этого WebView кешировал /warehouse/ в десктоп-виде и после
+            // переключения обратно на мобильный отдавал устаревший кеш.
+            cacheMode = WebSettings.LOAD_NO_CACHE
             useWideViewPort = true
             loadWithOverviewMode = true
             mediaPlaybackRequiresUserGesture = false
@@ -187,6 +191,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRestoreInstanceState(savedInstanceState: Bundle) {
         super.onRestoreInstanceState(savedInstanceState)
-        webView.restoreState(savedInstanceState)
+        // Намеренно НЕ вызываем webView.restoreState() — он восстанавливал
+        // закешированный HTML (например, десктоп-вид) в обход серверной сессии.
+        // Вместо этого грузим свежую страницу — сервер сам выберет вид по сессии.
+        webView.loadUrl("$serverUrl/warehouse/")
     }
 }
