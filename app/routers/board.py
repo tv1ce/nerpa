@@ -7,6 +7,7 @@
 URL для liqvid:  https://<сервер>/board?key=<токен>
 """
 import os
+import time
 from datetime import date, timedelta
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -21,6 +22,9 @@ templates = Jinja2Templates(directory="app/templates")
 
 # Токен доступа к табло. На проде задать переменную окружения TMS_BOARD_KEY.
 BOARD_KEY = os.getenv("TMS_BOARD_KEY", "tseh2026")
+
+# Метка запуска сервера — клиенты следят за ней и перезагружают страницу при изменении
+SERVER_START = int(time.time())
 
 # Статусы заказов, считающиеся отгрузкой (всё, кроме черновика и отмены)
 _SOLD = ["confirmed", "paid", "assembled", "handed", "delivered"]
@@ -238,6 +242,7 @@ def _collect_metrics(db: Session) -> dict:
         "active_station":      active,
         "birthdays_today":     birthdays_today,
         "birthdays_upcoming":  birthdays_upcoming,
+        "server_version":      SERVER_START,
     }
 
 

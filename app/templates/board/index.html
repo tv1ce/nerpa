@@ -652,10 +652,16 @@
       if (d.active_station !== active) selectStation(d.active_station, false);
     }
 
+    let _serverVersion = null;
+
     function refresh(){
       fetch('/board/data?key=' + encodeURIComponent(KEY))
         .then(r => r.ok ? r.json() : Promise.reject())
-        .then(render)
+        .then(d => {
+          if (_serverVersion === null) { _serverVersion = d.server_version; }
+          else if (d.server_version !== _serverVersion) { location.reload(); return; }
+          render(d);
+        })
         .catch(()=>{});
     }
     refresh(); setInterval(refresh, 30000);
