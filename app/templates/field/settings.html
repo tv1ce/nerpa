@@ -1,0 +1,53 @@
+{% extends "field/base_field.html" %}
+{% block title %}Настройки{% endblock %}
+{% block page_title %}<i class="bi bi-gear"></i> Настройки{% endblock %}
+{% block header_actions %}
+  <a href="/field/" class="fld-ico" title="На главную"><i class="bi bi-house"></i></a>
+{% endblock %}
+
+{% block content %}
+{% if ok == 'profile' %}<div class="alert alert-success py-2"><i class="bi bi-check-circle"></i> Профиль сохранён</div>{% endif %}
+{% if ok == 'password' %}<div class="alert alert-success py-2"><i class="bi bi-check-circle"></i> Пароль изменён</div>{% endif %}
+{% if error == 'current' %}<div class="alert alert-danger py-2">Текущий пароль введён неверно</div>{% endif %}
+{% if error == 'short' %}<div class="alert alert-danger py-2">Новый пароль — минимум 6 символов</div>{% endif %}
+{% if error == 'mismatch' %}<div class="alert alert-danger py-2">Пароли не совпадают</div>{% endif %}
+
+<div class="fld-grid">
+  {# Профиль #}
+  <div class="fld-card p-3">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <span style="width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#0F1A2E,#2563EB);display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.3rem"><i class="bi bi-person-fill"></i></span>
+      <div>
+        <div class="fw-bold">{{ user.full_name if user else '—' }}</div>
+        <div class="text-muted" style="font-size:.8rem">{{ user.username if user else '' }} · Торговый представитель</div>
+      </div>
+    </div>
+    <form method="post" action="/field/settings/profile">
+      <label class="form-label small text-muted mb-1">ФИО</label>
+      <input type="text" name="full_name" class="form-control mb-3" value="{{ user.full_name if user else '' }}" required>
+      <label class="form-label small text-muted mb-1">Дата рождения</label>
+      <input type="date" name="birthday" class="form-control mb-3"
+             value="{{ user.birthday.isoformat() if user and user.birthday else '' }}">
+      <button type="submit" class="btn btn-primary w-100 btn-lg-touch"><i class="bi bi-check2 me-1"></i>Сохранить профиль</button>
+    </form>
+  </div>
+
+  {# Смена пароля #}
+  <div class="fld-card p-3">
+    <div class="fw-bold mb-3"><i class="bi bi-shield-lock"></i> Смена пароля</div>
+    <form method="post" action="/field/settings/password">
+      <label class="form-label small text-muted mb-1">Текущий пароль</label>
+      <input type="password" name="current_password" class="form-control mb-3" required autocomplete="current-password">
+      <label class="form-label small text-muted mb-1">Новый пароль</label>
+      <input type="password" name="new_password" class="form-control mb-3" required minlength="6" autocomplete="new-password">
+      <label class="form-label small text-muted mb-1">Повторите новый пароль</label>
+      <input type="password" name="confirm_password" class="form-control mb-3" required minlength="6" autocomplete="new-password">
+      <button type="submit" class="btn btn-outline-primary w-100 btn-lg-touch"><i class="bi bi-key me-1"></i>Изменить пароль</button>
+    </form>
+  </div>
+</div>
+
+<div class="text-center mt-3">
+  <a href="/auth/logout" class="btn btn-outline-danger btn-lg-touch px-4"><i class="bi bi-box-arrow-right me-1"></i>Выйти</a>
+</div>
+{% endblock %}

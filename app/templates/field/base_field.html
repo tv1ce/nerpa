@@ -63,6 +63,25 @@
     .fld-card { background:#fff; border-radius:14px; box-shadow:0 1px 4px rgba(15,23,42,.06); }
     .badge-dot { width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0; }
     .btn-lg-touch { padding:13px; font-size:1rem; font-weight:600; border-radius:12px; }
+    /* Сетка карточек — одна колонка на телефоне */
+    .fld-grid { display:flex; flex-direction:column; gap:8px; }
+    .fld-grid > * { margin-bottom:0 !important; }
+
+    /* ── Планшеты ── */
+    @media (min-width:700px){
+      :root { --fld-tab-h:66px; --fld-head-h:60px; }
+      .fld-header h1 { font-size:1.2rem; }
+      .fld-header .fld-ico { font-size:1.3rem; padding:8px 10px; }
+      .fld-content { max-width:920px; padding:18px; }
+      .fld-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; align-items:start; }
+      .fld-tab { font-size:.78rem; }
+      .fld-tab i { font-size:1.5rem; }
+      .btn-lg-touch { padding:15px; font-size:1.05rem; }
+    }
+    @media (min-width:1100px){
+      .fld-content { max-width:1100px; }
+      .fld-grid { grid-template-columns:repeat(3,1fr); }
+    }
   </style>
 </head>
 <body>
@@ -71,7 +90,7 @@
   <h1>{% block page_title %}Поле{% endblock %}</h1>
   <div class="d-flex align-items-center">
     {% block header_actions %}{% endblock %}
-    <a href="/settings/profile" class="fld-ico" title="Профиль"><i class="bi bi-person-circle"></i></a>
+    <a href="/field/settings" class="fld-ico" title="Настройки"><i class="bi bi-gear"></i></a>
     <a href="/auth/logout" class="fld-ico" title="Выйти"><i class="bi bi-box-arrow-right"></i></a>
   </div>
 </header>

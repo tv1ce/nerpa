@@ -17,9 +17,8 @@ from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_
 
-from app.database import get_db
+from app.database import get_db, hash_password, verify_password
 from app.auth import login_required, role_required
 from app.models import SalesLead, LeadCall, FieldVisit, ContactPerson, User, Counterparty
 from app.routers.leads import LEAD_STATUSES, STATUS_COLORS
@@ -153,54 +152,76 @@ async def my_day(request: Request, date_str: str = "", db: Session = Depends(get
 
 @router.get("/plan", response_class=HTMLResponse)
 @login_required
-async def plan(request: Request,
-               q: str = "", city: str = "", district: str = "", category: str = "",
-               scope: str = "mine", date_str: str = "",
-               db: Session = Depends(get_db)):
+async def plan(request: Request, date_str: str = "", db: Session = Depends(get_db)):
+    """Набор точек на день на карте (как /leads/map): тап по точке — в план/из плана,
+    либо выделение зоны — добавить все точки внутри."""
     uid = _uid(request)
     try:
         day = date.fromisoformat(date_str) if date_str else date.today()
     except ValueError:
         day = date.today()
-
-    query = db.query(SalesLead).filter(SalesLead.is_active == True)
-    if scope == "mine":
-        query = query.filter(SalesLead.assigned_to_id == uid)
-    elif scope == "free":
-        query = query.filter(SalesLead.assigned_to_id.is_(None))
-    if q:
-        like = f"%{q}%"
-        query = query.filter(or_(
-            SalesLead.name.ilike(like), SalesLead.phone.ilike(like),
-            SalesLead.address.ilike(like), SalesLead.category.ilike(like),
-        ))
-    if city:
-        query = query.filter(SalesLead.city.ilike(f"%{city}%"))
-    if district:
-        query = query.filter(SalesLead.district.ilike(f"%{district}%"))
-    if category:
-        query = query.filter(SalesLead.category.ilike(f"%{category}%"))
-
-    leads = query.order_by(SalesLead.name).limit(300).all()
-
-    # Уже запланированные на этот день — чтобы не дублировать
-    planned_ids = {
-        r[0] for r in db.query(FieldVisit.lead_id).filter(
-            FieldVisit.rep_id == uid, FieldVisit.planned_date == day,
-        ).all()
-    }
-
-    cities = sorted({c[0] for c in db.query(SalesLead.city)
-                     .filter(SalesLead.is_active == True, SalesLead.city.isnot(None)).all() if c[0]})
-    districts = sorted({d[0] for d in db.query(SalesLead.district)
-                        .filter(SalesLead.is_active == True, SalesLead.district.isnot(None)).all() if d[0]})
-
+    total = db.query(SalesLead).filter(
+        SalesLead.is_active == True, SalesLead.lat.isnot(None)).count()
+    planned = db.query(FieldVisit).filter(
+        FieldVisit.rep_id == uid, FieldVisit.planned_date == day).count()
     return templates.TemplateResponse(request, "field/plan.html", {
-        "leads": leads, "planned_ids": planned_ids, "day": day,
-        "q": q, "city": city, "district": district, "category": category, "scope": scope,
-        "cities": cities, "districts": districts,
+        "day": day, "total": total, "planned": planned,
         "statuses": LEAD_STATUSES, "status_colors": STATUS_COLORS,
     })
+
+
+@router.get("/plan/data", response_class=JSONResponse)
+@login_required
+async def plan_data(request: Request, date_str: str = "", db: Session = Depends(get_db)):
+    """Все геокодированные точки для набора плана + флаг «уже в плане на этот день»."""
+    uid = _uid(request)
+    try:
+        day = date.fromisoformat(date_str) if date_str else date.today()
+    except ValueError:
+        day = date.today()
+    planned_ids = {r[0] for r in db.query(FieldVisit.lead_id).filter(
+        FieldVisit.rep_id == uid, FieldVisit.planned_date == day).all()}
+    rows = db.query(SalesLead).filter(
+        SalesLead.is_active == True,
+        SalesLead.lat.isnot(None), SalesLead.lng.isnot(None),
+    ).all()
+    return [{
+        "id": l.id, "name": l.name, "lat": l.lat, "lng": l.lng,
+        "status": l.call_status, "phone": l.phone or "",
+        "category": l.category or "", "address": l.address or "",
+        "city": l.city or "", "district": l.district or "",
+        "mine": l.assigned_to_id == uid,
+        "planned": l.id in planned_ids,
+    } for l in rows]
+
+
+@router.post("/plan/bulk_add", response_class=JSONResponse)
+@login_required
+async def plan_bulk_add(request: Request, db: Session = Depends(get_db)):
+    """Добавляет в план на день все переданные точки (выделение зоны на карте)."""
+    uid = _uid(request)
+    form = await request.form()
+    try:
+        day = date.fromisoformat(form.get("date_str") or "") if form.get("date_str") else date.today()
+    except ValueError:
+        day = date.today()
+    ids = [int(x) for x in form.getlist("ids") if str(x).isdigit()]
+    if not ids:
+        return JSONResponse({"ok": True, "added": 0})
+    existing = {r[0] for r in db.query(FieldVisit.lead_id).filter(
+        FieldVisit.rep_id == uid, FieldVisit.planned_date == day,
+        FieldVisit.lead_id.in_(ids)).all()}
+    leads = db.query(SalesLead).filter(SalesLead.id.in_(ids), SalesLead.is_active == True).all()
+    added = 0
+    for l in leads:
+        if l.id in existing:
+            continue
+        db.add(FieldVisit(lead_id=l.id, rep_id=uid, planned_date=day, status="planned"))
+        if l.assigned_to_id is None:
+            l.assigned_to_id = uid
+        added += 1
+    db.commit()
+    return JSONResponse({"ok": True, "added": added})
 
 
 @router.post("/plan/add", response_class=JSONResponse)
@@ -516,6 +537,58 @@ async def history(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "field/history.html", {
         "visits": visits, "statuses": LEAD_STATUSES, "status_colors": STATUS_COLORS,
     })
+
+
+# ── Настройки торгпреда (мобильный дизайн) ───────────────────────────────────
+
+@router.get("/settings", response_class=HTMLResponse)
+@login_required
+async def settings_page(request: Request, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == _uid(request)).first()
+    return templates.TemplateResponse(request, "field/settings.html", {
+        "user": user,
+        "ok": request.query_params.get("ok", ""),
+        "error": request.query_params.get("error", ""),
+    })
+
+
+@router.post("/settings/profile")
+@login_required
+async def settings_profile(request: Request, full_name: str = Form(...),
+                           birthday: str = Form(default=""), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == _uid(request)).first()
+    if user:
+        if full_name.strip():
+            user.full_name = full_name.strip()[:100]
+            request.session["user_name"] = user.full_name
+        try:
+            user.birthday = date.fromisoformat(birthday) if birthday else None
+        except ValueError:
+            pass
+        db.commit()
+    return RedirectResponse(url="/field/settings?ok=profile", status_code=302)
+
+
+@router.post("/settings/password")
+@login_required
+async def settings_password(request: Request,
+                            current_password: str = Form(...),
+                            new_password: str = Form(...),
+                            confirm_password: str = Form(...),
+                            db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == _uid(request)).first()
+    if not user:
+        return RedirectResponse(url="/field/settings?error=auth", status_code=302)
+    if not verify_password(current_password, user.password_hash):
+        return RedirectResponse(url="/field/settings?error=current", status_code=302)
+    if len(new_password) < 6:
+        return RedirectResponse(url="/field/settings?error=short", status_code=302)
+    if new_password != confirm_password:
+        return RedirectResponse(url="/field/settings?error=mismatch", status_code=302)
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    db.commit()
+    return RedirectResponse(url="/field/settings?ok=password", status_code=302)
 
 
 # ── Монитор для руководителя (десктоп) ───────────────────────────────────────
