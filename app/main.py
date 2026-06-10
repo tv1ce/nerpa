@@ -247,6 +247,7 @@ async def lifespan(_app: FastAPI):
     _notify_due_invoices()            # напоминания об оплате счетов
     _rotate_generated(max_age_days=90)  # удалить старые docx
     asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
+    board.start_now_playing()         # поллер «сейчас играет» на табло
     yield
     # ── shutdown (ничего освобождать не нужно) ────────────────────────────────
 

@@ -90,9 +90,6 @@ async def save_board(
     request: Request,
     brand_name: str = Form(default=""),
     board_nuts_plan: float = Form(default=0.0),
-    board_shift_start: str = Form(default="09:00"),
-    board_shift_end: str = Form(default="17:00"),
-    board_nut_price: float = Form(default=52.0),
     board_cost_pct: float = Form(default=0.0),
     board_cost_norm_pct: float = Form(default=48.0),
     board_cost_deviation: float = Form(default=5.0),
@@ -111,9 +108,6 @@ async def save_board(
         db.add(company)
     company.brand_name           = brand_name or None
     company.board_nuts_plan      = board_nuts_plan
-    company.board_shift_start    = board_shift_start
-    company.board_shift_end      = board_shift_end
-    company.board_nut_price      = board_nut_price
     company.board_cost_pct       = board_cost_pct
     company.board_cost_norm_pct  = board_cost_norm_pct
     company.board_cost_deviation = board_cost_deviation

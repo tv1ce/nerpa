@@ -269,9 +269,6 @@ class CompanySettings(Base):
     board_quotes = Column(Text)                         # мотивашки, по одной в строке
     board_stations = Column(Text)                       # радиостанции, "Название | URL" в строке
     board_active_station = Column(Integer, default=0)   # индекс активной станции
-    board_shift_start    = Column(String(5), default="09:00")  # начало смены HH:MM
-    board_shift_end      = Column(String(5), default="17:00")  # конец смены HH:MM
-    board_nut_price      = Column(Float, default=52.0)  # цена 1 ореха (₽) для перевода в деньги
     board_cost_pct       = Column(Float, default=0.0)   # фактическая себестоимость %
     board_cost_norm_pct  = Column(Float, default=48.0)  # норма себестоимости %
     board_cost_deviation = Column(Float, default=5.0)   # допустимое отклонение от нормы %

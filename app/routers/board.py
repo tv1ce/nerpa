@@ -7,7 +7,13 @@
 URL для liqvid:  https://<сервер>/board?key=<токен>
 """
 import os
+import re
+import ssl
+import socket
 import time
+import threading
+import logging
+from urllib.parse import urlparse
 from datetime import date, timedelta
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -79,6 +85,169 @@ def parse_stations(raw: str | None) -> list[dict]:
     return out or DEFAULT_STATIONS
 
 
+_log = logging.getLogger(__name__)
+
+# ── «Сейчас играет»: чтение названия трека из ICY-метаданных потока ───────────
+# Браузер не отдаёт метаданные радиопотока в JS, поэтому название трека
+# добывает сервер: подключается к потоку с заголовком Icy-MetaData:1 и читает
+# StreamTitle. Опрашиваем только активную станцию в фоне раз в ~20с.
+_now_playing = {"idx": -1, "title": None, "at": 0.0}
+_np_lock = threading.Lock()
+_poller_started = False
+
+
+class _StreamReader:
+    """Минимальный буферизованный читатель поверх сокета."""
+    def __init__(self, sock, initial=b""):
+        self.sock = sock
+        self.buf = initial
+
+    def read(self, n):
+        while len(self.buf) < n:
+            try:
+                chunk = self.sock.recv(65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            self.buf += chunk
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+
+def _fetch_icy_title(url: str, timeout: float = 8.0) -> str | None:
+    """Подключается к Icecast/Shoutcast-потоку и возвращает StreamTitle
+    (обычно «Исполнитель - Трек») либо None, если метаданных нет/ошибка."""
+    sock = None
+    try:
+        u = urlparse(url)
+        if u.scheme not in ("http", "https") or not u.hostname:
+            return None
+        host = u.hostname
+        port = u.port or (443 if u.scheme == "https" else 80)
+        path = u.path or "/"
+        if u.query:
+            path += "?" + u.query
+
+        raw = socket.create_connection((host, port), timeout=timeout)
+        sock = raw
+        if u.scheme == "https":
+            ctx = ssl.create_default_context()
+            sock = ctx.wrap_socket(raw, server_hostname=host)
+        sock.settimeout(timeout)
+
+        req = (
+            f"GET {path} HTTP/1.0\r\n"
+            f"Host: {host}\r\n"
+            "Icy-MetaData: 1\r\n"
+            "User-Agent: TMS-Board/1.0\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        )
+        sock.sendall(req.encode("ascii"))
+
+        # Читаем заголовки ответа до пустой строки
+        buf = b""
+        while b"\r\n\r\n" not in buf and len(buf) < 16384:
+            chunk = sock.recv(4096)
+            if not chunk:
+                return None
+            buf += chunk
+        header_blob, _, rest = buf.partition(b"\r\n\r\n")
+        headers = header_blob.decode("latin-1", "ignore").lower()
+
+        metaint = None
+        for line in headers.split("\r\n"):
+            if line.startswith("icy-metaint:"):
+                try:
+                    metaint = int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    metaint = None
+        if not metaint or metaint <= 0:
+            return None  # станция не отдаёт метаданные
+
+        reader = _StreamReader(sock, rest)
+        # Читаем несколько метаблоков, пока не встретим непустой StreamTitle
+        for _ in range(6):
+            reader.read(metaint)              # пропускаем аудио-данные
+            lenb = reader.read(1)
+            if not lenb:
+                break
+            meta_len = lenb[0] * 16
+            if meta_len == 0:
+                continue                       # в этом блоке метаданные не менялись
+            meta = reader.read(meta_len)
+            text = meta.decode("utf-8", "ignore")
+            m = re.search(r"StreamTitle='(.*?)';", text)
+            if m:
+                title = m.group(1).strip()
+                if title:
+                    return title
+        return None
+    except (OSError, ValueError):
+        return None
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
+
+
+def _active_station_url():
+    """Возвращает (idx, url) активной станции из настроек, либо (0, None)."""
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        company = db.query(CompanySettings).first()
+        stations = parse_stations(company.board_stations if company else None)
+        idx = (company.board_active_station or 0) if company else 0
+        if idx >= len(stations):
+            idx = 0
+        url = stations[idx]["url"] if stations else None
+        return idx, url
+    finally:
+        db.close()
+
+
+def _refresh_now_playing():
+    """Один цикл: узнать активную станцию и обновить кэш названия трека."""
+    try:
+        idx, url = _active_station_url()
+        title = _fetch_icy_title(url) if url else None
+        with _np_lock:
+            _now_playing["idx"] = idx
+            _now_playing["title"] = title
+            _now_playing["at"] = time.time()
+    except Exception as e:  # noqa: BLE001 — фоновый поток не должен падать
+        _log.debug("now-playing refresh failed: %s", e)
+
+
+def _now_playing_loop():
+    while True:
+        _refresh_now_playing()
+        time.sleep(20)
+
+
+def start_now_playing():
+    """Запускает фоновый поллер «сейчас играет» (idempotent)."""
+    global _poller_started
+    if _poller_started:
+        return
+    _poller_started = True
+    threading.Thread(target=_now_playing_loop, daemon=True,
+                     name="now-playing").start()
+    _log.info("Поллер «сейчас играет» запущен")
+
+
+def _current_now_playing(active_idx: int) -> str | None:
+    """Название трека, только если кэш относится к текущей активной станции."""
+    with _np_lock:
+        if _now_playing["idx"] == active_idx:
+            return _now_playing["title"]
+    return None
+
+
 def _collect_metrics(db: Session) -> dict:
     today = date.today()
     month_start = today.replace(day=1)
@@ -147,12 +316,9 @@ def _collect_metrics(db: Session) -> dict:
     if active >= len(stations):
         active = 0
 
-    nut_price        = float(company.board_nut_price or 52.0)    if company else 52.0
     cost_pct         = float(company.board_cost_pct or 0.0)      if company else 0.0
     cost_norm_pct    = float(company.board_cost_norm_pct or 48.0) if company else 48.0
     cost_deviation   = float(company.board_cost_deviation or 5.0) if company else 5.0
-    shift_start      = (company.board_shift_start or "09:00")    if company else "09:00"
-    shift_end        = (company.board_shift_end   or "17:00")    if company else "17:00"
 
     plan_pct     = round(shipped_month / plan * 100) if plan > 0 else 0
     revenue_pct  = round(revenue_month / revenue_plan * 100) if revenue_plan > 0 else 0
@@ -239,15 +405,13 @@ def _collect_metrics(db: Session) -> dict:
         "last_month_nuts":     last_month_nuts,
         "last_month_revenue":  last_month_revenue,
         "last_month_name":     last_month_name,
-        "nut_price":           nut_price,
         "cost_pct":            cost_pct,
         "cost_norm_pct":       cost_norm_pct,
         "cost_deviation":      cost_deviation,
-        "shift_start":         shift_start,
-        "shift_end":           shift_end,
         "quotes":              quotes,
         "stations":            stations,
         "active_station":      active,
+        "now_playing":         _current_now_playing(active),
         "birthdays_today":     birthdays_today,
         "birthdays_upcoming":  birthdays_upcoming,
         "server_version":      SERVER_START,
@@ -286,4 +450,9 @@ async def set_station(request: Request, db: Session = Depends(get_db)):
     if company:
         company.board_active_station = idx
         db.commit()
+    # Сбрасываем кэш трека и обновляем его в фоне, чтобы название сменилось быстро
+    with _np_lock:
+        _now_playing["idx"] = idx
+        _now_playing["title"] = None
+    threading.Thread(target=_refresh_now_playing, daemon=True).start()
     return JSONResponse({"active_station": idx})

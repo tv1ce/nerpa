@@ -156,10 +156,16 @@
     @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 
     /* ── Музыкальные каналы ── */
-    .music{display:flex;align-items:center;gap:1.2vw;background:var(--card);
+    .music{display:flex;flex-direction:column;align-items:stretch;gap:1vh;background:var(--card);
       border:1px solid var(--line);border-radius:1.6vh;padding:1.4vh 1.6vw;margin-bottom:1.8vh;
       box-shadow:var(--shadow);transition:background .5s,border-color .5s;}
+    .music-row{display:flex;align-items:center;gap:1.2vw}
     .music .ico{font-size:3vh}
+    .now-playing{display:flex;align-items:center;gap:.7vw;font-size:2vh;font-weight:700;
+      color:var(--purple);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      padding-left:.4vw}
+    .now-playing .np-label{color:var(--muted);font-weight:600;flex:none}
+    .now-playing .np-title{overflow:hidden;text-overflow:ellipsis}
     .stations{display:flex;gap:.8vw;flex-wrap:wrap;flex:1}
     .chip{font-size:1.9vh;font-weight:600;padding:.8vh 1.4vw;border-radius:1.4vh;
       background:var(--track);border:1px solid var(--line);color:var(--muted);cursor:pointer;
@@ -211,22 +217,12 @@
       border-radius:1.2vh;padding:.5vh 1.4vw}
     .bday-up-item b{color:var(--purple)}
 
-    /* ── Ночной режим ── */
-    #night-overlay{
-      position:fixed;inset:0;
-      background:rgba(6,4,22,0);
-      pointer-events:none;z-index:990;
-      transition:background 5s ease;
-    }
-    body.night #night-overlay{background:rgba(6,4,22,.78)}
-
     /* ── Конфетти ── */
     #confetti-canvas{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999}
   </style>
 </head>
 <body data-key="{{ key }}">
 <canvas id="confetti-canvas"></canvas>
-<div id="night-overlay"></div>
 
 <div id="stage">
   <header>
@@ -310,9 +306,15 @@
 
   <!-- Музыкальные каналы -->
   <div class="music">
-    <span class="ico">🎵</span>
-    <div class="stations" id="stations"></div>
-    <button class="sound-btn" id="sound-btn" style="display:none">▶ Включить звук</button>
+    <div class="music-row">
+      <span class="ico">🎵</span>
+      <div class="stations" id="stations"></div>
+      <button class="sound-btn" id="sound-btn" style="display:none">▶ Включить звук</button>
+    </div>
+    <div class="now-playing" id="now-playing" style="display:{{ '' if data.now_playing else 'none' }}">
+      <span class="np-label">♪ Сейчас играет:</span>
+      <span class="np-title" id="np-title">{{ data.now_playing or '' }}</span>
+    </div>
   </div>
 
   {% if data.birthdays_upcoming %}
@@ -338,13 +340,8 @@
     const fmt  = n => (n ?? 0).toLocaleString('ru-RU');
     const fmtR = n => (n ?? 0).toLocaleString('ru-RU', {maximumFractionDigits:0}); // рубли без копеек
 
-    let NUT_PRICE    = {{ data.nut_price }};
     let COST_NORM    = {{ data.cost_norm_pct }};
     let COST_DEV     = {{ data.cost_deviation }};
-    const SHIFT_START = {{ data.shift_start | tojson }};  // "HH:MM"
-    const SHIFT_END   = {{ data.shift_end   | tojson }};
-
-    function parseHM(s){ const [h,m] = (s||'00:00').split(':').map(Number); return {h,m}; }
 
     let QUOTES = {{ data.quotes | tojson }};
     let STATIONS = {{ data.stations | tojson }};
@@ -397,16 +394,6 @@
     if (document.fonts && document.fonts.ready){ document.fonts.ready.then(scheduleFit); }
     fitStage();
     setTimeout(fitStage, 300);   // подстраховка для медленного рендера на ТВ
-
-    // ── Ночной режим (вне рабочего времени) ──
-    function updateNightMode(){
-      const now = new Date();
-      const {h: sh} = parseHM(SHIFT_START);
-      const {h: eh} = parseHM(SHIFT_END);
-      const hour = now.getHours();
-      document.body.classList.toggle('night', hour >= eh || hour < sh);
-    }
-    updateNightMode(); setInterval(updateNightMode, 60000);
 
     // ── Конфетти ──
     const confettiCanvas = document.getElementById('confetti-canvas');
@@ -563,6 +550,9 @@
     function selectStation(i, fromClick){
       active = i;
       renderStations();
+      // Прячем старый трек — обновится при следующем опросе /board/data
+      const npWrap = document.getElementById('now-playing');
+      if (npWrap) npWrap.style.display = 'none';
       playActive().then(()=> soundBtn.style.display='none')
                   .catch(()=> soundBtn.style.display='');
       if (fromClick){
@@ -687,7 +677,7 @@
       document.getElementById('m-lm-nuts-money').textContent = fmtR(d.last_month_revenue) + ' ₽';
 
       // Себестоимость
-      NUT_PRICE = d.nut_price; COST_NORM = d.cost_norm_pct; COST_DEV = d.cost_deviation;
+      COST_NORM = d.cost_norm_pct; COST_DEV = d.cost_deviation;
       document.getElementById('m-cost').textContent = d.cost_pct.toFixed(1) + '%';
       renderCost(d.cost_pct, d.cost_norm_pct, d.cost_deviation);
 
@@ -721,6 +711,16 @@
         STATIONS = d.stations; renderStations();
       }
       if (d.active_station !== active) selectStation(d.active_station, false);
+
+      // «Сейчас играет»
+      const npWrap = document.getElementById('now-playing');
+      const npTitle = document.getElementById('np-title');
+      if (d.now_playing){
+        npTitle.textContent = d.now_playing;
+        npWrap.style.display = '';
+      } else {
+        npWrap.style.display = 'none';
+      }
     }
 
     let _serverVersion = null;

@@ -53,38 +53,10 @@
         </div>
       </div>
 
-      <!-- Рабочая смена -->
-      <div class="card border-0 shadow-sm p-4 mb-3">
-        <div class="form-section-title"><i class="bi bi-clock me-1"></i>Рабочая смена</div>
-        <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Начало смены</label>
-            <input type="time" name="board_shift_start" class="form-control"
-                   value="{{ company.board_shift_start if company and company.board_shift_start else '09:00' }}">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Конец смены</label>
-            <input type="time" name="board_shift_end" class="form-control"
-                   value="{{ company.board_shift_end if company and company.board_shift_end else '17:00' }}">
-          </div>
-          <div class="col-md-4 d-flex align-items-end pb-1">
-            <span class="text-muted" style="font-size:.82rem">
-              <i class="bi bi-info-circle"></i> Таймер «до конца смены» и ночной режим считаются по этим значениям.
-            </span>
-          </div>
-        </div>
-      </div>
-
       <!-- Финансы -->
       <div class="card border-0 shadow-sm p-4 mb-3">
         <div class="form-section-title"><i class="bi bi-currency-exchange me-1"></i>Финансовые показатели</div>
         <div class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Цена 1 ореха, ₽</label>
-            <input type="number" name="board_nut_price" class="form-control" step="0.5" min="0"
-                   value="{{ company.board_nut_price if company and company.board_nut_price else 52.0 }}">
-            <div class="form-text">Используется для пересчёта штук в рубли.</div>
-          </div>
           <div class="col-md-4">
             <label class="form-label">Себестоимость факт, %</label>
             <input type="number" name="board_cost_pct" class="form-control" step="0.1" min="0" max="200"
