@@ -157,10 +157,12 @@ def _collect_metrics(db: Session) -> dict:
     plan_pct     = round(shipped_month / plan * 100) if plan > 0 else 0
     revenue_pct  = round(revenue_month / revenue_plan * 100) if revenue_plan > 0 else 0
 
-    shipped_month_money = int(shipped_month * nut_price)
-    shipped_today_money = int(shipped_today * nut_price)
-    shipped_year_money  = int(shipped_year  * nut_price)
-    shipped_total_money = int(shipped_total * nut_price)
+    # Выручка берётся напрямую из сумм позиций заказа (OrderItem.amount) —
+    # тот же «источник правды», что и в отчётах, а не количество × цену орешка.
+    shipped_month_money = revenue_month  # = _revenue(ship_date >= month_start)
+    shipped_today_money = _revenue(ship_date == today)
+    shipped_year_money  = _revenue(ship_date >= year_start)
+    shipped_total_money = _revenue()
 
     last_claim_date    = db.query(func.max(Claim.date)).scalar()
     days_without_claims = (today - last_claim_date).days if last_claim_date else None
