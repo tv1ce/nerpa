@@ -93,12 +93,17 @@
     {% endif %}
 
     <div class="nav-section">Склад</div>
-    <a href="/warehouse/" class="nav-link {% if '/warehouse' in request.url.path and 'journal' not in request.url.path %}active{% endif %}">
+    <a href="/warehouse/" class="nav-link {% if '/warehouse' in request.url.path and 'journal' not in request.url.path and 'inventory' not in request.url.path %}active{% endif %}">
       <i class="bi bi-boxes"></i> <span>Остатки</span>
     </a>
     <a href="/warehouse/journal" class="nav-link {% if '/warehouse/journal' in request.url.path %}active{% endif %}">
       <i class="bi bi-journal-text"></i> <span>Журнал движений</span>
     </a>
+    {% if _role in ('admin','manager') %}
+    <a href="/warehouse/inventory" class="nav-link {% if '/warehouse/inventory' in request.url.path %}active{% endif %}">
+      <i class="bi bi-clipboard-check"></i> <span>Инвентаризация</span>
+    </a>
+    {% endif %}
 
     {% if _role == 'warehouse' %}
     <div class="nav-section">Система</div>

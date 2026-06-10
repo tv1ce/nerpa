@@ -260,11 +260,16 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
     users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
     from app.routers.files import files_for, FILE_TYPES
     files = files_for(db, "order", order_id)
+    # Публичная ссылка для клиента (токен создаётся лениво при первом открытии карточки)
+    from app.routers.public import ensure_public_token
+    token = ensure_public_token(db, order)
+    track_url = str(request.base_url).rstrip("/") + f"/track/{token}"
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
         "tasks": tasks, "comments": comments, "activity": activity, "users": users,
         "files": files, "file_types": FILE_TYPES["order"],
+        "track_url": track_url,
         "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
         "assembly_queue_count": _assembly_queue_count(db),
     })

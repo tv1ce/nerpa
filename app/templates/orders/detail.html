@@ -293,6 +293,49 @@
       {% endfor %}
     </div>
 
+    <!-- Ссылка для клиента (публичный трекинг) -->
+    {% if _role != 'warehouse' and track_url %}
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2" style="font-size:.9rem">
+        <i class="bi bi-link-45deg me-1 text-success"></i>Ссылка для клиента
+      </div>
+      <div class="text-muted mb-2" style="font-size:.78rem">
+        Клиент откроет статус заказа без логина — отправьте в WhatsApp/Telegram.
+      </div>
+      <div class="input-group input-group-sm mb-2">
+        <input type="text" class="form-control" id="track-url" value="{{ track_url }}" readonly
+               style="font-size:.78rem" onclick="this.select()">
+        <button class="btn btn-outline-success" type="button" id="btn-copy-track"
+                onclick="copyTrackUrl()" title="Скопировать">
+          <i class="bi bi-clipboard"></i>
+        </button>
+      </div>
+      <div class="d-flex gap-2">
+        <a href="{{ track_url }}" target="_blank" class="btn btn-outline-secondary btn-sm flex-fill" style="font-size:.78rem">
+          <i class="bi bi-eye me-1"></i>Открыть
+        </a>
+        <a href="https://wa.me/?text={{ track_url | urlencode }}" target="_blank"
+           class="btn btn-outline-success btn-sm flex-fill" style="font-size:.78rem">
+          <i class="bi bi-whatsapp me-1"></i>WhatsApp
+        </a>
+      </div>
+    </div>
+    <script>
+      function copyTrackUrl() {
+        var inp = document.getElementById('track-url');
+        var btn = document.getElementById('btn-copy-track');
+        navigator.clipboard.writeText(inp.value).then(function () {
+          btn.innerHTML = '<i class="bi bi-check2"></i>';
+          setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1500);
+        }).catch(function () {
+          inp.select(); document.execCommand('copy');
+          btn.innerHTML = '<i class="bi bi-check2"></i>';
+          setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1500);
+        });
+      }
+    </script>
+    {% endif %}
+
     <!-- Документы -->
     <div class="card border-0 shadow-sm p-3 mb-3">
       <div class="fw-semibold mb-2" style="font-size:.9rem">Документы</div>

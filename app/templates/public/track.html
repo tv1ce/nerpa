@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Заказ № {{ order.number }} — статус</title>
+  <link rel="icon" href="/static/favicon.ico">
+  <style>
+    :root {
+      --bg: #f1f5f9; --card: #ffffff; --ink: #0f172a; --muted: #64748b;
+      --line: #e2e8f0; --brand: #16a34a; --brand-soft: #dcfce7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: -apple-system, "Segoe UI", "Fira Sans", Roboto, sans-serif;
+      background: var(--bg); color: var(--ink); line-height: 1.5;
+      padding: 16px; -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    .brand { text-align: center; margin: 8px 0 20px; }
+    .brand .name { font-size: 1.25rem; font-weight: 700; }
+    .brand .sub { color: var(--muted); font-size: .85rem; }
+    .card {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 16px; padding: 20px; margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .order-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+    .order-num { font-size: 1.4rem; font-weight: 700; }
+    .order-date { color: var(--muted); font-size: .88rem; }
+    .badge {
+      display: inline-block; background: var(--brand-soft); color: var(--brand);
+      font-weight: 600; font-size: .9rem; padding: 6px 14px; border-radius: 999px;
+    }
+    .badge.cancelled { background: #fee2e2; color: #dc2626; }
+    /* Таймлайн */
+    .timeline { list-style: none; margin: 8px 0 0; padding: 0; }
+    .timeline li {
+      position: relative; padding: 0 0 22px 34px; color: var(--muted);
+    }
+    .timeline li:last-child { padding-bottom: 0; }
+    .timeline li::before {
+      content: ""; position: absolute; left: 9px; top: 22px; bottom: 0;
+      width: 2px; background: var(--line);
+    }
+    .timeline li:last-child::before { display: none; }
+    .dot {
+      position: absolute; left: 0; top: 1px; width: 20px; height: 20px;
+      border-radius: 50%; border: 2px solid var(--line); background: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: #fff;
+    }
+    .timeline li.done .dot { background: var(--brand); border-color: var(--brand); }
+    .timeline li.done { color: var(--ink); }
+    .timeline li.current .label { font-weight: 700; color: var(--brand); }
+    .timeline li.current .dot { box-shadow: 0 0 0 4px var(--brand-soft); }
+    .label { font-size: 1rem; }
+    .section-title { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+    table.items { width: 100%; border-collapse: collapse; }
+    table.items td { padding: 10px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table.items tr:last-child td { border-bottom: none; }
+    .qty { text-align: right; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .meta-row { display: flex; justify-content: space-between; padding: 6px 0; }
+    .meta-row .k { color: var(--muted); }
+    .meta-row .v { font-weight: 600; text-align: right; }
+    .mgr { display: flex; align-items: center; gap: 12px; }
+    .mgr .av {
+      width: 44px; height: 44px; border-radius: 50%; background: var(--brand-soft);
+      color: var(--brand); display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 1.1rem; flex-shrink: 0;
+    }
+    .mgr a { color: var(--brand); text-decoration: none; font-weight: 600; }
+    .foot { text-align: center; color: var(--muted); font-size: .78rem; margin: 18px 0 8px; }
+    .call-btn {
+      display: block; text-align: center; background: var(--brand); color: #fff;
+      text-decoration: none; font-weight: 600; padding: 13px; border-radius: 12px; margin-top: 14px;
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="brand">
+    <div class="name">{{ company.brand_name or company.name or "Ваш заказ" }}</div>
+    <div class="sub">Статус заказа</div>
+  </div>
+
+  {# ── Шапка заказа ── #}
+  <div class="card">
+    <div class="order-head">
+      <div>
+        <div class="order-num">Заказ № {{ order.number }}</div>
+        <div class="order-date">от {{ order.date | date_fmt }}</div>
+      </div>
+      <span class="badge">{{ status_label }}</span>
+    </div>
+  </div>
+
+  {# ── Таймлайн статусов ── #}
+  <div class="card">
+    <div class="section-title">Этапы выполнения</div>
+    <ul class="timeline">
+      {% for step in timeline %}
+      <li class="{% if step.done %}done{% endif %} {% if step.current %}current{% endif %}">
+        <span class="dot">{% if step.done %}✓{% endif %}</span>
+        <span class="label">{{ step.label }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  {# ── Детали доставки ── #}
+  {% if order.delivery_date or order.delivery_address %}
+  <div class="card">
+    <div class="section-title">Доставка</div>
+    {% if order.delivery_date %}
+    <div class="meta-row"><span class="k">Плановая дата</span><span class="v">{{ order.delivery_date | date_fmt }}</span></div>
+    {% endif %}
+    {% if order.delivery_address %}
+    <div class="meta-row"><span class="k">Адрес</span><span class="v">{{ order.delivery_address }}</span></div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── Состав заказа (без цен) ── #}
+  {% if order.items %}
+  <div class="card">
+    <div class="section-title">Состав заказа</div>
+    <table class="items">
+      {% for item in order.items %}
+      <tr>
+        <td>{{ item.product.name if item.product else "Позиция" }}</td>
+        <td class="qty">{{ item.quantity | int }} {{ (item.product.sale_unit or item.product.unit) if item.product else "шт" }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+  {% endif %}
+
+  {# ── Контакт менеджера ── #}
+  {% if manager or company.phone %}
+  <div class="card">
+    <div class="section-title">Ваш менеджер</div>
+    <div class="mgr">
+      <div class="av">{{ (manager.full_name[0] if manager and manager.full_name else (company.name[0] if company.name else "?")) | upper }}</div>
+      <div>
+        {% if manager %}<div style="font-weight:600">{{ manager.full_name }}</div>{% endif %}
+        {% if company.phone %}<a href="tel:{{ company.phone }}">{{ company.phone }}</a>{% endif %}
+      </div>
+    </div>
+    {% if company.phone %}
+    <a class="call-btn" href="tel:{{ company.phone }}">Позвонить менеджеру</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="foot">
+    {{ company.name or "" }}{% if company.phone %} · {{ company.phone }}{% endif %}
+  </div>
+
+</div>
+</body>
+</html>

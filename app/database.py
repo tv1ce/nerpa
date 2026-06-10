@@ -155,6 +155,8 @@ def _migrate_db():
         ("company_settings", "tg_callback_enabled",  "INTEGER DEFAULT 1"),
         # Момент сборки заказа (нажатие «Собрано») — для учёта отгрузки на табло
         ("orders", "assembled_at", "TIMESTAMP"),
+        # Публичный токен клиентского трекинга /track/{token}
+        ("orders", "public_token", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
@@ -222,6 +224,11 @@ def _migrate_db():
     cur.execute(
         "CREATE INDEX IF NOT EXISTS ix_audit_logs_entity "
         "ON audit_logs(entity_type, entity_id)"
+    )
+    # Уникальный индекс для публичного токена трекинга заказа
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_public_token "
+        "ON orders(public_token) WHERE public_token IS NOT NULL"
     )
 
     conn.commit()

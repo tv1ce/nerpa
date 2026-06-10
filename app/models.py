@@ -117,6 +117,9 @@ class Order(Base):
     pickup_address = Column(String(500))     # адрес забора (откуда)
     delivery_contact = Column(String(200))   # телефон + имя получателя, напр. «79119244416 Ольга»
     delivery_time = Column(String(50))       # временной слот, напр. «12-19»
+    # Публичный токен для клиентского трекинга /track/{token} (без логина).
+    # Генерируется лениво при первом запросе ссылки в карточке заказа.
+    public_token = Column(String(40), unique=True, index=True)
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
     supplier = relationship("Counterparty", foreign_keys=[supplier_id])
@@ -582,6 +585,50 @@ class LogisticsCost(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class StockAdjustment(Base):
+    """Сессия инвентаризации: снимок фактических остатков по складу на дату.
+
+    Хранит «шапку» (дата, кто провёл, причина) и строки (StockAdjustmentLine)
+    с парами «ожидалось / факт». Сами корректировки остатка применяются как
+    StockMovement(adjustment) — чтобы _get_balances оставался единым источником
+    истины по остаткам.
+    """
+    __tablename__ = "stock_adjustments"
+    id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False)
+    reason = Column(String(200), default="Инвентаризация")
+    note = Column(Text)
+    created_by_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+    created_by = relationship("User")
+    lines = relationship("StockAdjustmentLine", back_populates="adjustment",
+                         cascade="all, delete-orphan")
+
+    @property
+    def total_diff_count(self) -> int:
+        """Сколько позиций с расхождением (факт ≠ ожидалось)."""
+        return sum(1 for ln in self.lines if abs(ln.diff) > 1e-9)
+
+
+class StockAdjustmentLine(Base):
+    """Строка инвентаризации: ожидалось / факт по одному товару."""
+    __tablename__ = "stock_adjustment_lines"
+    id = Column(Integer, primary_key=True)
+    adjustment_id = Column(Integer, ForeignKey("stock_adjustments.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    expected_qty = Column(Float, default=0.0)   # остаток в системе на момент инвентаризации
+    actual_qty = Column(Float, default=0.0)     # введённый фактический остаток
+
+    adjustment = relationship("StockAdjustment", back_populates="lines")
+    product = relationship("Product")
+
+    @property
+    def diff(self) -> float:
+        """Разница факт − ожидалось (+ излишек, − недостача)."""
+        return round((self.actual_qty or 0) - (self.expected_qty or 0), 3)
+
+
 # ── Индексы для часто фильтруемых колонок ────────────────────────────────────
 # SQLAlchemy создаёт их через Base.metadata.create_all(); для существующей БД
 # добавляются отдельной миграцией в database._migrate_db().
@@ -607,3 +654,5 @@ Index("ix_audit_logs_entity", AuditLog.entity_type, AuditLog.entity_id)
 Index("ix_stock_movements_product_id", StockMovement.product_id)
 
 Index("ix_attached_files_entity", AttachedFile.entity_type, AttachedFile.entity_id)
+
+Index("ix_stock_adj_lines_adjustment", StockAdjustmentLine.adjustment_id)

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Counterparty, Claim, Task, Comment, AuditLog, User
+from app.models import Counterparty, Claim, Task, Comment, AuditLog, User, ContactPerson
 from app.utils import log_action
 
 router = APIRouter(prefix="/counterparties", tags=["counterparties"])
@@ -320,6 +320,13 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
     from app.routers.files import files_for, FILE_TYPES
     files = files_for(db, "counterparty", cp_id)
 
+    contacts = (
+        db.query(ContactPerson)
+        .filter(ContactPerson.counterparty_id == cp_id, ContactPerson.is_active == True)
+        .order_by(ContactPerson.is_primary.desc(), ContactPerson.full_name)
+        .all()
+    )
+
     return templates.TemplateResponse(request, "counterparties/detail.html", {
         "cp": cp,
         "cp_types": CP_TYPES,
@@ -327,6 +334,7 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
         "cat_colors": CAT_COLORS,
         "files": files,
         "file_types": FILE_TYPES["counterparty"],
+        "contacts": contacts,
         "total_orders": len(cp.orders),
         "total_revenue": total_revenue,
         "open_debt": open_debt,
@@ -442,3 +450,102 @@ async def delete_counterparty(request: Request, cp_id: int, db: Session = Depend
         cp.is_active = False
         db.commit()
     return RedirectResponse(url="/counterparties", status_code=302)
+
+
+# ── Контактные лица (ЛПР) ────────────────────────────────────────────────────
+
+def _clear_other_primary(db: Session, cp_id: int, keep_id: int | None = None) -> None:
+    """Снимает флаг is_primary со всех контактов КА, кроме keep_id."""
+    q = db.query(ContactPerson).filter(
+        ContactPerson.counterparty_id == cp_id,
+        ContactPerson.is_primary == True,
+    )
+    if keep_id:
+        q = q.filter(ContactPerson.id != keep_id)
+    for c in q.all():
+        c.is_primary = False
+
+
+@router.post("/{cp_id}/contacts")
+@role_required("manager")
+async def add_contact(
+    request: Request, cp_id: int,
+    full_name: str = Form(...),
+    post: str = Form(default=""),
+    phone: str = Form(default=""),
+    email: str = Form(default=""),
+    telegram: str = Form(default=""),
+    whatsapp: str = Form(default=""),
+    is_primary: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
+    if not cp or not full_name.strip():
+        return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)
+    primary = bool(is_primary)
+    if primary:
+        _clear_other_primary(db, cp_id)
+    c = ContactPerson(
+        counterparty_id=cp_id,
+        full_name=full_name.strip()[:200],
+        post=post.strip()[:150] or None,
+        phone=phone.strip()[:100] or None,
+        email=email.strip()[:150] or None,
+        telegram=telegram.strip()[:150] or None,
+        whatsapp=whatsapp.strip()[:150] or None,
+        is_primary=primary,
+        is_active=True,
+    )
+    db.add(c)
+    log_action(db, "counterparty", cp_id, "updated",
+               request.session.get("user_id"), f"Добавлен контакт: {c.full_name}")
+    db.commit()
+    return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)
+
+
+@router.post("/{cp_id}/contacts/{contact_id}/edit")
+@role_required("manager")
+async def edit_contact(
+    request: Request, cp_id: int, contact_id: int,
+    full_name: str = Form(...),
+    post: str = Form(default=""),
+    phone: str = Form(default=""),
+    email: str = Form(default=""),
+    telegram: str = Form(default=""),
+    whatsapp: str = Form(default=""),
+    is_primary: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    c = db.query(ContactPerson).filter(
+        ContactPerson.id == contact_id, ContactPerson.counterparty_id == cp_id
+    ).first()
+    if not c or not full_name.strip():
+        return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)
+    primary = bool(is_primary)
+    if primary:
+        _clear_other_primary(db, cp_id, keep_id=contact_id)
+    c.full_name = full_name.strip()[:200]
+    c.post = post.strip()[:150] or None
+    c.phone = phone.strip()[:100] or None
+    c.email = email.strip()[:150] or None
+    c.telegram = telegram.strip()[:150] or None
+    c.whatsapp = whatsapp.strip()[:150] or None
+    c.is_primary = primary
+    db.commit()
+    return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)
+
+
+@router.post("/{cp_id}/contacts/{contact_id}/delete")
+@role_required("manager")
+async def delete_contact(request: Request, cp_id: int, contact_id: int, db: Session = Depends(get_db)):
+    c = db.query(ContactPerson).filter(
+        ContactPerson.id == contact_id, ContactPerson.counterparty_id == cp_id
+    ).first()
+    if c:
+        # Мягкое удаление — контакт может быть привязан к визитам (FieldVisit.contact_id)
+        c.is_active = False
+        c.is_primary = False
+        log_action(db, "counterparty", cp_id, "updated",
+                   request.session.get("user_id"), f"Удалён контакт: {c.full_name}")
+        db.commit()
+    return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)

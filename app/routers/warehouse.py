@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Product, StockMovement, Order
+from app.models import Product, StockMovement, Order, StockAdjustment, StockAdjustmentLine
 from app.utils import maybe_notify_low_stock, log_action
 
 # Статусы заказа, считающиеся «в работе» (не черновик и не завершён/отменён)
@@ -309,3 +309,122 @@ async def update_stock_settings(
         maybe_notify_low_stock(db, product_id)  # добавляет Notification без commit
         db.commit()  # единый коммит
     return RedirectResponse(url="/warehouse/", status_code=302)
+
+
+# ── Инвентаризация ────────────────────────────────────────────────────────────
+# Кладовщик вводит фактические остатки по всем позициям сразу. Система считает
+# расхождения и применяет их одним пакетом как StockMovement(adjustment) —
+# чтобы _get_balances оставался единым источником истины по остаткам. Сам снимок
+# (ожидалось/факт по каждой позиции) сохраняется в StockAdjustment + Line.
+
+@router.get("/inventory", response_class=HTMLResponse)
+@login_required
+async def inventory_list(request: Request, db: Session = Depends(get_db)):
+    sessions = (
+        db.query(StockAdjustment)
+        .order_by(StockAdjustment.date.desc(), StockAdjustment.id.desc())
+        .limit(100).all()
+    )
+    return templates.TemplateResponse(request, "warehouse/inventory_list.html", {
+        "sessions": sessions,
+        "assembly_queue_count": _assembly_queue_count(db),
+    })
+
+
+@router.get("/inventory/new", response_class=HTMLResponse)
+@role_required("manager")
+async def inventory_new(request: Request, db: Session = Depends(get_db)):
+    products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    balances = _get_balances(db)
+    return templates.TemplateResponse(request, "warehouse/inventory_form.html", {
+        "products": products,
+        "balances": balances,
+        "today": date.today().isoformat(),
+        "assembly_queue_count": _assembly_queue_count(db),
+    })
+
+
+@router.post("/inventory")
+@role_required("manager")
+async def inventory_create(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    try:
+        inv_date = date.fromisoformat(str(form.get("inv_date", "")))
+    except (ValueError, TypeError):
+        inv_date = date.today()
+    note = (str(form.get("note", "")) or "").strip() or None
+
+    products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    balances = _get_balances(db)
+    user_id = request.session.get("user_id")
+
+    adj = StockAdjustment(
+        date=inv_date,
+        reason="Инвентаризация",
+        note=note,
+        created_by_id=user_id,
+    )
+    db.add(adj)
+    db.flush()  # получить adj.id
+
+    applied = 0
+    counted = 0
+    for p in products:
+        raw = form.get(f"actual_{p.id}")
+        if raw is None or str(raw).strip() == "":
+            continue  # позицию не пересчитывали — пропускаем
+        try:
+            actual = float(str(raw).replace(",", "."))
+        except (ValueError, TypeError):
+            continue
+        expected = float(balances.get(p.id, 0) or 0)
+        db.add(StockAdjustmentLine(
+            adjustment_id=adj.id,
+            product_id=p.id,
+            expected_qty=expected,
+            actual_qty=actual,
+        ))
+        counted += 1
+        diff = round(actual - expected, 3)
+        if abs(diff) > 1e-9:
+            # Корректировка остатка: quantity хранится со знаком (+ излишек, − недостача)
+            db.add(StockMovement(
+                product_id=p.id,
+                movement_type="adjustment",
+                quantity=diff,
+                date=inv_date,
+                reason="Инвентаризация",
+                notes=f"Инвентаризация #{adj.id}: было {expected:g}, стало {actual:g}",
+                created_by_id=user_id,
+            ))
+            maybe_notify_low_stock(db, p.id)
+            applied += 1
+
+    if not counted:
+        # Ничего не ввели — не плодим пустую инвентаризацию
+        db.rollback()
+        return RedirectResponse(url="/warehouse/inventory/new", status_code=302)
+
+    log_action(db, "product", 0, "updated", user_id,
+               f"Инвентаризация #{adj.id} от {inv_date.strftime('%d.%m.%Y')}: "
+               f"позиций {counted}, корректировок {applied}")
+    db.commit()
+    return RedirectResponse(url=f"/warehouse/inventory/{adj.id}", status_code=302)
+
+
+@router.get("/inventory/{adj_id}", response_class=HTMLResponse)
+@login_required
+async def inventory_view(request: Request, adj_id: int, db: Session = Depends(get_db)):
+    adj = db.query(StockAdjustment).filter(StockAdjustment.id == adj_id).first()
+    if not adj:
+        return RedirectResponse(url="/warehouse/inventory", status_code=302)
+    lines = sorted(adj.lines, key=lambda ln: (ln.product.name if ln.product else ""))
+    surplus = sum(1 for ln in lines if ln.diff > 1e-9)
+    shortage = sum(1 for ln in lines if ln.diff < -1e-9)
+    return templates.TemplateResponse(request, "warehouse/inventory_view.html", {
+        "adj": adj,
+        "lines": lines,
+        "surplus": surplus,
+        "shortage": shortage,
+        "assembly_queue_count": _assembly_queue_count(db),
+    })
