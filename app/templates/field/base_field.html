@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TMS Поле">
+  <meta name="theme-color" content="#0F1A2E">
+  <title>{% block title %}Поле{% endblock %} — TMS</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  {% block head %}{% endblock %}
+  <style>
+    :root { --fld-tab-h: 60px; --fld-head-h: 54px; --fld-navy:#0F1A2E; --fld-blue:#2563EB; }
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family:'Fira Sans',system-ui,sans-serif; background:#f1f5f9; margin:0;
+      padding-bottom: calc(var(--fld-tab-h) + env(safe-area-inset-bottom));
+      color:#0f172a;
+    }
+    /* Header */
+    .fld-header {
+      position:sticky; top:0; z-index:20; height:var(--fld-head-h);
+      background:linear-gradient(135deg,#0F1A2E,#1E3A5F); color:#fff;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0 14px; box-shadow:0 2px 10px rgba(15,23,42,.18);
+    }
+    .fld-header h1 { font-size:1.02rem; font-weight:700; margin:0; display:flex; align-items:center; gap:8px; }
+    .fld-header .fld-ico {
+      background:none; border:none; color:rgba(255,255,255,.85); font-size:1.15rem;
+      padding:6px 8px; cursor:pointer; text-decoration:none;
+    }
+    .fld-content { padding:12px; max-width:760px; margin:0 auto; }
+    /* Bottom tab bar */
+    .fld-tabbar {
+      position:fixed; left:0; right:0; bottom:0; z-index:30;
+      height:calc(var(--fld-tab-h) + env(safe-area-inset-bottom));
+      padding-bottom: env(safe-area-inset-bottom);
+      background:#fff; border-top:1px solid #e2e8f0;
+      display:flex; box-shadow:0 -2px 14px rgba(15,23,42,.06);
+    }
+    .fld-tab {
+      flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:2px; color:#94a3b8; text-decoration:none; font-size:.66rem; font-weight:600;
+      position:relative;
+    }
+    .fld-tab i { font-size:1.3rem; }
+    .fld-tab.active { color:var(--fld-blue); }
+    .fld-tab-badge {
+      position:absolute; top:6px; left:50%; margin-left:6px;
+      background:#ef4444; color:#fff; font-size:.6rem; font-weight:700;
+      border-radius:99px; min-width:16px; padding:0 4px; line-height:16px; text-align:center;
+    }
+    /* Карточки */
+    .fld-card { background:#fff; border-radius:14px; box-shadow:0 1px 4px rgba(15,23,42,.06); }
+    .badge-dot { width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0; }
+    .btn-lg-touch { padding:13px; font-size:1rem; font-weight:600; border-radius:12px; }
+  </style>
+</head>
+<body>
+
+<header class="fld-header">
+  <h1>{% block page_title %}Поле{% endblock %}</h1>
+  <div class="d-flex align-items-center">
+    {% block header_actions %}{% endblock %}
+    <a href="/settings/profile" class="fld-ico" title="Профиль"><i class="bi bi-person-circle"></i></a>
+    <a href="/auth/logout" class="fld-ico" title="Выйти"><i class="bi bi-box-arrow-right"></i></a>
+  </div>
+</header>
+
+<main class="fld-content">
+  {% block content %}{% endblock %}
+</main>
+
+<nav class="fld-tabbar">
+  {% set p = request.url.path %}
+  <a href="/field/" class="fld-tab {% if p == '/field/' or p == '/field' %}active{% endif %}">
+    <i class="bi bi-sun"></i><span>Мой день</span>
+  </a>
+  <a href="/field/map" class="fld-tab {% if '/field/map' in p %}active{% endif %}">
+    <i class="bi bi-map"></i><span>Карта</span>
+  </a>
+  <a href="/field/plan" class="fld-tab {% if '/field/plan' in p %}active{% endif %}">
+    <i class="bi bi-plus-square"></i><span>План</span>
+  </a>
+  <a href="/field/history" class="fld-tab {% if '/field/history' in p %}active{% endif %}">
+    <i class="bi bi-clock-history"></i><span>История</span>
+  </a>
+</nav>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// CSRF — токен в формы и AJAX-заголовок (как в base_warehouse.html)
+(function() {
+  var CSRF = {{ csrf_token(request) | tojson }};
+  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function(f) {
+    if (!f.querySelector('[name="csrf_token"]')) {
+      var inp = document.createElement('input');
+      inp.type='hidden'; inp.name='csrf_token'; inp.value=CSRF; f.appendChild(inp);
+    }
+  });
+  var _f = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    if (opts.method && opts.method.toUpperCase() !== 'GET') {
+      opts.headers = Object.assign({ 'X-CSRF-Token': CSRF }, opts.headers || {});
+    }
+    return _f.call(this, url, opts);
+  };
+  window._CSRF = CSRF;
+})();
+// Service worker (PWA)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function() {
+    navigator.serviceWorker.register('/sw.js', { scope:'/', updateViaCache:'none' })
+      .then(function(reg){ reg.update(); }).catch(function(){});
+  });
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

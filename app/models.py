@@ -489,6 +489,64 @@ class LeadCall(Base):
     user = relationship("User")
 
 
+class ContactPerson(Base):
+    """ЛПР — лицо, принимающее решения по точке (управляющий, закупщик, директор).
+
+    Привязан к точке прозвона (SalesLead) и/или к контрагенту. Один и тот же ЛПР
+    может вести целую сеть — поэтому это отдельная сущность, а не текстовое поле.
+    Заменяет/дополняет SalesLead.contact_person и Counterparty.contact_person.
+    """
+    __tablename__ = "contact_persons"
+    id = Column(Integer, primary_key=True)
+    lead_id = Column(Integer, ForeignKey("sales_leads.id"), index=True)
+    counterparty_id = Column(Integer, ForeignKey("counterparties.id"))
+    full_name = Column(String(200), nullable=False)
+    post = Column(String(150))                 # должность (управляющий / закупщик / …)
+    phone = Column(String(100))
+    email = Column(String(150))
+    telegram = Column(String(150))
+    whatsapp = Column(String(150))
+    is_primary = Column(Boolean, default=False)  # основной контакт точки
+    notes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    lead = relationship("SalesLead", backref="contacts")
+    counterparty = relationship("Counterparty")
+
+
+class FieldVisit(Base):
+    """Визит торгового представителя к точке (план + факт).
+
+    Презейл-модель: торгпред приезжает, общается с ЛПР, фиксирует результат,
+    фото и следующий шаг. Результат визита переносится в SalesLead.call_status,
+    а сам контакт логируется в общую ленту LeadCall — чтобы история точки была
+    единой (и звонки телесейла, и визиты в полях).
+    """
+    __tablename__ = "field_visits"
+    id = Column(Integer, primary_key=True)
+    lead_id = Column(Integer, ForeignKey("sales_leads.id"), nullable=False, index=True)
+    rep_id = Column(Integer, ForeignKey("users.id"), index=True)        # торгпред
+    contact_id = Column(Integer, ForeignKey("contact_persons.id"))      # с кем общались
+    planned_date = Column(Date, index=True)                            # на какой день запланирован
+    status = Column(String(20), default="planned")                     # planned / done / skipped
+    checkin_at = Column(DateTime)                                      # фактическая отметка «начал визит»
+    checkout_at = Column(DateTime)                                     # «завершил визит»
+    gps_lat = Column(Float)                                            # координаты в момент чек-ина (необязательно)
+    gps_lng = Column(Float)
+    gps_distance_m = Column(Integer)                                   # расстояние до точки, м (для отчёта, не блокирует)
+    result = Column(String(20))                                       # маппится на call_status лида
+    comment = Column(Text)
+    next_step = Column(Text)                                          # договорённость / следующий шаг
+    next_visit_at = Column(Date)                                      # когда зайти снова
+    photos = Column(Text)                                             # JSON — список путей к фото
+    created_at = Column(DateTime, server_default=func.now())
+
+    lead = relationship("SalesLead")
+    rep = relationship("User")
+    contact = relationship("ContactPerson")
+
+
 class LogisticsCost(Base):
     """Затраты на логистику (импорт из Метафоры или ручной ввод)."""
     __tablename__ = "logistics_costs"

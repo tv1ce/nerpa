@@ -1,0 +1,90 @@
+{% extends "field/base_field.html" %}
+{% block title %}План{% endblock %}
+{% block page_title %}<i class="bi bi-plus-square"></i> Набрать точки{% endblock %}
+
+{% block content %}
+<form method="get" class="mb-2">
+  <div class="d-flex gap-2 mb-2">
+    <input type="date" name="date_str" value="{{ day.isoformat() }}"
+           class="form-control form-control-sm" style="max-width:160px">
+    <input type="search" name="q" value="{{ q }}" placeholder="Поиск: название, адрес…"
+           class="form-control form-control-sm">
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <select name="scope" class="form-select form-select-sm" style="max-width:150px">
+      <option value="mine" {% if scope=='mine' %}selected{% endif %}>Мои точки</option>
+      <option value="free" {% if scope=='free' %}selected{% endif %}>Свободные</option>
+      <option value="all"  {% if scope=='all' %}selected{% endif %}>Все</option>
+    </select>
+    <select name="city" class="form-select form-select-sm" style="max-width:150px">
+      <option value="">Город</option>
+      {% for c in cities %}<option value="{{ c }}" {% if c==city %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+    <select name="district" class="form-select form-select-sm" style="max-width:150px">
+      <option value="">Район</option>
+      {% for d in districts %}<option value="{{ d }}" {% if d==district %}selected{% endif %}>{{ d }}</option>{% endfor %}
+    </select>
+    <button class="btn btn-sm btn-primary"><i class="bi bi-funnel"></i></button>
+  </div>
+</form>
+
+<div class="d-flex align-items-center justify-content-between mb-2 mt-3">
+  <span class="text-muted" style="font-size:.85rem">Найдено: {{ leads|length }}{% if leads|length == 300 %}+{% endif %}</span>
+  <a href="/field/?date_str={{ day.isoformat() }}" class="btn btn-sm btn-success">
+    <i class="bi bi-check2 me-1"></i>К плану на {{ day.strftime("%d.%m") }}
+  </a>
+</div>
+
+{% if leads %}
+  {% for l in leads %}
+  <div class="fld-card p-2 mb-2 d-flex align-items-center gap-2" id="lead-row-{{ l.id }}">
+    <span class="badge-dot" style="background:var(--bs-{{ status_colors.get(l.call_status,'secondary') }})"></span>
+    <div class="flex-grow-1" style="min-width:0">
+      <div class="fw-semibold text-truncate">{{ l.name }}
+        {% if l.is_network %}<i class="bi bi-diagram-3 text-primary" title="Сеть" style="font-size:.8rem"></i>{% endif %}
+      </div>
+      <div class="text-muted text-truncate" style="font-size:.78rem">
+        {% if l.category %}{{ l.category }} · {% endif %}{{ l.city }}{% if l.district %}, {{ l.district }}{% endif %}
+      </div>
+    </div>
+    <button type="button" class="btn btn-sm plan-toggle
+            {% if l.id in planned_ids %}btn-success{% else %}btn-outline-primary{% endif %}"
+            data-id="{{ l.id }}" data-on="{{ 1 if l.id in planned_ids else 0 }}"
+            onclick="togglePlan(this)">
+      <i class="bi {% if l.id in planned_ids %}bi-check-lg{% else %}bi-plus-lg{% endif %}"></i>
+    </button>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-search" style="font-size:2rem; display:block; margin-bottom:8px"></i>
+    Ничего не найдено. Измени фильтры или импортируй базу в разделе «Прозвон».
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+var PLAN_DATE = {{ day.isoformat() | tojson }};
+async function togglePlan(btn){
+  var id = btn.dataset.id;
+  var on = btn.dataset.on === '1';
+  btn.disabled = true;
+  var url = on ? '/field/plan/remove' : '/field/plan/add';
+  var body = new URLSearchParams({ lead_id: id, date_str: PLAN_DATE });
+  try {
+    var r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body: body });
+    if (!r.ok) throw new Error();
+    on = !on;
+    btn.dataset.on = on ? '1' : '0';
+    btn.classList.toggle('btn-success', on);
+    btn.classList.toggle('btn-outline-primary', !on);
+    btn.querySelector('i').className = 'bi ' + (on ? 'bi-check-lg' : 'bi-plus-lg');
+  } catch(e) {
+    alert('Не удалось сохранить. Проверь связь.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+{% endblock %}

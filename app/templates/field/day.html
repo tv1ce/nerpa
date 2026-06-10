@@ -1,0 +1,114 @@
+{% extends "field/base_field.html" %}
+{% block title %}Мой день{% endblock %}
+{% block page_title %}<i class="bi bi-sun"></i> Мой день{% endblock %}
+
+{% block header_actions %}
+  <a href="/field/plan" class="fld-ico" title="Добавить точки"><i class="bi bi-plus-lg"></i></a>
+{% endblock %}
+
+{% block content %}
+{# Переключение даты #}
+<div class="d-flex align-items-center justify-content-between mb-2">
+  {% set prev = (day.toordinal() - 1) %}
+  <form method="get" class="d-flex align-items-center gap-2 w-100">
+    <input type="date" name="date_str" value="{{ day.isoformat() }}"
+           class="form-control form-control-sm" style="max-width:170px"
+           onchange="this.form.submit()">
+    {% if not is_today %}
+      <a href="/field/" class="btn btn-sm btn-outline-secondary">Сегодня</a>
+    {% endif %}
+  </form>
+</div>
+
+{# Прогресс дня #}
+<div class="fld-card p-3 mb-3">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <span class="fw-bold">{{ "Сегодня" if is_today else day.strftime("%d.%m.%Y") }}</span>
+    <span class="text-muted">{{ done }} / {{ total }} пройдено</span>
+  </div>
+  <div class="progress" style="height:7px">
+    <div class="progress-bar bg-success"
+         style="width:{% if total %}{{ (done/total*100)|round|int }}{% else %}0{% endif %}%"></div>
+  </div>
+  {% if route_pts %}
+  <a id="route-link" href="#" target="_blank" rel="noopener"
+     class="btn btn-outline-primary w-100 mt-3 btn-lg-touch">
+    <i class="bi bi-signpost-2 me-1"></i>Маршрут в Яндекс.Картах
+  </a>
+  {% endif %}
+</div>
+
+{# Список визитов #}
+{% if rows %}
+  {% for r in rows %}
+  {% set l = r.lead %}
+  <div class="fld-card p-3 mb-2 {% if r.visit.status == 'done' %}border-start border-success border-4{% endif %}">
+    <div class="d-flex align-items-start gap-2">
+      <span class="badge-dot mt-1" style="background:var(--bs-{{ r.color }})"></span>
+      <div class="flex-grow-1" style="min-width:0">
+        <a href="/field/lead/{{ l.id }}?visit_id={{ r.visit.id }}"
+           class="fw-semibold text-decoration-none text-dark d-block">{{ l.name }}</a>
+        {% if l.category %}<div class="text-muted" style="font-size:.8rem">{{ l.category }}</div>{% endif %}
+        {% if l.address %}<div class="text-muted" style="font-size:.8rem">
+          <i class="bi bi-geo-alt"></i> {{ l.city }}{% if l.city and l.address %}, {% endif %}{{ l.address }}
+        </div>{% endif %}
+        {% if r.visit.status == 'done' and r.result_label %}
+          <span class="badge text-bg-{{ r.color }} mt-1">{{ r.result_label }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2 mt-2">
+      {% if l.phone %}
+      <a href="tel:{{ l.phone }}" class="btn btn-sm btn-outline-secondary flex-fill">
+        <i class="bi bi-telephone"></i>
+      </a>{% endif %}
+      {% if l.lat and l.lng %}
+      <a href="https://yandex.ru/maps/?rtext=~{{ l.lat }},{{ l.lng }}&rtt=auto" target="_blank" rel="noopener"
+         class="btn btn-sm btn-outline-secondary flex-fill"><i class="bi bi-signpost"></i></a>
+      {% endif %}
+      <a href="/field/lead/{{ l.id }}?visit_id={{ r.visit.id }}"
+         class="btn btn-sm flex-fill {% if r.visit.status == 'done' %}btn-outline-success{% else %}btn-primary{% endif %}">
+        {% if r.visit.status == 'done' %}<i class="bi bi-check2"></i> Изменить{% else %}<i class="bi bi-play-fill"></i> Визит{% endif %}
+      </a>
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-calendar-x" style="font-size:2.4rem; display:block; margin-bottom:10px"></i>
+    На этот день точек нет.<br>
+    <a href="/field/plan" class="btn btn-primary mt-3 btn-lg-touch">
+      <i class="bi bi-plus-lg me-1"></i>Набрать точки
+    </a>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Кнопка «Маршрут в Яндекс.Картах»: первая точка = текущая геолокация, далее — точки дня
+(function(){
+  var link = document.getElementById('route-link');
+  if (!link) return;
+  var pts = {{ route_pts | tojson }};
+  function build(origin){
+    var parts = [];
+    if (origin) parts.push(origin[0] + ',' + origin[1]);
+    pts.forEach(function(p){ parts.push(p[0] + ',' + p[1]); });
+    link.href = 'https://yandex.ru/maps/?rtext=' + parts.join('~') + '&rtt=auto';
+  }
+  build(null);
+  link.addEventListener('click', function(e){
+    if (link.dataset.ready) return;            // уже с геолокацией
+    if (navigator.geolocation) {
+      e.preventDefault();
+      navigator.geolocation.getCurrentPosition(function(pos){
+        build([pos.coords.latitude, pos.coords.longitude]);
+        link.dataset.ready = '1';
+        window.open(link.href, '_blank', 'noopener');
+      }, function(){ window.open(link.href, '_blank', 'noopener'); }, { timeout: 4000 });
+    }
+  });
+})();
+</script>
+{% endblock %}

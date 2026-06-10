@@ -1,0 +1,97 @@
+{% extends "field/base_field.html" %}
+{% block title %}Карта{% endblock %}
+{% block page_title %}<i class="bi bi-map"></i> Мои точки{% endblock %}
+{% block header_actions %}
+  <button class="fld-ico" onclick="locateMe()" title="Где я"><i class="bi bi-crosshair"></i></button>
+{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+  .fld-content { padding:0 !important; max-width:none !important; }
+  #map { height: calc(100vh - var(--fld-head-h) - var(--fld-tab-h) - env(safe-area-inset-bottom)); width:100%; }
+  #filter-bar {
+    position:absolute; top:calc(var(--fld-head-h) + 8px); left:8px; right:8px; z-index:1000;
+    display:flex; gap:6px; justify-content:center;
+  }
+  #filter-bar .btn { box-shadow:0 2px 8px rgba(0,0,0,.18); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="filter-bar">
+  <button class="btn btn-sm btn-primary" id="f-today" onclick="setFilter('today')">План на сегодня</button>
+  <button class="btn btn-sm btn-light" id="f-all" onclick="setFilter('all')">Все мои ({{ total }})</button>
+</div>
+<div id="map"></div>
+{% if geocoded < total %}
+<div class="alert alert-warning py-2 mb-0"
+     style="position:absolute;bottom:calc(var(--fld-tab-h) + 12px);left:8px;right:8px;z-index:1000;font-size:.8rem">
+  <i class="bi bi-exclamation-triangle"></i> {{ total - geocoded }} точек без координат — геокодируй их в разделе «Прозвон → Карта».
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+const STATUS_COLOR = {
+  new:'#6c757d', callback:'#0dcaf0', no_answer:'#ffc107', interested:'#0d6efd',
+  thinking:'#6f42c1', refused:'#dc3545', deal:'#198754', invalid:'#212529',
+};
+const STATUS_LABEL = {{ statuses | tojson }};
+const map = L.map('map', { zoomControl:true }).setView([55.75, 37.62], 11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution:'© OpenStreetMap', maxZoom:19,
+}).addTo(map);
+const cluster = L.markerClusterGroup({ maxClusterRadius:45 });
+map.addLayer(cluster);
+let meMarker = null;
+let filter = 'today';
+
+function popup(d){
+  return '<div style="min-width:170px">'
+    + '<div style="font-weight:700">'+d.name+'</div>'
+    + (d.category?'<div style="color:#64748b;font-size:.8rem">'+d.category+'</div>':'')
+    + (d.address?'<div style="font-size:.78rem">'+(d.city?d.city+', ':'')+d.address+'</div>':'')
+    + (d.phone?'<div style="margin-top:3px"><a href="tel:'+d.phone+'">'+d.phone+'</a></div>':'')
+    + '<div style="margin-top:6px"><span style="background:'+(STATUS_COLOR[d.status]||'#6c757d')+';color:#fff;font-size:.7rem;padding:2px 7px;border-radius:6px">'+(STATUS_LABEL[d.status]||d.status)+'</span></div>'
+    + '<a href="/field/lead/'+d.id+'" style="display:block;text-align:center;margin-top:8px;background:#2563EB;color:#fff;padding:7px;border-radius:8px;text-decoration:none;font-weight:600">Открыть · Визит</a>'
+    + '</div>';
+}
+
+async function load(){
+  cluster.clearLayers();
+  const r = await fetch('/field/map/data?only=' + (filter === 'today' ? 'today' : ''));
+  const data = await r.json();
+  data.forEach(function(d){
+    const m = L.circleMarker([d.lat, d.lng], {
+      radius:9, fillColor:STATUS_COLOR[d.status]||'#6c757d', color:'#fff',
+      weight:2, fillOpacity:.9,
+    });
+    m.bindPopup(popup(d));
+    cluster.addLayer(m);
+  });
+  if (data.length){ map.fitBounds(cluster.getBounds(), { padding:[50,50], maxZoom:15 }); }
+}
+function setFilter(f){
+  filter = f;
+  document.getElementById('f-today').className = 'btn btn-sm ' + (f==='today'?'btn-primary':'btn-light');
+  document.getElementById('f-all').className   = 'btn btn-sm ' + (f==='all'?'btn-primary':'btn-light');
+  load();
+}
+function locateMe(){
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(function(pos){
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (meMarker) map.removeLayer(meMarker);
+    meMarker = L.marker(ll).addTo(map).bindPopup('Вы здесь').openPopup();
+    map.setView(ll, 14);
+  });
+}
+load();
+</script>
+{% endblock %}

@@ -5,7 +5,7 @@ from app.database import SessionLocal, verify_password
 from app.models import User
 import secrets as _secrets
 
-ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "viewer": 1, "warehouse": 1}
+ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1}
 
 
 def safe_redirect(url: str, default: str = "/") -> str:
@@ -20,6 +20,7 @@ def safe_redirect(url: str, default: str = "/") -> str:
 # Человекочитаемые названия ролей
 ROLE_LABELS = {
     "admin": "Администратор", "manager": "Менеджер", "sales": "Отдел продаж",
+    "field_rep": "Торговый представитель",
     "viewer": "Просмотр", "warehouse": "Склад",
 }
 
@@ -32,6 +33,19 @@ WAREHOUSE_ALLOWED_PREFIXES = (
     "/board",           # табло цеха
     "/settings/board",  # настройки табло цеха — кладовщик управляет планом/цитатами
     "/settings/profile",  # свой профиль (ДР, пароль) — доступен всем ролям
+    "/auth",
+    "/notifications",
+    "/static",
+    "/manifest.webmanifest",
+    "/sw.js",
+)
+
+# Разделы, доступные роли "field_rep" (торговый представитель — мобильное приложение).
+# Всё остальное (дашборд, счета, склад, настройки) ему недоступно.
+FIELD_ALLOWED_PREFIXES = (
+    "/field",
+    "/counterparties",   # просмотр карточки клиента (после конвертации точки)
+    "/settings/profile", # свой профиль (ДР, смена пароля)
     "/auth",
     "/notifications",
     "/static",
@@ -66,6 +80,16 @@ def _warehouse_check(request: Request):
     if role == "warehouse":
         path = request.url.path
         if not any(path.startswith(p) for p in WAREHOUSE_ALLOWED_PREFIXES):
+            return HTMLResponse(_403_HTML, status_code=403)
+    return None
+
+
+def _field_check(request: Request):
+    """Возвращает 403 если роль field_rep и путь вне его раздела."""
+    role = request.session.get("user_role", "viewer")
+    if role == "field_rep":
+        path = request.url.path
+        if not any(path.startswith(p) for p in FIELD_ALLOWED_PREFIXES):
             return HTMLResponse(_403_HTML, status_code=403)
     return None
 
@@ -120,7 +144,7 @@ def login_required(func):
         if getattr(user, "must_change_password", False):
             if not request.url.path.startswith(_CHANGE_PWD_PATH):
                 return RedirectResponse(url=_CHANGE_PWD_PATH, status_code=302)
-        denied = _warehouse_check(request)
+        denied = _warehouse_check(request) or _field_check(request)
         if denied:
             return denied
         # CSRF-проверка для изменяющих запросов
@@ -146,7 +170,7 @@ def role_required(min_role: str = "viewer"):
             if not user:
                 request.session.clear()
                 return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
-            denied = _warehouse_check(request)
+            denied = _warehouse_check(request) or _field_check(request)
             if denied:
                 return denied
             role = user.role  # берём роль из БД, не из сессии
