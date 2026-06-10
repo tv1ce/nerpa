@@ -772,6 +772,66 @@ async def map_data(request: Request, db: Session = Depends(get_db)):
     ]
 
 
+@router.post("/admin/sync-orders", response_class=JSONResponse)
+@role_required("manager")
+async def sync_from_orders(request: Request, db: Session = Depends(get_db)):
+    """Находит лидов с адресами из заказов и ставит им статус 'deal'."""
+    from app.models import Order
+
+    order_addresses = [
+        row[0].lower().strip()
+        for row in db.query(Order.delivery_address)
+            .filter(Order.delivery_address.isnot(None), Order.delivery_address != "")
+            .distinct().all()
+        if row[0] and row[0].strip()
+    ]
+
+    if not order_addresses:
+        return JSONResponse({"ok": True, "updated": 0, "msg": "Нет адресов в заказах"})
+
+    leads = db.query(SalesLead).filter(
+        SalesLead.is_active == True,
+        SalesLead.address.isnot(None),
+        SalesLead.address != "",
+        SalesLead.call_status != "deal",
+    ).all()
+
+    updated = 0
+    for lead in leads:
+        lead_addr = lead.address.lower().strip()
+        if len(lead_addr) < 5:
+            continue
+        for order_addr in order_addresses:
+            if lead_addr in order_addr or order_addr in lead_addr:
+                lead.call_status = "deal"
+                lead.last_call_at = datetime.now()
+                db.add(LeadCall(
+                    lead_id=lead.id,
+                    status="deal",
+                    comment="Авто: адрес совпадает с адресом доставки в заказе",
+                ))
+                updated += 1
+                break
+
+    db.commit()
+    return JSONResponse({"ok": True, "updated": updated})
+
+
+@router.post("/admin/delete-no-address", response_class=JSONResponse)
+@role_required("manager")
+async def delete_no_address(request: Request, db: Session = Depends(get_db)):
+    """Удаляет (деактивирует) лидов без адреса."""
+    from sqlalchemy import or_
+    q = db.query(SalesLead).filter(
+        SalesLead.is_active == True,
+        or_(SalesLead.address.is_(None), SalesLead.address == ""),
+    )
+    count = q.count()
+    q.update({SalesLead.is_active: False}, synchronize_session=False)
+    db.commit()
+    return JSONResponse({"ok": True, "deleted": count})
+
+
 @router.get("/geocode/status", response_class=JSONResponse)
 @login_required
 async def geocode_status(request: Request):
