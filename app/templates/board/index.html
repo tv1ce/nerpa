@@ -45,6 +45,7 @@
     .plan-head{display:flex;justify-content:space-between;align-items:baseline;
       font-size:2.3vh;color:var(--muted);margin-bottom:1vh}
     .plan-head b{color:var(--ink)}
+    #m-revenue{color:var(--green) !important}
     .plan-head .pct{font-weight:800;font-size:3vh;color:var(--purple)}
     .bar{height:3vh;background:var(--track);border-radius:2vh;overflow:hidden}
     .bar > div{
@@ -120,7 +121,7 @@
 
     /* ── Карточки-метрики ── */
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1.3vw;margin-bottom:1.4vh}
-    .stats2{display:grid;grid-template-columns:repeat(3,1fr);gap:1.3vw;margin-bottom:1.4vh}
+    .stats2{display:grid;grid-template-columns:repeat(2,1fr);gap:1.3vw;margin-bottom:1.4vh}
     .stat{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
       padding:1.8vh 1.2vw;text-align:center;box-shadow:var(--shadow);
       transition:background .5s,border-color .5s;
@@ -247,7 +248,6 @@
     <div class="label">Отгружено орешков за месяц</div>
     <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:.4vh 0">
       <span class="big" id="m-shipped">{{ data.shipped_month }}</span><span class="unit">шт</span>
-      <span class="money" id="m-money">{{ "{:,}".format(data.revenue_month).replace(",", " ") }} ₽</span>
     </div>
     <div id="record-badge" class="record-badge" style="display:{{ '' if data.is_record_today else 'none' }}">🏆 Рекорд дня!</div>
 
@@ -265,6 +265,7 @@
     <div class="stat today">
       <div class="v" id="m-today">{{ data.shipped_today }} шт</div>
       <div class="k">отгружено сегодня</div>
+      <div class="k" id="m-today-date" style="font-size:1.6vh;margin-top:.1vh"></div>
       <div class="sub" id="m-today-money">{{ "{:,}".format(data.shipped_today_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat year">
@@ -287,12 +288,8 @@
   <div class="stats2">
     <div class="stat prev-nuts">
       <div class="v" id="m-lm-nuts">{{ data.last_month_nuts }} шт</div>
-      <div class="k">орешков — прошлый месяц</div>
+      <div class="k">{{ data.last_month_name }}</div>
       <div class="sub" id="m-lm-nuts-money">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
-    </div>
-    <div class="stat prev-rev">
-      <div class="v" id="m-lm-rev">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }}</div>
-      <div class="k">выручка — прошлый месяц, ₽</div>
     </div>
     <div class="stat cost" id="stat-cost">
       <div class="v" id="m-cost">{{ data.cost_pct | round(1) }}%</div>
@@ -355,6 +352,9 @@
         d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
       document.getElementById('clock-date').textContent =
         d.toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
+      const todayDateEl = document.getElementById('m-today-date');
+      if (todayDateEl) todayDateEl.textContent =
+        d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
     }
     tick(); setInterval(tick, 1000);
 
@@ -601,7 +601,6 @@
     // ── Обновление данных (каждые 30 сек) ──
     function render(d){
       document.getElementById('m-shipped').textContent = fmt(d.shipped_month);
-      document.getElementById('m-money').textContent   = fmtR(d.revenue_month) + ' ₽';
       document.getElementById('m-revenue').textContent      = fmtR(d.revenue_month);
       document.getElementById('m-revenue-plan').textContent = fmtR(d.revenue_plan);
       document.getElementById('m-pct').textContent          = d.revenue_pct;
@@ -615,7 +614,6 @@
       // Прошлый месяц
       document.getElementById('m-lm-nuts').textContent      = fmt(d.last_month_nuts) + ' шт';
       document.getElementById('m-lm-nuts-money').textContent = fmtR(d.last_month_revenue) + ' ₽';
-      document.getElementById('m-lm-rev').textContent       = fmtR(d.last_month_revenue);
 
       // Себестоимость
       NUT_PRICE = d.nut_price; COST_NORM = d.cost_norm_pct; COST_DEV = d.cost_deviation;

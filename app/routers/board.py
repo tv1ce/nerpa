@@ -178,6 +178,10 @@ def _collect_metrics(db: Session) -> dict:
                 break
     birthdays_upcoming.sort(key=lambda x: x["in_days"])
 
+    MONTHS_RU = ["январь","февраль","март","апрель","май","июнь",
+                 "июль","август","сентябрь","октябрь","ноябрь","декабрь"]
+    last_month_name = f"{MONTHS_RU[last_month_end.month - 1]} {last_month_end.year}"
+
     # Рекорд дня текущего месяца (только KPI-товары)
     best_day_row = (
         db.query(
@@ -222,6 +226,7 @@ def _collect_metrics(db: Session) -> dict:
         "is_record_today":     is_record_today,
         "last_month_nuts":     last_month_nuts,
         "last_month_revenue":  last_month_revenue,
+        "last_month_name":     last_month_name,
         "nut_price":           nut_price,
         "cost_pct":            cost_pct,
         "cost_norm_pct":       cost_norm_pct,
