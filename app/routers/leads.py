@@ -726,14 +726,31 @@ async def export_xlsx(
 
 # Состояние фонового геокодирования (singleton, один сервер)
 _geo_state: dict = {"running": False, "done": 0, "total": 0, "errors": 0}
+# ID лидов, для которых геокодирование уже пробовали и Nominatim ничего не вернул.
+# Сбрасывается при рестарте сервера — тогда можно попробовать снова.
+_geocode_failed_ids: set[int] = set()
 
 
 @router.get("/map", response_class=HTMLResponse)
 @login_required
 async def leads_map(request: Request, db: Session = Depends(get_db)):
+    from sqlalchemy import or_
     base = db.query(SalesLead).filter(SalesLead.is_active == True)
-    total = base.count()
-    geocoded = base.filter(SalesLead.lat.isnot(None)).count()
+    # Считаем только геокодируемые (есть адрес или город) — остальные никогда не получат координаты
+    from sqlalchemy import and_
+    geocodable = base.filter(
+        or_(
+            and_(SalesLead.city.isnot(None), SalesLead.city != ""),
+            and_(SalesLead.address.isnot(None), SalesLead.address != ""),
+        )
+    )
+    geocoded = geocodable.filter(SalesLead.lat.isnot(None)).count()
+    # Ещё не геокодированные, исключая те, которые уже пробовали — Nominatim не нашёл адрес
+    remaining_q = geocodable.filter(SalesLead.lat.is_(None))
+    if _geocode_failed_ids:
+        remaining_q = remaining_q.filter(~SalesLead.id.in_(_geocode_failed_ids))
+    remaining = remaining_q.count()
+    total = geocoded + remaining
     users = db.query(User).filter(User.is_active == True, User.role == "sales").order_by(User.full_name).all()
     return templates.TemplateResponse(request, "leads/map.html", {
         "total": total, "geocoded": geocoded,
@@ -845,10 +862,13 @@ async def geocode_leads(request: Request, db: Session = Depends(get_db)):
     if _geo_state["running"]:
         return JSONResponse({"error": "already_running", **_geo_state}, status_code=409)
 
-    pending = db.query(SalesLead.id, SalesLead.city, SalesLead.address).filter(
+    pending_q = db.query(SalesLead.id, SalesLead.city, SalesLead.address).filter(
         SalesLead.is_active == True,
         SalesLead.lat.is_(None),
-    ).all()
+    )
+    if _geocode_failed_ids:
+        pending_q = pending_q.filter(~SalesLead.id.in_(_geocode_failed_ids))
+    pending = pending_q.all()
 
     if not pending:
         return JSONResponse({"ok": True, "done": 0, "total": 0})
@@ -874,6 +894,7 @@ async def geocode_leads(request: Request, db: Session = Depends(get_db)):
                         s.commit()
                 else:
                     _geo_state["errors"] += 1
+                    _geocode_failed_ids.add(lead_id)  # не спрашивать Nominatim про этот адрес снова
                 _geo_state["done"] = i + 1
                 if i < len(items) - 1:
                     time.sleep(1.15)
