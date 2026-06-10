@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -124,6 +124,7 @@ async def mark_assembled(request: Request, order_id: int, db: Session = Depends(
     if order and order.ready_for_assembly:
         old = order.status
         order.status = "assembled"
+        order.assembled_at = datetime.now()   # момент отгрузки для табло цеха
         log_action(db, "order", order_id, "status_changed",
                    request.session.get("user_id"),
                    "Заказ собран кладовщиком",

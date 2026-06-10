@@ -1,7 +1,7 @@
 import json
 import os
 import uuid as _uuid
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -383,6 +383,10 @@ async def change_status(request: Request, order_id: int,
     if allowed:
         old_status = order.status
         order.status = status
+        # Фиксируем момент сборки при первом переходе в «Собран» — табло цеха
+        # считает заказ отгруженным именно с этого времени.
+        if status == "assembled" and order.assembled_at is None:
+            order.assembled_at = datetime.now()
         log_action(db, "order", order_id, "status_changed",
                    request.session.get("user_id"),
                    f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → {ORDER_STATUSES.get(status, status)}",

@@ -156,6 +156,8 @@ def _migrate_db():
         # Напоминания о прозвонах — отдельный чат и флаг вкл/выкл
         ("company_settings", "tg_callback_chat_ids", "TEXT"),
         ("company_settings", "tg_callback_enabled",  "INTEGER DEFAULT 1"),
+        # Момент сборки заказа (нажатие «Собрано») — для учёта отгрузки на табло
+        ("orders", "assembled_at", "TIMESTAMP"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

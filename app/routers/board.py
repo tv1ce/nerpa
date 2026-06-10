@@ -26,8 +26,10 @@ BOARD_KEY = os.getenv("TMS_BOARD_KEY", "tseh2026")
 # Метка запуска сервера — клиенты следят за ней и перезагружают страницу при изменении
 SERVER_START = int(time.time())
 
-# Статусы заказов, считающиеся отгрузкой (всё, кроме черновика и отмены)
-_SOLD = ["confirmed", "paid", "assembled", "handed", "delivered"]
+# Статусы заказов, считающиеся отгрузкой.
+# Орешки и выручка попадают в табло только ПОСЛЕ того, как кладовщик нажал
+# «Собрано» (статус assembled). До сборки (confirmed/paid) заказ не учитываем.
+_SOLD = ["assembled", "handed", "delivered"]
 
 # Значения по умолчанию, если в настройках пусто
 DEFAULT_QUOTES = [
@@ -96,6 +98,10 @@ def _collect_metrics(db: Session) -> dict:
         if _kpi.lower() in p.name.lower()
     ]
 
+    # Дата отгрузки = дата сборки (нажатие «Собрано»). Для старых заказов,
+    # собранных до появления assembled_at, откатываемся на дату заказа.
+    ship_date = func.coalesce(func.date(Order.assembled_at), func.date(Order.date))
+
     def _nuts(*filters):
         if not _kpi_ids:
             return 0
@@ -118,14 +124,14 @@ def _collect_metrics(db: Session) -> dict:
         return int(q.scalar() or 0)
 
     shipped_total = _nuts()
-    shipped_month = _nuts(Order.date >= month_start)
-    shipped_today = _nuts(Order.date == today)
-    shipped_year  = _nuts(Order.date >= year_start)
+    shipped_month = _nuts(ship_date >= month_start)
+    shipped_today = _nuts(ship_date == today)
+    shipped_year  = _nuts(ship_date >= year_start)
 
-    last_month_nuts    = _nuts(Order.date >= last_month_start, Order.date <= last_month_end)
-    last_month_revenue = _revenue(Order.date >= last_month_start, Order.date <= last_month_end)
+    last_month_nuts    = _nuts(ship_date >= last_month_start, ship_date <= last_month_end)
+    last_month_revenue = _revenue(ship_date >= last_month_start, ship_date <= last_month_end)
 
-    revenue_month = _revenue(Order.date >= month_start)
+    revenue_month = _revenue(ship_date >= month_start)
 
     company      = db.query(CompanySettings).first()
     plan         = int(company.board_nuts_plan or 0) if company else 0
@@ -186,19 +192,19 @@ def _collect_metrics(db: Session) -> dict:
                  "июль","август","сентябрь","октябрь","ноябрь","декабрь"]
     last_month_name = f"{MONTHS_RU[last_month_end.month - 1]} {last_month_end.year}"
 
-    # Рекорд дня текущего месяца (только KPI-товары)
+    # Рекорд дня текущего месяца (только KPI-товары), по дате отгрузки (сборки)
     best_day_row = (
         db.query(
-            func.date(Order.date).label("day"),
+            ship_date.label("day"),
             func.sum(OrderItem.quantity).label("total"),
         )
         .join(Order, OrderItem.order_id == Order.id)
         .filter(
             Order.status.in_(_SOLD),
-            Order.date >= month_start,
+            ship_date >= month_start,
             OrderItem.product_id.in_(_kpi_ids) if _kpi_ids else False,
         )
-        .group_by(func.date(Order.date))
+        .group_by(ship_date)
         .order_by(func.sum(OrderItem.quantity).desc())
         .first()
     )

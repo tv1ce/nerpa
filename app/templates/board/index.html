@@ -16,8 +16,16 @@
     body{
       font-family:'Fira Sans','Segoe UI',system-ui,sans-serif;
       background:radial-gradient(circle at 22% -10%,var(--bg1),var(--bg2) 70%);
-      color:var(--ink);height:100vh;display:flex;flex-direction:column;padding:2.2vh 2.6vw;
+      color:var(--ink);height:100vh;width:100vw;
+      display:flex;align-items:center;justify-content:center;
       transition:background 4s ease;
+    }
+    /* Сцена масштабируется в JS (fitStage), чтобы целиком влезть в любой экран ТВ */
+    #stage{
+      width:100vw;padding:2.2vh 2.6vw;
+      display:flex;flex-direction:column;
+      transform-origin:center center;
+      will-change:transform;
     }
 
     /* ── Шапка ── */
@@ -166,7 +174,7 @@
       background:var(--purple);color:#fff;border:none;cursor:pointer}
 
     /* ── Лента мотивашек ── */
-    .ticker{margin-top:auto;background:var(--card);border:1px solid var(--line);
+    .ticker{margin-top:.4vh;background:var(--card);border:1px solid var(--line);
       border-radius:1.8vh;padding:2.4vh 3vw;text-align:center;min-height:10vh;
       display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);
       transition:background .5s,border-color .5s;}
@@ -220,6 +228,7 @@
 <canvas id="confetti-canvas"></canvas>
 <div id="night-overlay"></div>
 
+<div id="stage">
   <header>
     <div class="company">🥜 {{ data.company_name }}</div>
     <div class="clock">
@@ -319,6 +328,7 @@
 
   <!-- Лента мотивашек -->
   <div class="ticker"><div class="quote" id="quote"></div></div>
+</div><!-- /#stage -->
 
   <audio id="player"></audio>
 
@@ -357,6 +367,36 @@
         d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
     }
     tick(); setInterval(tick, 1000);
+
+    // ── Адаптив: масштабируем сцену под размер экрана ─────────────────────────
+    // Контент свёрстан в vh/vw, но из-за разных пропорций ТВ (и баннеров ДР)
+    // суммарная высота может превышать экран. Берём «натуральную» высоту сцены
+    // и ужимаем её через transform:scale, чтобы всё всегда влезало целиком.
+    const stage = document.getElementById('stage');
+    let _fitRaf = null;
+    function fitStage(){
+      if (!stage) return;
+      stage.style.transform = 'none';
+      const nh = stage.offsetHeight;
+      const nw = stage.offsetWidth;          // = ширине экрана (100vw)
+      if (!nh || !nw) return;
+      const scale = Math.min(window.innerWidth / nw, window.innerHeight / nh);
+      stage.style.transform = 'scale(' + scale + ')';
+    }
+    function scheduleFit(){
+      if (_fitRaf) cancelAnimationFrame(_fitRaf);
+      _fitRaf = requestAnimationFrame(fitStage);
+    }
+    window.addEventListener('resize', scheduleFit);
+    window.addEventListener('orientationchange', scheduleFit);
+    // Любое изменение раскладки (ДР, длина цитаты, перенос чипов) — переподгон
+    if (window.ResizeObserver){
+      new ResizeObserver(scheduleFit).observe(stage);
+    }
+    // Шрифты грузятся асинхронно — пересчитываем после их загрузки
+    if (document.fonts && document.fonts.ready){ document.fonts.ready.then(scheduleFit); }
+    fitStage();
+    setTimeout(fitStage, 300);   // подстраховка для медленного рендера на ТВ
 
     // ── Ночной режим (вне рабочего времени) ──
     function updateNightMode(){
@@ -536,48 +576,79 @@
 
     // ── Авто-переподключение радио ───────────────────────────────────────────
     // Интернет-радио (icecast) при сетевом сбое или обрыве со стороны станции
-    // останавливает <audio> и сам не возобновляется. Следим за событиями обрыва
-    // и за тем, что воспроизведение реально идёт; при зависании — переподключаемся.
-    let lastProgressAt = Date.now();
+    // останавливает <audio> и сам не возобновляется. Бывает и «тихий» обрыв:
+    // плеер не на паузе, error не приходит, но звук стоит. Поэтому надёжнее
+    // всего следить за реальным продвижением currentTime, а не за событиями.
     let reconnecting = false;
+    let reconnectFails = 0;
+    let lastTime = 0;            // последнее значение player.currentTime
+    let lastAdvanceAt = Date.now(); // когда currentTime в последний раз двигался
+
+    // Mixed-content: HTTP-поток на HTTPS-странице браузер молча блокирует.
+    // Это частая причина «музыка не играет/пропадает» — предупреждаем в консоль.
+    function checkMixedContent(){
+      const s = STATIONS[active];
+      if (s && location.protocol === 'https:' && /^http:\/\//i.test(s.url)){
+        console.warn('[radio] Поток по HTTP на HTTPS-странице будет заблокирован браузером:', s.url);
+        return true;
+      }
+      return false;
+    }
 
     function reconnectStream(reason){
       if (MUTE || reconnecting) return;
       const s = STATIONS[active];
       if (!s) return;
       reconnecting = true;
+      console.info('[radio] reconnect:', reason, '→', s.name);
       try {
         player.src = s.url;   // повторная установка + load() = новое соединение
         player.load();
       } catch(e){}
       player.play()
-        .then(()=> { soundBtn.style.display='none'; lastProgressAt = Date.now(); })
-        .catch(()=> { soundBtn.style.display=''; })
-        .finally(()=> { setTimeout(()=> { reconnecting = false; }, 1500); });
+        .then(()=> {
+          soundBtn.style.display='none';
+          reconnectFails = 0;
+          lastAdvanceAt = Date.now();
+        })
+        .catch(()=> {
+          soundBtn.style.display='';
+          reconnectFails++;
+        })
+        .finally(()=> {
+          // Бэкофф: чем больше неудач подряд, тем дольше ждём (до 10с)
+          const backoff = Math.min(1500 + reconnectFails * 1500, 10000);
+          setTimeout(()=> { reconnecting = false; }, backoff);
+        });
     }
 
-    // Прогресс воспроизведения — обновляем «время последней активности»
-    ['playing','timeupdate'].forEach(ev =>
-      player.addEventListener(ev, () => { lastProgressAt = Date.now(); })
-    );
+    // Явный сброс счётчика при успешном старте воспроизведения
+    player.addEventListener('playing', () => {
+      reconnectFails = 0;
+      lastAdvanceAt = Date.now();
+    });
     // События обрыва потока — переподключаемся с небольшой задержкой
     ['error','stalled','ended','emptied','abort'].forEach(ev =>
-      player.addEventListener(ev, () => { if (!MUTE) setTimeout(()=> reconnectStream(ev), 2000); })
+      player.addEventListener(ev, () => { if (!MUTE) setTimeout(()=> reconnectStream(ev), 1500); })
     );
 
-    // Сторожевой таймер: каждые 10с проверяем, что звук идёт.
-    // Если не на паузе пользователем, но прогресса нет > 20с или плеер «встал» — реконнект.
+    // Сторожевой таймер каждые 5с: главный критерий — двигается ли currentTime.
+    // Если за 12с звук не продвинулся (или плеер на паузе) — переподключаемся.
     setInterval(() => {
       if (MUTE || !STATIONS[active]) return;
-      const stuck = (Date.now() - lastProgressAt) > 20000;
-      if (player.paused || stuck) reconnectStream('watchdog');
-    }, 10000);
+      const t = player.currentTime || 0;
+      if (t > lastTime + 0.1){ lastTime = t; lastAdvanceAt = Date.now(); }
+      const stuck = (Date.now() - lastAdvanceAt) > 12000;
+      if (player.paused || stuck) reconnectStream(player.paused ? 'paused' : 'stuck');
+    }, 5000);
 
     // Возврат вкладки в фокус / восстановление сети — сразу проверяем поток
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && !MUTE && player.paused) reconnectStream('visible');
     });
     window.addEventListener('online', () => { if (!MUTE) reconnectStream('online'); });
+
+    checkMixedContent();
 
     // ── Себестоимость: цвет и полоса ──
     function renderCost(pct, norm, dev){
