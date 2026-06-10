@@ -40,9 +40,10 @@
 
 {# Список визитов #}
 {% if rows %}
+  <div class="fld-grid">
   {% for r in rows %}
   {% set l = r.lead %}
-  <div class="fld-card p-3 mb-2 {% if r.visit.status == 'done' %}border-start border-success border-4{% endif %}">
+  <div class="fld-card p-3 {% if r.visit.status == 'done' %}border-start border-success border-4{% endif %}" id="plan-card-{{ l.id }}">
     <div class="d-flex align-items-start gap-2">
       <span class="badge-dot mt-1" style="background:var(--bs-{{ r.color }})"></span>
       <div class="flex-grow-1" style="min-width:0">
@@ -56,6 +57,12 @@
           <span class="badge text-bg-{{ r.color }} mt-1">{{ r.result_label }}</span>
         {% endif %}
       </div>
+      {% if r.visit.status != 'done' %}
+      <button type="button" class="btn btn-sm btn-link text-danger p-0 ms-1"
+              title="Убрать из плана" onclick="removeFromPlan({{ l.id }})">
+        <i class="bi bi-x-circle" style="font-size:1.2rem"></i>
+      </button>
+      {% endif %}
     </div>
     <div class="d-flex gap-2 mt-2">
       {% if l.phone %}
@@ -73,6 +80,7 @@
     </div>
   </div>
   {% endfor %}
+  </div>
 {% else %}
   <div class="text-center text-muted py-5">
     <i class="bi bi-calendar-x" style="font-size:2.4rem; display:block; margin-bottom:10px"></i>
@@ -86,6 +94,19 @@
 
 {% block scripts %}
 <script>
+var DAY_STR = {{ day.isoformat() | tojson }};
+async function removeFromPlan(leadId){
+  if (!confirm('Убрать точку из плана на день?')) return;
+  try {
+    var r = await fetch('/field/plan/remove', {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({ lead_id: leadId, date_str: DAY_STR }),
+    });
+    if (!r.ok) throw new Error();
+    var card = document.getElementById('plan-card-' + leadId);
+    if (card) card.remove();
+  } catch(e) { alert('Не удалось убрать. Проверь связь.'); }
+}
 // Кнопка «Маршрут в Яндекс.Картах»: первая точка = текущая геолокация, далее — точки дня
 (function(){
   var link = document.getElementById('route-link');
