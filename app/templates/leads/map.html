@@ -171,6 +171,7 @@ const STATUS_LABEL = {
 
 // ── Инициализация карты ───────────────────────────────────────────────────
 const map = L.map('map', { zoomControl: true }).setView([55.75, 37.62], 10);
+map.attributionControl.setPrefix(false);  // убрать префикс «Leaflet» с флагом
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',

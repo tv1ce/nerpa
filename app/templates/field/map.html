@@ -44,6 +44,7 @@ const STATUS_COLOR = {
 };
 const STATUS_LABEL = {{ statuses | tojson }};
 const map = L.map('map', { zoomControl:true }).setView([55.75, 37.62], 11);
+map.attributionControl.setPrefix(false);  // убрать префикс «Leaflet» с флагом
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution:'© OpenStreetMap', maxZoom:19,
 }).addTo(map);
