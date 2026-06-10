@@ -100,6 +100,7 @@ rsync -a --delete \
     --exclude='.env' \
     --exclude='logs/' \
     --exclude='generated/' \
+    --exclude='document_templates/' \
     --exclude='app_dist/' \
     --exclude='tests/' \
     --exclude='android/' \
