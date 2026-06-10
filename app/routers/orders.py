@@ -258,10 +258,13 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
         AuditLog.entity_type == "order", AuditLog.entity_id == order_id
     ).order_by(AuditLog.created_at.desc()).limit(50).all()
     users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
+    from app.routers.files import files_for, FILE_TYPES
+    files = files_for(db, "order", order_id)
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
         "tasks": tasks, "comments": comments, "activity": activity, "users": users,
+        "files": files, "file_types": FILE_TYPES["order"],
         "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
         "assembly_queue_count": _assembly_queue_count(db),
     })

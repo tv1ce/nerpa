@@ -42,6 +42,9 @@ generated/
 # User uploads
 app/static/uploads/
 
+# Прикреплённые документы карточек (договора, счета, УПД, ТН) — приватные
+uploads/
+
 # Claude Code local tooling
 .claude/
 

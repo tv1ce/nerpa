@@ -38,6 +38,81 @@
   </div>
 </div>
 
+{# ── Прогноз кассового потока по неделям ─────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex align-items-center flex-wrap gap-2">
+    <span class="fw-semibold"><i class="bi bi-graph-up-arrow me-2 text-success"></i>Прогноз поступлений · {{ forecast.n_weeks }} недель</span>
+    <span class="text-muted ms-auto" style="font-size:.85rem">
+      Ожидается всего: <strong class="text-success">{{ forecast.expected_total | money }} ₽</strong>
+    </span>
+  </div>
+  <div class="px-4 pb-3">
+
+    {% if forecast.overdue.count %}
+    <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-3" style="font-size:.88rem">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      <span>Просрочено и ожидается сейчас: <strong>{{ forecast.overdue.total | money }} ₽</strong> ({{ forecast.overdue.count }} сч.)</span>
+    </div>
+    {% endif %}
+
+    {# ── Гистограмма по неделям ── #}
+    <div class="d-flex align-items-end gap-2 mb-2" style="height:130px">
+      {% for w in forecast.weeks %}
+      {% set pct = (w.total / forecast.max_week * 100) if forecast.max_week else 0 %}
+      <div class="flex-fill d-flex flex-column align-items-center justify-content-end h-100" style="min-width:0"
+           title="{{ w.start | date_fmt }} – {{ w.end | date_fmt }}: {{ w.total | money }} ₽, счетов: {{ w.count }}">
+        <div class="text-muted mb-1 text-truncate w-100 text-center" style="font-size:.66rem">
+          {% if w.total %}{{ (w.total / 1000) | round | int }}к{% endif %}
+        </div>
+        <div class="w-100 rounded-top position-relative"
+             style="height:{{ pct if pct > 0 else 0 }}%; min-height:{% if w.total %}4px{% else %}0{% endif %};
+                    background:{% if w.is_gap %}repeating-linear-gradient(45deg,#fef2f2,#fef2f2 4px,#fee2e2 4px,#fee2e2 8px){% elif w.index == 0 %}#16a34a{% else %}#86efac{% endif %}">
+        </div>
+        {% if w.is_gap %}
+        <div class="text-danger mt-1" style="font-size:.6rem" title="Неделя без ожидаемых поступлений — возможный кассовый разрыв"><i class="bi bi-dash-circle"></i></div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+
+    {# ── Таблица недель ── #}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" style="font-size:.84rem">
+        <thead class="text-muted">
+          <tr>
+            <th>Неделя</th>
+            <th class="text-end">Ожидается, ₽</th>
+            <th class="text-center">Счетов</th>
+            <th class="text-end">Накопительно, ₽</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for w in forecast.weeks %}
+          <tr class="{% if w.is_gap %}table-danger{% elif w.index == 0 %}table-success{% endif %}">
+            <td class="text-nowrap">
+              {% if w.index == 0 %}<span class="badge bg-success me-1" style="font-size:.62rem">тек.</span>{% endif %}
+              {{ w.start | date_fmt }} – {{ w.end | date_fmt }}
+              {% if w.is_gap %}<span class="text-danger ms-1" style="font-size:.78rem" title="Возможный кассовый разрыв">провал</span>{% endif %}
+            </td>
+            <td class="text-end fw-semibold {% if not w.total %}text-muted{% endif %}">{{ w.total | money }}</td>
+            <td class="text-center text-muted">{{ w.count or '—' }}</td>
+            <td class="text-end text-muted">{{ w.cumulative | money }}</td>
+          </tr>
+          {% endfor %}
+          {% if forecast.later.count %}
+          <tr class="text-muted">
+            <td class="text-nowrap">Позже {{ forecast.n_weeks }} нед.</td>
+            <td class="text-end">{{ forecast.later.total | money }}</td>
+            <td class="text-center">{{ forecast.later.count }}</td>
+            <td></td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 {# ── Таблица, сгруппированная по контрагентам ───────────────────────────────── #}
 {% if rows %}
 <div class="card border-0 shadow-sm">

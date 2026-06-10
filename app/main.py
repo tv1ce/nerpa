@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -391,6 +391,7 @@ app.include_router(logistics.router)
 app.include_router(leads.router)
 app.include_router(recon.router)
 app.include_router(field.router)
+app.include_router(files.router)
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────
@@ -479,6 +480,22 @@ def _from_json(v):
 
 _templates.env.filters["from_json"] = _from_json
 
+
+def _fmt_filesize(value):
+    """Человекочитаемый размер файла: 2,4 МБ / 512 КБ / 320 Б."""
+    try:
+        n = float(value or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if n < 1024:
+        return f"{int(n)} Б"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.0f} КБ"
+    return f"{n / 1024 / 1024:.1f} МБ".replace(".", ",")
+
+
+_templates.env.filters["filesize"] = _fmt_filesize
+
 # Патчим все роутеры, чтобы они использовали тот же env
 import app.routers.auth as _r_auth
 import app.routers.dashboard as _r_dash
@@ -500,6 +517,7 @@ import app.routers.logistics as _r_logistics
 import app.routers.leads as _r_leads
 import app.routers.recon as _r_recon
 import app.routers.field as _r_field
+import app.routers.files as _r_files
 
-for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field]:
+for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files]:
     _mod.templates = _templates

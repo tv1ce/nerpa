@@ -447,6 +447,13 @@
   </div>
 </div>
 
+{# ── Документы ── #}
+<div class="mt-3">
+  {% with entity_type="order", entity_id=order.id, files=files, file_types=file_types %}
+  {% include "_files_widget.html" %}
+  {% endwith %}
+</div>
+
 {# ── Лог изменений ── #}
 {% if activity %}
 <div class="card border-0 shadow-sm mt-3">

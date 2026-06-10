@@ -37,6 +37,75 @@ def overdue_deadline(inv: Invoice) -> date | None:
         return inv.due_date + timedelta(days=delay)
 
 
+def week_start(d: date) -> date:
+    """Понедельник недели, в которую попадает дата."""
+    return d - timedelta(days=d.weekday())
+
+
+def build_forecast(db: Session, n_weeks: int = 8) -> dict:
+    """Прогноз кассового потока: ожидаемые поступления по неделям вперёд.
+
+    Каждый открытый счёт (issued/overdue) ожидается к оплате к дате
+    overdue_deadline (срок с учётом отсрочки КА). Раскладываем по неделям:
+    — просроченные/прошлые сроки → бакет «Просрочено» (ждём сейчас);
+    — в пределах горизонта        → соответствующая неделя;
+    — за горизонтом               → бакет «Позже».
+    Неделя без поступлений помечается как провал (is_gap) — потенциальный разрыв.
+    """
+    today = date.today()
+    cur_ws = week_start(today)
+    horizon_end = cur_ws + timedelta(weeks=n_weeks)  # exclusive
+
+    weeks = []
+    for i in range(n_weeks):
+        ws = cur_ws + timedelta(weeks=i)
+        weeks.append({
+            "start": ws, "end": ws + timedelta(days=6), "index": i,
+            "total": 0.0, "count": 0, "invoices": [], "cumulative": 0.0, "is_gap": False,
+        })
+    overdue = {"total": 0.0, "count": 0, "invoices": []}
+    later = {"total": 0.0, "count": 0, "invoices": []}
+
+    invoices = (
+        db.query(Invoice)
+        .filter(Invoice.status.in_(["issued", "overdue"]), Invoice.due_date.isnot(None))
+        .all()
+    )
+    for inv in invoices:
+        deadline = overdue_deadline(inv)
+        if not deadline:
+            continue
+        amt = inv.total_amount
+        if deadline < cur_ws:
+            bucket = overdue
+        elif deadline >= horizon_end:
+            bucket = later
+        else:
+            bucket = weeks[(deadline - cur_ws).days // 7]
+        bucket["total"] += amt
+        bucket["count"] += 1
+        bucket["invoices"].append({"invoice": inv, "deadline": deadline})
+
+    # Накопительный итог (просроченное считаем доступным «сейчас»)
+    running = overdue["total"]
+    max_week = max((w["total"] for w in weeks), default=0.0)
+    for w in weeks:
+        running += w["total"]
+        w["cumulative"] = running
+        w["is_gap"] = w["total"] == 0
+    # Сортируем счета внутри бакетов по сроку
+    for w in weeks:
+        w["invoices"].sort(key=lambda r: r["deadline"])
+    overdue["invoices"].sort(key=lambda r: r["deadline"])
+    later["invoices"].sort(key=lambda r: r["deadline"])
+
+    expected_total = overdue["total"] + sum(w["total"] for w in weeks) + later["total"]
+    return {
+        "weeks": weeks, "overdue": overdue, "later": later,
+        "expected_total": expected_total, "max_week": max_week, "n_weeks": n_weeks,
+    }
+
+
 def refresh_overdue(db: Session) -> None:
     """Автоматически переводит просроченные счета в статус 'overdue'."""
     today = date.today()
@@ -131,6 +200,8 @@ async def receivables_list(request: Request, db: Session = Depends(get_db)):
         reverse=True,
     )
 
+    forecast = build_forecast(db, n_weeks=8)
+
     return templates.TemplateResponse(request, "receivables/index.html", {
         "rows": rows,
         "groups": groups,
@@ -138,5 +209,6 @@ async def receivables_list(request: Request, db: Session = Depends(get_db)):
         "overdue_amount": overdue_amount,
         "overdue_count": overdue_count,
         "max_overdue_days": max_overdue_days,
+        "forecast": forecast,
         "today": today,
     })

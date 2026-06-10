@@ -317,11 +317,16 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
     ).order_by(AuditLog.created_at.desc()).limit(50).all()
     users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
 
+    from app.routers.files import files_for, FILE_TYPES
+    files = files_for(db, "counterparty", cp_id)
+
     return templates.TemplateResponse(request, "counterparties/detail.html", {
         "cp": cp,
         "cp_types": CP_TYPES,
         "entity_types": ENTITY_TYPES,
         "cat_colors": CAT_COLORS,
+        "files": files,
+        "file_types": FILE_TYPES["counterparty"],
         "total_orders": len(cp.orders),
         "total_revenue": total_revenue,
         "open_debt": open_debt,

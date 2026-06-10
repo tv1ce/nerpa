@@ -547,6 +547,28 @@ class FieldVisit(Base):
     contact = relationship("ContactPerson")
 
 
+class AttachedFile(Base):
+    """Прикреплённый документ к карточке контрагента или заказа.
+
+    Хранится вне app/static (документы приватные!) — в каталоге uploads/ в корне
+    проекта, отдаётся только через защищённый роут /files/{id}/download.
+    """
+    __tablename__ = "attached_files"
+    id = Column(Integer, primary_key=True)
+    entity_type = Column(String(20), nullable=False)   # counterparty / order
+    entity_id = Column(Integer, nullable=False)
+    file_type = Column(String(30), default="other")
+    # КА: contract / extra / other · Заказ: invoice / upd / tn / other
+    original_name = Column(String(300), nullable=False)
+    stored_path = Column(String(500), nullable=False)   # относительный путь от корня проекта
+    size_original = Column(Integer, default=0)           # байт до сжатия
+    size_compressed = Column(Integer, default=0)         # байт после сжатия (= original, если не сжимали)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"))
+    uploaded_at = Column(DateTime, server_default=func.now())
+
+    uploaded_by = relationship("User")
+
+
 class LogisticsCost(Base):
     """Затраты на логистику (импорт из Метафоры или ручной ввод)."""
     __tablename__ = "logistics_costs"
@@ -583,3 +605,5 @@ Index("ix_sales_leads_assigned_to_id", SalesLead.assigned_to_id)
 Index("ix_audit_logs_entity", AuditLog.entity_type, AuditLog.entity_id)
 
 Index("ix_stock_movements_product_id", StockMovement.product_id)
+
+Index("ix_attached_files_entity", AttachedFile.entity_type, AttachedFile.entity_id)
