@@ -236,7 +236,6 @@ async def update_invoice(
     contract_id: int = Form(default=0),
     status: str = Form(default="draft"),
     due_date: str = Form(default=""),
-    paid_date: str = Form(default=""),
     notes: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
@@ -255,7 +254,14 @@ async def update_invoice(
     invoice.status = status; invoice.subtotal = round(subtotal, 2)
     invoice.vat_amount = round(vat_amount, 2); invoice.total_amount = round(subtotal + vat_amount, 2)
     invoice.due_date = date.fromisoformat(due_date) if due_date else None
-    invoice.paid_date = date.fromisoformat(paid_date) if paid_date else None
+    # Дата оплаты выводится из статуса, а не из ручного ввода: при «Оплачен»
+    # ставим сегодня (если ещё не было), иначе очищаем. Так редактирование
+    # оплаченного счёта больше не обнуляет дату оплаты.
+    if status == "paid":
+        if invoice.paid_date is None:
+            invoice.paid_date = date.today()
+    else:
+        invoice.paid_date = None
     invoice.notes = notes
     for item in invoice.items:
         db.delete(item)
@@ -269,13 +275,19 @@ async def update_invoice(
 @router.post("/{invoice_id}/status")
 @role_required("manager")
 async def change_status(request: Request, invoice_id: int,
-                        status: str = Form(...), paid_date: str = Form(default=""),
+                        status: str = Form(...),
                         db: Session = Depends(get_db)):
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if invoice:
+        old_status = invoice.status
         invoice.status = status
         if status == "paid":
-            invoice.paid_date = date.fromisoformat(paid_date) if paid_date else date.today()
+            # Дата оплаты = момент перевода в «Оплачен» (автоматически).
+            # При повторном сохранении уже оплаченного счёта дату не трогаем.
+            if old_status != "paid" or invoice.paid_date is None:
+                invoice.paid_date = date.today()
+        else:
+            invoice.paid_date = None
         db.commit()
     return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=302)
 

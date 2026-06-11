@@ -103,10 +103,8 @@
             {% endfor %}
           </select>
         </div>
-        <div class="mb-2">
-          <label class="form-label" style="font-size:.8rem">Дата оплаты</label>
-          <input type="date" name="paid_date" class="form-control form-control-sm"
-                 value="{{ invoice.paid_date.isoformat() if invoice.paid_date else '' }}">
+        <div class="text-muted mb-2" style="font-size:.8rem">
+          <i class="bi bi-info-circle"></i> Дата оплаты проставится автоматически при переводе в «Оплачен».
         </div>
         <button class="btn btn-sm btn-accent w-100">Обновить статус</button>
       </form>
