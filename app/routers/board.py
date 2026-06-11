@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
-from app.models import Order, OrderItem, Claim, CompanySettings, Product, User
+from app.models import Order, OrderItem, Invoice, Claim, CompanySettings, Product, User
 
 router = APIRouter(prefix="/board", tags=["board"])
 templates = Jinja2Templates(directory="app/templates")
@@ -285,9 +285,9 @@ def _collect_metrics(db: Session) -> dict:
         return int(q.scalar() or 0)
 
     def _revenue(*filters):
-        q = db.query(func.sum(OrderItem.amount)).join(
-            Order, OrderItem.order_id == Order.id
-        ).filter(Order.status.in_(_SOLD))
+        # Выручка = сумма ОПЛАЧЕННЫХ счетов (Invoice.status == 'paid'),
+        # тот же источник, что и в отчёте по выручке. Период — по дате счёта.
+        q = db.query(func.sum(Invoice.total_amount)).filter(Invoice.status == "paid")
         for f in filters:
             q = q.filter(f)
         return int(q.scalar() or 0)
@@ -298,9 +298,9 @@ def _collect_metrics(db: Session) -> dict:
     shipped_year  = _nuts(ship_date >= year_start)
 
     last_month_nuts    = _nuts(ship_date >= last_month_start, ship_date <= last_month_end)
-    last_month_revenue = _revenue(ship_date >= last_month_start, ship_date <= last_month_end)
+    last_month_revenue = _revenue(Invoice.date >= last_month_start, Invoice.date <= last_month_end)
 
-    revenue_month = _revenue(ship_date >= month_start)
+    revenue_month = _revenue(Invoice.date >= month_start)
 
     company      = db.query(CompanySettings).first()
     plan         = int(company.board_nuts_plan or 0) if company else 0
@@ -323,11 +323,11 @@ def _collect_metrics(db: Session) -> dict:
     plan_pct     = round(shipped_month / plan * 100) if plan > 0 else 0
     revenue_pct  = round(revenue_month / revenue_plan * 100) if revenue_plan > 0 else 0
 
-    # Выручка берётся напрямую из сумм позиций заказа (OrderItem.amount) —
-    # тот же «источник правды», что и в отчётах, а не количество × цену орешка.
-    shipped_month_money = revenue_month  # = _revenue(ship_date >= month_start)
-    shipped_today_money = _revenue(ship_date == today)
-    shipped_year_money  = _revenue(ship_date >= year_start)
+    # Выручка на всех карточках = сумма оплаченных счетов за период (по дате счёта).
+    # Орешки считаются отдельно — по дате сборки (см. _nuts выше).
+    shipped_month_money = revenue_month  # = _revenue(Invoice.date >= month_start)
+    shipped_today_money = _revenue(Invoice.date == today)
+    shipped_year_money  = _revenue(Invoice.date >= year_start)
     shipped_total_money = _revenue()
 
     last_claim_date    = db.query(func.max(Claim.date)).scalar()
