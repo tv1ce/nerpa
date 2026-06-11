@@ -284,9 +284,14 @@ def _collect_metrics(db: Session) -> dict:
             q = q.filter(f)
         return int(q.scalar() or 0)
 
+    # Дата выручки = дата ОПЛАТЫ счёта (когда пришли деньги). Для старых
+    # оплаченных счетов без paid_date откатываемся на дату счёта.
+    pay_date = func.coalesce(func.date(Invoice.paid_date), func.date(Invoice.date))
+
     def _revenue(*filters):
-        # Выручка = сумма ОПЛАЧЕННЫХ счетов (Invoice.status == 'paid'),
-        # тот же источник, что и в отчёте по выручке. Период — по дате счёта.
+        # Выручка = сумма ОПЛАЧЕННЫХ счетов (Invoice.status == 'paid').
+        # Период считается по дате оплаты (pay_date), а не по дате счёта,
+        # иначе «выручка за день» не видит счета, оплаченные позже выставления.
         q = db.query(func.sum(Invoice.total_amount)).filter(Invoice.status == "paid")
         for f in filters:
             q = q.filter(f)
@@ -298,9 +303,9 @@ def _collect_metrics(db: Session) -> dict:
     shipped_year  = _nuts(ship_date >= year_start)
 
     last_month_nuts    = _nuts(ship_date >= last_month_start, ship_date <= last_month_end)
-    last_month_revenue = _revenue(Invoice.date >= last_month_start, Invoice.date <= last_month_end)
+    last_month_revenue = _revenue(pay_date >= last_month_start, pay_date <= last_month_end)
 
-    revenue_month = _revenue(Invoice.date >= month_start)
+    revenue_month = _revenue(pay_date >= month_start)
 
     company      = db.query(CompanySettings).first()
     plan         = int(company.board_nuts_plan or 0) if company else 0
@@ -323,11 +328,11 @@ def _collect_metrics(db: Session) -> dict:
     plan_pct     = round(shipped_month / plan * 100) if plan > 0 else 0
     revenue_pct  = round(revenue_month / revenue_plan * 100) if revenue_plan > 0 else 0
 
-    # Выручка на всех карточках = сумма оплаченных счетов за период (по дате счёта).
+    # Выручка на всех карточках = сумма оплаченных счетов за период (по дате оплаты).
     # Орешки считаются отдельно — по дате сборки (см. _nuts выше).
-    shipped_month_money = revenue_month  # = _revenue(Invoice.date >= month_start)
-    shipped_today_money = _revenue(Invoice.date == today)
-    shipped_year_money  = _revenue(Invoice.date >= year_start)
+    shipped_month_money = revenue_month  # = _revenue(pay_date >= month_start)
+    shipped_today_money = _revenue(pay_date == today)
+    shipped_year_money  = _revenue(pay_date >= year_start)
     shipped_total_money = _revenue()
 
     last_claim_date    = db.query(func.max(Claim.date)).scalar()
