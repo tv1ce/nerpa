@@ -250,7 +250,7 @@
     <div class="celebrate">🎉</div>
     <div class="mascot" id="mascot">😊</div>
     <div class="speech" id="speech"></div>
-    <div class="label">Отгружено орешков за месяц</div>
+    <div class="label">Собрано орешков за месяц</div>
     <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:.4vh 0">
       <span class="big" id="m-shipped">{{ data.shipped_month }}</span><span class="unit">шт</span>
     </div>
@@ -258,7 +258,7 @@
 
     <div class="plan-wrap" id="plan-wrap">
       <div class="plan-head">
-        <span>Выручка: <b id="m-revenue">{{ "{:,}".format(data.revenue_month).replace(",", " ") }}</b> ₽ &nbsp;/&nbsp; план <b id="m-revenue-plan">{{ "{:,}".format(data.revenue_plan).replace(",", " ") }}</b> ₽</span>
+        <span>Оплачено: <b id="m-revenue">{{ "{:,}".format(data.revenue_month).replace(",", " ") }}</b> ₽ &nbsp;/&nbsp; план <b id="m-revenue-plan">{{ "{:,}".format(data.revenue_plan).replace(",", " ") }}</b> ₽</span>
         <span class="pct"><span id="m-pct">{{ data.revenue_pct }}</span>%</span>
       </div>
       <div class="bar"><div id="bar-fill" style="width:0%"></div></div>
