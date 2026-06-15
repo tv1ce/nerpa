@@ -271,17 +271,17 @@
       <div class="v" id="m-today">{{ data.shipped_today }} шт</div>
       <div class="k">собрано сегодня</div>
       <div class="k" id="m-today-date" style="font-size:1.6vh;margin-top:.1vh"></div>
-      <div class="sub" id="m-today-money">{{ "{:,}".format(data.shipped_today_money).replace(",", " ") }} ₽</div>
+      <div class="sub" id="m-today-money">оплачено {{ "{:,}".format(data.shipped_today_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat year">
       <div class="v" id="m-year">{{ data.shipped_year }} шт</div>
       <div class="k">с начала года</div>
-      <div class="sub" id="m-year-money">{{ "{:,}".format(data.shipped_year_money).replace(",", " ") }} ₽</div>
+      <div class="sub" id="m-year-money">оплачено {{ "{:,}".format(data.shipped_year_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat total">
       <div class="v" id="m-total">{{ data.shipped_total }} шт</div>
       <div class="k">всего за всё время</div>
-      <div class="sub" id="m-total-money">{{ "{:,}".format(data.shipped_total_money).replace(",", " ") }} ₽</div>
+      <div class="sub" id="m-total-money">оплачено {{ "{:,}".format(data.shipped_total_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat claims">
       <div class="v" id="m-claims">—</div>
@@ -294,7 +294,7 @@
     <div class="stat prev-nuts">
       <div class="v" id="m-lm-nuts">{{ data.last_month_nuts }} шт</div>
       <div class="k">{{ data.last_month_name }}</div>
-      <div class="sub" id="m-lm-nuts-money">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
+      <div class="sub" id="m-lm-nuts-money">оплачено {{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat cost" id="stat-cost">
       <div class="v" id="m-cost">{{ data.cost_pct | round(1) }}%</div>
