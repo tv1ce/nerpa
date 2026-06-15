@@ -267,6 +267,81 @@ async def plan_remove(request: Request, lead_id: int = Form(...),
     return JSONResponse({"ok": True, "lead_id": lead_id})
 
 
+# ── Создание новой точки торгпредом ─────────────────────────────────────────
+
+# Типичные категории заведений для быстрого выбора
+LEAD_CATEGORIES = [
+    "Кофейня", "Кондитерская", "Пекарня", "Ресторан", "Кафе", "Бар",
+    "Столовая", "Фастфуд", "Пиццерия", "Суши-бар", "Булочная",
+    "Гостиница / Отель", "Офис / Бизнес-центр", "Супермаркет / Магазин",
+    "Корпоративное питание", "Другое",
+]
+
+
+@router.get("/lead/new", response_class=HTMLResponse)
+@login_required
+async def new_lead_form(request: Request, db: Session = Depends(get_db)):
+    return templates.TemplateResponse(request, "field/new_lead.html", {
+        "categories": LEAD_CATEGORIES,
+        "error": request.query_params.get("error", ""),
+    })
+
+
+@router.post("/lead/new")
+@login_required
+async def new_lead_save(
+    request: Request,
+    name: str = Form(...),
+    category: str = Form(default=""),
+    category_custom: str = Form(default=""),
+    city: str = Form(default=""),
+    address: str = Form(default=""),
+    phone: str = Form(default=""),
+    notes: str = Form(default=""),
+    gps_lat: str = Form(default=""),
+    gps_lng: str = Form(default=""),
+    add_to_plan: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    uid = _uid(request)
+    name = name.strip()[:300]
+    if not name:
+        return RedirectResponse(url="/field/lead/new?error=name", status_code=302)
+
+    cat = (category_custom.strip() or category.strip())[:150] or None
+
+    lat = lng = None
+    try:
+        lat = float(gps_lat) if gps_lat else None
+        lng = float(gps_lng) if gps_lng else None
+    except ValueError:
+        pass
+
+    lead = SalesLead(
+        name=name,
+        category=cat,
+        city=city.strip()[:150] or None,
+        address=address.strip()[:500] or None,
+        phone=phone.strip()[:150] or None,
+        notes=notes.strip() or None,
+        lat=lat,
+        lng=lng,
+        call_status="new",
+        assigned_to_id=uid,
+        source_file="field_rep",
+        is_active=True,
+    )
+    db.add(lead)
+    db.flush()  # получаем lead.id
+
+    if add_to_plan == "on":
+        db.add(FieldVisit(lead_id=lead.id, rep_id=uid,
+                          planned_date=date.today(), status="planned"))
+
+    db.commit()
+    return RedirectResponse(url=f"/field/lead/{lead.id}?created=1", status_code=302)
+
+
 # ── Карточка точки + визит ───────────────────────────────────────────────────
 
 @router.get("/lead/{lead_id}", response_class=HTMLResponse)

@@ -11,6 +11,11 @@
   <i class="bi bi-check-circle-fill"></i> Визит сохранён
 </div>
 {% endif %}
+{% if request.query_params.get('created') %}
+<div class="alert alert-success py-2 d-flex align-items-center gap-2" role="alert">
+  <i class="bi bi-shop"></i> Точка добавлена в базу
+</div>
+{% endif %}
 
 {# ── Шапка точки ── #}
 <div class="fld-card p-3 mb-3">

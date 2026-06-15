@@ -3,7 +3,8 @@
 {% block page_title %}<i class="bi bi-sun"></i> Мой день{% endblock %}
 
 {% block header_actions %}
-  <a href="/field/plan" class="fld-ico" title="Добавить точки"><i class="bi bi-plus-lg"></i></a>
+  <a href="/field/lead/new" class="fld-ico" title="Добавить новую точку"><i class="bi bi-shop"></i></a>
+  <a href="/field/plan" class="fld-ico" title="Набрать точки из базы"><i class="bi bi-plus-lg"></i></a>
 {% endblock %}
 
 {% block content %}
@@ -86,7 +87,10 @@
     <i class="bi bi-calendar-x" style="font-size:2.4rem; display:block; margin-bottom:10px"></i>
     На этот день точек нет.<br>
     <a href="/field/plan" class="btn btn-primary mt-3 btn-lg-touch">
-      <i class="bi bi-plus-lg me-1"></i>Набрать точки
+      <i class="bi bi-plus-lg me-1"></i>Набрать из базы
+    </a>
+    <a href="/field/lead/new" class="btn btn-outline-primary mt-2 btn-lg-touch">
+      <i class="bi bi-shop me-1"></i>Добавить новую точку
     </a>
   </div>
 {% endif %}
