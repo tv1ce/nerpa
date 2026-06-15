@@ -666,15 +666,15 @@
       document.getElementById('m-revenue-plan').textContent = fmtR(d.revenue_plan);
       document.getElementById('m-pct').textContent          = d.revenue_pct;
       document.getElementById('m-today').textContent        = fmt(d.shipped_today) + ' шт';
-      document.getElementById('m-today-money').textContent   = fmtR(d.shipped_today_money) + ' ₽';
+      document.getElementById('m-today-money').textContent   = 'оплачено ' + fmtR(d.shipped_today_money) + ' ₽';
       document.getElementById('m-year').textContent          = fmt(d.shipped_year) + ' шт';
-      document.getElementById('m-year-money').textContent    = fmtR(d.shipped_year_money)  + ' ₽';
+      document.getElementById('m-year-money').textContent    = 'оплачено ' + fmtR(d.shipped_year_money)  + ' ₽';
       document.getElementById('m-total').textContent         = fmt(d.shipped_total) + ' шт';
-      document.getElementById('m-total-money').textContent   = fmtR(d.shipped_total_money) + ' ₽';
+      document.getElementById('m-total-money').textContent   = 'оплачено ' + fmtR(d.shipped_total_money) + ' ₽';
 
       // Прошлый месяц
       document.getElementById('m-lm-nuts').textContent      = fmt(d.last_month_nuts) + ' шт';
-      document.getElementById('m-lm-nuts-money').textContent = fmtR(d.last_month_revenue) + ' ₽';
+      document.getElementById('m-lm-nuts-money').textContent = 'оплачено ' + fmtR(d.last_month_revenue) + ' ₽';
 
       // Себестоимость
       COST_NORM = d.cost_norm_pct; COST_DEV = d.cost_deviation;
