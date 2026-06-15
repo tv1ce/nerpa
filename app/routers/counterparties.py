@@ -291,6 +291,62 @@ async def dadata_bank(request: Request, bik: str = ""):
     return JSONResponse(result)
 
 
+_EGRUL_STATUS_LABELS = {
+    "ACTIVE":        "Действует",
+    "LIQUIDATING":   "В процессе ликвидации",
+    "LIQUIDATED":    "Ликвидирована",
+    "BANKRUPT":      "Банкротство",
+    "REORGANIZING":  "Реорганизация",
+}
+_EGRUL_STATUS_COLORS = {
+    "ACTIVE":        "success",
+    "LIQUIDATING":   "warning",
+    "LIQUIDATED":    "danger",
+    "BANKRUPT":      "danger",
+    "REORGANIZING":  "warning",
+}
+
+
+@router.post("/{cp_id}/check-egrul", response_class=JSONResponse)
+@login_required
+async def check_egrul(request: Request, cp_id: int, db: Session = Depends(get_db)):
+    """AJAX: запрашивает статус КА в ЕГРЮЛ через DaData, сохраняет в БД."""
+    from datetime import datetime as _dt
+    cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
+    if not cp:
+        return JSONResponse({"error": "КА не найден"}, status_code=404)
+    if not cp.inn:
+        return JSONResponse({"error": "У КА не указан ИНН"}, status_code=400)
+
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+        try:
+            resp = await client.post(
+                "https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party",
+                headers=DADATA_HEADERS,
+                json={"query": cp.inn},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            return JSONResponse({"error": f"Ошибка запроса к DaData: {e}"}, status_code=502)
+
+    suggestions = data.get("suggestions", [])
+    if not suggestions:
+        return JSONResponse({"error": "Компания не найдена по ИНН"}, status_code=404)
+
+    status_code = suggestions[0]["data"].get("state", {}).get("status", "ACTIVE")
+    cp.egrul_status = status_code
+    cp.egrul_checked_at = _dt.utcnow()
+    db.commit()
+
+    return JSONResponse({
+        "status": status_code,
+        "label": _EGRUL_STATUS_LABELS.get(status_code, status_code),
+        "color": _EGRUL_STATUS_COLORS.get(status_code, "secondary"),
+        "checked_at": cp.egrul_checked_at.strftime("%d.%m.%Y %H:%M"),
+    })
+
+
 @router.get("/{cp_id}", response_class=HTMLResponse)
 @login_required
 async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(get_db)):
@@ -299,11 +355,17 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
         return RedirectResponse(url="/counterparties", status_code=302)
 
     # Статистика
+    from datetime import date as _date, timedelta as _td
     active_orders = [o for o in cp.orders if o.status not in ("cancelled",)]
     # Выручка — только фактически оплаченные/отгруженные заказы (без confirmed)
     total_revenue = sum(o.total_amount for o in cp.orders if o.status in REVENUE_STATUSES)
     open_invoices = [inv for inv in cp.invoices if inv.status in ("issued", "overdue")]
     open_debt = sum(inv.total_amount for inv in open_invoices)
+
+    # Дней с последнего заказа (без учёта отменённых)
+    last_order_dates = [o.date for o in cp.orders if o.status != "cancelled" and o.date]
+    last_order_date = max(last_order_dates) if last_order_dates else None
+    dormant_days = (_date.today() - last_order_date).days if last_order_date else None
     claims = db.query(Claim).filter(Claim.counterparty_id == cp_id).order_by(Claim.date.desc()).all()
 
     tasks = db.query(Task).filter(
@@ -348,6 +410,9 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
         "activity": activity,
         "users": users,
         "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
+        "dormant_days": dormant_days,
+        "egrul_status_labels": _EGRUL_STATUS_LABELS,
+        "egrul_status_colors": _EGRUL_STATUS_COLORS,
     })
 
 

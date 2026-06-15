@@ -10,6 +10,14 @@
 
 {% block content %}
 
+{# ── Плашка «Спящий клиент» ─────────────────────────────────────────────── #}
+{% if dormant_days is not none and dormant_days >= 30 %}
+<div class="alert {% if dormant_days >= 90 %}alert-danger{% else %}alert-warning{% endif %} py-2 mb-3 d-flex align-items-center gap-2">
+  <i class="bi bi-moon-stars-fill"></i>
+  <span>Не заказывал <strong>{{ dormant_days }} дн.</strong> — стоит позвонить</span>
+</div>
+{% endif %}
+
 {# ── Заголовок + категория ───────────────────────────────────────────────── #}
 <div class="d-flex align-items-start mb-3 gap-3 flex-wrap">
   <div class="flex-grow-1">
@@ -148,6 +156,22 @@
             <div class="col-md-4"><span class="text-muted">ИНН:</span> {{ cp.inn or '—' }}</div>
             <div class="col-md-4"><span class="text-muted">КПП:</span> {{ cp.kpp or '—' }}</div>
             <div class="col-md-6"><span class="text-muted">ОГРН:</span> {{ cp.ogrn or '—' }}</div>
+            {% if cp.inn %}
+            <div class="col-12 d-flex align-items-center gap-2 flex-wrap">
+              <span class="text-muted">ЕГРЮЛ:</span>
+              <span id="egrul-badge">
+                {% if cp.egrul_status %}
+                <span class="badge bg-{{ egrul_status_colors.get(cp.egrul_status, 'secondary') }}">{{ egrul_status_labels.get(cp.egrul_status, cp.egrul_status) }}</span>
+                {% if cp.egrul_checked_at %}<span class="text-muted" style="font-size:.75rem">{{ cp.egrul_checked_at.strftime('%d.%m.%Y') }}</span>{% endif %}
+                {% else %}
+                <span class="text-muted" style="font-size:.85rem">не проверялось</span>
+                {% endif %}
+              </span>
+              <button class="btn btn-xs btn-outline-secondary" id="btn-check-egrul" onclick="checkEgrul({{ cp.id }})">
+                <i class="bi bi-arrow-repeat me-1"></i>Проверить
+              </button>
+            </div>
+            {% endif %}
             <div class="col-12"><span class="text-muted">Юр. адрес:</span> {{ cp.legal_address or '—' }}</div>
             <div class="col-12"><span class="text-muted">Факт. адрес:</span> {{ cp.actual_address or '—' }}</div>
             <div class="col-md-4"><span class="text-muted">Телефон:</span> {{ cp.phone or '—' }}</div>
@@ -626,6 +650,26 @@ function openContactModal(c) {
     form.reset();
   }
   bootstrap.Modal.getOrCreateInstance(document.getElementById('contactModal')).show();
+}
+
+async function checkEgrul(cpId) {
+  const btn = document.getElementById('btn-check-egrul');
+  const badge = document.getElementById('egrul-badge');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Проверка…';
+  try {
+    const r = await fetch(`/counterparties/${cpId}/check-egrul`, {method: 'POST'});
+    const d = await r.json();
+    if (d.error) {
+      badge.innerHTML = `<span class="text-danger" style="font-size:.85rem">${d.error}</span>`;
+    } else {
+      badge.innerHTML = `<span class="badge bg-${d.color}">${d.label}</span> <span class="text-muted" style="font-size:.75rem">${d.checked_at}</span>`;
+    }
+  } catch(e) {
+    badge.innerHTML = '<span class="text-danger" style="font-size:.85rem">Ошибка запроса</span>';
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Проверить';
 }
 </script>
 {% endblock %}

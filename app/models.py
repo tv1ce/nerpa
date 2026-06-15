@@ -57,6 +57,9 @@ class Counterparty(Base):
     # Telegram-уведомления (для перевозчиков)
     tg_chat_id = Column(String(100))            # ID чата / группы Telegram
     tg_notify_enabled = Column(Boolean, default=False)  # вкл/выкл отправку заказов
+    # ЕГРЮЛ — кэш последней проверки статуса через DaData
+    egrul_status = Column(String(30))           # ACTIVE / LIQUIDATING / LIQUIDATED / BANKRUPT / REORGANIZING
+    egrul_checked_at = Column(DateTime)
 
     orders = relationship("Order", back_populates="counterparty", foreign_keys="Order.counterparty_id")
     invoices = relationship("Invoice", back_populates="counterparty")

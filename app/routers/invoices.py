@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Invoice, InvoiceItem, Counterparty, Order, Product, CompanySettings, Contract
+from app.models import Invoice, InvoiceItem, Counterparty, Order, Product, CompanySettings, Contract, Comment, AuditLog, User
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -204,9 +204,36 @@ async def view_invoice(request: Request, invoice_id: int, db: Session = Depends(
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
         return RedirectResponse(url="/invoices", status_code=302)
+    comments = db.query(Comment).filter(
+        Comment.entity_type == "invoice", Comment.entity_id == invoice_id
+    ).order_by(Comment.created_at).all()
+    activity = db.query(AuditLog).filter(
+        AuditLog.entity_type == "invoice", AuditLog.entity_id == invoice_id
+    ).order_by(AuditLog.created_at.desc()).limit(30).all()
     return templates.TemplateResponse(request, "invoices/detail.html", {
         "invoice": invoice, "statuses": INVOICE_STATUSES,
+        "comments": comments, "activity": activity,
     })
+
+
+@router.post("/{invoice_id}/comment")
+@login_required
+async def add_invoice_comment(
+    request: Request, invoice_id: int,
+    body: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice or not body.strip():
+        return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=302)
+    db.add(Comment(
+        body=body.strip(),
+        entity_type="invoice",
+        entity_id=invoice_id,
+        created_by_id=request.session.get("user_id"),
+    ))
+    db.commit()
+    return RedirectResponse(url=f"/invoices/{invoice_id}#comments", status_code=302)
 
 
 @router.get("/{invoice_id}/edit", response_class=HTMLResponse)

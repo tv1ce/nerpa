@@ -20,6 +20,28 @@
 {% endblock %}
 
 {% block content %}
+
+{# ── График по месяцам ───────────────────────────────────────────────────── #}
+{% if chart_months and chart_max > 0 %}
+<div class="card border-0 shadow-sm p-3 mb-3">
+  <div class="fw-semibold mb-3" style="font-size:.88rem"><i class="bi bi-bar-chart-line me-1"></i>Динамика по месяцам (12 мес.)</div>
+  <div class="d-flex align-items-end gap-1" style="height:80px">
+    {% for m in chart_months %}
+    {% set pct = ((m.amount / chart_max) * 100) | int if chart_max > 0 else 0 %}
+    <div class="flex-fill d-flex flex-column align-items-center gap-1" style="min-width:0"
+         title="{{ m.label }} {{ m.year_month }}: {{ m.amount | money }} ₽">
+      <div style="width:100%; background:#dc354588; border-radius:3px 3px 0 0; height:{{ [pct,2]|max }}%"></div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="d-flex gap-1 mt-1">
+    {% for m in chart_months %}
+    <div class="flex-fill text-center text-muted" style="font-size:.6rem; min-width:0; overflow:hidden">{{ m.label }}</div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-3">
 
   <!-- ── Таблица ─────────────────────────────────────────────────────── -->
@@ -62,10 +84,16 @@
                 {% endif %}
               </td>
               <td class="text-end pe-3">
-                <form method="post" action="/reports/logistics/{{ row.id }}/delete"
-                      data-confirm="Удалить запись?">
-                  <button class="btn btn-xs btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
-                </form>
+                <div class="d-flex gap-1 justify-content-end">
+                  <button class="btn btn-xs btn-outline-secondary py-0 px-1"
+                          onclick="openEditModal({{ row.id }}, '{{ row.date.isoformat() }}', {{ row.amount }}, '{{ (row.description or '') | replace("'", "\\'") }}', '{{ (row.notes or '') | replace("'", "\\'") }}')">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <form method="post" action="/reports/logistics/{{ row.id }}/delete"
+                        data-confirm="Удалить запись?">
+                    <button class="btn btn-xs btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
+                  </form>
+                </div>
               </td>
             </tr>
             {% else %}
@@ -383,5 +411,54 @@ async function uploadFile() {
     res.innerHTML = `<div class="alert alert-danger py-1 px-2 mb-0">Ошибка: ${e}</div>`;
   }
 }
+
+function openEditModal(id, dt, amount, description, notes) {
+  document.getElementById('edit-cost-id').value = id;
+  document.getElementById('edit-cost-date').value = dt;
+  document.getElementById('edit-cost-amount').value = amount;
+  document.getElementById('edit-cost-description').value = description;
+  document.getElementById('edit-cost-notes').value = notes;
+  document.getElementById('edit-cost-form').action = `/reports/logistics/${id}/edit`;
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('editCostModal')).show();
+}
 </script>
+
+<!-- Модал редактирования записи логистики -->
+<div class="modal fade" id="editCostModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Редактировать запись</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" id="edit-cost-form">
+        <input type="hidden" name="cost_id" id="edit-cost-id">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Дата</label>
+              <input type="date" name="cost_date" id="edit-cost-date" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Сумма, ₽</label>
+              <input type="number" name="amount" id="edit-cost-amount" class="form-control" step="0.01" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Описание</label>
+              <input type="text" name="description" id="edit-cost-description" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Примечание</label>
+              <input type="text" name="notes" id="edit-cost-notes" class="form-control">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}

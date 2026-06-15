@@ -264,6 +264,13 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
     from app.routers.public import ensure_public_token
     token = ensure_public_token(db, order)
     track_url = str(request.base_url).rstrip("/") + f"/track/{token}"
+
+    # Мини-статистика клиента
+    cp_all_orders = [o for o in order.counterparty.orders if o.status != "cancelled"]
+    cp_revenue = sum(o.total_amount for o in cp_all_orders if o.status in ("paid", "assembled", "handed", "delivered"))
+    cp_last_date = max((o.date for o in cp_all_orders if o.date), default=None)
+    cp_avg_check = round(cp_revenue / len(cp_all_orders), 2) if cp_all_orders and cp_revenue else 0
+
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
@@ -272,6 +279,10 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
         "track_url": track_url,
         "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
         "assembly_queue_count": _assembly_queue_count(db),
+        "cp_orders_count": len(cp_all_orders),
+        "cp_revenue": cp_revenue,
+        "cp_last_date": cp_last_date,
+        "cp_avg_check": cp_avg_check,
     })
 
 

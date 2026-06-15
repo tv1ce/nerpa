@@ -1,6 +1,6 @@
 import os
 from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db, hash_password
@@ -280,6 +280,20 @@ async def profile_save(
         db.commit()
         request.session["user_name"] = user.full_name
     return RedirectResponse(url="/settings/profile?saved=1", status_code=302)
+
+
+@router.get("/backup")
+@role_required("admin")
+async def backup_db(request: Request, db: Session = Depends(get_db)):
+    """Скачать резервную копию БД. Только admin. WAL-checkpoint перед выдачей."""
+    from datetime import date as _date
+    db_path = os.path.abspath("tms.db")
+    if not os.path.exists(db_path):
+        return HTMLResponse("База данных не найдена.", status_code=404)
+    # Сбрасываем WAL в основной файл перед скачиванием
+    db.execute(__import__("sqlalchemy").text("PRAGMA wal_checkpoint(TRUNCATE)"))
+    filename = f"tms-backup-{_date.today().isoformat()}.db"
+    return FileResponse(db_path, filename=filename, media_type="application/octet-stream")
 
 
 @router.post("/profile/password")

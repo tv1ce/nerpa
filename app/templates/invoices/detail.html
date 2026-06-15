@@ -137,4 +137,47 @@
     </div>
   </div>
 </div>
+
+{# ── Комментарии и лог ── #}
+<div class="row g-3 mt-1" id="comments">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="fw-semibold mb-3"><i class="bi bi-chat-left-text me-1"></i>Комментарии</div>
+      {% for c in comments %}
+      <div class="d-flex gap-2 mb-3">
+        <div class="rounded-circle bg-light d-flex align-items-center justify-content-center flex-shrink-0"
+             style="width:32px;height:32px;font-size:.8rem;font-weight:700">
+          {{ (c.created_by.full_name[0] if c.created_by else '?') | upper }}
+        </div>
+        <div class="flex-grow-1">
+          <div class="d-flex gap-2 align-items-baseline mb-1">
+            <span class="fw-semibold" style="font-size:.85rem">{{ c.created_by.full_name if c.created_by else '—' }}</span>
+            <span class="text-muted" style="font-size:.75rem">{{ c.created_at | date_fmt }}</span>
+          </div>
+          <div style="font-size:.9rem">{{ c.body }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="text-muted" style="font-size:.85rem">Комментариев пока нет</div>
+      {% endfor %}
+      <form method="post" action="/invoices/{{ invoice.id }}/comment" class="mt-3">
+        <textarea name="body" class="form-control mb-2" rows="2" placeholder="Добавить комментарий…" required></textarea>
+        <button class="btn btn-sm btn-accent"><i class="bi bi-send me-1"></i>Отправить</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    {% if activity %}
+    <div class="card border-0 shadow-sm p-3">
+      <div class="fw-semibold mb-2" style="font-size:.88rem"><i class="bi bi-clock-history me-1"></i>История</div>
+      {% for a in activity %}
+      <div class="d-flex gap-2 mb-2" style="font-size:.78rem">
+        <span class="text-muted" style="white-space:nowrap">{{ a.created_at | date_fmt }}</span>
+        <span>{{ a.note or a.action }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

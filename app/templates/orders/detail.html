@@ -293,6 +293,35 @@
       {% endfor %}
     </div>
 
+    <!-- Статистика клиента -->
+    {% if _role != 'warehouse' and cp_orders_count is defined %}
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2" style="font-size:.9rem">
+        <a href="/counterparties/{{ order.counterparty_id }}" class="text-reset text-decoration-none">
+          <i class="bi bi-person-lines-fill me-1 text-muted"></i>{{ order.counterparty.trade_name or order.counterparty.name }}
+        </a>
+      </div>
+      <div class="row g-2 text-center">
+        <div class="col-6">
+          <div class="fw-bold" style="font-size:1.2rem">{{ cp_orders_count }}</div>
+          <div class="text-muted" style="font-size:.72rem">Заказов</div>
+        </div>
+        <div class="col-6">
+          <div class="fw-bold" style="font-size:1.2rem">{{ cp_revenue | money }}</div>
+          <div class="text-muted" style="font-size:.72rem">Выручка, ₽</div>
+        </div>
+        <div class="col-6">
+          <div class="fw-bold" style="font-size:1rem">{{ cp_avg_check | money }}</div>
+          <div class="text-muted" style="font-size:.72rem">Средний чек, ₽</div>
+        </div>
+        <div class="col-6">
+          <div class="fw-bold" style="font-size:1rem">{{ cp_last_date | date_fmt if cp_last_date else '—' }}</div>
+          <div class="text-muted" style="font-size:.72rem">Последний заказ</div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- Ссылка для клиента (публичный трекинг) -->
     {% if _role != 'warehouse' and track_url %}
     <div class="card border-0 shadow-sm p-3 mb-3">

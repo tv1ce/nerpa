@@ -8,11 +8,13 @@ import secrets
 import time
 from collections import defaultdict
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Order, CompanySettings, ORDER_FLOW_PREPAY, ORDER_FLOW_DEFERRED
+from app.models import Order, CompanySettings, ORDER_FLOW_PREPAY, ORDER_FLOW_DEFERRED, AttachedFile
+
+_CLIENT_FILE_TYPES = {"invoice", "upd", "tn"}
 
 router = APIRouter(tags=["public"])
 templates = Jinja2Templates(directory="app/templates")
@@ -107,6 +109,14 @@ async def track_order(request: Request, token: str, db: Session = Depends(get_db
 
     manager = order.created_by
     cp = order.counterparty
+
+    # Только клиентские типы файлов (счёт, УПД, ТН) — без внутренних документов
+    client_files = db.query(AttachedFile).filter(
+        AttachedFile.entity_type == "order",
+        AttachedFile.entity_id == order.id,
+        AttachedFile.file_type.in_(_CLIENT_FILE_TYPES),
+    ).order_by(AttachedFile.uploaded_at.desc()).all()
+
     return templates.TemplateResponse(request, "public/track.html", {
         "order": order,
         "company": company,
@@ -114,4 +124,36 @@ async def track_order(request: Request, token: str, db: Session = Depends(get_db
         "cp": cp,
         "timeline": _public_timeline(order),
         "status_label": PUBLIC_STATUS_LABELS.get(order.status, order.status),
+        "client_files": client_files,
     })
+
+
+@router.get("/track/{token}/file/{file_id}")
+async def track_file(request: Request, token: str, file_id: int, db: Session = Depends(get_db)):
+    """Публичная отдача файла по токену заказа — только клиентские типы."""
+    import os
+    ip = request.client.host if request.client else "?"
+    if _rate_limited(ip):
+        return HTMLResponse("Слишком много запросов.", status_code=429)
+
+    order = None
+    if token and len(token) >= 16:
+        order = db.query(Order).filter(Order.public_token == token).first()
+    if not order or order.status == "cancelled":
+        return HTMLResponse("Не найдено.", status_code=404)
+
+    f = db.query(AttachedFile).filter(
+        AttachedFile.id == file_id,
+        AttachedFile.entity_type == "order",
+        AttachedFile.entity_id == order.id,
+        AttachedFile.file_type.in_(_CLIENT_FILE_TYPES),
+    ).first()
+    if not f or not f.stored_path:
+        return HTMLResponse("Файл не найден.", status_code=404)
+
+    abs_path = os.path.abspath(f.stored_path)
+    if not os.path.exists(abs_path):
+        return HTMLResponse("Файл не найден.", status_code=404)
+
+    media_type = "application/pdf" if abs_path.endswith(".pdf") else "application/octet-stream"
+    return FileResponse(abs_path, filename=f.original_name or os.path.basename(abs_path), media_type=media_type)

@@ -388,6 +388,29 @@ async def logistics_index(
     orders_prev_month = _orders_count(prev_month_start, prev_month_end)
     orders_year       = _orders_count(year_start, today)
 
+    # ── График по месяцам (последние 12 месяцев) ─────────────────────────────
+    from sqlalchemy import extract, cast, String
+    import calendar
+    chart_months = []
+    chart_max = 0.0
+    for i in range(11, -1, -1):
+        # месяц = today минус i месяцев
+        m_year = today.year
+        m_month = today.month - i
+        while m_month <= 0:
+            m_month += 12
+            m_year -= 1
+        m_start = date(m_year, m_month, 1)
+        m_end = date(m_year, m_month, calendar.monthrange(m_year, m_month)[1])
+        m_sum = round((_logi_sum(m_start, m_end) or 0.0) * TAX, 2)
+        chart_months.append({
+            "label": m_start.strftime("%b"),
+            "year_month": m_start.strftime("%Y-%m"),
+            "amount": m_sum,
+        })
+        if m_sum > chart_max:
+            chart_max = m_sum
+
     company = db.query(CompanySettings).first()
     return templates.TemplateResponse(request, "reports/logistics.html", {
         "rows": rows, "total": total,
@@ -420,6 +443,9 @@ async def logistics_index(
         "metafora_url":  getattr(company, "metafora_url",  None) or METAFORA_URL,
         "metafora_email": getattr(company, "metafora_email", None) or "",
         "has_token": bool(getattr(company, "metafora_token", None)),
+        # график
+        "chart_months": chart_months,
+        "chart_max": chart_max,
     })
 
 
@@ -492,6 +518,41 @@ async def export_logistics(
 
 
 # ── Удаление ──────────────────────────────────────────────────────────────────
+
+@router.get("/{cost_id}/edit", response_class=JSONResponse)
+@login_required
+async def edit_cost_get(request: Request, cost_id: int, db: Session = Depends(get_db)):
+    row = db.query(LogisticsCost).filter(LogisticsCost.id == cost_id).first()
+    if not row:
+        return JSONResponse({"error": "Не найдено"}, status_code=404)
+    return JSONResponse({
+        "id": row.id,
+        "date": row.date.isoformat(),
+        "description": row.description or "",
+        "amount": row.amount,
+        "notes": row.notes or "",
+    })
+
+
+@router.post("/{cost_id}/edit")
+@login_required
+async def edit_cost_post(
+    request: Request, cost_id: int,
+    cost_date: str = Form(...),
+    description: str = Form(default=""),
+    amount: float = Form(...),
+    notes: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    row = db.query(LogisticsCost).filter(LogisticsCost.id == cost_id).first()
+    if row:
+        row.date = date.fromisoformat(cost_date)
+        row.description = description
+        row.amount = amount
+        row.notes = notes or None
+        db.commit()
+    return RedirectResponse(url="/reports/logistics", status_code=302)
+
 
 @router.post("/{cost_id}/delete")
 @login_required

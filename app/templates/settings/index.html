@@ -304,6 +304,16 @@
       </form>
     </div>
 
+    {% if request.session.get('user_role') == 'admin' %}
+    <!-- Обслуживание -->
+    <div class="card border-0 shadow-sm p-3 mt-3">
+      <div class="fw-semibold mb-2"><i class="bi bi-tools me-1"></i>Обслуживание</div>
+      <button class="btn btn-sm btn-outline-secondary w-100" data-bs-toggle="modal" data-bs-target="#modalBackup">
+        <i class="bi bi-database-down me-1"></i>Скачать резервную копию БД
+      </button>
+    </div>
+    {% endif %}
+
   </div>{# /col-lg-4 #}
 
 </div>{# /row #}
@@ -348,4 +358,27 @@
   </div>
 </div>
 {% endfor %}
+
+{# ── Бэкап БД (только admin) ── #}
+{% if request.session.get('user_role') == 'admin' %}
+<div class="modal fade" id="modalBackup" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-database-down me-2"></i>Резервная копия</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="font-size:.88rem">
+        Скачает файл <code>tms.db</code> с текущими данными. Храните копию в надёжном месте.
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+        <a href="/settings/backup" class="btn btn-sm btn-accent" data-bs-dismiss="modal">
+          <i class="bi bi-download me-1"></i>Скачать
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

@@ -221,6 +221,40 @@ async def download_contract(request: Request, contract_id: int, db: Session = De
     )
 
 
+@router.post("/{contract_id}/duplicate")
+@login_required
+async def duplicate_contract(request: Request, contract_id: int, db: Session = Depends(get_db)):
+    """Создаёт копию договора: тот же шаблон + КА, новый номер, даты +1 год, статус draft."""
+    from datetime import timedelta
+    src = db.query(Contract).filter(Contract.id == contract_id).first()
+    if not src:
+        return RedirectResponse(url="/contracts", status_code=302)
+    today = date.today()
+    new_end = None
+    if src.end_date:
+        try:
+            new_end = src.end_date.replace(year=src.end_date.year + 1)
+        except ValueError:
+            new_end = src.end_date + timedelta(days=365)
+    dup = Contract(
+        number=_next_contract_number(db),
+        date=today,
+        counterparty_id=src.counterparty_id,
+        template_id=src.template_id,
+        subject=src.subject,
+        status="draft",
+        start_date=today,
+        end_date=new_end,
+        amount=src.amount,
+        payment_type=src.payment_type,
+        payment_days=src.payment_days,
+        notes=src.notes,
+    )
+    db.add(dup)
+    db.commit()
+    return RedirectResponse(url=f"/contracts/{dup.id}", status_code=302)
+
+
 @router.post("/{contract_id}/delete")
 @role_required("manager")
 async def delete_contract(request: Request, contract_id: int, db: Session = Depends(get_db)):

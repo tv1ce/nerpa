@@ -157,6 +157,9 @@ def _migrate_db():
         ("orders", "assembled_at", "TIMESTAMP"),
         # Публичный токен клиентского трекинга /track/{token}
         ("orders", "public_token", "TEXT"),
+        # ЕГРЮЛ — кэш статуса из DaData
+        ("counterparties", "egrul_status",     "TEXT"),
+        ("counterparties", "egrul_checked_at", "TIMESTAMP"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

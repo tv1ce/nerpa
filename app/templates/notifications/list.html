@@ -2,11 +2,16 @@
 {% block title %}Уведомления{% endblock %}
 {% block page_title %}Уведомления{% endblock %}
 {% block topbar_actions %}
+  <div class="d-flex gap-2">
   {% if unread_count > 0 %}
   <form method="post" action="/notifications/read-all">
-    <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-check2-all me-1"></i>Отметить все прочитанными</button>
+    <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-check2-all me-1"></i>Прочитать все</button>
   </form>
   {% endif %}
+  <form method="post" action="/notifications/clear-read" data-confirm="Удалить все прочитанные уведомления?">
+    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Удалить прочитанные</button>
+  </form>
+  </div>
 {% endblock %}
 
 {% block content %}
@@ -51,11 +56,16 @@
           <td class="text-muted" style="font-size:.88rem">{{ n.body or '—' }}</td>
           <td class="text-end text-muted" style="font-size:.82rem; white-space:nowrap">{{ n.created_at | date_fmt }}</td>
           <td class="text-end pe-3">
+            <div class="d-flex gap-1 justify-content-end">
             {% if not n.is_read %}
             <form method="post" action="/notifications/{{ n.id }}/read" class="d-inline">
-              <button class="btn btn-xs btn-outline-secondary py-0 px-1" title="Прочитано" style="font-size:.72rem"><i class="bi bi-check2"></i></button>
+              <button class="btn btn-xs btn-outline-secondary py-0 px-1" title="Прочитано"><i class="bi bi-check2"></i></button>
             </form>
             {% endif %}
+            <form method="post" action="/notifications/{{ n.id }}/delete" class="d-inline" data-confirm="Удалить уведомление?">
+              <button class="btn btn-xs btn-outline-danger py-0 px-1" title="Удалить"><i class="bi bi-x"></i></button>
+            </form>
+            </div>
           </td>
         </tr>
         {% endfor %}

@@ -108,3 +108,29 @@ async def read_one(request: Request, notif_id: int, db: Session = Depends(get_db
         n.is_read = True
         db.commit()
     return RedirectResponse(url="/notifications/", status_code=302)
+
+
+@router.post("/{notif_id}/delete")
+@login_required
+async def delete_one(request: Request, notif_id: int, db: Session = Depends(get_db)):
+    n = db.query(Notification).filter(
+        Notification.id == notif_id,
+        _visible_filter(request),
+    ).first()
+    if n:
+        db.delete(n)
+        db.commit()
+    return RedirectResponse(url="/notifications/", status_code=302)
+
+
+@router.post("/clear-read")
+@login_required
+async def clear_read(request: Request, db: Session = Depends(get_db)):
+    rows = db.query(Notification).filter(
+        Notification.is_read == True,
+        _visible_filter(request),
+    ).all()
+    for n in rows:
+        db.delete(n)
+    db.commit()
+    return RedirectResponse(url="/notifications/", status_code=302)

@@ -139,6 +139,31 @@
   </div>
   {% endif %}
 
+  {# ── Документы ── #}
+  {% if client_files %}
+  <div class="card">
+    <div class="section-title">Документы</div>
+    {% set type_labels = {"invoice": "Счёт", "upd": "УПД", "tn": "ТН"} %}
+    {% for f in client_files %}
+    <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--line)">
+      <span style="font-size:1.4rem">📄</span>
+      <div style="flex:1; min-width:0">
+        <div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">{{ f.original_name }}</div>
+        <div style="font-size:.78rem; color:var(--muted)">
+          {{ type_labels.get(f.file_type, f.file_type) }}
+          {% if f.size_compressed %} · {{ (f.size_compressed / 1024) | int }} КБ{% endif %}
+        </div>
+      </div>
+      <a href="/track/{{ order.public_token }}/file/{{ f.id }}"
+         style="background:var(--brand); color:#fff; text-decoration:none; font-size:.82rem;
+                font-weight:600; padding:6px 12px; border-radius:8px; white-space:nowrap">
+        Скачать
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {# ── Контакт менеджера ── #}
   {% if manager or company.phone %}
   <div class="card">
