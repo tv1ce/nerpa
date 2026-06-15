@@ -545,8 +545,9 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
 
     text = "\n".join(lines)
 
+    proxy_url = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080") or None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, proxy=proxy_url) as client:
             resp = await client.post(
                 f"https://api.telegram.org/bot{bot_token}/sendMessage",
                 json={"chat_id": carrier.tg_chat_id, "text": text},
