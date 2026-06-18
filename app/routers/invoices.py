@@ -51,9 +51,14 @@ INVOICE_STATUSES = {
 
 
 def _next_invoice_number(db: Session) -> str:
-    from sqlalchemy import func
-    max_id = db.query(func.max(Invoice.id)).scalar() or 0
-    return str(max_id + 1)
+    all_numbers = db.query(Invoice.number).all()
+    max_num = 0
+    for (num,) in all_numbers:
+        try:
+            max_num = max(max_num, int(num))
+        except (ValueError, TypeError):
+            pass
+    return str(max_num + 1)
 
 
 @router.get("/", response_class=HTMLResponse)
