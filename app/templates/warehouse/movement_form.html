@@ -198,8 +198,8 @@
 
 {% block scripts %}
 <script>
-const _wBalances = {{ balances | tojson }};
-const _wProducts = [
+var _wBalances = {{ balances | tojson }};
+var _wProducts = [
   {% for p in products %}
   { id: {{ p.id }}, name: {{ p.name|tojson }}, article: {{ (p.article or '')|tojson }},
     unit: {{ p.unit|tojson }}, category: {{ (p.category or '')|tojson }},
@@ -207,9 +207,26 @@ const _wProducts = [
   {% endfor %}
 ];
 
-// Инициализация пикера с балансами склада
+{% if _role == 'warehouse' and _wview != 'desktop' %}
+// Мобильный режим: передаём данные напрямую в _mp (без ProductPicker)
+window._mpProducts = _wProducts;
+window._mpBalances = _wBalances;
+
+function openWarehousePicker() {
+  _mp.open(function(p) {
+    document.getElementById('pickedProductId').value = p.id;
+    var lbl = document.getElementById('productPickerLabel');
+    if (lbl) lbl.textContent = p.name;
+    var tile = document.getElementById('productPickerBtn');
+    if (tile) tile.classList.remove('wm-product-tile--empty');
+    var unitSpan = document.getElementById('unitLabelInner');
+    if (unitSpan) unitSpan.textContent = p.unit;
+    showBalance(p.id, p.unit);
+  });
+}
+{% else %}
+// Десктоп режим: используем ProductPicker с Bootstrap Modal
 ProductPicker.init(_wProducts, _wBalances);
-ProductPicker._products = _wProducts; // публичный доступ для мобильного _select
 
 function openWarehousePicker() {
   ProductPicker.open(function(p) {
@@ -218,16 +235,12 @@ function openWarehousePicker() {
     if (lbl) lbl.textContent = p.name;
     var tile = document.getElementById('productPickerBtn');
     if (tile) tile.classList.remove('wm-product-tile--empty');
-    {% if _role == 'warehouse' and _wview != 'desktop' %}
-    var unitSpan = document.getElementById('unitLabelInner');
-    if (unitSpan) unitSpan.textContent = p.unit;
-    {% else %}
     var ul = document.getElementById('unitLabel');
     if (ul) ul.textContent = p.unit;
-    {% endif %}
     showBalance(p.id, p.unit);
   });
 }
+{% endif %}
 
 function showBalance(pid, unit) {
   var bal = _wBalances[pid];
@@ -240,37 +253,35 @@ function showBalance(pid, unit) {
   hint.innerHTML = 'Остаток: <strong style="color:' + color + '">' + balFmt + ' ' + u + '</strong>';
 }
 
-// Открыть пикер сразу, если товар не выбран
+// Показать баланс если товар уже выбран при загрузке
 window.addEventListener('load', function() {
-  const pid = parseInt(document.getElementById('pickedProductId').value);
+  var pid = parseInt(document.getElementById('pickedProductId').value);
   if (pid) {
-    const p = _wProducts.find(function(x) { return x.id === pid; });
+    var p = _wProducts.find(function(x) { return x.id === pid; });
     if (p) showBalance(p.id, p.unit);
   }
 });
 
-// Валидация перед отправкой: товар обязателен
-document.addEventListener('DOMContentLoaded', function() {
-  const form = document.getElementById('wm-form') || document.querySelector('form[action="/warehouse/new"]');
+// Валидация перед отправкой
+(function() {
+  var form = document.getElementById('wm-form') || document.querySelector('form[action="/warehouse/new"]');
   if (form) {
     form.addEventListener('submit', function(e) {
-      const pid = document.getElementById('pickedProductId').value;
-      if (!pid) {
+      if (!document.getElementById('pickedProductId').value) {
         e.preventDefault();
         alert('Выберите товар');
         openWarehousePicker();
       }
     });
   }
-
   {% if _role == 'warehouse' and _wview != 'desktop' %}
-  const qtyInput = document.getElementById('qtyInput');
+  var qtyInput = document.getElementById('qtyInput');
   if (qtyInput) {
     qtyInput.addEventListener('focus', function() {
       if (this.value === '0') this.value = '';
     });
   }
   {% endif %}
-});
+})();
 </script>
 {% endblock %}

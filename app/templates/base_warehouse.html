@@ -270,56 +270,110 @@ if ('serviceWorker' in navigator) {
 </script>
 
 <!-- ProductPicker bottom-sheet -->
-<div id="pickerOverlay" onclick="pickerClose()"></div>
+<div id="pickerOverlay" onclick="_mp.close()"></div>
 <div id="productPickerModal">
   <div id="pickerHandle"></div>
   <div id="pickerHead">
     <div id="pickerSearchWrap">
       <i class="bi bi-search" id="pickerSearchIcon"></i>
       <input type="text" id="pickerSearch" placeholder="Поиск по названию или артикулу…"
-             oninput="ProductPicker._render(this.value)" autocomplete="off" inputmode="search">
+             oninput="_mp.render(this.value)" autocomplete="off" inputmode="search">
     </div>
-    <button id="pickerCloseBtn" onclick="pickerClose()">
+    <button id="pickerCloseBtn" onclick="_mp.close()">
       <i class="bi bi-x-lg"></i>
     </button>
   </div>
   <div id="pickerBody"></div>
 </div>
 <script>
-function pickerOpen() {
-  var s = document.getElementById('productPickerModal');
-  var o = document.getElementById('pickerOverlay');
-  if (s) s.classList.add('open');
-  if (o) o.classList.add('open');
-  document.body.style.overflow = 'hidden';
-  var inp = document.getElementById('pickerSearch');
-  if (inp) inp.value = ''; // очищаем поиск, но НЕ фокусируем — не открываем клавиатуру
-  if (window.ProductPicker) ProductPicker._render('');
-}
-function pickerClose() {
-  var s = document.getElementById('productPickerModal');
-  var o = document.getElementById('pickerOverlay');
-  if (s) s.classList.remove('open');
-  if (o) o.classList.remove('open');
-  document.body.style.overflow = ''; // восстанавливаем скролл
-}
-// Переопределяем ProductPicker.open для мобильного контекста
-document.addEventListener('DOMContentLoaded', function() {
-  if (!window.ProductPicker) return;
-  // Заменяем open/select на нативный bottom-sheet (без Bootstrap CSS)
-  ProductPicker.open = function(onSelect) {
-    ProductPicker._mobileOnSelect = onSelect;
-    pickerOpen();
-  };
-  ProductPicker._select = function(pid) {
-    // _products выставляется публично в шаблоне после ProductPicker.init()
-    var list = ProductPicker._products || [];
-    var p = list.find(function(x){ return x.id == pid; });
+// Мобильный пикер товаров — самостоятельный, без зависимости от ProductPicker/Bootstrap
+var _mp = {
+  _cb: null,
+
+  open: function(callback) {
+    this._cb = callback;
+    document.getElementById('pickerOverlay').classList.add('open');
+    document.getElementById('productPickerModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    var inp = document.getElementById('pickerSearch');
+    if (inp) inp.value = '';
+    this.render('');
+  },
+
+  close: function() {
+    document.getElementById('pickerOverlay').classList.remove('open');
+    document.getElementById('productPickerModal').classList.remove('open');
+    document.body.style.overflow = '';
+  },
+
+  select: function(pid) {
+    var products = window._mpProducts || [];
+    var p = products.find(function(x) { return x.id == pid; });
     if (!p) return;
-    if (ProductPicker._mobileOnSelect) ProductPicker._mobileOnSelect(p);
-    pickerClose();
-  };
-});
+    if (this._cb) this._cb(p);
+    this.close();
+  },
+
+  render: function(query) {
+    var q = (query || '').toLowerCase().trim();
+    var products = window._mpProducts || [];
+    var balances = window._mpBalances || {};
+
+    var filtered = q ? products.filter(function(p) {
+      return (p.name || '').toLowerCase().indexOf(q) >= 0 ||
+             (p.article || '').toLowerCase().indexOf(q) >= 0;
+    }) : products;
+
+    var body = document.getElementById('pickerBody');
+    if (!body) return;
+
+    if (!filtered.length) {
+      body.innerHTML = '<div style="text-align:center;padding:40px 16px;color:#94A3B8;font-size:.9rem">Ничего не найдено</div>';
+      return;
+    }
+
+    var groups = {};
+    filtered.forEach(function(p) {
+      var cat = p.category || 'Все товары';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(p);
+    });
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    var cats = Object.keys(groups).sort(function(a, b) {
+      if (a === 'Все товары') return 1;
+      if (b === 'Все товары') return -1;
+      return a.localeCompare(b, 'ru');
+    });
+    var multi = cats.length > 1;
+    var html = '';
+
+    cats.forEach(function(cat) {
+      if (multi) html += '<p class="picker-cat-label">' + esc(cat) + ' <span style="font-weight:400;opacity:.55">(' + groups[cat].length + ')</span></p>';
+      html += '<div class="picker-grid">';
+      groups[cat].forEach(function(p) {
+        var bal = balances[p.id];
+        var balHtml = '';
+        if (bal !== undefined && bal !== null) {
+          var bv = (bal % 1 === 0) ? bal : parseFloat(bal).toFixed(1);
+          var bc = bal <= 0 ? 'picker-bal-zero' : (p.min_stock && bal <= p.min_stock ? 'picker-bal-low' : 'picker-bal-ok');
+          balHtml = '<div class="picker-bal ' + bc + '">' + bv + ' ' + esc(p.unit || '') + '</div>';
+        }
+        html += '<div class="picker-card" onclick="_mp.select(' + p.id + ')">' +
+          (p.article ? '<div class="picker-art">' + esc(p.article) + '</div>' : '') +
+          '<div class="picker-pname">' + esc(p.name) + '</div>' +
+          balHtml + '</div>';
+      });
+      html += '</div>';
+    });
+
+    body.innerHTML = html;
+  }
+};
+
+// Совместимость: старый код мог вызывать pickerClose()
+function pickerClose() { _mp.close(); }
 </script>
 
 {% block scripts %}{% endblock %}
