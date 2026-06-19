@@ -298,6 +298,10 @@ class CompanySettings(Base):
     # ── Пороги напоминаний (за сколько дней предупреждать), 0 = выключено ──
     notify_contract_days = Column(Integer, default=14)  # до истечения договора
     notify_invoice_days  = Column(Integer, default=3)   # до дедлайна оплаты счёта
+    # ── Автобекап БД ──
+    backup_enabled = Column(Boolean, default=False)     # вкл/выкл автобекап
+    backup_frequency = Column(String(20), default="weekly")  # daily / weekly / monthly
+    tg_backup_chat_id = Column(String(100))              # chat_id куда отправлять бекап
 
 
 class MonthlyPlan(Base):

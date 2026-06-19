@@ -168,6 +168,9 @@ async def save_telegram(
     tg_report_chat_ids: str = Form(default=""),
     tg_callback_chat_ids: str = Form(default=""),
     tg_callback_enabled: str = Form(default=""),
+    backup_enabled: str = Form(default=""),
+    backup_frequency: str = Form(default="weekly"),
+    tg_backup_chat_id: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -178,6 +181,9 @@ async def save_telegram(
     company.tg_report_chat_ids = _normalize_chat_ids(tg_report_chat_ids)
     company.tg_callback_chat_ids = _normalize_chat_ids(tg_callback_chat_ids)
     company.tg_callback_enabled = (tg_callback_enabled == "1")
+    company.backup_enabled = (backup_enabled == "1")
+    company.backup_frequency = backup_frequency if backup_frequency in ("daily", "weekly", "monthly") else "weekly"
+    company.tg_backup_chat_id = _normalize_chat_ids(tg_backup_chat_id) or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 

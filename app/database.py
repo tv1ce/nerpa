@@ -160,6 +160,10 @@ def _migrate_db():
         # ЕГРЮЛ — кэш статуса из DaData
         ("counterparties", "egrul_status",     "TEXT"),
         ("counterparties", "egrul_checked_at", "TIMESTAMP"),
+        # Автобекап БД в Telegram
+        ("company_settings", "backup_enabled",     "INTEGER DEFAULT 0"),
+        ("company_settings", "backup_frequency",   "TEXT DEFAULT 'weekly'"),
+        ("company_settings", "tg_backup_chat_id",  "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

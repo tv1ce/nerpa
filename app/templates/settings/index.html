@@ -226,6 +226,37 @@
           </div>
         </div>
 
+        <hr class="my-3">
+
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label mb-0">
+            <i class="bi bi-archive me-1"></i>Автобекап БД
+          </label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="backup_enabled" value="1" id="backupEnabled"
+                   {% if company and company.backup_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="backupEnabled" style="font-size:.82rem">Включен</label>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" style="font-size:.88rem">Частота отправки</label>
+          <select name="backup_frequency" class="form-select form-select-sm">
+            <option value="daily"   {% if company and company.backup_frequency == 'daily' %}selected{% endif %}>Ежедневно (21:00)</option>
+            <option value="weekly"  {% if not company or company.backup_frequency == 'weekly' %}selected{% endif %}>Еженедельно, пятница (21:00)</option>
+            <option value="monthly" {% if company and company.backup_frequency == 'monthly' %}selected{% endif %}>Ежемесячно, последний день (21:00)</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <input type="text" name="tg_backup_chat_id"
+                 class="form-control font-monospace"
+                 placeholder="-1001234567890"
+                 value="{{ company.tg_backup_chat_id if company and company.tg_backup_chat_id else '' }}">
+          <div class="form-text">
+            Чат куда отправлять бэкап БД. Оставьте пустым чтобы отключить.
+          </div>
+        </div>
+
         {% if company and company.tg_bot_token %}
         <div class="alert alert-success py-2 px-3 mb-3" style="font-size:.82rem">
           <i class="bi bi-check-circle me-1"></i>Токен настроен

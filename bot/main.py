@@ -232,6 +232,51 @@ def _callbacks_text() -> str:
     return "\n".join(lines)
 
 
+async def _send_backup_file(bot: Bot, chat_id: int | str, backup_date: str) -> bool:
+    """Создаёт и отправляет бекап БД в Telegram. Возвращает True если успешно."""
+    import os
+    from telegram.error import TelegramError
+
+    try:
+        # Получаем путь к БД
+        db_url = os.getenv("DATABASE_URL", "sqlite:///./tms.db")
+        if db_url.startswith("sqlite:///"):
+            db_path = db_url.replace("sqlite:///", "")
+        else:
+            db_path = "tms.db"
+        db_path = os.path.abspath(db_path)
+
+        if not os.path.exists(db_path):
+            logger.error("Бекап БД: файл не найден %s", db_path)
+            return False
+
+        # Сбрасываем WAL перед отправкой
+        db = SessionLocal()
+        try:
+            db.execute(__import__("sqlalchemy").text("PRAGMA wal_checkpoint(TRUNCATE)"))
+        finally:
+            db.close()
+
+        # Отправляем файл в Telegram
+        filename = f"tms-backup-{backup_date}.db"
+        with open(db_path, "rb") as f:
+            await bot.send_document(
+                chat_id=chat_id,
+                document=f,
+                filename=filename,
+                caption=f"📦 *Бэкап БД* от {backup_date}",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        logger.info("Бекап БД отправлен в Telegram (chat_id=%s)", chat_id)
+        return True
+    except TelegramError as e:
+        logger.error("Ошибка отправки бекапа в Telegram: %s", e)
+        return False
+    except Exception as e:
+        logger.error("Ошибка при создании бекапа: %s", e)
+        return False
+
+
 # ── Scheduled callbacks ────────────────────────────────────────────────────────
 
 async def cb_daily(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -271,6 +316,39 @@ async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
     if today.day == last_day:
         logger.info("Отправка ежемесячного отчёта (последний день месяца)")
         await broadcast(context.bot, _monthly_text())
+
+
+async def cb_backup_check(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Проверяет нужно ли отправить бекап БД в зависимости от частоты и дня недели."""
+    from datetime import datetime
+    db = SessionLocal()
+    try:
+        from app.models import CompanySettings
+        settings = db.query(CompanySettings).first()
+        if not settings or not settings.backup_enabled or not settings.tg_backup_chat_id:
+            return
+
+        now = datetime.now(tz=TZ)
+        today = now.date()
+        frequency = settings.backup_frequency or "weekly"
+
+        # Проверяем нужно ли отправлять бекап в зависимости от частоты
+        should_backup = False
+        if frequency == "daily":
+            should_backup = True
+        elif frequency == "weekly" and today.weekday() == 4:  # Friday
+            should_backup = True
+        elif frequency == "monthly":
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            should_backup = today.day == last_day
+
+        if should_backup:
+            logger.info("Отправка бекапа БД (частота: %s)", frequency)
+            await _send_backup_file(context.bot, settings.tg_backup_chat_id, today.isoformat())
+    except Exception as e:
+        logger.error("Ошибка при отправке бекапа: %s", e)
+    finally:
+        db.close()
 
 
 # ── Команды бота ─────────────────────────────────────────────────────────────
@@ -386,11 +464,16 @@ def main() -> None:
     # Ежемесячный: проверяем каждый день в MONTHLY_TIME, шлём только в последний день месяца
     jq.run_daily(cb_monthly_check, time=MONTHLY_TIME, name="monthly_check")
 
+    # Автобекап БД: проверяем каждый день в 21:00
+    backup_time = time(hour=21, minute=0, tzinfo=TZ)
+    jq.run_daily(cb_backup_check, time=backup_time, name="backup_check")
+
     logger.info(
-        "Бот запущен. Ежедневно: %s, пятница: %s, конец месяца: %s",
+        "Бот запущен. Ежедневно: %s, пятница: %s, конец месяца: %s, бекап: %s",
         DAILY_TIME.strftime("%H:%M"),
         WEEKLY_TIME.strftime("%H:%M"),
         MONTHLY_TIME.strftime("%H:%M"),
+        backup_time.strftime("%H:%M"),
     )
 
     app.run_polling(drop_pending_updates=True)
