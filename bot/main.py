@@ -240,18 +240,33 @@ async def cb_daily(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cb_weekly(context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Проверяем день недели в нужном часовом поясе
+    # (python-telegram-bot может проверять в UTC, поэтому проверяем сами)
+    from datetime import datetime
+    now = datetime.now(tz=TZ)
+    if now.weekday() != 4:  # 4 = Friday
+        logger.debug("Сегодня не пятница (%s), пропускаем еженедельный отчёт", now.strftime("%A"))
+        return
     logger.info("Отправка еженедельного отчёта")
     await broadcast(context.bot, _weekly_text())
 
 
 async def cb_callbacks(context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Напоминания о прозвонах отправляются только в будни (пн-пт)
+    from datetime import datetime
+    now = datetime.now(tz=TZ)
+    if now.weekday() > 4:  # 5=Saturday, 6=Sunday
+        logger.debug("Выходной день (%s), пропускаем напоминание о прозвонах", now.strftime("%A"))
+        return
     logger.info("Отправка напоминания о перезвонах")
     await broadcast_callbacks(context.bot, _callbacks_text())
 
 
 async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Запускается каждый день в MONTHLY_TIME; отправляет отчёт только в последний день месяца."""
-    today = date.today()
+    from datetime import datetime
+    now = datetime.now(tz=TZ)
+    today = now.date()
     last_day = calendar.monthrange(today.year, today.month)[1]
     if today.day == last_day:
         logger.info("Отправка ежемесячного отчёта (последний день месяца)")
