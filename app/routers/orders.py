@@ -221,7 +221,8 @@ async def create_order(
     except (ValueError, TypeError):
         items_data = []
     # Фильтруем позиции без выбранного товара (защита от невалидных данных)
-    items_data = [i for i in items_data if i.get("product_id")]
+    # Проверяем что product_id есть и валиден (не пустой и не 0)
+    items_data = [i for i in items_data if i.get("product_id") and int(i.get("product_id", 0)) > 0]
     for item in items_data:
         qty = float(item["quantity"])
         price = float(item["price"])
@@ -359,7 +360,9 @@ async def update_order(
         items_data = json.loads(items_json)
     except (ValueError, TypeError):
         items_data = []
-    items_data = [i for i in items_data if i.get("product_id")]
+    # Фильтруем позиции без выбранного товара (защита от невалидных данных)
+    # Проверяем что product_id есть и валиден (не пустой и не 0)
+    items_data = [i for i in items_data if i.get("product_id") and int(i.get("product_id", 0)) > 0]
     for item in items_data:
         qty = float(item["quantity"])
         price = float(item["price"])
