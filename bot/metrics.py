@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.models import (
     Order, OrderItem, Invoice, Counterparty, Contract,
     LogisticsCost, Claim, MonthlyPlan, Product, StockMovement,
-    SalesLead, User,
+    SalesLead, User, CompanySettings,
 )
 
 
@@ -67,6 +67,22 @@ def _week_bounds(d: date):
     start = d - timedelta(days=d.weekday())
     end = start + timedelta(days=6)
     return start, end
+
+
+def _resolve_plan_amount(db: Session, year: int, month: int) -> float | None:
+    """План месяца: сначала помесячная строка `monthly_plans`, иначе — глобальная
+    настройка `CompanySettings.monthly_plan` (так же, как дашборд /reports).
+    0 трактуется как «план не задан» → None."""
+    plan_row = (
+        db.query(MonthlyPlan)
+        .filter(MonthlyPlan.year == year, MonthlyPlan.month == month)
+        .first()
+    )
+    if plan_row and plan_row.plan_amount:
+        return plan_row.plan_amount
+    company = db.query(CompanySettings).first()
+    amount = getattr(company, "monthly_plan", None) if company else None
+    return amount or None
 
 
 def _fmt(amount: float) -> str:
@@ -223,11 +239,7 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         Invoice.status == "paid",
     ).scalar() or 0.0
 
-    plan_row = db.query(MonthlyPlan).filter(
-        MonthlyPlan.year == today.year,
-        MonthlyPlan.month == today.month,
-    ).first()
-    plan_amount = plan_row.plan_amount if plan_row else None
+    plan_amount = _resolve_plan_amount(db, today.year, today.month)
     plan_pct = round(revenue_month_so_far / plan_amount * 100, 1) if plan_amount else None
     plan_remaining = max(plan_amount - revenue_month_so_far, 0) if plan_amount else None
 
@@ -298,12 +310,8 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
 
     delta_month = round((revenue_month - revenue_prev) / revenue_prev * 100, 1) if revenue_prev else None
 
-    # План
-    plan_row = db.query(MonthlyPlan).filter(
-        MonthlyPlan.year == today.year,
-        MonthlyPlan.month == today.month,
-    ).first()
-    plan_amount = plan_row.plan_amount if plan_row else None
+    # План: помесячный (monthly_plans) с откатом на глобальный (CompanySettings)
+    plan_amount = _resolve_plan_amount(db, today.year, today.month)
     plan_pct = round(revenue_month / plan_amount * 100, 1) if plan_amount else None
 
     # Орешки
