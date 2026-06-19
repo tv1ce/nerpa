@@ -58,6 +58,13 @@ body {
   color: var(--text-soft);
   font-size: .9rem;
   line-height: 1.55;
+  overscroll-behavior-y: none; /* отключаем pull-to-refresh в Android WebView */
+}
+
+/* Picker body — не пускаем оверскролл за пределы модалки */
+#pickerBody {
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 h1, h2, h3, h4, h5, h6 { color: var(--text); }

@@ -291,6 +291,7 @@ function pickerOpen() {
   var o = document.getElementById('pickerOverlay');
   if (s) s.classList.add('open');
   if (o) o.classList.add('open');
+  document.body.style.overflow = 'hidden'; // блокируем скролл страницы + pull-to-refresh
   var inp = document.getElementById('pickerSearch');
   if (inp) { inp.value = ''; setTimeout(function(){ inp.focus(); }, 200); }
   if (window.ProductPicker) ProductPicker._render('');
@@ -300,6 +301,7 @@ function pickerClose() {
   var o = document.getElementById('pickerOverlay');
   if (s) s.classList.remove('open');
   if (o) o.classList.remove('open');
+  document.body.style.overflow = ''; // восстанавливаем скролл
 }
 // Переопределяем ProductPicker.open для мобильного контекста
 document.addEventListener('DOMContentLoaded', function() {

@@ -5,7 +5,7 @@
    - POST и прочее: всегда сеть (не кэшируем мутации).
    Кэш намеренно лёгкий — это инструмент локальной сети, данные всегда свежие. */
 
-const VERSION      = 'tms-wh-v4';
+const VERSION      = 'tms-wh-v6';
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL  = '/static/offline.html';
 
