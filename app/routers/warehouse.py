@@ -132,6 +132,10 @@ async def mark_assembled(request: Request, order_id: int, db: Session = Depends(
         # Автосписание: создаём движение "out" по каждой позиции заказа
         user_id = request.session.get("user_id")
         for item in order.items:
+            # Проверяем что позиция привязана к товару (может быть подставка или услуга без product_id)
+            if not item.product_id:
+                logger.warning("Заказ %d: позиция без product_id пропущена при сборке", order_id)
+                continue
             db.add(StockMovement(
                 product_id=item.product_id,
                 movement_type="out",
