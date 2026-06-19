@@ -269,27 +269,56 @@ if ('serviceWorker' in navigator) {
 })();
 </script>
 
-<!-- ProductPicker Modal -->
-<div class="modal fade" id="productPickerModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-scrollable" style="max-width:640px">
-    <div class="modal-content">
-      <div class="modal-header border-0 pb-2 pt-3 px-3 gap-2">
-        <div class="input-group flex-grow-1">
-          <span class="input-group-text bg-white border-end-0 pe-1">
-            <i class="bi bi-search" style="font-size:.9rem;color:var(--wm-muted)"></i>
-          </span>
-          <input type="text" id="pickerSearch" class="form-control border-start-0 ps-1"
-                 placeholder="Поиск по названию или артикулу…"
-                 oninput="ProductPicker._render(this.value)" autocomplete="off">
-        </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
-      </div>
-      <div class="modal-body py-2 px-3" id="pickerBody"
-           style="min-height:240px; max-height:70vh; overflow-y:auto">
-      </div>
+<!-- ProductPicker — мобильный bottom-sheet (без Bootstrap CSS) -->
+<div id="pickerOverlay" onclick="pickerClose()"></div>
+<div id="productPickerModal" role="dialog" aria-hidden="true">
+  <div class="wm-picker-drag-handle"></div>
+  <div class="wm-picker-head">
+    <div class="wm-picker-search-row">
+      <i class="bi bi-search wm-picker-search-icon"></i>
+      <input type="text" id="pickerSearch" class="wm-picker-search-input"
+             placeholder="Поиск…" oninput="ProductPicker._render(this.value)" autocomplete="off">
     </div>
+    <button type="button" class="wm-picker-close-btn" onclick="pickerClose()" aria-label="Закрыть">
+      <i class="bi bi-x-lg"></i>
+    </button>
   </div>
+  <div id="pickerBody" class="wm-picker-body"></div>
 </div>
+<script>
+function pickerOpen() {
+  var s = document.getElementById('productPickerModal');
+  var o = document.getElementById('pickerOverlay');
+  if (s) s.classList.add('open');
+  if (o) o.classList.add('open');
+  var inp = document.getElementById('pickerSearch');
+  if (inp) { inp.value = ''; setTimeout(function(){ inp.focus(); }, 200); }
+  if (window.ProductPicker) ProductPicker._render('');
+}
+function pickerClose() {
+  var s = document.getElementById('productPickerModal');
+  var o = document.getElementById('pickerOverlay');
+  if (s) s.classList.remove('open');
+  if (o) o.classList.remove('open');
+}
+// Переопределяем ProductPicker.open для мобильного контекста
+document.addEventListener('DOMContentLoaded', function() {
+  if (!window.ProductPicker) return;
+  // Заменяем open/select на нативный bottom-sheet (без Bootstrap CSS)
+  ProductPicker.open = function(onSelect) {
+    ProductPicker._mobileOnSelect = onSelect;
+    pickerOpen();
+  };
+  ProductPicker._select = function(pid) {
+    // _products выставляется публично в шаблоне после ProductPicker.init()
+    var list = ProductPicker._products || [];
+    var p = list.find(function(x){ return x.id == pid; });
+    if (!p) return;
+    if (ProductPicker._mobileOnSelect) ProductPicker._mobileOnSelect(p);
+    pickerClose();
+  };
+});
+</script>
 
 {% block scripts %}{% endblock %}
 </body>

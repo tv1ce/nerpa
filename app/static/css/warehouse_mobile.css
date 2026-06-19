@@ -645,3 +645,152 @@ body {
 
 /* ── Notification drawer (адаптация для mobile base) ─────────────────────── */
 #notif-drawer { top: var(--wm-header-h); height: calc(100vh - var(--wm-header-h)); }
+
+/* ── Product Picker (bottom-sheet) ───────────────────────────────────────── */
+#pickerOverlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: rgba(0,0,0,.45);
+}
+#pickerOverlay.open { display: block; }
+
+#productPickerModal {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 401;
+  background: var(--wm-surface);
+  border-radius: 20px 20px 0 0;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform .28s cubic-bezier(.32,0,.67,0);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+#productPickerModal.open {
+  transform: translateY(0);
+}
+
+.wm-picker-drag-handle {
+  width: 40px; height: 4px;
+  background: var(--wm-border);
+  border-radius: 2px;
+  margin: 12px auto 4px;
+  flex-shrink: 0;
+}
+
+.wm-picker-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 12px;
+  border-bottom: 1px solid var(--wm-border);
+  flex-shrink: 0;
+}
+
+.wm-picker-search-row {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: var(--wm-bg);
+  border-radius: 12px;
+  padding: 0 14px;
+  gap: 10px;
+  height: 46px;
+}
+.wm-picker-search-icon {
+  color: var(--wm-muted);
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+.wm-picker-search-input {
+  border: none;
+  background: transparent;
+  font-size: 1rem;
+  color: var(--wm-text);
+  outline: none;
+  flex: 1;
+  padding: 0;
+  font-family: inherit;
+}
+.wm-picker-search-input::placeholder { color: var(--wm-muted); }
+
+.wm-picker-close-btn {
+  width: 42px; height: 42px;
+  border: none;
+  background: var(--wm-bg);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--wm-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.wm-picker-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px 14px 16px;
+  flex: 1;
+}
+
+/* Карточки товаров в мобильном пикере */
+#productPickerModal .picker-cat-label {
+  font-size: .64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--wm-muted);
+  padding: 14px 0 7px;
+  margin: 0;
+}
+#productPickerModal .picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 4px;
+}
+#productPickerModal .picker-card {
+  border: 1.5px solid var(--wm-border);
+  border-radius: 14px;
+  padding: 12px 13px;
+  cursor: pointer;
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: var(--wm-surface);
+  -webkit-tap-highlight-color: transparent;
+  transition: background .1s, border-color .1s, transform .08s;
+}
+#productPickerModal .picker-card:active {
+  background: #EFF6FF;
+  border-color: var(--wm-brand);
+  transform: scale(.96);
+}
+#productPickerModal .picker-art {
+  font-size: .65rem;
+  font-weight: 700;
+  color: var(--wm-muted);
+  font-family: monospace;
+  line-height: 1.2;
+}
+#productPickerModal .picker-pname {
+  font-size: .92rem;
+  font-weight: 700;
+  color: var(--wm-text);
+  line-height: 1.25;
+}
+#productPickerModal .picker-bal {
+  font-size: .76rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+#productPickerModal .picker-bal-ok   { color: var(--wm-success); }
+#productPickerModal .picker-bal-low  { color: var(--wm-warning); }
+#productPickerModal .picker-bal-zero { color: var(--wm-danger); }

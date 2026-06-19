@@ -208,6 +208,7 @@ const _wProducts = [
 
 // Инициализация пикера с балансами склада
 ProductPicker.init(_wProducts, _wBalances);
+ProductPicker._products = _wProducts; // публичный доступ для мобильного _select
 
 function openWarehousePicker() {
   ProductPicker.open(function(p) {
