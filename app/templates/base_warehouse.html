@@ -269,21 +269,21 @@ if ('serviceWorker' in navigator) {
 })();
 </script>
 
-<!-- ProductPicker — мобильный bottom-sheet (без Bootstrap CSS) -->
+<!-- ProductPicker bottom-sheet -->
 <div id="pickerOverlay" onclick="pickerClose()"></div>
-<div id="productPickerModal" role="dialog" aria-hidden="true">
-  <div class="wm-picker-drag-handle"></div>
-  <div class="wm-picker-head">
-    <div class="wm-picker-search-row">
-      <i class="bi bi-search wm-picker-search-icon"></i>
-      <input type="text" id="pickerSearch" class="wm-picker-search-input"
-             placeholder="Поиск…" oninput="ProductPicker._render(this.value)" autocomplete="off">
+<div id="productPickerModal">
+  <div id="pickerHandle"></div>
+  <div id="pickerHead">
+    <div id="pickerSearchWrap">
+      <i class="bi bi-search" id="pickerSearchIcon"></i>
+      <input type="text" id="pickerSearch" placeholder="Поиск по названию или артикулу…"
+             oninput="ProductPicker._render(this.value)" autocomplete="off" inputmode="search">
     </div>
-    <button type="button" class="wm-picker-close-btn" onclick="pickerClose()" aria-label="Закрыть">
+    <button id="pickerCloseBtn" onclick="pickerClose()">
       <i class="bi bi-x-lg"></i>
     </button>
   </div>
-  <div id="pickerBody" class="wm-picker-body"></div>
+  <div id="pickerBody"></div>
 </div>
 <script>
 function pickerOpen() {

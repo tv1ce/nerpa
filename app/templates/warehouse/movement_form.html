@@ -45,19 +45,20 @@
   <input type="hidden" name="movement_type" value="{{ selected_type }}">
 
   {# Товар #}
-  <div class="wm-form-group">
-    <label class="wm-form-label">Товар</label>
-    <input type="hidden" name="product_id" id="pickedProductId" value="{{ selected_product or '' }}">
-    <button type="button" id="productPickerBtn"
-            class="wm-form-control{% if not selected_product_name %} picker-empty{% endif %}"
-            style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;text-align:left"
-            onclick="openWarehousePicker()">
-      <span id="productPickerLabel" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap{% if not selected_product_name %};color:var(--wm-muted){% endif %}">
-        {{ selected_product_name or '— выберите товар —' }}
-      </span>
-      <i class="bi bi-grid-3x3-gap" style="flex-shrink:0;margin-left:8px;color:var(--wm-muted)"></i>
-    </button>
-    <div id="balanceInfo" class="wm-balance-hint"></div>
+  <input type="hidden" name="product_id" id="pickedProductId" value="{{ selected_product or '' }}">
+  <div class="wm-product-tile {% if not selected_product_name %}wm-product-tile--empty{% endif %}"
+       id="productPickerBtn" onclick="openWarehousePicker()">
+    <div class="wm-pt-icon">
+      <i class="bi bi-box-seam"></i>
+    </div>
+    <div class="wm-pt-body">
+      <div class="wm-pt-label">Товар</div>
+      <div class="wm-pt-value" id="productPickerLabel">
+        {{ selected_product_name or 'Нажмите для выбора' }}
+      </div>
+      <div class="wm-pt-balance" id="balanceInfo"></div>
+    </div>
+    <i class="bi bi-chevron-right wm-pt-arrow"></i>
   </div>
 
   {# Количество #}
@@ -213,33 +214,30 @@ ProductPicker._products = _wProducts; // публичный доступ для 
 function openWarehousePicker() {
   ProductPicker.open(function(p) {
     document.getElementById('pickedProductId').value = p.id;
-    const lbl = document.getElementById('productPickerLabel');
-    if (lbl) { lbl.textContent = p.name; lbl.style.color = ''; }
-    const btn = document.getElementById('productPickerBtn');
-    if (btn) btn.classList.remove('picker-empty', 'empty');
-    showBalance(p.id, p.unit);
+    var lbl = document.getElementById('productPickerLabel');
+    if (lbl) lbl.textContent = p.name;
+    var tile = document.getElementById('productPickerBtn');
+    if (tile) tile.classList.remove('wm-product-tile--empty');
     {% if _role == 'warehouse' and _wview != 'desktop' %}
-    const unitSpan = document.getElementById('unitLabelInner');
+    var unitSpan = document.getElementById('unitLabelInner');
     if (unitSpan) unitSpan.textContent = p.unit;
     {% else %}
-    const ul = document.getElementById('unitLabel');
+    var ul = document.getElementById('unitLabel');
     if (ul) ul.textContent = p.unit;
     {% endif %}
+    showBalance(p.id, p.unit);
   });
 }
 
 function showBalance(pid, unit) {
-  const bal = _wBalances[pid];
-  if (bal === undefined) return;
-  const hint = document.getElementById('balanceInfo');
+  var bal = _wBalances[pid];
+  var hint = document.getElementById('balanceInfo');
   if (!hint) return;
-  const u = unit || 'ед.';
-  const balFmt = (bal % 1 === 0) ? bal : parseFloat(bal).toFixed(1);
-  {% if _role == 'warehouse' and _wview != 'desktop' %}
-  hint.innerHTML = 'Сейчас на складе: <strong>' + balFmt + ' ' + u + '</strong>';
-  {% else %}
-  hint.textContent = 'Текущий остаток: ' + balFmt + ' ' + u;
-  {% endif %}
+  if (bal === undefined || bal === null) { hint.textContent = ''; return; }
+  var u = unit || 'ед.';
+  var balFmt = (bal % 1 === 0) ? bal : parseFloat(bal).toFixed(1);
+  var color = bal <= 0 ? '#DC2626' : (bal <= 5 ? '#D97706' : '#16A34A');
+  hint.innerHTML = 'Остаток: <strong style="color:' + color + '">' + balFmt + ' ' + u + '</strong>';
 }
 
 // Открыть пикер сразу, если товар не выбран
