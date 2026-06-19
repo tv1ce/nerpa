@@ -156,12 +156,40 @@ async def revenue_report(
     else:
         nuts_year = 0.0
 
-    # Выручка текущей недели
+    # Выручка текущей недели (оплачено)
     revenue_week = db.query(func.sum(Invoice.total_amount)).filter(
         Invoice.date >= week_start,
         Invoice.date <= week_end,
         Invoice.status == "paid",
     ).scalar() or 0.0
+
+    # Всего выставлено счетов за текущую неделю (любой статус)
+    invoiced_week = db.query(func.sum(Invoice.total_amount)).filter(
+        Invoice.date >= week_start,
+        Invoice.date <= week_end,
+    ).scalar() or 0.0
+
+    # Орешков за текущую неделю
+    nuts_week = 0.0
+    if _kpi_ids:
+        nuts_week = db.query(func.sum(OrderItem.quantity)).join(
+            Order, OrderItem.order_id == Order.id
+        ).filter(
+            Order.date >= week_start,
+            Order.date <= week_end,
+            OrderItem.product_id.in_(_kpi_ids),
+        ).scalar() or 0.0
+
+    # Орешков за выбранный период
+    nuts_period = 0.0
+    if _kpi_ids:
+        nuts_period = db.query(func.sum(OrderItem.quantity)).join(
+            Order, OrderItem.order_id == Order.id
+        ).filter(
+            Order.date >= tbl_from,
+            Order.date <= tbl_to,
+            OrderItem.product_id.in_(_kpi_ids),
+        ).scalar() or 0.0
 
     # Выручка прошлой недели
     revenue_prev_week = db.query(func.sum(Invoice.total_amount)).filter(
@@ -230,9 +258,12 @@ async def revenue_report(
         # KPI
         "revenue_year": revenue_year,
         "nuts_year": nuts_year,
+        "nuts_period": nuts_period,
         "week_start": week_start,
         "week_end": week_end,
         "revenue_week": revenue_week,
+        "invoiced_week": invoiced_week,
+        "nuts_week": nuts_week,
         "revenue_prev_week": revenue_prev_week,
         "week_delta_pct": week_delta_pct,
         "revenue_month": revenue_month,
