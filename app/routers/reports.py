@@ -157,18 +157,16 @@ async def revenue_report(
     else:
         nuts_year = 0.0
 
-    # Выручка текущей недели (оплачено)
-    revenue_week = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= week_start,
-        Invoice.date <= week_end,
-        Invoice.status == "paid",
-    ).scalar() or 0.0
-
-    # Всего выставлено счетов за текущую неделю (любой статус)
-    invoiced_week = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= week_start,
-        Invoice.date <= week_end,
-    ).scalar() or 0.0
+    # Заказы текущей недели (для консистентности с таблицей — оба по дате заказа)
+    _orders_week = db.query(Order).filter(
+        Order.date >= week_start,
+        Order.date <= week_end,
+    ).all()
+    invoiced_week = sum(o.total_amount for o in _orders_week)
+    revenue_week  = sum(
+        sum(inv.total_amount for inv in o.invoices if inv.status == "paid")
+        for o in _orders_week
+    )
 
     # Орешков за текущую неделю
     nuts_week = 0.0
@@ -192,12 +190,15 @@ async def revenue_report(
             OrderItem.product_id.in_(_kpi_ids),
         ).scalar() or 0.0
 
-    # Выручка прошлой недели
-    revenue_prev_week = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= prev_week_start,
-        Invoice.date <= prev_week_end,
-        Invoice.status == "paid",
-    ).scalar() or 0.0
+    # Оплаченные счета прошлой недели (по дате заказа)
+    _orders_prev_week = db.query(Order).filter(
+        Order.date >= prev_week_start,
+        Order.date <= prev_week_end,
+    ).all()
+    revenue_prev_week = sum(
+        sum(inv.total_amount for inv in o.invoices if inv.status == "paid")
+        for o in _orders_prev_week
+    )
 
     # Динамика недели
     if revenue_prev_week > 0:
