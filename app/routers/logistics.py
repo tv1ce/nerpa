@@ -366,18 +366,19 @@ async def logistics_index(
     total_prev_month = round(_logi_sum(prev_month_start, prev_month_end) * TAX, 2)
     total_year       = round(_logi_sum(year_start, today)          * TAX, 2)
 
-    # Выручка по периодам (оплаченные счета) — для расчёта доли логистики
-    from app.models import Invoice as _Invoice
-
-    def _revenue_sum(d_from, d_to):
-        return db.query(func.sum(_Invoice.total_amount)).filter(
-            _Invoice.date >= d_from,
-            _Invoice.date <= d_to,
-            _Invoice.status == "paid",
+    # Доля логистики = затраты / сумма отгруженных заказов Гоголева за период
+    def _shipped_orders_sum(d_from, d_to):
+        if not _carrier_id:
+            return 0.0
+        return db.query(func.sum(Order.total_amount)).filter(
+            Order.date >= d_from,
+            Order.date <= d_to,
+            Order.carrier_id == _carrier_id,
+            Order.status.in_(["handed", "delivered", "paid", "assembled"]),
         ).scalar() or 0.0
 
     def _pct_of_revenue(logi, d_from, d_to):
-        rev = _revenue_sum(d_from, d_to)
+        rev = _shipped_orders_sum(d_from, d_to)
         return round(logi / rev * 100, 1) if rev > 0 else None
 
     pct_week       = _pct_of_revenue(total_week,       week_start, week_end)
