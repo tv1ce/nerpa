@@ -98,24 +98,25 @@ async def revenue_report(
     # Формируем строки таблицы
     shipments = []
     for order in rows_q:
-        # Считаем только целевые товары (фильтр задаётся в настройках компании)
         qty = sum(
             i.quantity for i in order.items
             if kpi_filter.lower() in (i.product.name if i.product else "").lower()
         ) if order.items else 0
-        # Сумма берётся напрямую из заказа — единственный источник правды
-        # (счёт может включать НДС или отличаться по составу)
         amount = order.total_amount
-        # Ищем связанный оплаченный счёт (только для ссылки)
-        inv = next((inv for inv in order.invoices if inv.status == "paid"), None)
+        # Оплаченные счета по заказу
+        paid_invs = [inv for inv in order.invoices if inv.status == "paid"]
+        any_inv   = next(iter(order.invoices), None)
+        paid_amount = sum(inv.total_amount for inv in paid_invs)
+        invoice_id  = paid_invs[0].id if paid_invs else (any_inv.id if any_inv else None)
         shipments.append({
             "id": order.id,
             "counterparty": order.counterparty.name if order.counterparty else "—",
             "amount": amount,
+            "paid_amount": paid_amount,   # сумма оплаченных счетов по этому заказу
             "qty": qty,
             "date": order.date,
             "status": order.status,
-            "invoice_id": inv.id if inv else None,
+            "invoice_id": invoice_id,
         })
 
     # ── Разбивка по клиентам за период ────────────────────────────────────────
@@ -247,13 +248,15 @@ async def revenue_report(
     ).scalar() or 0.0) * _LOGISTICS_TAX
 
     # Итого по таблице (за выбранный период)
-    total_amount = sum(r["amount"] for r in shipments)
-    total_qty = sum(r["qty"] for r in shipments)
+    total_amount       = sum(r["amount"]       for r in shipments)
+    total_paid_invoices= sum(r["paid_amount"]  for r in shipments)
+    total_qty          = sum(r["qty"]          for r in shipments)
 
     return templates.TemplateResponse(request, "reports/revenue.html", {
         "shipments": shipments,
         "by_client": by_client,
         "total_amount": total_amount,
+        "total_paid_invoices": total_paid_invoices,
         "total_qty": total_qty,
         # KPI
         "revenue_year": revenue_year,
