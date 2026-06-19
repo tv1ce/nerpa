@@ -287,9 +287,17 @@ async def profile_save(
 async def backup_db(request: Request, db: Session = Depends(get_db)):
     """Скачать резервную копию БД. Только admin. WAL-checkpoint перед выдачей."""
     from datetime import date as _date
-    db_path = os.path.abspath("tms.db")
+    # Получаем путь к БД из переменной окружения или используем путь по умолчанию
+    db_url = os.getenv("DATABASE_URL", "sqlite:///./tms.db")
+    # Парсим SQLite URL: sqlite:///./path/to/db.db → ./path/to/db.db (убираем sqlite:///)
+    if db_url.startswith("sqlite:///"):
+        db_path = db_url.replace("sqlite:///", "")
+    else:
+        db_path = "tms.db"
+    # Конвертируем в абсолютный путь
+    db_path = os.path.abspath(db_path)
     if not os.path.exists(db_path):
-        return HTMLResponse("База данных не найдена.", status_code=404)
+        return HTMLResponse(f"База данных не найдена: {db_path}", status_code=404)
     # Сбрасываем WAL в основной файл перед скачиванием
     db.execute(__import__("sqlalchemy").text("PRAGMA wal_checkpoint(TRUNCATE)"))
     filename = f"tms-backup-{_date.today().isoformat()}.db"
