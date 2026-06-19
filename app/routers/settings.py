@@ -293,21 +293,31 @@ async def profile_save(
 async def backup_db(request: Request, db: Session = Depends(get_db)):
     """Скачать резервную копию БД. Только admin. WAL-checkpoint перед выдачей."""
     from datetime import date as _date
+    from pathlib import Path
+
     # Получаем путь к БД из переменной окружения или используем путь по умолчанию
     db_url = os.getenv("DATABASE_URL", "sqlite:///./tms.db")
+
     # Парсим SQLite URL: sqlite:///./path/to/db.db → ./path/to/db.db (убираем sqlite:///)
     if db_url.startswith("sqlite:///"):
-        db_path = db_url.replace("sqlite:///", "")
+        db_path = db_url[len("sqlite:///"):]
     else:
         db_path = "tms.db"
-    # Конвертируем в абсолютный путь
-    db_path = os.path.abspath(db_path)
-    if not os.path.exists(db_path):
+
+    # Конвертируем в Path объект и получаем абсолютный путь
+    db_path = Path(db_path).resolve()
+
+    if not db_path.exists():
         return HTMLResponse(f"База данных не найдена: {db_path}", status_code=404)
+
     # Сбрасываем WAL в основной файл перед скачиванием
-    db.execute(__import__("sqlalchemy").text("PRAGMA wal_checkpoint(TRUNCATE)"))
+    try:
+        db.execute(__import__("sqlalchemy").text("PRAGMA wal_checkpoint(TRUNCATE)"))
+    except Exception as e:
+        pass  # Продолжаем даже если checkpoint завалился
+
     filename = f"tms-backup-{_date.today().isoformat()}.db"
-    return FileResponse(db_path, filename=filename, media_type="application/octet-stream")
+    return FileResponse(path=str(db_path), filename=filename, media_type="application/octet-stream")
 
 
 @router.post("/profile/password")
