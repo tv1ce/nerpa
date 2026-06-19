@@ -350,10 +350,12 @@ async def logistics_index(
     def _orders_count(d_from, d_to):
         if not _carrier_id:
             return 0
+        # Считаем только реально отправленные заказы (не черновики и не просто подтверждённые)
         return db.query(func.count(Order.id)).filter(
             Order.date >= d_from,
             Order.date <= d_to,
             Order.carrier_id == _carrier_id,
+            Order.status.in_(["handed", "delivered", "paid", "assembled"]),
         ).scalar() or 0
 
     def _per_order(logi, orders):
