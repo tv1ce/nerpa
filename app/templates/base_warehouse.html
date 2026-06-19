@@ -268,6 +268,28 @@ if ('serviceWorker' in navigator) {
 })();
 </script>
 
+<!-- ProductPicker Modal -->
+<div class="modal fade" id="productPickerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable" style="max-width:640px">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-2 pt-3 px-3 gap-2">
+        <div class="input-group flex-grow-1">
+          <span class="input-group-text bg-white border-end-0 pe-1">
+            <i class="bi bi-search" style="font-size:.9rem;color:var(--wm-muted)"></i>
+          </span>
+          <input type="text" id="pickerSearch" class="form-control border-start-0 ps-1"
+                 placeholder="Поиск по названию или артикулу…"
+                 oninput="ProductPicker._render(this.value)" autocomplete="off">
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body py-2 px-3" id="pickerBody"
+           style="min-height:240px; max-height:70vh; overflow-y:auto">
+      </div>
+    </div>
+  </div>
+</div>
+
 {% block scripts %}{% endblock %}
 </body>
 </html>

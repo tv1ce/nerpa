@@ -46,16 +46,17 @@
 
   {# Товар #}
   <div class="wm-form-group">
-    <label class="wm-form-label" for="productSelect">Товар</label>
-    <select name="product_id" class="wm-form-control" id="productSelect" required onchange="updateBalance(this)">
-      <option value="">— выберите товар —</option>
-      {% for p in products %}
-      <option value="{{ p.id }}" {% if p.id == selected_product %}selected{% endif %}
-        data-balance="{{ balances.get(p.id, 0) }}" data-unit="{{ p.unit }}">
-        {{ p.name }}{% if p.article %} [{{ p.article }}]{% endif %}
-      </option>
-      {% endfor %}
-    </select>
+    <label class="wm-form-label">Товар</label>
+    <input type="hidden" name="product_id" id="pickedProductId" value="{{ selected_product or '' }}">
+    <button type="button" id="productPickerBtn"
+            class="wm-form-control{% if not selected_product_name %} picker-empty{% endif %}"
+            style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;text-align:left"
+            onclick="openWarehousePicker()">
+      <span id="productPickerLabel" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap{% if not selected_product_name %};color:var(--wm-muted){% endif %}">
+        {{ selected_product_name or '— выберите товар —' }}
+      </span>
+      <i class="bi bi-grid-3x3-gap" style="flex-shrink:0;margin-left:8px;color:var(--wm-muted)"></i>
+    </button>
     <div id="balanceInfo" class="wm-balance-hint"></div>
   </div>
 
@@ -141,16 +142,13 @@
         <div class="row g-3">
           <div class="col-12">
             <label class="form-label">Товар *</label>
-            <select name="product_id" class="form-select" id="productSelect" required onchange="updateBalance(this)">
-              <option value="">— выберите товар —</option>
-              {% for p in products %}
-              <option value="{{ p.id }}" {% if p.id == selected_product %}selected{% endif %}
-                data-balance="{{ balances.get(p.id, 0) }}" data-unit="{{ p.unit }}">
-                {{ p.name }}{% if p.article %} [{{ p.article }}]{% endif %}
-              </option>
-              {% endfor %}
-            </select>
-            <div id="balanceInfo" class="form-text"></div>
+            <input type="hidden" name="product_id" id="pickedProductId" value="{{ selected_product or '' }}">
+            <button type="button" class="btn-picker{% if not selected_product_name %} empty{% endif %}"
+                    onclick="openWarehousePicker()">
+              <span class="pbl" id="productPickerLabel">{{ selected_product_name or '— выберите товар —' }}</span>
+              <i class="bi bi-grid-3x3-gap pbi"></i>
+            </button>
+            <div id="balanceInfo" class="form-text mt-1"></div>
           </div>
           <div class="col-md-6">
             <label class="form-label">Количество *</label>
@@ -199,42 +197,81 @@
 
 {% block scripts %}
 <script>
-const balances = {{ balances | tojson }};
+const _wBalances = {{ balances | tojson }};
+const _wProducts = [
+  {% for p in products %}
+  { id: {{ p.id }}, name: {{ p.name|tojson }}, article: {{ (p.article or '')|tojson }},
+    unit: {{ p.unit|tojson }}, category: {{ (p.category or '')|tojson }},
+    min_stock: {{ p.min_stock or 0 }} },
+  {% endfor %}
+];
 
-function updateBalance(sel) {
-  const opt = sel.options[sel.selectedIndex];
-  const bal = parseFloat(opt.dataset.balance) || 0;
-  const unit = opt.dataset.unit || 'ед.';
+// Инициализация пикера с балансами склада
+ProductPicker.init(_wProducts, _wBalances);
 
-  {% if _role == 'warehouse' and _wview != 'desktop' %}
+function openWarehousePicker() {
+  ProductPicker.open(function(p) {
+    document.getElementById('pickedProductId').value = p.id;
+    const lbl = document.getElementById('productPickerLabel');
+    if (lbl) { lbl.textContent = p.name; lbl.style.color = ''; }
+    const btn = document.getElementById('productPickerBtn');
+    if (btn) btn.classList.remove('picker-empty', 'empty');
+    showBalance(p.id, p.unit);
+    {% if _role == 'warehouse' and _wview != 'desktop' %}
+    const unitSpan = document.getElementById('unitLabelInner');
+    if (unitSpan) unitSpan.textContent = p.unit;
+    {% else %}
+    const ul = document.getElementById('unitLabel');
+    if (ul) ul.textContent = p.unit;
+    {% endif %}
+  });
+}
+
+function showBalance(pid, unit) {
+  const bal = _wBalances[pid];
+  if (bal === undefined) return;
   const hint = document.getElementById('balanceInfo');
-  if (opt.value) {
-    hint.innerHTML = 'Сейчас на складе: <strong>' + bal + ' ' + unit + '</strong>';
-  } else {
-    hint.textContent = '';
-  }
-  const unitSpan = document.getElementById('unitLabelInner');
-  if (unitSpan && opt.value) unitSpan.textContent = unit;
+  if (!hint) return;
+  const u = unit || 'ед.';
+  const balFmt = (bal % 1 === 0) ? bal : parseFloat(bal).toFixed(1);
+  {% if _role == 'warehouse' and _wview != 'desktop' %}
+  hint.innerHTML = 'Сейчас на складе: <strong>' + balFmt + ' ' + u + '</strong>';
   {% else %}
-  document.getElementById('balanceInfo').textContent = bal > 0 ? 'Текущий остаток: ' + bal + ' ' + unit : '';
-  const ul = document.getElementById('unitLabel');
-  if (ul) ul.textContent = unit;
+  hint.textContent = 'Текущий остаток: ' + balFmt + ' ' + u;
   {% endif %}
 }
 
+// Открыть пикер сразу, если товар не выбран
 window.addEventListener('load', function() {
-  const sel = document.getElementById('productSelect');
-  if (sel && sel.value) updateBalance(sel);
+  const pid = parseInt(document.getElementById('pickedProductId').value);
+  if (pid) {
+    const p = _wProducts.find(function(x) { return x.id === pid; });
+    if (p) showBalance(p.id, p.unit);
+  }
 });
 
-{% if _role == 'warehouse' and _wview != 'desktop' %}
-// Убрать лишние 0 при фокусе на поле количества
-const qtyInput = document.getElementById('qtyInput');
-if (qtyInput) {
-  qtyInput.addEventListener('focus', function() {
-    if (this.value === '0') this.value = '';
-  });
-}
-{% endif %}
+// Валидация перед отправкой: товар обязателен
+document.addEventListener('DOMContentLoaded', function() {
+  const form = document.getElementById('wm-form') || document.querySelector('form[action="/warehouse/new"]');
+  if (form) {
+    form.addEventListener('submit', function(e) {
+      const pid = document.getElementById('pickedProductId').value;
+      if (!pid) {
+        e.preventDefault();
+        alert('Выберите товар');
+        openWarehousePicker();
+      }
+    });
+  }
+
+  {% if _role == 'warehouse' and _wview != 'desktop' %}
+  const qtyInput = document.getElementById('qtyInput');
+  if (qtyInput) {
+    qtyInput.addEventListener('focus', function() {
+      if (this.value === '0') this.value = '';
+    });
+  }
+  {% endif %}
+});
 </script>
 {% endblock %}

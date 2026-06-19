@@ -61,6 +61,12 @@
             <textarea name="description" class="form-control" rows="3">{{ product.description if product else '' }}</textarea>
           </div>
           <div class="col-md-6">
+            <label class="form-label">Группа / категория</label>
+            <input type="text" name="category" class="form-control" placeholder="Орешки, Упаковка…"
+                   value="{{ product.category if product and product.category else '' }}">
+            <div class="form-text">Используется для группировки в каталоге (пикере)</div>
+          </div>
+          <div class="col-md-6">
             <label class="form-label">Минимальный остаток</label>
             <input type="number" name="min_stock" class="form-control" step="0.01" min="0"
                    value="{{ product.min_stock if product else '0' }}">

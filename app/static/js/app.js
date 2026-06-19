@@ -11,6 +11,30 @@ function initItemsEditor(initialItems, productsMap) {
 function addItem() {
   _itemsData.push({ product_id: "", name: "", quantity: 1, unit: "шт", price: 0, discount_pct: 0, vat_rate: 20, amount: 0 });
   renderItems();
+  // Open picker for the new (last) row automatically
+  setTimeout(function () { openItemPicker(_itemsData.length - 1); }, 50);
+}
+
+function openItemPicker(idx) {
+  // Build picker products array from productsMap on first call
+  if (!ProductPicker._ready) {
+    var arr = Object.entries(window._productsMap || {}).map(function (_ref) {
+      var id = _ref[0], p = _ref[1];
+      return { id: parseInt(id), name: p.name, article: p.article || '', unit: p.unit,
+               category: p.category || '', price: p.price, vat_rate: p.vat_rate, min_stock: 0 };
+    });
+    ProductPicker.init(arr, {});
+    ProductPicker._ready = true;
+  }
+  ProductPicker.open(function (p) {
+    _itemsData[idx].product_id = p.id;
+    _itemsData[idx].name       = p.name;
+    _itemsData[idx].unit       = p.unit;
+    _itemsData[idx].price      = p.price;
+    _itemsData[idx].vat_rate   = p.vat_rate;
+    _itemsData[idx].amount     = calcAmount(_itemsData[idx]);
+    renderItems();
+  });
 }
 
 function removeItem(idx) {
@@ -62,14 +86,14 @@ function renderItems() {
   _itemsData.forEach((item, idx) => {
     const discVal = item.discount_pct || 0;
     const tr = document.createElement("tr");
+    const prodName = item.product_id && window._productsMap[item.product_id]
+      ? window._productsMap[item.product_id].name : '';
     tr.innerHTML = `
       <td>
-        <select class="form-select form-select-sm" onchange="onProductChange(${idx}, this)">
-          <option value="">— выбрать —</option>
-          ${Object.entries(window._productsMap || {}).map(([id, p]) =>
-            `<option value="${id}" ${item.product_id == id ? "selected" : ""}>${p.name}</option>`
-          ).join("")}
-        </select>
+        <button type="button" class="btn-picker${prodName ? '' : ' empty'}" onclick="openItemPicker(${idx})" style="min-width:120px">
+          <span class="pbl">${prodName || '— выбрать —'}</span>
+          <i class="bi bi-grid-3x3-gap pbi"></i>
+        </button>
       </td>
       <td><input type="text" class="form-control form-control-sm" value="${esc(item.name)}" oninput="onFieldChange(${idx},'name',this.value)"></td>
       <td><input type="number" class="form-control form-control-sm" value="${item.quantity}" step="0.001" min="0" oninput="onFieldChange(${idx},'quantity',this.value)"></td>
@@ -133,6 +157,105 @@ function fmtMoney(v) {
 function esc(s) {
   return (s || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 }
+
+// ── Product Picker ────────────────────────────────────────────────────────────
+
+const ProductPicker = (function () {
+  let _products = [];
+  let _balances = {};
+  let _onSelect = null;
+  let _bsModal  = null;
+
+  function init(products, balances) {
+    _products = products || [];
+    _balances = balances || {};
+  }
+
+  function open(onSelect) {
+    _onSelect = onSelect;
+    const el = document.getElementById('productPickerModal');
+    if (!el) { console.warn('ProductPicker: modal not found'); return; }
+    _bsModal = bootstrap.Modal.getOrCreateInstance(el);
+    _bsModal.show();
+    setTimeout(function () {
+      var s = document.getElementById('pickerSearch');
+      if (s) { s.value = ''; s.focus(); }
+      _render('');
+    }, 80);
+  }
+
+  function _render(query) {
+    var q = (query || '').trim().toLowerCase();
+    var filtered = q
+      ? _products.filter(function (p) {
+          return (p.name     || '').toLowerCase().includes(q) ||
+                 (p.article  || '').toLowerCase().includes(q) ||
+                 (p.category || '').toLowerCase().includes(q);
+        })
+      : _products;
+
+    var groups = {};
+    filtered.forEach(function (p) {
+      var cat = p.category || 'Все товары';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(p);
+    });
+
+    var body = document.getElementById('pickerBody');
+    if (!body) return;
+
+    if (!filtered.length) {
+      body.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-search fs-3 d-block mb-2 opacity-50"></i>Ничего не найдено</div>';
+      return;
+    }
+
+    var catKeys = Object.keys(groups).sort(function (a, b) {
+      if (a === 'Все товары') return 1;
+      if (b === 'Все товары') return -1;
+      return a.localeCompare(b, 'ru');
+    });
+    var multiCat = catKeys.length > 1;
+
+    var html = '';
+    catKeys.forEach(function (cat) {
+      if (multiCat) {
+        html += '<p class="picker-cat-label">' + esc(cat) +
+          ' <span style="font-weight:400;opacity:.55">(' + groups[cat].length + ')</span></p>';
+      }
+      html += '<div class="picker-grid">';
+      groups[cat].forEach(function (p) {
+        var bal = _balances[p.id];
+        var hasBalance = (bal !== undefined && bal !== null);
+        var balHtml = '';
+        if (hasBalance) {
+          var balVal = (bal % 1 === 0) ? bal : parseFloat(bal).toFixed(1);
+          var cls = (bal <= 0) ? 'picker-bal-zero'
+                  : (p.min_stock && bal <= p.min_stock) ? 'picker-bal-low'
+                  : 'picker-bal-ok';
+          balHtml = '<div class="picker-bal ' + cls + '">' + balVal + ' ' + esc(p.unit || '') + '</div>';
+        }
+        html += '<div class="picker-card" onclick="ProductPicker._select(' + p.id + ')">' +
+          (p.article ? '<div class="picker-art">' + esc(p.article) + '</div>' : '') +
+          '<div class="picker-pname">' + esc(p.name) + '</div>' +
+          balHtml +
+          '</div>';
+      });
+      html += '</div>';
+    });
+
+    body.innerHTML = html;
+  }
+
+  function _select(pid) {
+    var p = _products.find(function (x) { return x.id == pid; });
+    if (p && _onSelect) {
+      _onSelect(p);
+      if (_bsModal) _bsModal.hide();
+    }
+  }
+
+  return { init: init, open: open, _render: _render, _select: _select };
+})();
 
 // ── Confirm delete ───────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {

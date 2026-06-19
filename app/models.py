@@ -78,6 +78,7 @@ class Product(Base):
     price = Column(Float, default=0.0)
     vat_rate = Column(Float, default=20.0)
     description = Column(Text)
+    category = Column(String(100))             # группа для навигации в пикере (Орешки / Упаковка / …)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     # Склад

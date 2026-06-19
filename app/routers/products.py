@@ -47,6 +47,7 @@ async def create_product(
     price: float = Form(default=0.0),
     vat_rate: float = Form(default=20.0),
     description: str = Form(default=""),
+    category: str = Form(default=""),
     min_stock: float = Form(default=0.0),
     db: Session = Depends(get_db),
 ):
@@ -54,6 +55,7 @@ async def create_product(
                       sale_unit=sale_unit or None,
                       units_per_box=max(1, units_per_box),
                       price=price, vat_rate=vat_rate, description=description,
+                      category=category.strip() or None,
                       min_stock=min_stock)
     db.add(product)
     db.commit()
@@ -81,6 +83,7 @@ async def update_product(
     price: float = Form(default=0.0),
     vat_rate: float = Form(default=20.0),
     description: str = Form(default=""),
+    category: str = Form(default=""),
     min_stock: float = Form(default=0.0),
     db: Session = Depends(get_db),
 ):
@@ -90,6 +93,7 @@ async def update_product(
         product.sale_unit = sale_unit or None
         product.units_per_box = max(1, units_per_box)
         product.price = price; product.vat_rate = vat_rate; product.description = description
+        product.category = category.strip() or None
         product.min_stock = min_stock
         db.commit()
     return RedirectResponse(url="/products", status_code=302)

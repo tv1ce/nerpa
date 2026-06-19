@@ -222,6 +222,7 @@ async def new_movement(
         .order_by(Order.date.desc()).limit(50).all()
     )
     balances = _get_balances(db)
+    selected_product_obj = next((p for p in products if p.id == product_id), None) if product_id else None
     return templates.TemplateResponse(request, "warehouse/movement_form.html", {
         "products": products,
         "orders": orders,
@@ -229,6 +230,7 @@ async def new_movement(
         "movement_types": MOVEMENT_TYPES,
         "reasons": REASONS,
         "selected_product": product_id,
+        "selected_product_name": selected_product_obj.name if selected_product_obj else None,
         "selected_type": mtype,
         "today": date.today().isoformat(),
         "assembly_queue_count": _assembly_queue_count(db),

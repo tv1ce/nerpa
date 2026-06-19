@@ -164,6 +164,8 @@ def _migrate_db():
         ("company_settings", "backup_enabled",     "INTEGER DEFAULT 0"),
         ("company_settings", "backup_frequency",   "TEXT DEFAULT 'weekly'"),
         ("company_settings", "tg_backup_chat_id",  "TEXT"),
+        # Категория товара для группировки в пикере
+        ("products", "category", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

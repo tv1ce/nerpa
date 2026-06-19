@@ -175,7 +175,7 @@
 <script>
 const productsMap = {
   {% for p in products %}
-  {{ p.id }}: { name: {{ p.name | tojson }}, unit: {{ (p.sale_unit or p.unit) | tojson }}, price: {{ p.price }}, vat_rate: {{ p.vat_rate }} },
+  {{ p.id }}: { name: {{ p.name | tojson }}, unit: {{ (p.sale_unit or p.unit) | tojson }}, price: {{ p.price }}, vat_rate: {{ p.vat_rate }}, article: {{ (p.article or '') | tojson }}, category: {{ (p.category or '') | tojson }} },
   {% endfor %}
 };
 
