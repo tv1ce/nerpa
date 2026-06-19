@@ -366,21 +366,19 @@ async def logistics_index(
     total_prev_month = round(_logi_sum(prev_month_start, prev_month_end) * TAX, 2)
     total_year       = round(_logi_sum(year_start, today)          * TAX, 2)
 
-    # Доля логистики = затраты / сумма отгруженных заказов Гоголева за период
-    # total_amount — @property, не колонка, поэтому суммируем в Python
-    def _shipped_orders_sum(d_from, d_to):
-        if not _carrier_id:
-            return 0.0
+    # Доля логистики = затраты / выручка ВСЕХ отгруженных заказов за период
+    # (все перевозчики — бывает доставка за счёт клиента)
+    # total_amount — @property, не колонка, суммируем в Python
+    def _all_shipped_sum(d_from, d_to):
         orders = db.query(Order).filter(
             Order.date >= d_from,
             Order.date <= d_to,
-            Order.carrier_id == _carrier_id,
             Order.status.in_(["handed", "delivered", "paid", "assembled"]),
         ).all()
         return sum(o.total_amount for o in orders)
 
     def _pct_of_revenue(logi, d_from, d_to):
-        rev = _shipped_orders_sum(d_from, d_to)
+        rev = _all_shipped_sum(d_from, d_to)
         return round(logi / rev * 100, 1) if rev > 0 else None
 
     pct_week       = _pct_of_revenue(total_week,       week_start, week_end)
