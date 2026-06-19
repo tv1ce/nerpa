@@ -87,6 +87,12 @@
             <div class="form-text">Подставляется автоматически в транспортную накладную</div>
           </div>
           <div class="col-md-6">
+            <label class="form-label">Стоимость доставки <span class="text-muted" style="font-size:.8rem">(довоз этого заказа, ₽)</span></label>
+            <input type="number" name="delivery_cost" class="form-control" min="0" step="0.01" placeholder="0"
+                   value="{{ order.delivery_cost if order and order.delivery_cost else '' }}">
+            <div class="form-text">Платный забор за день вносится отдельно в разделе «Логистика»</div>
+          </div>
+          <div class="col-md-6">
             <label class="form-label">Дата доставки</label>
             <input type="date" name="delivery_date" class="form-control"
                    value="{{ order.delivery_date.isoformat() if order and order.delivery_date else '' }}">

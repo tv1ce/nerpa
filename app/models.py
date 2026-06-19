@@ -138,6 +138,14 @@ class Order(Base):
         return sum(i.amount for i in self.items)
 
     @property
+    def delivery_cost(self) -> float:
+        """Стоимость доставки именно этого заказа (строка логистики 'delivery')."""
+        for c in self.logistics_costs:
+            if c.cost_type == "delivery":
+                return c.amount or 0.0
+        return 0.0
+
+    @property
     def is_prepay(self) -> bool:
         """True — заказ по предоплате; False — с отсрочкой платежа."""
         return (self.payment_type or "prepay") != "deferred"
@@ -587,10 +595,16 @@ class LogisticsCost(Base):
     date = Column(Date, nullable=False)
     description = Column(String(500))
     amount = Column(Float, nullable=False, default=0.0)
-    source = Column(String(30), default="manual")  # manual / metafora / upload
+    source = Column(String(30), default="manual")  # manual / metafora / upload / order
     external_id = Column(String(100))              # ID из внешней системы (для дедупликации)
     notes = Column(Text)
+    # Привязка к заказу: cost_type='delivery' — довоз конкретного заказа (order_id задан),
+    # 'pickup' — платный забор за день (общий, order_id пустой), 'other' — прочее.
+    order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
+    cost_type = Column(String(20), default="other")  # delivery / pickup / other
     created_at = Column(DateTime, server_default=func.now())
+
+    order = relationship("Order", backref="logistics_costs")
 
 
 class StockAdjustment(Base):

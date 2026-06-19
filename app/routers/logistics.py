@@ -22,6 +22,32 @@ templates = Jinja2Templates(directory="app/templates")
 METAFORA_URL = "https://app2024.damasevich.ru/dl/6471c6"
 
 
+def upsert_order_delivery_cost(db: Session, order, amount: float):
+    """Создаёт/обновляет единственную строку логистики типа 'delivery' для заказа.
+
+    Единый источник правды для довоза: и карточка заказа, и раздел «Логистика»
+    пишут в одну и ту же запись. amount<=0 — строка удаляется.
+    """
+    row = db.query(LogisticsCost).filter(
+        LogisticsCost.order_id == order.id,
+        LogisticsCost.cost_type == "delivery",
+    ).first()
+    cost_date = order.delivery_date or order.date
+    if amount and amount > 0:
+        if row:
+            row.amount = amount
+            row.date = cost_date
+        else:
+            db.add(LogisticsCost(
+                date=cost_date,
+                description=f"Доставка заказа №{order.number}",
+                amount=amount, source="order",
+                cost_type="delivery", order_id=order.id,
+            ))
+    elif row:
+        db.delete(row)
+
+
 @router.get("", include_in_schema=False)
 async def logistics_redirect():
     return RedirectResponse(url="/reports/logistics/", status_code=301)
@@ -327,6 +353,9 @@ async def logistics_index(
             "notes":       r.notes,
             "source":      r.source,
             "amount":      round(r.amount * TAX, 2),
+            "cost_type":   r.cost_type or "other",
+            "order_id":    r.order_id,
+            "order_number": r.order.number if r.order else None,
         }
         for r in raw_rows
     ]
@@ -414,9 +443,13 @@ async def logistics_index(
         if m_sum > chart_max:
             chart_max = m_sum
 
+    # Заказы для привязки довоза (последние 60, для выпадающего списка в форме)
+    pick_orders = db.query(Order).order_by(Order.date.desc()).limit(60).all()
+
     company = db.query(CompanySettings).first()
     return templates.TemplateResponse(request, "reports/logistics.html", {
         "rows": rows, "total": total,
+        "pick_orders": pick_orders,
         # суммы по периодам
         "total_week":       total_week,
         "total_month":      total_month,
@@ -462,12 +495,24 @@ async def add_cost(
     description: str = Form(default=""),
     amount: float = Form(...),
     notes: str = Form(default=""),
+    cost_type: str = Form(default="other"),
+    order_id: int = Form(default=0),
     db: Session = Depends(get_db),
 ):
+    if cost_type not in ("delivery", "pickup", "other"):
+        cost_type = "other"
+    # Довоз конкретного заказа — пишем через единый хелпер (синхронно с карточкой)
+    if cost_type == "delivery" and order_id:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if order:
+            upsert_order_delivery_cost(db, order, amount)
+            db.commit()
+            return RedirectResponse(url="/reports/logistics", status_code=302)
     db.add(LogisticsCost(
         date=date.fromisoformat(cost_date),
         description=description, amount=amount,
         source="manual", notes=notes or None,
+        cost_type=cost_type, order_id=order_id or None,
     ))
     db.commit()
     return RedirectResponse(url="/reports/logistics", status_code=302)

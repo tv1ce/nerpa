@@ -179,6 +179,9 @@
         {% if order.delivery_time %}
         <div class="col-md-6"><span class="text-muted">Время доставки:</span> {{ order.delivery_time }}</div>
         {% endif %}
+        {% if order.delivery_cost %}
+        <div class="col-md-6"><span class="text-muted">Стоимость доставки:</span> <strong>{{ order.delivery_cost | money }}</strong></div>
+        {% endif %}
         {% if order.notes %}
         <div class="col-12"><span class="text-muted">Примечание:</span> {{ order.notes }}</div>
         {% endif %}

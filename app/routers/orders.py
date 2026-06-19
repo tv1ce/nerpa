@@ -182,6 +182,7 @@ async def create_order(
     pickup_address: str = Form(default=""),
     delivery_contact: str = Form(default=""),
     delivery_time: str = Form(default=""),
+    delivery_cost: float = Form(default=0),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -236,6 +237,8 @@ async def create_order(
             vat_rate=float(item.get("vat_rate", 20)),
             amount=round(qty * price * (1 - disc / 100), 2),
         ))
+    from app.routers.logistics import upsert_order_delivery_cost
+    upsert_order_delivery_cost(db, order, delivery_cost)
     db.commit()
     log_action(db, "order", order.id, "created",
                request.session.get("user_id"), f"Заказ {order.number} создан")
@@ -331,6 +334,7 @@ async def update_order(
     pickup_address: str = Form(default=""),
     delivery_contact: str = Form(default=""),
     delivery_time: str = Form(default=""),
+    delivery_cost: float = Form(default=0),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -376,6 +380,8 @@ async def update_order(
             vat_rate=float(item.get("vat_rate", 20)),
             amount=round(qty * price * (1 - disc / 100), 2),
         ))
+    from app.routers.logistics import upsert_order_delivery_cost
+    upsert_order_delivery_cost(db, order, delivery_cost)
     db.commit()
     log_action(db, "order", order_id, "updated",
                request.session.get("user_id"), "Заказ отредактирован")

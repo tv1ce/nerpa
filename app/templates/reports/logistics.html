@@ -70,6 +70,12 @@
             <tr>
               <td class="ps-4 text-muted" style="font-size:.85rem">{{ row.date | date_fmt }}</td>
               <td>
+                {% if row.cost_type == 'delivery' %}
+                  <span class="badge bg-primary" style="font-size:.66rem">Довоз</span>
+                {% elif row.cost_type == 'pickup' %}
+                  <span class="badge bg-warning text-dark" style="font-size:.66rem">Забор</span>
+                {% endif %}
+                {% if row.order_number %}<a href="/orders/{{ row.order_id }}" class="fw-semibold">№ {{ row.order_number }}</a> · {% endif %}
                 {{ row.description or '—' }}
                 {% if row.notes %}<div class="text-muted" style="font-size:.75rem">{{ row.notes }}</div>{% endif %}
               </td>
@@ -244,6 +250,25 @@
       <div class="form-section-title mb-2"><i class="bi bi-plus-circle me-1"></i>Добавить вручную</div>
       <form method="post" action="/reports/logistics/add">
         <div class="mb-2">
+          <label class="form-label" style="font-size:.82rem">Тип расхода</label>
+          <select name="cost_type" id="add-cost-type" class="form-select form-select-sm"
+                  onchange="toggleOrderPicker()">
+            <option value="other">Прочее</option>
+            <option value="delivery">Довоз заказа</option>
+            <option value="pickup">Платный забор (за день)</option>
+          </select>
+        </div>
+        <div class="mb-2 d-none" id="add-order-wrap">
+          <label class="form-label" style="font-size:.82rem">Заказ</label>
+          <select name="order_id" class="form-select form-select-sm">
+            <option value="0">— выберите заказ —</option>
+            {% for o in pick_orders %}
+            <option value="{{ o.id }}">№ {{ o.number }} — {{ o.date | date_fmt }} — {{ o.counterparty.trade_name or o.counterparty.name if o.counterparty else '—' }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text" style="font-size:.72rem">Сумма обновит «Стоимость доставки» в карточке заказа</div>
+        </div>
+        <div class="mb-2">
           <label class="form-label" style="font-size:.82rem">Дата</label>
           <input type="date" name="cost_date" class="form-control form-control-sm" required
                  value="{{ today.isoformat() }}">
@@ -274,6 +299,12 @@
 
 {% block scripts %}
 <script>
+// Показать выбор заказа только для типа «Довоз заказа»
+function toggleOrderPicker() {
+  var t = document.getElementById('add-cost-type').value;
+  document.getElementById('add-order-wrap').classList.toggle('d-none', t !== 'delivery');
+}
+
 // Безопасный разбор ответа: возвращает {ok, error}
 async function parseResp(r) {
   let d = {};
