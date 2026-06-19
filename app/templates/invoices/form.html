@@ -133,7 +133,7 @@ const productsMap = {
 const initialItems = [
   {% if invoice %}
     {% for item in invoice.items %}
-    { product_id: "{{ item.product_id or '' }}", name: "{{ item.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.unit }}", price: {{ item.price }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
+    { product_id: "{{ item.product_id or '' }}", name: "{{ item.name | replace('"', '\\"') }}", quantity: {{ item.quantity }}, unit: "{{ item.unit }}", price: {{ item.price }}, discount_pct: {{ item.discount_pct }}, vat_rate: {{ item.vat_rate }}, amount: {{ item.amount }} },
     {% endfor %}
   {% elif order %}
     {% for item in order.items %}

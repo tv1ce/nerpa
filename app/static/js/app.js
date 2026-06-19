@@ -32,6 +32,9 @@ function openItemPicker(idx) {
     _itemsData[idx].unit       = p.unit;
     _itemsData[idx].price      = p.price;
     _itemsData[idx].vat_rate   = p.vat_rate;
+    if (p.name.toLowerCase().indexOf('подставка') >= 0 || p.name.toLowerCase().indexOf('дисплей') >= 0) {
+      _itemsData[idx].discount_pct = 100;
+    }
     _itemsData[idx].amount     = calcAmount(_itemsData[idx]);
     renderItems();
   });
