@@ -60,6 +60,9 @@ class Counterparty(Base):
     # ЕГРЮЛ — кэш последней проверки статуса через DaData
     egrul_status = Column(String(30))           # ACTIVE / LIQUIDATING / LIQUIDATED / BANKRUPT / REORGANIZING
     egrul_checked_at = Column(DateTime)
+    # 1С:УНФ — идентификатор объекта в 1С и дата последней синхронизации
+    external_id_1c  = Column(String(36))        # Ref_Key (GUID) контрагента в 1С
+    synced_to_1c_at = Column(DateTime)
 
     orders = relationship("Order", back_populates="counterparty", foreign_keys="Order.counterparty_id")
     invoices = relationship("Invoice", back_populates="counterparty")
@@ -84,6 +87,9 @@ class Product(Base):
     # Склад
     min_stock = Column(Float, default=0.0)
     initial_stock = Column(Float, default=0.0)
+    # 1С:УНФ
+    external_id_1c   = Column(String(36))       # Ref_Key (GUID) номенклатуры в 1С
+    synced_from_1c_at = Column(DateTime)        # когда последний раз тянули из 1С
 
     order_items = relationship("OrderItem", back_populates="product")
     stock_movements = relationship("StockMovement", back_populates="product")
@@ -124,6 +130,9 @@ class Order(Base):
     # Публичный токен для клиентского трекинга /track/{token} (без логина).
     # Генерируется лениво при первом запросе ссылки в карточке заказа.
     public_token = Column(String(40), unique=True, index=True)
+    # 1С:УНФ
+    external_id_1c  = Column(String(36))        # Ref_Key (GUID) Document_ЗаказПокупателя в 1С
+    synced_to_1c_at = Column(DateTime)          # datetime последнего успешного push в 1С
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
     supplier = relationship("Counterparty", foreign_keys=[supplier_id])
@@ -198,6 +207,9 @@ class Invoice(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     contract_id = Column(Integer, ForeignKey("contracts.id"))
+    # 1С:УНФ
+    external_id_1c  = Column(String(36))        # Ref_Key (GUID) Document_СчётНаОплатуПокупателю в 1С
+    synced_to_1c_at = Column(DateTime)          # datetime последнего успешного push в 1С
 
     counterparty = relationship("Counterparty", back_populates="invoices")
     order = relationship("Order", back_populates="invoices")
@@ -311,6 +323,11 @@ class CompanySettings(Base):
     backup_enabled = Column(Boolean, default=False)     # вкл/выкл автобекап
     backup_frequency = Column(String(20), default="weekly")  # daily / weekly / monthly
     tg_backup_chat_id = Column(String(100))              # chat_id куда отправлять бекап
+    # ── Интеграция 1С:УНФ ──
+    onec_url      = Column(String(500))                  # http://<сервер>/hnf/odata/standard.odata
+    onec_user     = Column(String(100))                  # логин пользователя 1С
+    onec_password = Column(String(200))                  # пароль (зашифрован через ENCRYPT_KEY)
+    onec_enabled  = Column(Boolean, default=False)       # вкл/выкл синхронизацию
 
 
 class MonthlyPlan(Base):
@@ -427,6 +444,10 @@ class StockMovement(Base):
     notes = Column(Text)
     created_by_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, server_default=func.now())
+    # 1С:УНФ — только для типов 'in' (поступление) и 'adjustment' (инвентаризация)
+    # Движения 'out' с order_id не пушатся — 1С создаёт их сама через заказ
+    external_id_1c  = Column(String(36))
+    synced_to_1c_at = Column(DateTime)
 
     product = relationship("Product", back_populates="stock_movements")
     order = relationship("Order")

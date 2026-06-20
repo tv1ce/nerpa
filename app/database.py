@@ -166,6 +166,24 @@ def _migrate_db():
         ("company_settings", "tg_backup_chat_id",  "TEXT"),
         # Категория товара для группировки в пикере
         ("products", "category", "TEXT"),
+        # ── Интеграция 1С:УНФ ────────────────────────────────────────────────
+        # external_id_1c — GUID объекта в 1С (заполняется при первом push/pull)
+        # synced_*_at    — datetime последней успешной синхронизации
+        ("counterparties",  "external_id_1c",    "TEXT"),
+        ("counterparties",  "synced_to_1c_at",   "TIMESTAMP"),
+        ("products",        "external_id_1c",    "TEXT"),
+        ("products",        "synced_from_1c_at", "TIMESTAMP"),
+        ("orders",          "external_id_1c",    "TEXT"),
+        ("orders",          "synced_to_1c_at",   "TIMESTAMP"),
+        ("invoices",        "external_id_1c",    "TEXT"),
+        ("invoices",        "synced_to_1c_at",   "TIMESTAMP"),
+        ("stock_movements", "external_id_1c",    "TEXT"),
+        ("stock_movements", "synced_to_1c_at",   "TIMESTAMP"),
+        # Настройки подключения к 1С (URL OData, учётные данные, вкл/выкл)
+        ("company_settings", "onec_url",      "TEXT"),
+        ("company_settings", "onec_user",     "TEXT"),
+        ("company_settings", "onec_password", "TEXT"),
+        ("company_settings", "onec_enabled",  "INTEGER DEFAULT 0"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
