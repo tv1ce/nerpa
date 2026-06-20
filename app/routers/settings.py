@@ -291,39 +291,33 @@ async def profile_save(
 @router.get("/backup")
 @role_required("admin")
 async def backup_db(request: Request, db: Session = Depends(get_db)):
-    """Скачать резервную копию БД. Только admin. WAL-checkpoint перед выдачей."""
+    """Скачать резервную копию БД. Только admin.
+
+    Использует `VACUUM INTO` — SQLite собирает целостную копию со всеми данными,
+    включая ещё не сброшенный WAL. Это надёжнее, чем копировать сам файл tms.db
+    (он может быть устаревшим, пока WAL не сделал checkpoint, а checkpoint не
+    срабатывает при активных соединениях приложения)."""
     from datetime import date as _date
-    from pathlib import Path
     from app.utils import log_action
+    from app.database import make_backup_copy
 
     # Логируем факт скачивания БД
     log_action(db, "system", 0, "backup_downloaded",
                request.session.get("user_id"),
                f"Скачана резервная копия БД (IP: {request.client.host if request.client else '?'})")
 
-    # Получаем путь к БД из переменной окружения или используем путь по умолчанию
-    db_url = os.getenv("DATABASE_URL", "sqlite:///./tms.db")
-
-    # Парсим SQLite URL: sqlite:///./path/to/db.db → ./path/to/db.db (убираем sqlite:///)
-    if db_url.startswith("sqlite:///"):
-        db_path = db_url[len("sqlite:///"):]
-    else:
-        db_path = "tms.db"
-
-    # Конвертируем в Path объект и получаем абсолютный путь
-    db_path = Path(db_path).resolve()
-
-    if not db_path.exists():
-        return HTMLResponse(f"База данных не найдена: {db_path}", status_code=404)
-
-    # Сбрасываем WAL в основной файл перед скачиванием
     try:
-        db.execute(__import__("sqlalchemy").text("PRAGMA wal_checkpoint(TRUNCATE)"))
+        tmp_path = make_backup_copy()
     except Exception as e:
-        pass  # Продолжаем даже если checkpoint завалился
+        return HTMLResponse(f"Не удалось создать резервную копию: {e}", status_code=500)
 
     filename = f"tms-backup-{_date.today().isoformat()}.db"
-    return FileResponse(path=str(db_path), filename=filename, media_type="application/octet-stream")
+    # BackgroundTask удалит временный файл после того, как ответ отправлен клиенту
+    from starlette.background import BackgroundTask
+    return FileResponse(
+        path=tmp_path, filename=filename, media_type="application/octet-stream",
+        background=BackgroundTask(lambda: os.path.exists(tmp_path) and os.remove(tmp_path)),
+    )
 
 
 @router.post("/profile/password")

@@ -236,35 +236,24 @@ async def _send_backup_file(bot: Bot, chat_id: int | str, backup_date: str) -> b
     """Создаёт и отправляет бекап БД в Telegram. Возвращает True если успешно."""
     import os
     from telegram.error import TelegramError
+    from app.database import make_backup_copy
 
+    tmp_path = None
     try:
-        # Получаем путь к БД
-        db_url = os.getenv("DATABASE_URL", "sqlite:///./tms.db")
-        if db_url.startswith("sqlite:///"):
-            db_path = db_url.replace("sqlite:///", "")
-        else:
-            db_path = "tms.db"
-        db_path = os.path.abspath(db_path)
+        # Целостная копия через VACUUM INTO (включает данные WAL).
+        # Раньше отправлялся сам tms.db без -wal — копия была устаревшей.
+        tmp_path = make_backup_copy()
 
-        if not os.path.exists(db_path):
-            logger.error("Бекап БД: файл не найден %s", db_path)
-            return False
-
-        # Сбрасываем WAL перед отправкой
-        db = SessionLocal()
-        try:
-            db.execute(__import__("sqlalchemy").text("PRAGMA wal_checkpoint(TRUNCATE)"))
-        finally:
-            db.close()
-
-        # Отправляем файл в Telegram
+        # Подпись в MarkdownV2: дефисы в дате обязательно экранировать,
+        # иначе Telegram отклоняет всё сообщение и бекап не уходит.
         filename = f"tms-backup-{backup_date}.db"
-        with open(db_path, "rb") as f:
+        caption = f"📦 *Бэкап БД* от {_esc_md(backup_date)}"
+        with open(tmp_path, "rb") as f:
             await bot.send_document(
                 chat_id=chat_id,
                 document=f,
                 filename=filename,
-                caption=f"📦 *Бэкап БД* от {backup_date}",
+                caption=caption,
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
         logger.info("Бекап БД отправлен в Telegram (chat_id=%s)", chat_id)
@@ -275,6 +264,12 @@ async def _send_backup_file(bot: Bot, chat_id: int | str, backup_date: str) -> b
     except Exception as e:
         logger.error("Ошибка при создании бекапа: %s", e)
         return False
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
 
 
 # ── Scheduled callbacks ────────────────────────────────────────────────────────

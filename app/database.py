@@ -28,6 +28,47 @@ event.listen(engine, "connect", _set_wal)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def _db_file_path() -> str:
+    """Абсолютный путь к файлу SQLite-БД из DATABASE_URL."""
+    if DATABASE_URL.startswith("sqlite:///"):
+        raw = DATABASE_URL[len("sqlite:///"):]
+    else:
+        raw = "tms.db"
+    return os.path.abspath(raw)
+
+
+def make_backup_copy(dest_path: str | None = None) -> str:
+    """Создаёт целостную резервную копию БД через `VACUUM INTO`.
+
+    В отличие от копирования файла tms.db, VACUUM INTO выгружает полностью
+    согласованный снимок со всеми данными WAL — даже если checkpoint не
+    срабатывал (активные соединения приложения этому мешают). Использует
+    отдельное подключение sqlite3, чтобы не трогать пул SQLAlchemy.
+
+    Возвращает путь к созданному файлу-копии. Если dest_path не задан —
+    создаётся временный файл (вызывающий код обязан его удалить)."""
+    import sqlite3
+    import tempfile
+
+    src = _db_file_path()
+    if not os.path.exists(src):
+        raise FileNotFoundError(f"База данных не найдена: {src}")
+
+    if dest_path is None:
+        fd, dest_path = tempfile.mkstemp(prefix="tms-backup-", suffix=".db")
+        os.close(fd)
+    # VACUUM INTO требует, чтобы целевой файл не существовал
+    if os.path.exists(dest_path):
+        os.remove(dest_path)
+
+    conn = sqlite3.connect(src, timeout=15)
+    try:
+        conn.execute("VACUUM INTO ?", (dest_path,))
+    finally:
+        conn.close()
+    return dest_path
+
+
 class Base(DeclarativeBase):
     pass
 
