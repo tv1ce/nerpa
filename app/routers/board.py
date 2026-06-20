@@ -16,7 +16,7 @@ import logging
 from urllib.parse import urlparse
 from datetime import date, timedelta
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -431,6 +431,12 @@ def _collect_metrics(db: Session) -> dict:
         "birthdays_upcoming":  birthdays_upcoming,
         "server_version":      SERVER_START,
     }
+
+
+@router.get("/tv")
+async def board_tv_redirect():
+    """Короткий редирект для ввода на ТВ вместо длинного URL с ключом."""
+    return RedirectResponse(url=f"/board?key={BOARD_KEY}", status_code=302)
 
 
 @router.get("", response_class=HTMLResponse)
