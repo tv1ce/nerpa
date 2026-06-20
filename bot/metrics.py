@@ -89,6 +89,10 @@ def _fmt(amount: float) -> str:
     return f"{amount:,.0f}".replace(",", " ")
 
 
+# Статусы, считающиеся «отгружено» (собрано/передано/доставлено)
+_SHIPPED = ["assembled", "handed", "delivered"]
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DAILY
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,11 +104,23 @@ def get_daily_metrics(db: Session, day: date | None = None) -> dict:
     orders_today = db.query(Order).filter(Order.date == today).count()
     orders_shipped = db.query(Order).filter(
         Order.date == today,
-        Order.status.in_(["handed", "delivered"]),
+        Order.status.in_(_SHIPPED),
     ).count()
 
-    revenue_today = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date == today,
+    # Сумма отгрузок = итоги строк заказов, отгруженных сегодня
+    shipped_amount_today = (
+        db.query(func.sum(OrderItem.amount))
+        .join(Order, OrderItem.order_id == Order.id)
+        .filter(
+            Order.date == today,
+            Order.status.in_(_SHIPPED),
+        )
+        .scalar() or 0.0
+    )
+
+    # Оплаты — по дате поступления денег (paid_date), не по дате выставления счёта
+    paid_today = db.query(func.sum(Invoice.total_amount)).filter(
+        Invoice.paid_date == today,
         Invoice.status == "paid",
     ).scalar() or 0.0
 
@@ -115,7 +131,7 @@ def get_daily_metrics(db: Session, day: date | None = None) -> dict:
         .join(Order)
         .filter(
             Order.date == today,
-            Order.status.in_(["handed", "delivered"]),
+            Order.status.in_(_SHIPPED),
         )
         .scalar() or 0.0
     )
@@ -133,7 +149,8 @@ def get_daily_metrics(db: Session, day: date | None = None) -> dict:
         "date": today,
         "orders_today": orders_today,
         "orders_shipped": orders_shipped,
-        "revenue_today": revenue_today,
+        "shipped_amount_today": shipped_amount_today,
+        "paid_today": paid_today,
         "issued_today": issued_today,
         "qty_today": qty_today,
         "overdue_count": overdue_count,
@@ -152,12 +169,25 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
     ws, we = _week_bounds(today)
     pws, pwe = ws - timedelta(days=7), we - timedelta(days=7)
 
-    def _rev(d_from, d_to):
+    # Оплаты: по дате поступления денег (paid_date)
+    def _paid(d_from, d_to):
         return db.query(func.sum(Invoice.total_amount)).filter(
-            Invoice.date >= d_from,
-            Invoice.date <= d_to,
+            Invoice.paid_date >= d_from,
+            Invoice.paid_date <= d_to,
             Invoice.status == "paid",
         ).scalar() or 0.0
+
+    # Отгрузки: сумма позиций отгруженных заказов по дате заказа
+    def _shipped_amt(d_from, d_to):
+        return (
+            db.query(func.sum(OrderItem.amount))
+            .join(Order, OrderItem.order_id == Order.id)
+            .filter(
+                Order.date >= d_from, Order.date <= d_to,
+                Order.status.in_(_SHIPPED),
+            )
+            .scalar() or 0.0
+        )
 
     def _qty(d_from, d_to):
         return (
@@ -166,18 +196,21 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
             .filter(
                 Order.date >= d_from,
                 Order.date <= d_to,
-                Order.status.in_(["handed", "delivered"]),
+                Order.status.in_(_SHIPPED),
             )
             .scalar() or 0.0
         )
 
-    rev_week = _rev(ws, we)
-    rev_prev = _rev(pws, pwe)
-    qty_week = _qty(ws, we)
-    qty_prev = _qty(pws, pwe)
+    paid_week      = _paid(ws, we)
+    paid_prev      = _paid(pws, pwe)
+    shipped_week   = _shipped_amt(ws, we)
+    shipped_prev   = _shipped_amt(pws, pwe)
+    qty_week       = _qty(ws, we)
+    qty_prev       = _qty(pws, pwe)
 
-    delta_rev = round((rev_week - rev_prev) / rev_prev * 100, 1) if rev_prev else None
-    delta_qty = round((qty_week - qty_prev) / qty_prev * 100, 1) if qty_prev else None
+    delta_paid     = round((paid_week - paid_prev) / paid_prev * 100, 1) if paid_prev else None
+    delta_shipped  = round((shipped_week - shipped_prev) / shipped_prev * 100, 1) if shipped_prev else None
+    delta_qty      = round((qty_week - qty_prev) / qty_prev * 100, 1) if qty_prev else None
 
     orders_week = db.query(Order).filter(
         Order.date >= ws, Order.date <= we
@@ -196,30 +229,19 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
     _TAX = 1.06
     logistics_week = round(_logi_raw_week * _TAX, 2)
 
-    # Кол-во заказов перевозчика (как в отчёте «Логистика») — для «на 1 заказ»
-    _carrier_name = os.getenv("LOGI_CARRIER_NAME", "Гоголев Николай Николаевич")
-    from app.models import Counterparty as _CP
-    _carrier = db.query(_CP).filter(_CP.name.ilike(f"%{_carrier_name}%")).first()
-    _carrier_id = _carrier.id if _carrier else None
-    _carrier_orders_week = (
-        db.query(func.count(Order.id)).filter(
-            Order.date >= ws,
-            Order.date <= we,
-            Order.carrier_id == _carrier_id,
-        ).scalar() or 0
-    ) if _carrier_id else 0
-    logistics_per_order_week = round(logistics_week / _carrier_orders_week, 2) if _carrier_orders_week else 0.0
+    logistics_per_order_week = round(logistics_week / orders_week, 2) if orders_week else 0.0
 
-    # Топ-3 клиента за неделю
+    # Топ-3 клиента по отгрузкам за неделю
     top_clients = (
-        db.query(Counterparty.name, func.sum(Invoice.total_amount).label("total"))
-        .join(Invoice, Invoice.counterparty_id == Counterparty.id)
+        db.query(Counterparty.name, func.sum(OrderItem.amount).label("total"))
+        .join(Order, Order.counterparty_id == Counterparty.id)
+        .join(OrderItem, OrderItem.order_id == Order.id)
         .filter(
-            Invoice.date >= ws, Invoice.date <= we,
-            Invoice.status == "paid",
+            Order.date >= ws, Order.date <= we,
+            Order.status.in_(_SHIPPED),
         )
         .group_by(Counterparty.id)
-        .order_by(func.sum(Invoice.total_amount).desc())
+        .order_by(func.sum(OrderItem.amount).desc())
         .limit(3)
         .all()
     )
@@ -230,31 +252,30 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         Invoice.status.in_(["issued", "overdue"]),
     ).scalar() or 0.0
 
-    logistics_per_order_week = round(logistics_week / orders_week, 2) if orders_week else 0.0
-
-    # Статус месяца: выручка с начала месяца, план, остаток
+    # Статус месяца: оплаты с начала месяца vs план
     ms, _me = _month_bounds(today)
-    revenue_month_so_far = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= ms, Invoice.date <= today,
+    paid_month_so_far = db.query(func.sum(Invoice.total_amount)).filter(
+        Invoice.paid_date >= ms, Invoice.paid_date <= today,
         Invoice.status == "paid",
     ).scalar() or 0.0
+    shipped_month_so_far = _shipped_amt(ms, today)
 
     plan_amount = _resolve_plan_amount(db, today.year, today.month)
-    plan_pct = round(revenue_month_so_far / plan_amount * 100, 1) if plan_amount else None
-    plan_remaining = max(plan_amount - revenue_month_so_far, 0) if plan_amount else None
+    plan_pct = round(paid_month_so_far / plan_amount * 100, 1) if plan_amount else None
+    plan_remaining = max(plan_amount - paid_month_so_far, 0) if plan_amount else None
 
     # Орешки за всё время
     qty_all_time = (
         db.query(func.sum(OrderItem.quantity))
         .join(Order)
-        .filter(Order.status.in_(["handed", "delivered"]))
+        .filter(Order.status.in_(_SHIPPED))
         .scalar() or 0.0
     )
 
-    # Выручка за текущий год
+    # Оплаты за текущий год
     year_start = today.replace(month=1, day=1)
-    revenue_year = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= year_start, Invoice.date <= today,
+    paid_year = db.query(func.sum(Invoice.total_amount)).filter(
+        Invoice.paid_date >= year_start, Invoice.paid_date <= today,
         Invoice.status == "paid",
     ).scalar() or 0.0
 
@@ -263,12 +284,19 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         "week_end": we,
         "prev_week_start": pws,
         "prev_week_end": pwe,
-        "revenue_week": rev_week,
-        "revenue_prev": rev_prev,
-        "delta_rev_pct": delta_rev,
+        # отгрузки
+        "shipped_week": shipped_week,
+        "shipped_prev": shipped_prev,
+        "delta_shipped_pct": delta_shipped,
+        # оплаты
+        "paid_week": paid_week,
+        "paid_prev": paid_prev,
+        "delta_paid_pct": delta_paid,
+        # орешки
         "qty_week": qty_week,
         "qty_prev": qty_prev,
         "delta_qty_pct": delta_qty,
+        # прочее
         "orders_week": orders_week,
         "new_clients": new_clients,
         "logistics_week": logistics_week,
@@ -276,13 +304,14 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         "top_clients": top_clients,
         "unpaid_issued": unpaid_issued,
         # статус месяца
-        "revenue_month_so_far": revenue_month_so_far,
+        "paid_month_so_far": paid_month_so_far,
+        "shipped_month_so_far": shipped_month_so_far,
         "plan_amount": plan_amount,
         "plan_pct": plan_pct,
         "plan_remaining": plan_remaining,
-        # сводные показатели
+        # сводные
         "qty_all_time": qty_all_time,
-        "revenue_year": revenue_year,
+        "paid_year": paid_year,
     }
 
 
@@ -298,21 +327,37 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
 
     prev_ms, prev_me = _month_bounds(ms - timedelta(days=1))
 
-    def _rev(d_from, d_to):
+    # Оплаты: по дате поступления денег (paid_date)
+    def _paid(d_from, d_to):
         return db.query(func.sum(Invoice.total_amount)).filter(
-            Invoice.date >= d_from, Invoice.date <= d_to,
+            Invoice.paid_date >= d_from, Invoice.paid_date <= d_to,
             Invoice.status == "paid",
         ).scalar() or 0.0
 
-    revenue_month = _rev(ms, me)
-    revenue_prev  = _rev(prev_ms, prev_me)
-    revenue_year  = _rev(year_start, me)
+    # Отгрузки: сумма позиций отгруженных заказов по дате заказа
+    def _shipped_amt(d_from, d_to):
+        return (
+            db.query(func.sum(OrderItem.amount))
+            .join(Order, OrderItem.order_id == Order.id)
+            .filter(
+                Order.date >= d_from, Order.date <= d_to,
+                Order.status.in_(_SHIPPED),
+            )
+            .scalar() or 0.0
+        )
 
-    delta_month = round((revenue_month - revenue_prev) / revenue_prev * 100, 1) if revenue_prev else None
+    paid_month   = _paid(ms, me)
+    paid_prev    = _paid(prev_ms, prev_me)
+    paid_year    = _paid(year_start, me)
+    shipped_month = _shipped_amt(ms, me)
+    shipped_prev  = _shipped_amt(prev_ms, prev_me)
 
-    # План: помесячный (monthly_plans) с откатом на глобальный (CompanySettings)
+    delta_paid    = round((paid_month - paid_prev) / paid_prev * 100, 1) if paid_prev else None
+    delta_shipped = round((shipped_month - shipped_prev) / shipped_prev * 100, 1) if shipped_prev else None
+
+    # План vs оплаты
     plan_amount = _resolve_plan_amount(db, today.year, today.month)
-    plan_pct = round(revenue_month / plan_amount * 100, 1) if plan_amount else None
+    plan_pct = round(paid_month / plan_amount * 100, 1) if plan_amount else None
 
     # Орешки
     def _qty(d_from, d_to):
@@ -321,7 +366,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
             .join(Order)
             .filter(
                 Order.date >= d_from, Order.date <= d_to,
-                Order.status.in_(["handed", "delivered"]),
+                Order.status.in_(_SHIPPED),
             )
             .scalar() or 0.0
         )
@@ -353,7 +398,6 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
         LogisticsCost.date >= year_start,
     ).scalar() or 0.0) * _TAX, 2)
 
-    # Кол-во заказов перевозчика для «на 1 заказ»
     _carrier_name = os.getenv("LOGI_CARRIER_NAME", "Гоголев Николай Николаевич")
     from app.models import Counterparty as _CP
     _carrier = db.query(_CP).filter(_CP.name.ilike(f"%{_carrier_name}%")).first()
@@ -367,7 +411,8 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
     ) if _carrier_id else 0
     logistics_per_order_month = round(logistics_month / _carrier_orders_month, 2) if _carrier_orders_month else 0.0
 
-    margin_month = revenue_month - logistics_month
+    # Маржа = отгрузки − логистика (отгрузки точнее отражают реальный объём)
+    margin_month = shipped_month - logistics_month
 
     # Дебиторка
     unpaid_total = db.query(func.sum(Invoice.total_amount)).filter(
@@ -378,16 +423,17 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
     ).scalar() or 0.0
     overdue_count = db.query(Invoice).filter(Invoice.status == "overdue").count()
 
-    # Топ-5 клиентов
+    # Топ-5 клиентов по отгрузкам за месяц
     top_clients = (
-        db.query(Counterparty.name, func.sum(Invoice.total_amount).label("total"))
-        .join(Invoice, Invoice.counterparty_id == Counterparty.id)
+        db.query(Counterparty.name, func.sum(OrderItem.amount).label("total"))
+        .join(Order, Order.counterparty_id == Counterparty.id)
+        .join(OrderItem, OrderItem.order_id == Order.id)
         .filter(
-            Invoice.date >= ms, Invoice.date <= me,
-            Invoice.status == "paid",
+            Order.date >= ms, Order.date <= me,
+            Order.status.in_(_SHIPPED),
         )
         .group_by(Counterparty.id)
-        .order_by(func.sum(Invoice.total_amount).desc())
+        .order_by(func.sum(OrderItem.amount).desc())
         .limit(5)
         .all()
     )
@@ -399,7 +445,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
         .join(Order, OrderItem.order_id == Order.id)
         .filter(
             Order.date >= ms, Order.date <= me,
-            Order.status.in_(["handed", "delivered"]),
+            Order.status.in_(_SHIPPED),
         )
         .group_by(Product.id)
         .order_by(func.sum(OrderItem.quantity).desc())
@@ -430,26 +476,38 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
         "month_end": me,
         "month_label": ms.strftime("%B %Y"),
         "prev_month_label": prev_ms.strftime("%B %Y"),
-        "revenue_month": revenue_month,
-        "revenue_prev": revenue_prev,
-        "delta_month_pct": delta_month,
-        "revenue_year": revenue_year,
+        # отгрузки
+        "shipped_month": shipped_month,
+        "shipped_prev": shipped_prev,
+        "delta_shipped_pct": delta_shipped,
+        # оплаты
+        "paid_month": paid_month,
+        "paid_prev": paid_prev,
+        "delta_paid_pct": delta_paid,
+        "paid_year": paid_year,
+        # план
         "plan_amount": plan_amount,
         "plan_pct": plan_pct,
+        # орешки
         "qty_month": qty_month,
         "qty_prev": qty_prev,
         "delta_qty_pct": delta_qty,
+        # заказы
         "orders_month": orders_month,
         "orders_new_clients": orders_new_clients,
+        # логистика и маржа
         "logistics_month": logistics_month,
         "logistics_per_order_month": logistics_per_order_month,
         "logistics_year": logistics_year,
         "margin_month": margin_month,
+        # дебиторка
         "unpaid_total": unpaid_total,
         "overdue_total": overdue_total,
         "overdue_count": overdue_count,
+        # топы
         "top_clients": top_clients,
         "top_products": top_products,
+        # прочее
         "claims_new": claims_new,
         "claims_resolved": claims_resolved,
         "expiring_contracts": expiring_contracts,
