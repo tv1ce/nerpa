@@ -57,22 +57,36 @@ def _get_balances(db: Session) -> dict:
                     отрицательное значение → уменьшает (недостача).
                     Quantity хранится как введённое (может быть < 0).
     """
+    from sqlalchemy import case as _case
+
     products = db.query(Product).filter(Product.is_active == True).all()
+    if not products:
+        return {}
+
+    # Один агрегирующий запрос вместо 3×N запросов
+    rows = db.query(
+        StockMovement.product_id,
+        func.sum(_case(
+            (StockMovement.movement_type == "in", StockMovement.quantity),
+            else_=0,
+        )).label("in_qty"),
+        func.sum(_case(
+            (StockMovement.movement_type == "out", StockMovement.quantity),
+            else_=0,
+        )).label("out_qty"),
+        func.sum(_case(
+            (StockMovement.movement_type == "adjustment", StockMovement.quantity),
+            else_=0,
+        )).label("adj_qty"),
+    ).group_by(StockMovement.product_id).all()
+
+    agg = {r.product_id: r for r in rows}
     result = {}
     for p in products:
-        in_qty = db.query(func.sum(StockMovement.quantity)).filter(
-            StockMovement.product_id == p.id,
-            StockMovement.movement_type == "in",
-        ).scalar() or 0.0
-        out_qty = db.query(func.sum(StockMovement.quantity)).filter(
-            StockMovement.product_id == p.id,
-            StockMovement.movement_type == "out",
-        ).scalar() or 0.0
-        # adjustment: quantity хранится со знаком (+ излишки, - недостача)
-        adj_qty = db.query(func.sum(StockMovement.quantity)).filter(
-            StockMovement.product_id == p.id,
-            StockMovement.movement_type == "adjustment",
-        ).scalar() or 0.0
+        r = agg.get(p.id)
+        in_qty  = float(r.in_qty  or 0) if r else 0.0
+        out_qty = float(r.out_qty or 0) if r else 0.0
+        adj_qty = float(r.adj_qty or 0) if r else 0.0
         result[p.id] = round((p.initial_stock or 0) + in_qty - out_qty + adj_qty, 3)
     return result
 

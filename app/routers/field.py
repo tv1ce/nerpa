@@ -26,9 +26,9 @@ from app.routers.leads import LEAD_STATUSES, STATUS_COLORS
 router = APIRouter(prefix="/field", tags=["field"])
 templates = Jinja2Templates(directory="app/templates")
 
-# Каталог для фото визитов (под /static, чтобы отдавались напрямую)
-PHOTO_DIR = "app/static/field_photos"
-PHOTO_URL = "/static/field_photos"
+# Каталог для фото визитов — вне /static, доступ только через авторизованный эндпоинт
+PHOTO_DIR = "uploads/field_photos"
+PHOTO_URL = "/field/photos"
 ALLOWED_PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
 MAX_PHOTO_BYTES = 8 * 1024 * 1024  # 8 МБ на файл
 
@@ -106,6 +106,30 @@ def _timeline(lead: SalesLead, db: Session) -> list[dict]:
         })
     items.sort(key=lambda x: x["when"] or datetime.min, reverse=True)
     return items
+
+
+# ── Раздача фото визитов (только авторизованным) ─────────────────────────────
+
+@router.get("/photos/{filename}")
+@login_required
+async def serve_photo(request: Request, filename: str):
+    """Отдаёт фото визита. Доступно только авторизованным пользователям."""
+    import re
+    from fastapi.responses import FileResponse
+    # Разрешаем только безопасные имена файлов (hex + расширение)
+    if not re.match(r'^[0-9a-f]{32}\.(jpg|jpeg|png|webp|heic)$', filename, re.IGNORECASE):
+        from fastapi.responses import HTMLResponse as _HTML
+        return _HTML("404", status_code=404)
+    path = os.path.join(PHOTO_DIR, filename)
+    if not os.path.exists(path):
+        # Backward compat: фото, загруженные до миграции, лежат в app/static/field_photos/
+        legacy = os.path.join("app/static/field_photos", filename)
+        if os.path.exists(legacy):
+            path = legacy
+        else:
+            from fastapi.responses import HTMLResponse as _HTML
+            return _HTML("404", status_code=404)
+    return FileResponse(path)
 
 
 # ── «Мой день» ───────────────────────────────────────────────────────────────
@@ -656,7 +680,7 @@ async def settings_password(request: Request,
         return RedirectResponse(url="/field/settings?error=auth", status_code=302)
     if not verify_password(current_password, user.password_hash):
         return RedirectResponse(url="/field/settings?error=current", status_code=302)
-    if len(new_password) < 6:
+    if len(new_password) < 8:
         return RedirectResponse(url="/field/settings?error=short", status_code=302)
     if new_password != confirm_password:
         return RedirectResponse(url="/field/settings?error=mismatch", status_code=302)

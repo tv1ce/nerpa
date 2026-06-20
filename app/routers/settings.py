@@ -128,7 +128,7 @@ async def upload_logo(
     os.makedirs("app/static/uploads", exist_ok=True)
     ext = os.path.splitext(logo.filename or "")[1].lower()
     # Разрешаем только изображения
-    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
         return RedirectResponse(url="/settings/?logo_error=1", status_code=302)
     # Ограничение 5 МБ
     content = await logo.read(5 * 1024 * 1024 + 1)
@@ -294,6 +294,12 @@ async def backup_db(request: Request, db: Session = Depends(get_db)):
     """Скачать резервную копию БД. Только admin. WAL-checkpoint перед выдачей."""
     from datetime import date as _date
     from pathlib import Path
+    from app.utils import log_action
+
+    # Логируем факт скачивания БД
+    log_action(db, "system", 0, "backup_downloaded",
+               request.session.get("user_id"),
+               f"Скачана резервная копия БД (IP: {request.client.host if request.client else '?'})")
 
     # Получаем путь к БД из переменной окружения или используем путь по умолчанию
     db_url = os.getenv("DATABASE_URL", "sqlite:///./tms.db")
@@ -335,7 +341,7 @@ async def profile_password(
         return RedirectResponse(url="/auth/login", status_code=302)
     if not verify_password(current_password, user.password_hash):
         return RedirectResponse(url="/settings/profile?pwd_error=wrong", status_code=302)
-    if len(new_password) < 6:
+    if len(new_password) < 8:
         return RedirectResponse(url="/settings/profile?pwd_error=short", status_code=302)
     if new_password != confirm_password:
         return RedirectResponse(url="/settings/profile?pwd_error=mismatch", status_code=302)

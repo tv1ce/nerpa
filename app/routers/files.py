@@ -97,11 +97,14 @@ async def upload_files(
         stored_path = os.path.join(dest_dir, f"{uuid.uuid4().hex}{ext}")
         with open(stored_path, "wb") as out:
             out.write(data)
+        # Санитизируем имя: убираем path-separators, управляющие символы и переносы строк
+        import re as _re
+        safe_name = _re.sub(r'[\x00-\x1f\x7f\\/:"*?<>|]', "_", f.filename)[:300]
         af = AttachedFile(
             entity_type=entity_type,
             entity_id=entity_id,
             file_type=file_type,
-            original_name=f.filename[:300],
+            original_name=safe_name,
             stored_path=stored_path.replace("\\", "/"),
             size_original=len(data),
             size_compressed=len(data),

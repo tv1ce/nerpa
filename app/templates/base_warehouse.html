@@ -41,9 +41,13 @@
       <i class="bi bi-bell"></i>
       <span id="notif-badge" class="wm-badge" style="display:none"></span>
     </button>
-    <a href="/auth/logout" class="wm-icon-btn" title="Выйти">
-      <i class="bi bi-box-arrow-right"></i>
-    </a>
+    <form method="post" action="/auth/logout" style="display:inline;margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <button type="submit" class="wm-icon-btn" title="Выйти"
+              style="background:none;border:none;padding:0;cursor:pointer">
+        <i class="bi bi-box-arrow-right"></i>
+      </button>
+    </form>
   </div>
 </header>
 

@@ -48,6 +48,11 @@
 </div>
 
 <div class="text-center mt-3">
-  <a href="/auth/logout" class="btn btn-outline-danger btn-lg-touch px-4"><i class="bi bi-box-arrow-right me-1"></i>Выйти</a>
+  <form method="post" action="/auth/logout" style="display:inline;margin:0">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <button type="submit" class="btn btn-outline-danger btn-lg-touch px-4">
+      <i class="bi bi-box-arrow-right me-1"></i>Выйти
+    </button>
+  </form>
 </div>
 {% endblock %}

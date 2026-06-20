@@ -223,7 +223,7 @@ def _rotate_generated(max_age_days: int = 90) -> int:
 
     cutoff = _time.time() - max_age_days * 86400
     deleted = 0
-    for path in Path("generated").glob("*"):
+    for path in (Path(__file__).parent.parent / "generated").glob("*"):
         if not path.is_file():
             continue
         try:

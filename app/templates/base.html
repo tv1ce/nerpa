@@ -141,7 +141,13 @@
   <div class="user-block">
     <span class="avatar" aria-hidden="true"><i class="bi bi-person-fill"></i></span>
     <a href="/settings/profile" class="uname text-reset text-decoration-none" title="Мой профиль">{{ request.session.get('user_name', 'Пользователь') }}</a>
-    <a href="/auth/logout" title="Выйти" aria-label="Выйти"><i class="bi bi-box-arrow-right"></i></a>
+    <form method="post" action="/auth/logout" style="display:inline;margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <button type="submit" title="Выйти" aria-label="Выйти"
+              style="background:none;border:none;padding:0;cursor:pointer;color:inherit;display:inline-flex;align-items:center">
+        <i class="bi bi-box-arrow-right"></i>
+      </button>
+    </form>
   </div>
 </nav>
 

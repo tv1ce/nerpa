@@ -26,8 +26,17 @@ from app.models import Order, OrderItem, Invoice, Claim, CompanySettings, Produc
 router = APIRouter(prefix="/board", tags=["board"])
 templates = Jinja2Templates(directory="app/templates")
 
-# Токен доступа к табло. На проде задать переменную окружения TMS_BOARD_KEY.
-BOARD_KEY = os.getenv("TMS_BOARD_KEY", "tseh2026")
+# Токен доступа к табло. Задать переменную окружения TMS_BOARD_KEY (обязательно).
+_board_key_raw = os.environ.get("TMS_BOARD_KEY", "")
+if not _board_key_raw:
+    import sys
+    print(
+        "FATAL: переменная окружения TMS_BOARD_KEY не задана. "
+        "Задайте её в .env (например: TMS_BOARD_KEY=<случайная строка>). "
+        "Табло будет недоступно без этого ключа.",
+        file=sys.stderr,
+    )
+BOARD_KEY = _board_key_raw or "BOARD_KEY_NOT_SET"
 
 # Метка запуска сервера — клиенты следят за ней и перезагружают страницу при изменении
 SERVER_START = int(time.time())
@@ -80,7 +89,8 @@ def parse_stations(raw: str | None) -> list[dict]:
             continue
         name, url = ln.split("|", 1)
         name, url = name.strip(), url.strip()
-        if name and url:
+        # Разрешаем только http/https URL (защита от javascript: и data: схем)
+        if name and url and url.startswith(("http://", "https://")):
             out.append({"name": name, "url": url})
     return out or DEFAULT_STATIONS
 
