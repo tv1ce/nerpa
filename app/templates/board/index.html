@@ -583,68 +583,25 @@
     function showSoundOverlay(){ soundOverlay.style.display='flex'; }
     function hideSoundOverlay(){ soundOverlay.style.display='none'; }
 
-    // Возвращает индекс первой станции которую браузер умеет играть, начиная с startIdx
-    function findSupportedStation(startIdx){
-      for (let i = 0; i < STATIONS.length; i++){
-        const idx = (startIdx + i) % STATIONS.length;
-        const url = STATIONS[idx].url;
-        // canPlayType: 'probably'/'maybe'=supported, ''=нет
-        const ext = url.split('?')[0].split('.').pop().toLowerCase();
-        const mime = ext === 'mp3' ? 'audio/mpeg' :
-                     ext === 'aacp' || ext === 'aac' ? 'audio/aac' :
-                     ext === 'ogg' ? 'audio/ogg' : 'audio/mpeg';
-        if (player.canPlayType(mime) !== '') return idx;
-      }
-      return startIdx; // fallback — пробуем исходную
-    }
-
-    function tryPlayIdx(idx, fromUserGesture){
-      const s = STATIONS[idx];
-      if (!s) return;
+    function tryPlay(){
+      const s = STATIONS[active];
+      if (!s){ showSoundOverlay(); return; }
       soText.textContent = 'Загружается...';
-      reconnecting = true;
-      player.src = s.url;
-      player.load();
-      const p = player.play();
-      if (p !== undefined){
-        p.then(()=>{
-          active = idx;
-          renderStations();
+      // Не вызываем load() — только src + play(), как работало раньше
+      if (player.src !== s.url) player.src = s.url;
+      player.play()
+        .then(()=>{
           hideSoundOverlay();
           soText.textContent = 'Нажмите для включения звука';
           soundBtn.style.display = 'none';
           lastAdvanceAt = Date.now();
           reconnectFails = 0;
-          // Сохраняем выбор на сервере
-          fetch('/board/station?key='+encodeURIComponent(KEY)+'&i='+idx,{method:'POST'}).catch(()=>{});
-        }).catch(e=>{
+        })
+        .catch(e=>{
           console.error('[sound] play rejected:', e.name, e.message);
-          if (e.name === 'NotSupportedError' && fromUserGesture){
-            // Формат не поддерживается — ищем следующую рабочую станцию
-            const next = findSupportedStation(idx + 1);
-            if (next !== idx){
-              console.info('[sound] switching to supported station:', STATIONS[next].name);
-              soText.textContent = 'Формат не поддерживается, пробуем ' + STATIONS[next].name + '...';
-              setTimeout(()=> tryPlayIdx(next, true), 500);
-            } else {
-              soText.textContent = 'Нет поддерживаемых форматов';
-              showSoundOverlay();
-            }
-          } else {
-            soText.textContent = 'Ошибка: ' + (e.name || e.message);
-            showSoundOverlay();
-          }
-        }).finally(()=>{ setTimeout(()=>{ reconnecting = false; }, 500); });
-      } else {
-        hideSoundOverlay();
-        setTimeout(()=>{ reconnecting = false; }, 500);
-      }
-    }
-
-    function tryPlay(){
-      // Ищем поддерживаемую станцию начиная с текущей
-      const supported = findSupportedStation(active);
-      tryPlayIdx(supported, true);
+          soText.textContent = 'Нажмите для включения звука';
+          showSoundOverlay();
+        });
     }
 
     // Клик по оверлею, кнопка пульта, или старая кнопка — всё запускает звук
