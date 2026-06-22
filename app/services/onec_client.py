@@ -144,14 +144,9 @@ def sync_products_from_1c(db: Session) -> dict:
                         p.synced_from_1c_at = now
                         updated += 1
                     else:
-                        db.add(Product(
-                            name=name,
-                            article=code or None,
-                            external_id_1c=ref_key,
-                            synced_from_1c_at=now,
-                            is_active=True,
-                        ))
-                        created += 1
+                        # Не создаём новые продукты автоматически —
+                        # только линкуем уже существующие в TMS
+                        logger.debug("sync_products_from_1c: нет в TMS, пропускаем %s (%s)", name, ref_key)
         except Exception as e:
             errors.append(f"{name}: {e}")
             logger.warning("sync_products_from_1c item error: %s", e)

@@ -262,6 +262,8 @@ async def create_order(
     log_action(db, "order", order.id, "created",
                request.session.get("user_id"), f"Заказ {order.number} создан")
     db.commit()
+    if status == "confirmed":
+        threading.Thread(target=_push_order_bg, args=(order.id,), daemon=True).start()
     return RedirectResponse(url=f"/orders/{order.id}", status_code=302)
 
 
