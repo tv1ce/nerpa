@@ -97,8 +97,8 @@ def sync_products_from_1c(db: Session) -> dict:
                 "Catalog_Номенклатура",
                 params={
                     "$format": "json",
-                    "$select": "Ref_Key,Code,Description,ПометкаУдаления",
-                    "$filter": "ПометкаУдаления eq false",
+                    "$select": "Ref_Key,Code,Description,DeletionMark",
+                    "$filter": "DeletionMark eq false",
                     "$top": "5000",
                 },
             )
@@ -259,7 +259,7 @@ def push_order(order, db: Session) -> str | None:
 
     payload = {
         "Номер": order.number,
-        "Дата": order.date.isoformat() if order.date else None,
+        "Date": order.date.isoformat() if order.date else None,
         "Контрагент_Key": order.counterparty.external_id_1c,
         "ТоварыУслуги": items_payload,
     }
@@ -307,7 +307,7 @@ def push_invoice(invoice, db: Session) -> str | None:
 
     payload = {
         "Номер": invoice.number,
-        "Дата": invoice.date.isoformat() if invoice.date else None,
+        "Date": invoice.date.isoformat() if invoice.date else None,
         "Контрагент_Key": invoice.counterparty.external_id_1c,
         "ДатаОплаты": invoice.due_date.isoformat() if invoice.due_date else None,
         "ТоварыУслуги": items_payload,
@@ -354,8 +354,8 @@ def sync_payments_from_1c(db: Session) -> dict:
                 "Document_ПоступлениеДенежныхСредств",
                 params={
                     "$format": "json",
-                    "$filter": f"Дата ge datetime'{horizon}' and Проведен eq true",
-                    "$select": "Ref_Key,Дата,Основание_Key",
+                    "$filter": f"Date ge datetime'{horizon}' and Posted eq true",
+                    "$select": "Ref_Key,Date,Основание_Key",
                     "$top": "500",
                 },
             )
@@ -373,7 +373,7 @@ def sync_payments_from_1c(db: Session) -> dict:
             inv = db.query(Invoice).filter(Invoice.external_id_1c == basis_key).first()
             if inv and inv.status != "paid":
                 inv.status = "paid"
-                pay_date_str = pay.get("Дата", "")[:10]
+                pay_date_str = pay.get("Date", "")[:10]
                 try:
                     from datetime import date as _d
                     inv.paid_date = _d.fromisoformat(pay_date_str)
@@ -420,7 +420,7 @@ def push_stock_movement(movement, db: Session) -> str | None:
     )
 
     payload = {
-        "Дата": movement.date.isoformat() if movement.date else None,
+        "Date": movement.date.isoformat() if movement.date else None,
         "Комментарий": movement.notes or "",
         "Товары": [{
             "Номенклатура_Key": movement.product.external_id_1c,
