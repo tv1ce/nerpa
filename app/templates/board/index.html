@@ -313,13 +313,6 @@
     </div>
   </div>
 
-  <!-- Оверлей «нажмите для звука» — появляется когда браузер блокирует автовоспроизведение -->
-  <div id="sound-overlay">
-    <div class="so-icon">🔇</div>
-    <div class="so-text">Нажмите для включения звука</div>
-    <div class="so-sub">Нажмите любую кнопку на пульте или кликните</div>
-  </div>
-
   <!-- Музыкальные каналы -->
   <div class="music">
     <div class="music-row">
@@ -347,6 +340,13 @@
   <!-- Лента мотивашек -->
   <div class="ticker"><div class="quote" id="quote"></div></div>
 </div><!-- /#stage -->
+
+  <!-- Оверлей «нажмите для звука» — вне #stage чтобы position:fixed работал без scale -->
+  <div id="sound-overlay">
+    <div class="so-icon">🔇</div>
+    <div class="so-text">Нажмите для включения звука</div>
+    <div class="so-sub">Нажмите любую кнопку на пульте или кликните</div>
+  </div>
 
   <audio id="player"></audio>
 
