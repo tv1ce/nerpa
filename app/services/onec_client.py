@@ -98,12 +98,12 @@ def sync_products_from_1c(db: Session) -> dict:
                 params={
                     "$format": "json",
                     "$select": "Ref_Key,Code,Description,DeletionMark",
-                    "$filter": "DeletionMark eq false",
                     "$top": "5000",
                 },
             )
         r.raise_for_status()
-        items = r.json().get("value", [])
+        # Фильтруем помеченные на удаление в Python — булевые фильтры в OData УНФ нестабильны
+        items = [i for i in r.json().get("value", []) if not i.get("DeletionMark", False)]
     except Exception as e:
         logger.error("sync_products_from_1c: %s", e)
         return {"created": 0, "updated": 0, "errors": [str(e)]}
