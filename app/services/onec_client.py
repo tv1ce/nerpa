@@ -174,17 +174,17 @@ _ENTITY_TYPE_MAP = {
 }
 
 
-def push_counterparty(cp, db: Session) -> str | None:
+def push_counterparty(cp, db: Session, create_if_missing: bool = True) -> str | None:
     """
     Создаёт или обновляет контрагента в 1С.
     Поиск дубля по ИНН перед созданием.
-    Возвращает Ref_Key (GUID) или None при ошибке.
+    create_if_missing=False — только ищет в 1С, не создаёт нового.
+    Возвращает Ref_Key (GUID) или None при ошибке/не найдено.
     """
     s = _get_settings(db)
     if not s or not s.onec_enabled:
         return None
 
-    # Минимальный payload — только поля гарантированно существующие в УНФ OData
     payload: dict = {"Description": cp.name}
     if cp.inn:
         payload["ИНН"] = cp.inn
@@ -205,13 +205,17 @@ def push_counterparty(cp, db: Session) -> str | None:
                 )
                 if r.is_success:
                     for item in r.json().get("value", []):
-                        if item.get("ИНН") == cp.inn:
+                        if (item.get("ИНН") or "").strip() == (cp.inn or "").strip():
                             ref_key = item["Ref_Key"]
                             logger.info("push_counterparty %s: найден в 1С по ИНН → %s", cp.id, ref_key)
                             _save_external_id(db, cp, ref_key)
                             return ref_key
 
-            # Создаём нового
+            if not create_if_missing:
+                logger.warning("push_counterparty %s: не найден в 1С по ИНН, создание запрещено", cp.id)
+                return None
+
+            # Создаём нового (только из страницы контрагентов, не из заказа)
             r = c.post("Catalog_Контрагенты", json=payload)
             r.raise_for_status()
             ref_key = r.json().get("Ref_Key")
@@ -238,10 +242,10 @@ def push_order(order, db: Session) -> str | None:
         logger.warning("push_order %s: нет контрагента", order.id)
         return None
     if not order.counterparty.external_id_1c:
-        logger.info("push_order %s: контрагент без external_id_1c — пушим сначала", order.id)
-        push_counterparty(order.counterparty, db)
+        logger.info("push_order %s: контрагент без external_id_1c — ищем в 1С по ИНН", order.id)
+        push_counterparty(order.counterparty, db, create_if_missing=False)
     if not order.counterparty.external_id_1c:
-        logger.warning("push_order %s: контрагент не удалось создать в 1С", order.id)
+        logger.warning("push_order %s: контрагент не найден в 1С — заказ не будет создан", order.id)
         return None
 
     # Табличная часть Запасы в УНФ OData не поддерживает запись через POST/PATCH —
