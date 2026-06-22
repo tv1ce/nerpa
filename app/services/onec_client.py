@@ -180,37 +180,34 @@ def push_counterparty(cp, db: Session) -> str | None:
     if not s or not s.onec_enabled:
         return None
 
-    payload = {
-        "Description": cp.name,
-        "ИНН": cp.inn or "",
-        "КПП": cp.kpp or "",
-        "ОГРН": cp.ogrn or "",
-        "ЮридическийАдрес": cp.legal_address or "",
-        "АдресДляПисем": cp.actual_address or "",
-        "Телефон": cp.phone or "",
-        "АдресЭлектроннойПочты": cp.email or "",
-        "ЮридическоеФизическоеЛицо": _ENTITY_TYPE_MAP.get(cp.entity_type or "ooo", "ЮрЛицо"),
-    }
+    # Минимальный payload — только поля гарантированно существующие в УНФ OData
+    payload: dict = {"Description": cp.name}
+    if cp.inn:
+        payload["ИНН"] = cp.inn
 
     try:
         with _client(s) as c:
-            # Ищем по ИНН
+            # Ищем по ИНН (игнорируем ошибки фильтра — в УНФ может вернуть 500)
             if cp.inn:
-                r = c.get(
-                    "Catalog_Контрагенты",
-                    params={
-                        "$format": "json",
-                        "$filter": f"ИНН eq '{cp.inn}'",
-                        "$select": "Ref_Key",
-                        "$top": "1",
-                    },
-                )
-                existing = r.json().get("value", [])
-                if existing:
-                    ref_key = existing[0]["Ref_Key"]
-                    c.patch(f"Catalog_Контрагенты(guid'{ref_key}')", json=payload)
-                    _save_external_id(db, cp, ref_key)
-                    return ref_key
+                try:
+                    r = c.get(
+                        "Catalog_Контрагенты",
+                        params={
+                            "$format": "json",
+                            "$filter": f"ИНН eq '{cp.inn}'",
+                            "$select": "Ref_Key",
+                            "$top": "1",
+                        },
+                    )
+                    if r.is_success:
+                        existing = r.json().get("value", [])
+                        if existing:
+                            ref_key = existing[0]["Ref_Key"]
+                            c.patch(f"Catalog_Контрагенты(guid'{ref_key}')", json=payload)
+                            _save_external_id(db, cp, ref_key)
+                            return ref_key
+                except Exception:
+                    pass  # фильтр по ИНН не поддерживается — идём дальше
 
             # Обновляем если уже привязан
             if cp.external_id_1c:
@@ -241,8 +238,14 @@ def push_order(order, db: Session) -> str | None:
     if not s or not s.onec_enabled:
         return None
 
-    if not order.counterparty or not order.counterparty.external_id_1c:
-        logger.warning("push_order %s: контрагент без external_id_1c", order.id)
+    if not order.counterparty:
+        logger.warning("push_order %s: нет контрагента", order.id)
+        return None
+    if not order.counterparty.external_id_1c:
+        logger.info("push_order %s: контрагент без external_id_1c — пушим сначала", order.id)
+        push_counterparty(order.counterparty, db)
+    if not order.counterparty.external_id_1c:
+        logger.warning("push_order %s: контрагент не удалось создать в 1С", order.id)
         return None
 
     items_payload = []
@@ -291,8 +294,14 @@ def push_invoice(invoice, db: Session) -> str | None:
     if not s or not s.onec_enabled:
         return None
 
-    if not invoice.counterparty or not invoice.counterparty.external_id_1c:
-        logger.warning("push_invoice %s: контрагент без external_id_1c", invoice.id)
+    if not invoice.counterparty:
+        logger.warning("push_invoice %s: нет контрагента", invoice.id)
+        return None
+    if not invoice.counterparty.external_id_1c:
+        logger.info("push_invoice %s: контрагент без external_id_1c — пушим сначала", invoice.id)
+        push_counterparty(invoice.counterparty, db)
+    if not invoice.counterparty.external_id_1c:
+        logger.warning("push_invoice %s: контрагент не удалось создать в 1С", invoice.id)
         return None
 
     items_payload = [
