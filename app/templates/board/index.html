@@ -179,6 +179,15 @@
     .sound-btn{font-size:1.9vh;font-weight:700;padding:.8vh 1.4vw;border-radius:1.4vh;
       background:var(--purple);color:#fff;border:none;cursor:pointer}
 
+    /* ── Оверлей «нажмите для звука» ── */
+    #sound-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;
+      display:none;flex-direction:column;align-items:center;justify-content:center;
+      cursor:pointer;animation:fadeIn .4s}
+    #sound-overlay .so-icon{font-size:12vw;line-height:1}
+    #sound-overlay .so-text{font-size:4vw;font-weight:800;color:#fff;margin-top:2vw;text-align:center}
+    #sound-overlay .so-sub{font-size:2vw;color:rgba(255,255,255,.7);margin-top:1vw}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
     /* ── Лента мотивашек ── */
     .ticker{margin-top:.4vh;background:var(--card);border:1px solid var(--line);
       border-radius:1.8vh;padding:2.4vh 3vw;text-align:center;min-height:10vh;
@@ -302,6 +311,13 @@
       <div class="cost-bar-wrap"><div class="cost-bar" id="cost-bar" style="width:0%"></div></div>
       <div class="sub" id="m-cost-sub">норма: {{ data.cost_norm_pct | round(1) }}% &nbsp;|&nbsp; Δ {{ "%+.1f" | format(data.cost_pct - data.cost_norm_pct) }}%</div>
     </div>
+  </div>
+
+  <!-- Оверлей «нажмите для звука» — появляется когда браузер блокирует автовоспроизведение -->
+  <div id="sound-overlay">
+    <div class="so-icon">🔇</div>
+    <div class="so-text">Нажмите для включения звука</div>
+    <div class="so-sub">Нажмите любую кнопку на пульте или кликните</div>
   </div>
 
   <!-- Музыкальные каналы -->
@@ -560,9 +576,26 @@
       }
     }
 
-    soundBtn.onclick = () => { playActive().then(()=> soundBtn.style.display='none').catch(()=>{}); };
+    // ── Оверлей «включить звук» ──────────────────────────────────────────────
+    const soundOverlay = document.getElementById('sound-overlay');
+
+    function showSoundOverlay(){ soundOverlay.style.display='flex'; }
+    function hideSoundOverlay(){ soundOverlay.style.display='none'; }
+
+    function tryPlay(){
+      playActive()
+        .then(()=>{ hideSoundOverlay(); soundBtn.style.display='none'; })
+        .catch(()=>{ showSoundOverlay(); soundBtn.style.display='none'; });
+    }
+
+    // Клик по оверлею или любая кнопка пульта — запустить звук
+    soundOverlay.addEventListener('click', tryPlay);
+    document.addEventListener('keydown', () => { if (!player.paused) return; tryPlay(); });
+    soundBtn.onclick = tryPlay;
+
     renderStations();
-    playActive().then(()=> soundBtn.style.display='none').catch(()=> soundBtn.style.display='');
+    // Пробуем автовоспроизведение. Если браузер заблокировал — показываем оверлей
+    playActive().then(()=> hideSoundOverlay()).catch(()=> showSoundOverlay());
 
     // ── Авто-переподключение радио ───────────────────────────────────────────
     // Интернет-радио (icecast) при сетевом сбое или обрыве со стороны станции
@@ -597,12 +630,12 @@
       } catch(e){}
       player.play()
         .then(()=> {
-          soundBtn.style.display='none';
+          hideSoundOverlay(); soundBtn.style.display='none';
           reconnectFails = 0;
           lastAdvanceAt = Date.now();
         })
         .catch(()=> {
-          soundBtn.style.display='';
+          showSoundOverlay();
           reconnectFails++;
         })
         .finally(()=> {
@@ -730,7 +763,11 @@
         .then(r => r.ok ? r.json() : Promise.reject())
         .then(d => {
           if (_serverVersion === null) { _serverVersion = d.server_version; }
-          else if (d.server_version !== _serverVersion) { location.reload(); return; }
+          else if (d.server_version !== _serverVersion) {
+            // Перезагружаем только если музыка не играет — не убиваем звук зря
+            if (player.paused) { location.reload(); return; }
+            _serverVersion = d.server_version; // принимаем новую версию без перезагрузки
+          }
           render(d);
         })
         .catch(()=>{});
