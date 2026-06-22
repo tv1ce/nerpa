@@ -237,6 +237,24 @@ def _rotate_generated(max_age_days: int = 90) -> int:
     return deleted
 
 
+def _run_1c_sync_job():
+    """Фоновая задача APScheduler: импорт номенклатуры и оплат из 1С."""
+    from app.database import SessionLocal
+    from app.services.onec_client import sync_products_from_1c, sync_payments_from_1c
+    db = SessionLocal()
+    try:
+        r1 = sync_products_from_1c(db)
+        r2 = sync_payments_from_1c(db)
+        logger.info(
+            "1C auto-sync: products created=%s updated=%s; payments updated=%s",
+            r1.get("created"), r1.get("updated"), r2.get("updated"),
+        )
+    except Exception as e:
+        logger.error("1C auto-sync job error: %s", e)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
@@ -248,6 +266,18 @@ async def lifespan(_app: FastAPI):
     _rotate_generated(max_age_days=90)  # удалить старые docx
     asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
     board.start_now_playing()         # поллер «сейчас играет» на табло
+
+    # APScheduler: поллинг 1С каждые 15 минут (отключён если onec_enabled=False)
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        _scheduler = BackgroundScheduler(timezone="Europe/Moscow")
+        _scheduler.add_job(_run_1c_sync_job, "interval", minutes=15, id="1c_sync",
+                           misfire_grace_time=60)
+        _scheduler.start()
+        logger.info("APScheduler: задача 1c_sync запущена (каждые 15 мин)")
+    except ImportError:
+        logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
+
     yield
     # ── shutdown (ничего освобождать не нужно) ────────────────────────────────
 

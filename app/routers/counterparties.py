@@ -7,8 +7,27 @@ from app.database import get_db
 from app.auth import login_required, role_required
 from app.models import Counterparty, Claim, Task, Comment, AuditLog, User, ContactPerson
 from app.utils import log_action
+import logging
+import threading
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/counterparties", tags=["counterparties"])
+
+
+def _push_cp_bg(cp_id: int) -> None:
+    """Push контрагента в 1С в фоновом потоке (создаёт собственную сессию)."""
+    from app.database import SessionLocal
+    from app.services.onec_client import push_counterparty
+    db = SessionLocal()
+    try:
+        cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
+        if cp:
+            push_counterparty(cp, db)
+    except Exception as e:
+        logger.error("push_counterparty bg %s: %s", cp_id, e)
+    finally:
+        db.close()
 templates = Jinja2Templates(directory="app/templates")
 
 
@@ -194,6 +213,7 @@ async def create_counterparty(
     )
     db.add(cp)
     db.commit()
+    threading.Thread(target=_push_cp_bg, args=(cp.id,), daemon=True).start()
     return RedirectResponse(url="/counterparties", status_code=302)
 
 
@@ -504,6 +524,7 @@ async def update_counterparty(
         cp.tg_chat_id = effective_tg
         cp.tg_notify_enabled = bool(tg_notify_enabled)
         db.commit()
+        threading.Thread(target=_push_cp_bg, args=(cp_id,), daemon=True).start()
     return RedirectResponse(url=f"/counterparties/{cp_id}", status_code=302)
 
 

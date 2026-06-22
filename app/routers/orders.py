@@ -13,8 +13,27 @@ from app.database import get_db
 from app.auth import login_required, role_required
 from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User, Contract
 from app.utils import log_action
+import logging
+import threading
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+def _push_order_bg(order_id: int) -> None:
+    """Push заказа в 1С в фоновом потоке."""
+    from app.database import SessionLocal
+    from app.services.onec_client import push_order
+    db = SessionLocal()
+    try:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if order:
+            push_order(order, db)
+    except Exception as e:
+        logger.error("push_order bg %s: %s", order_id, e)
+    finally:
+        db.close()
 templates = Jinja2Templates(directory="app/templates")
 
 ORDER_STATUSES = {
@@ -420,6 +439,8 @@ async def change_status(request: Request, order_id: int,
                    f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → {ORDER_STATUSES.get(status, status)}",
                    field="status", old_value=old_status, new_value=status)
         db.commit()
+        if status == "confirmed":
+            threading.Thread(target=_push_order_bg, args=(order_id,), daemon=True).start()
 
     target = redirect_url if redirect_url else f"/orders/{order_id}"
     return RedirectResponse(url=target, status_code=302)
