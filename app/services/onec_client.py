@@ -1,0 +1,445 @@
+"""
+Клиент к OData API 1С:УНФ.
+
+Базовый URL: {settings.onec_url}   пример: http://srv4.life-it.pro/grach_unf/odata/standard.odata
+Аутентификация: HTTP Basic (onec_user / onec_password)
+Формат: JSON (odata=nometadata — меньше трафика)
+"""
+import logging
+from datetime import datetime, timezone
+
+import httpx
+from sqlalchemy.orm import Session
+
+from app.models import CompanySettings, Product
+
+logger = logging.getLogger(__name__)
+
+TIMEOUT = 15
+
+
+# ── Вспомогательные ──────────────────────────────────────────────────────────
+
+def _get_settings(db: Session) -> CompanySettings | None:
+    s = db.query(CompanySettings).first()
+    if not s or not s.onec_url:
+        return None
+    return s
+
+
+def _client(s: CompanySettings) -> httpx.Client:
+    return httpx.Client(
+        base_url=s.onec_url.rstrip("/") + "/",
+        auth=(s.onec_user or "", s.onec_password or ""),
+        headers={
+            "Accept": "application/json;odata=nometadata",
+            "Content-Type": "application/json",
+        },
+        timeout=TIMEOUT,
+    )
+
+
+def _save_external_id(db: Session, obj, ref_key: str) -> None:
+    obj.external_id_1c = ref_key
+    obj.synced_to_1c_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+# ── Проверка подключения ──────────────────────────────────────────────────────
+
+def test_connection(db: Session) -> dict:
+    """
+    Проверяет подключение к 1С:УНФ.
+    Не требует onec_enabled=True — нужна только строка URL.
+    Возвращает {"ok": bool, "message": str}.
+    """
+    s = _get_settings(db)
+    if not s:
+        return {"ok": False, "message": "URL 1С не задан в настройках"}
+    try:
+        with _client(s) as c:
+            r = c.get("$metadata", timeout=10)
+        if r.status_code == 200:
+            return {"ok": True, "message": "Подключение успешно"}
+        if r.status_code == 401:
+            return {"ok": False, "message": "Неверный логин или пароль (HTTP 401)"}
+        return {"ok": False, "message": f"HTTP {r.status_code}: {r.text[:300]}"}
+    except httpx.ConnectError as e:
+        return {"ok": False, "message": f"Не удалось подключиться: {e}"}
+    except httpx.TimeoutException:
+        return {"ok": False, "message": "Таймаут подключения (>10 с)"}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+# ── Номенклатура: 1С → TMS ───────────────────────────────────────────────────
+
+def sync_products_from_1c(db: Session) -> dict:
+    """
+    Читает Catalog_Номенклатура из 1С, создаёт/обновляет Products в TMS.
+    Маппинг: Ref_Key→external_id_1c, Code→article, Description→name.
+    Пропускает записи с ПометкаУдаления=true.
+    Возвращает {"created": N, "updated": N, "errors": [...]}.
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
+
+    errors: list[str] = []
+    created = updated = 0
+
+    try:
+        with _client(s) as c:
+            r = c.get(
+                "Catalog_Номенклатура",
+                params={
+                    "$format": "json",
+                    "$select": "Ref_Key,Code,Description,ПометкаУдаления",
+                    "$filter": "ПометкаУдаления eq false",
+                    "$top": "5000",
+                },
+            )
+        r.raise_for_status()
+        items = r.json().get("value", [])
+    except Exception as e:
+        logger.error("sync_products_from_1c: %s", e)
+        return {"created": 0, "updated": 0, "errors": [str(e)]}
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for item in items:
+        ref_key = item.get("Ref_Key")
+        name = (item.get("Description") or "").strip()
+        code = (item.get("Code") or "").strip()
+
+        if not ref_key or not name:
+            continue
+
+        try:
+            # Ищем по GUID 1С
+            p = db.query(Product).filter(Product.external_id_1c == ref_key).first()
+            if p:
+                p.name = name
+                if code:
+                    p.article = code
+                p.synced_from_1c_at = now
+                updated += 1
+            else:
+                # Пытаемся связать по артикулу
+                p = db.query(Product).filter(Product.article == code).first() if code else None
+                if p:
+                    p.external_id_1c = ref_key
+                    p.synced_from_1c_at = now
+                    updated += 1
+                else:
+                    db.add(Product(
+                        name=name,
+                        article=code or None,
+                        external_id_1c=ref_key,
+                        synced_from_1c_at=now,
+                        is_active=True,
+                    ))
+                    created += 1
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+            logger.warning("sync_products_from_1c item error: %s", e)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors.append(f"commit: {e}")
+        created = updated = 0
+
+    logger.info(
+        "sync_products_from_1c: создано %d, обновлено %d, ошибок %d",
+        created, updated, len(errors),
+    )
+    return {"created": created, "updated": updated, "errors": errors}
+
+
+# ── Контрагенты: TMS → 1С ───────────────────────────────────────────────────
+
+_ENTITY_TYPE_MAP = {
+    "ooo":   "ЮрЛицо",
+    "ip":    "ИндивидуальныйПредприниматель",
+    "other": "ФизЛицо",
+}
+
+
+def push_counterparty(cp, db: Session) -> str | None:
+    """
+    Создаёт или обновляет контрагента в 1С.
+    Поиск дубля по ИНН перед созданием.
+    Возвращает Ref_Key (GUID) или None при ошибке.
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return None
+
+    payload = {
+        "Description": cp.name,
+        "ИНН": cp.inn or "",
+        "КПП": cp.kpp or "",
+        "ОГРН": cp.ogrn or "",
+        "ЮридическийАдрес": cp.legal_address or "",
+        "АдресДляПисем": cp.actual_address or "",
+        "Телефон": cp.phone or "",
+        "АдресЭлектроннойПочты": cp.email or "",
+        "ЮридическоеФизическоеЛицо": _ENTITY_TYPE_MAP.get(cp.entity_type or "ooo", "ЮрЛицо"),
+    }
+
+    try:
+        with _client(s) as c:
+            # Ищем по ИНН
+            if cp.inn:
+                r = c.get(
+                    "Catalog_Контрагенты",
+                    params={
+                        "$format": "json",
+                        "$filter": f"ИНН eq '{cp.inn}'",
+                        "$select": "Ref_Key",
+                        "$top": "1",
+                    },
+                )
+                existing = r.json().get("value", [])
+                if existing:
+                    ref_key = existing[0]["Ref_Key"]
+                    c.patch(f"Catalog_Контрагенты(guid'{ref_key}')", json=payload)
+                    _save_external_id(db, cp, ref_key)
+                    return ref_key
+
+            # Обновляем если уже привязан
+            if cp.external_id_1c:
+                c.patch(f"Catalog_Контрагенты(guid'{cp.external_id_1c}')", json=payload)
+                _save_external_id(db, cp, cp.external_id_1c)
+                return cp.external_id_1c
+
+            # Создаём нового
+            r = c.post("Catalog_Контрагенты", json=payload)
+            r.raise_for_status()
+            ref_key = r.json().get("Ref_Key")
+            if ref_key:
+                _save_external_id(db, cp, ref_key)
+            return ref_key
+    except Exception as e:
+        logger.error("push_counterparty %s: %s", cp.id, e)
+        return None
+
+
+# ── Заказы: TMS → 1С ─────────────────────────────────────────────────────────
+
+def push_order(order, db: Session) -> str | None:
+    """
+    Создаёт/обновляет Document_ЗаказПокупателя в 1С.
+    Вызывать при status='confirmed'. При повторных сменах статуса — PATCH.
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return None
+
+    if not order.counterparty or not order.counterparty.external_id_1c:
+        logger.warning("push_order %s: контрагент без external_id_1c", order.id)
+        return None
+
+    items_payload = []
+    for item in order.items:
+        if not item.product or not item.product.external_id_1c:
+            continue
+        items_payload.append({
+            "Номенклатура_Key": item.product.external_id_1c,
+            "Количество": item.quantity,
+            "Цена": item.price,
+            "ПроцентСкидки": item.discount_pct or 0,
+            "СтавкаНДС": "20%" if (item.vat_rate or 0) >= 20 else "Без НДС",
+        })
+
+    payload = {
+        "Номер": order.number,
+        "Дата": order.date.isoformat() if order.date else None,
+        "Контрагент_Key": order.counterparty.external_id_1c,
+        "ТоварыУслуги": items_payload,
+    }
+
+    try:
+        with _client(s) as c:
+            if order.external_id_1c:
+                c.patch(f"Document_ЗаказПокупателя(guid'{order.external_id_1c}')", json=payload)
+                _save_external_id(db, order, order.external_id_1c)
+                return order.external_id_1c
+            r = c.post("Document_ЗаказПокупателя", json=payload)
+            r.raise_for_status()
+            ref_key = r.json().get("Ref_Key")
+            if ref_key:
+                _save_external_id(db, order, ref_key)
+            return ref_key
+    except Exception as e:
+        logger.error("push_order %s: %s", order.id, e)
+        return None
+
+
+# ── Счета: TMS → 1С ──────────────────────────────────────────────────────────
+
+def push_invoice(invoice, db: Session) -> str | None:
+    """
+    Создаёт Document_СчётНаОплатуПокупателю в 1С при переводе в статус 'issued'.
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return None
+
+    if not invoice.counterparty or not invoice.counterparty.external_id_1c:
+        logger.warning("push_invoice %s: контрагент без external_id_1c", invoice.id)
+        return None
+
+    items_payload = [
+        {
+            "Наименование": item.name,
+            "Количество": item.quantity,
+            "Цена": item.price,
+            "СтавкаНДС": "20%" if (item.vat_rate or 0) >= 20 else "Без НДС",
+        }
+        for item in invoice.items
+    ]
+
+    payload = {
+        "Номер": invoice.number,
+        "Дата": invoice.date.isoformat() if invoice.date else None,
+        "Контрагент_Key": invoice.counterparty.external_id_1c,
+        "ДатаОплаты": invoice.due_date.isoformat() if invoice.due_date else None,
+        "ТоварыУслуги": items_payload,
+    }
+
+    try:
+        with _client(s) as c:
+            if invoice.external_id_1c:
+                c.patch(f"Document_СчётНаОплатуПокупателю(guid'{invoice.external_id_1c}')", json=payload)
+                _save_external_id(db, invoice, invoice.external_id_1c)
+                return invoice.external_id_1c
+            r = c.post("Document_СчётНаОплатуПокупателю", json=payload)
+            r.raise_for_status()
+            ref_key = r.json().get("Ref_Key")
+            if ref_key:
+                _save_external_id(db, invoice, ref_key)
+            return ref_key
+    except Exception as e:
+        logger.error("push_invoice %s: %s", invoice.id, e)
+        return None
+
+
+# ── Оплаты: 1С → TMS ─────────────────────────────────────────────────────────
+
+def sync_payments_from_1c(db: Session) -> dict:
+    """
+    Читает Document_ПоступлениеДенежныхСредств из 1С за последние 30 дней.
+    Обновляет Invoice.status='paid', paid_date по external_id_1c основания.
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"updated": 0, "errors": ["Синхронизация отключена"]}
+
+    from datetime import date, timedelta
+    from app.models import Invoice
+
+    errors: list[str] = []
+    updated = 0
+    horizon = (date.today() - timedelta(days=30)).isoformat() + "T00:00:00"
+
+    try:
+        with _client(s) as c:
+            r = c.get(
+                "Document_ПоступлениеДенежныхСредств",
+                params={
+                    "$format": "json",
+                    "$filter": f"Дата ge datetime'{horizon}' and Проведен eq true",
+                    "$select": "Ref_Key,Дата,Основание_Key",
+                    "$top": "500",
+                },
+            )
+        r.raise_for_status()
+        payments = r.json().get("value", [])
+    except Exception as e:
+        logger.error("sync_payments_from_1c: %s", e)
+        return {"updated": 0, "errors": [str(e)]}
+
+    for pay in payments:
+        basis_key = pay.get("Основание_Key")
+        if not basis_key:
+            continue
+        try:
+            inv = db.query(Invoice).filter(Invoice.external_id_1c == basis_key).first()
+            if inv and inv.status != "paid":
+                inv.status = "paid"
+                pay_date_str = pay.get("Дата", "")[:10]
+                try:
+                    from datetime import date as _d
+                    inv.paid_date = _d.fromisoformat(pay_date_str)
+                except (ValueError, TypeError):
+                    pass
+                updated += 1
+        except Exception as e:
+            errors.append(str(e))
+
+    if updated:
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            errors.append(f"commit: {e}")
+            updated = 0
+
+    logger.info("sync_payments_from_1c: обновлено %d", updated)
+    return {"updated": updated, "errors": errors}
+
+
+# ── Склад: TMS → 1С ──────────────────────────────────────────────────────────
+
+def push_stock_movement(movement, db: Session) -> str | None:
+    """
+    Пушит движения типа 'in' (Document_ПоступлениеТоваров)
+    и 'adjustment' (Document_ИнвентаризацияТоваров).
+    Движения 'out' с order_id пропускаются — 1С создаёт их сама через заказ.
+    """
+    if movement.movement_type == "out" and movement.order_id:
+        return None
+
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return None
+
+    if not movement.product or not movement.product.external_id_1c:
+        return None
+
+    doc_type = (
+        "Document_ПоступлениеТоваров"
+        if movement.movement_type == "in"
+        else "Document_ИнвентаризацияТоваров"
+    )
+
+    payload = {
+        "Дата": movement.date.isoformat() if movement.date else None,
+        "Комментарий": movement.notes or "",
+        "Товары": [{
+            "Номенклатура_Key": movement.product.external_id_1c,
+            "Количество": movement.quantity,
+        }],
+    }
+
+    try:
+        with _client(s) as c:
+            if movement.external_id_1c:
+                c.patch(f"{doc_type}(guid'{movement.external_id_1c}')", json=payload)
+                _save_external_id(db, movement, movement.external_id_1c)
+                return movement.external_id_1c
+            r = c.post(doc_type, json=payload)
+            r.raise_for_status()
+            ref_key = r.json().get("Ref_Key")
+            if ref_key:
+                _save_external_id(db, movement, ref_key)
+            return ref_key
+    except Exception as e:
+        logger.error("push_stock_movement %s: %s", movement.id, e)
+        return None

@@ -320,6 +320,29 @@ async def backup_db(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.post("/onec")
+@role_required("admin")
+async def save_onec(
+    request: Request,
+    onec_url: str = Form(default=""),
+    onec_user: str = Form(default=""),
+    onec_password: str = Form(default=""),
+    onec_enabled: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.onec_url = onec_url.strip() or None
+    company.onec_user = onec_user.strip() or None
+    if onec_password.strip():
+        company.onec_password = onec_password.strip()
+    company.onec_enabled = (onec_enabled == "1")
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
+
+
 @router.post("/profile/password")
 @login_required
 async def profile_password(
