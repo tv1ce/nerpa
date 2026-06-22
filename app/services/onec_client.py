@@ -135,14 +135,23 @@ def sync_products_from_1c(db: Session) -> dict:
                     p.synced_from_1c_at = now
                     updated += 1
                 else:
-                    db.add(Product(
-                        name=name,
-                        article=code or None,
-                        external_id_1c=ref_key,
-                        synced_from_1c_at=now,
-                        is_active=True,
-                    ))
-                    created += 1
+                    # Пытаемся связать по имени (для продуктов созданных до интеграции)
+                    p = db.query(Product).filter(Product.name == name, Product.external_id_1c == None).first()
+                    if p:
+                        p.external_id_1c = ref_key
+                        if code:
+                            p.article = code
+                        p.synced_from_1c_at = now
+                        updated += 1
+                    else:
+                        db.add(Product(
+                            name=name,
+                            article=code or None,
+                            external_id_1c=ref_key,
+                            synced_from_1c_at=now,
+                            is_active=True,
+                        ))
+                        created += 1
         except Exception as e:
             errors.append(f"{name}: {e}")
             logger.warning("sync_products_from_1c item error: %s", e)
@@ -187,33 +196,25 @@ def push_counterparty(cp, db: Session) -> str | None:
 
     try:
         with _client(s) as c:
-            # Ищем по ИНН (игнорируем ошибки фильтра — в УНФ может вернуть 500)
-            if cp.inn:
-                try:
-                    r = c.get(
-                        "Catalog_Контрагенты",
-                        params={
-                            "$format": "json",
-                            "$filter": f"ИНН eq '{cp.inn}'",
-                            "$select": "Ref_Key",
-                            "$top": "1",
-                        },
-                    )
-                    if r.is_success:
-                        existing = r.json().get("value", [])
-                        if existing:
-                            ref_key = existing[0]["Ref_Key"]
-                            c.patch(f"Catalog_Контрагенты(guid'{ref_key}')", json=payload)
-                            _save_external_id(db, cp, ref_key)
-                            return ref_key
-                except Exception:
-                    pass  # фильтр по ИНН не поддерживается — идём дальше
-
-            # Обновляем если уже привязан
+            # Если уже привязан — просто обновляем
             if cp.external_id_1c:
                 c.patch(f"Catalog_Контрагенты(guid'{cp.external_id_1c}')", json=payload)
                 _save_external_id(db, cp, cp.external_id_1c)
                 return cp.external_id_1c
+
+            # Ищем по ИНН: OData-фильтр не работает в УНФ — тянем всех и ищем в Python
+            if cp.inn:
+                r = c.get(
+                    "Catalog_Контрагенты",
+                    params={"$format": "json", "$select": "Ref_Key,ИНН", "$top": "2000"},
+                )
+                if r.is_success:
+                    for item in r.json().get("value", []):
+                        if item.get("ИНН") == cp.inn:
+                            ref_key = item["Ref_Key"]
+                            logger.info("push_counterparty %s: найден в 1С по ИНН → %s", cp.id, ref_key)
+                            _save_external_id(db, cp, ref_key)
+                            return ref_key
 
             # Создаём нового
             r = c.post("Catalog_Контрагенты", json=payload)
@@ -248,23 +249,20 @@ def push_order(order, db: Session) -> str | None:
         logger.warning("push_order %s: контрагент не удалось создать в 1С", order.id)
         return None
 
-    items_payload = []
+    # Табличная часть Запасы в УНФ OData не поддерживает запись через POST/PATCH —
+    # передаём состав в Комментарий чтобы 1С-операторы видели позиции
+    lines = [f"TMS заказ #{order.number}"]
     for item in order.items:
-        if not item.product or not item.product.external_id_1c:
-            continue
-        items_payload.append({
-            "Номенклатура_Key": item.product.external_id_1c,
-            "Количество": item.quantity,
-            "Цена": item.price,
-            "ПроцентСкидки": item.discount_pct or 0,
-            "СтавкаНДС": "20%" if (item.vat_rate or 0) >= 20 else "Без НДС",
-        })
+        name = item.product.name if item.product else "—"
+        qty = item.quantity
+        price = item.price
+        lines.append(f"  {name}: {qty} шт × {price}")
+    comment = "\n".join(lines)
 
     payload = {
-        "Номер": order.number,
         "Date": order.date.isoformat() if order.date else None,
         "Контрагент_Key": order.counterparty.external_id_1c,
-        "ТоварыУслуги": items_payload,
+        "Комментарий": comment,
     }
 
     try:
