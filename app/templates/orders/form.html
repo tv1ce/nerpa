@@ -35,7 +35,7 @@
           </div>
           <div class="col-12">
             <label class="form-label">Клиент *</label>
-            <select name="counterparty_id" id="counterparty_id" class="form-select" required onchange="applyClientDiscount(this)">
+            <select name="counterparty_id" id="counterparty_id" class="form-select" required onchange="applyClientDiscount(this); rebuildContracts()">
               <option value="">— выберите клиента —</option>
               {% for cp in counterparties %}
               <option value="{{ cp.id }}"
@@ -54,14 +54,8 @@
             <label class="form-label">Договор</label>
             <select name="contract_id" id="contract_id" class="form-select" onchange="onContractChange(this)">
               <option value="0" data-payment="">— без договора —</option>
-              {% for c in contracts %}
-              <option value="{{ c.id }}" data-payment="{{ c.payment_type or 'prepay' }}"
-                {% if order and order.contract_id == c.id %}selected{% endif %}>
-                № {{ c.number }} — {{ c.counterparty.name }} ({{ payment_types.get(c.payment_type or 'prepay') }})
-              </option>
-              {% endfor %}
             </select>
-            <div class="form-text">Тип оплаты подставится из договора</div>
+            <div class="form-text">Только договоры выбранного клиента. Тип оплаты подставится из договора</div>
           </div>
           <div class="col-md-6">
             <label class="form-label">Тип оплаты *</label>
@@ -102,12 +96,7 @@
             <input type="text" name="delivery_address" class="form-control"
                    value="{{ order.delivery_address if order else '' }}">
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Город отправки <span class="text-muted" style="font-size:.8rem">(откуда)</span></label>
-            <input type="text" name="pickup_city" class="form-control" placeholder="Санкт-Петербург"
-                   value="{{ order.pickup_city if order and order.pickup_city else (company.actual_address.split(',')[0] if company and company.actual_address else '') }}">
-          </div>
-          <div class="col-md-8">
+          <div class="col-md-12">
             <label class="form-label">Адрес забора <span class="text-muted" style="font-size:.8rem">(откуда)</span></label>
             <input type="text" name="pickup_address" class="form-control" placeholder="Введите адрес"
                    value="{{ order.pickup_address if order and order.pickup_address else (company.actual_address if company and company.actual_address else '') }}">
@@ -195,6 +184,29 @@ const initialItems = [
 
 initItemsEditor(initialItems, productsMap);
 
+// Договоры с привязкой к клиенту — селект фильтруется по выбранному контрагенту
+const CONTRACTS = [
+{% for c in contracts %}{id: {{ c.id }}, cp: {{ c.counterparty_id }}, pay: {{ (c.payment_type or 'prepay')|tojson }}, label: {{ ("№ " ~ c.number ~ " (" ~ payment_types.get(c.payment_type or 'prepay') ~ ")")|tojson }}},
+{% endfor %}];
+const SELECTED_CONTRACT = {{ order.contract_id if order and order.contract_id else 0 }};
+
+function rebuildContracts() {
+  const cpSel = document.getElementById('counterparty_id');
+  const cpId = cpSel ? parseInt(cpSel.value || '0') : 0;
+  const sel = document.getElementById('contract_id');
+  const prev = parseInt(sel.value || '0') || SELECTED_CONTRACT;
+  sel.innerHTML = '<option value="0" data-payment="">— без договора —</option>';
+  CONTRACTS.filter(c => c.cp === cpId).forEach(c => {
+    const o = document.createElement('option');
+    o.value = c.id;
+    o.dataset.payment = c.pay;
+    o.textContent = c.label;
+    if (c.id === prev) o.selected = true;
+    sel.appendChild(o);
+  });
+  onContractChange(sel);
+}
+
 // Подстановка типа оплаты из выбранного договора
 function onContractChange(sel) {
   const opt = sel.options[sel.selectedIndex];
@@ -220,8 +232,7 @@ function onContractChange(sel) {
   }
 }
 document.addEventListener('DOMContentLoaded', function() {
-  const sel = document.getElementById('contract_id');
-  if (sel) onContractChange(sel);
+  rebuildContracts();
 });
 
 // Скидка клиента — применяется ко всем позициям при выборе контрагента
