@@ -115,6 +115,13 @@
                 </form>
               </td>
             </tr>
+            {% if q.comment %}
+            <tr class="{% if q.id == best_id %}table-success{% endif %}">
+              <td colspan="7" class="ps-3 pt-0 pb-2 text-muted" style="font-size:.82rem; border-top:0">
+                <i class="bi bi-chat-left-text me-1"></i>{{ q.comment }}
+              </td>
+            </tr>
+            {% endif %}
             <!-- inline-редактирование -->
             <tr class="collapse" id="edit{{ q.id }}">
               <td colspan="7" class="bg-light">
@@ -162,6 +169,7 @@
             </select>
           </div>
           <div class="col-md-2"><input type="text" name="payment_terms" class="form-control form-control-sm" placeholder="Оплата"></div>
+          <div class="col-md-11"><input type="text" name="comment" class="form-control form-control-sm" placeholder="Комментарий (необязательно)"></div>
           <div class="col-md-1"><button class="btn btn-sm btn-accent w-100"><i class="bi bi-plus-lg"></i></button></div>
         </form>
         {% else %}
