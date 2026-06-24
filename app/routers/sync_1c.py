@@ -12,7 +12,6 @@ from app.services.onec_client import (
     sync_payments_from_1c,
     push_counterparty,
     push_order,
-    push_invoice,
     push_stock_movement,
 )
 
@@ -87,18 +86,6 @@ async def push_ord(order_id: int, request: Request, db: Session = Depends(get_db
     if not order:
         return JSONResponse({"ok": False, "message": "Заказ не найден"}, status_code=404)
     ref_key = push_order(order, db)
-    return JSONResponse({"ok": bool(ref_key), "ref_key": ref_key})
-
-
-@router.post("/invoice/{invoice_id}")
-@role_required("admin")
-async def push_inv(invoice_id: int, request: Request, db: Session = Depends(get_db)):
-    """Ручной push счёта в 1С."""
-    from app.models import Invoice
-    inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-    if not inv:
-        return JSONResponse({"ok": False, "message": "Счёт не найден"}, status_code=404)
-    ref_key = push_invoice(inv, db)
     return JSONResponse({"ok": bool(ref_key), "ref_key": ref_key})
 
 

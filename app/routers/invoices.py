@@ -1,6 +1,5 @@
 import json
 import logging
-import threading
 from datetime import date
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -12,20 +11,6 @@ from app.models import Invoice, InvoiceItem, Counterparty, Order, Product, Compa
 
 logger = logging.getLogger(__name__)
 
-
-def _push_invoice_bg(invoice_id: int) -> None:
-    """Push счёта в 1С в фоновом потоке."""
-    from app.database import SessionLocal
-    from app.services.onec_client import push_invoice
-    db = SessionLocal()
-    try:
-        inv = db.query(Invoice).filter(Invoice.id == invoice_id).first()
-        if inv:
-            push_invoice(inv, db)
-    except Exception as e:
-        logger.error("push_invoice bg %s: %s", invoice_id, e)
-    finally:
-        db.close()
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -340,8 +325,6 @@ async def change_status(request: Request, invoice_id: int,
         else:
             invoice.paid_date = None
         db.commit()
-        if status == "issued":
-            threading.Thread(target=_push_invoice_bg, args=(invoice_id,), daemon=True).start()
     return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=302)
 
 

@@ -218,6 +218,8 @@ def _migrate_db():
         ("orders",          "synced_to_1c_at",   "TIMESTAMP"),
         ("invoices",        "external_id_1c",    "TEXT"),
         ("invoices",        "synced_to_1c_at",   "TIMESTAMP"),
+        ("contracts",       "external_id_1c",    "TEXT"),
+        ("contracts",       "synced_to_1c_at",   "TIMESTAMP"),
         ("stock_movements", "external_id_1c",    "TEXT"),
         ("stock_movements", "synced_to_1c_at",   "TIMESTAMP"),
         # Настройки подключения к 1С (URL OData, учётные данные, вкл/выкл)

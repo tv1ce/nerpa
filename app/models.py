@@ -252,6 +252,8 @@ class Contract(Base):
     file_path = Column(String(500))
     notes = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
+    external_id_1c = Column(String(36))   # Ref_Key (GUID) ДоговораКонтрагента в 1С
+    synced_to_1c_at = Column(DateTime)
 
     counterparty = relationship("Counterparty", back_populates="contracts")
     template = relationship("DocumentTemplate")
