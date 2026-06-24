@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Поставщики{% endblock %}
+{% block page_title %}Поставщики-кандидаты{% endblock %}
+{% block topbar_actions %}
+  <a href="/sourcing/" class="btn btn-outline-secondary btn-sm me-1"><i class="bi bi-arrow-left me-1"></i>Запросы</a>
+  <a href="/sourcing/vendors/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Добавить</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <form class="row g-2 mb-3" method="get">
+      <div class="col-md-3">
+        <select name="cat_id" class="form-select form-select-sm">
+          <option value="">Все направления</option>
+          {% for c in categories %}
+          <option value="{{ c.id }}" {% if filter_cat_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Все статусы</option>
+          {% for val, label in vendor_statuses.items() %}
+          <option value="{{ val }}" {% if filter_status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/sourcing/vendors" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Название</th>
+          <th>Направление</th>
+          <th>Контакт</th>
+          <th>Регион</th>
+          <th class="text-center">Рейтинг</th>
+          <th>Статус</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in vendors %}
+        <tr>
+          <td class="ps-3 fw-semibold">
+            <a href="/sourcing/vendors/{{ v.id }}" class="text-decoration-none">{{ v.name }}</a>
+            {% if v.counterparty_id %}<i class="bi bi-link-45deg text-success" title="Заведён как контрагент"></i>{% endif %}
+          </td>
+          <td class="text-muted" style="font-size:.85rem">{{ v.category.name if v.category else '—' }}</td>
+          <td class="text-muted" style="font-size:.85rem">{{ v.contact_person or v.phone or v.email or '—' }}</td>
+          <td class="text-muted" style="font-size:.85rem">{{ v.region or '—' }}</td>
+          <td class="text-center">
+            {% if v.rating_avg %}<span class="text-warning">★</span> {{ '%.1f'|format(v.rating_avg) }}{% else %}—{% endif %}
+          </td>
+          <td><span class="badge bg-{{ vendor_status_colors.get(v.status, 'secondary') }}">{{ vendor_statuses.get(v.status, v.status) }}</span></td>
+          <td class="pe-2 text-end">
+            <a href="/sourcing/vendors/{{ v.id }}" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:.75rem"><i class="bi bi-eye"></i></a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center py-4 text-muted">Поставщиков пока нет.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

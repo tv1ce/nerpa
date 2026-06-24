@@ -677,6 +677,85 @@ class StockAdjustmentLine(Base):
 # добавляются отдельной миграцией в database._migrate_db().
 
 Index("ix_orders_status",          Order.status)
+# ── Закупки / сравнение поставщиков ──────────────────────────────────────────
+class ProcurementCategory(Base):
+    """Направление закупки: «Типография», «Брендированные пакеты» и т.п."""
+    __tablename__ = "procurement_categories"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    vendors = relationship("Vendor", back_populates="category")
+    requests = relationship("SourcingRequest", back_populates="category")
+
+
+class Vendor(Base):
+    """Поставщик-кандидат для закупочного ресёрча (ещё не контрагент в 1С)."""
+    __tablename__ = "vendors"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    website = Column(String(300))
+    phone = Column(String(50))
+    email = Column(String(100))
+    contact_person = Column(String(100))
+    region = Column(String(100))
+    category_id = Column(Integer, ForeignKey("procurement_categories.id"), nullable=True)
+    status = Column(String(20), default="new")   # new / in_progress / approved / rejected
+    rating_avg = Column(Float, default=0.0)       # кэш средней оценки по предложениям
+    notes = Column(Text)
+    counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    category = relationship("ProcurementCategory", back_populates="vendors")
+    counterparty = relationship("Counterparty", foreign_keys=[counterparty_id])
+    quotes = relationship("VendorQuote", back_populates="vendor", cascade="all, delete-orphan")
+
+
+class SourcingRequest(Base):
+    """Запрос на сравнение: конкретная потребность, под которую собираем предложения."""
+    __tablename__ = "sourcing_requests"
+    id = Column(Integer, primary_key=True, index=True)
+    number = Column(String(30))                    # «ЗАК-2026-0001»
+    title = Column(String(300), nullable=False)
+    category_id = Column(Integer, ForeignKey("procurement_categories.id"), nullable=True)
+    description = Column(Text)
+    status = Column(String(20), default="open")    # open / decided / closed
+    decided_vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=True)
+    # Веса критериев (нормализуются при расчёте балла)
+    weight_price = Column(Float, default=0.5)
+    weight_term = Column(Float, default=0.25)
+    weight_quality = Column(Float, default=0.25)
+    created_at = Column(DateTime, server_default=func.now())
+    created_by_id = Column(Integer, ForeignKey("users.id"))
+
+    category = relationship("ProcurementCategory", back_populates="requests")
+    decided_vendor = relationship("Vendor", foreign_keys=[decided_vendor_id])
+    quotes = relationship("VendorQuote", back_populates="request",
+                          foreign_keys="VendorQuote.request_id",
+                          cascade="all, delete-orphan")
+
+
+class VendorQuote(Base):
+    """Предложение конкретного поставщика под конкретный запрос."""
+    __tablename__ = "vendor_quotes"
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(Integer, ForeignKey("sourcing_requests.id"), nullable=False)
+    vendor_id = Column(Integer, ForeignKey("vendors.id"), nullable=False)
+    price = Column(Float, default=0.0)
+    term_days = Column(Integer, default=0)
+    quality = Column(Integer, default=3)           # 1..5
+    payment_terms = Column(String(100))
+    min_batch = Column(Integer, nullable=True)
+    comment = Column(Text)
+    score = Column(Float, default=0.0)             # кэш взвешенного балла 0..10
+    created_at = Column(DateTime, server_default=func.now())
+
+    request = relationship("SourcingRequest", back_populates="quotes", foreign_keys=[request_id])
+    vendor = relationship("Vendor", back_populates="quotes")
+
+
 Index("ix_orders_date",            Order.date)
 Index("ix_orders_counterparty_id", Order.counterparty_id)
 
@@ -697,5 +776,10 @@ Index("ix_audit_logs_entity", AuditLog.entity_type, AuditLog.entity_id)
 Index("ix_stock_movements_product_id", StockMovement.product_id)
 
 Index("ix_attached_files_entity", AttachedFile.entity_type, AttachedFile.entity_id)
+
+Index("ix_vendor_quotes_request_id", VendorQuote.request_id)
+Index("ix_vendor_quotes_vendor_id",  VendorQuote.vendor_id)
+Index("ix_vendors_category_id",      Vendor.category_id)
+Index("ix_sourcing_requests_status", SourcingRequest.status)
 
 Index("ix_stock_adj_lines_adjustment", StockAdjustmentLine.adjustment_id)

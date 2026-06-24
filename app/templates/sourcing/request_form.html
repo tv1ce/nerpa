@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Новый запрос{% endblock %}
+{% block page_title %}Новый запрос на сравнение{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm" style="max-width:720px">
+  <div class="card-body">
+    <form method="post" action="/sourcing/requests/new">
+      <div class="mb-3">
+        <label class="form-label">Что закупаем <span class="text-danger">*</span></label>
+        <input type="text" name="title" class="form-control" required
+               placeholder="Напр.: Каталоги А4, 1000 шт, мелованная 150 г">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Направление</label>
+        <select name="category_id" class="form-select">
+          <option value="0">— без направления —</option>
+          {% for c in categories %}
+          <option value="{{ c.id }}">{{ c.name }}</option>
+          {% endfor %}
+        </select>
+        <div class="form-text">Нет нужного? <a href="/sourcing/categories">Добавить направление</a></div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Описание / требования</label>
+        <textarea name="description" class="form-control" rows="4"
+                  placeholder="Тираж, материалы, требования к качеству, сроки..."></textarea>
+      </div>
+      <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Создать</button>
+      <a href="/sourcing/" class="btn btn-link text-muted">Отмена</a>
+    </form>
+  </div>
+</div>
+{% endblock %}
