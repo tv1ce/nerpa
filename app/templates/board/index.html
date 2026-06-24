@@ -178,15 +178,11 @@
     @keyframes eq{0%,100%{height:30%}50%{height:100%}}
     .sound-btn{font-size:1.9vh;font-weight:700;padding:.8vh 1.4vw;border-radius:1.4vh;
       background:var(--purple);color:#fff;border:none;cursor:pointer}
-
-    /* ── Оверлей «нажмите для звука» ── */
-    #sound-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;
-      display:none;flex-direction:column;align-items:center;justify-content:center;
-      cursor:pointer;animation:fadeIn .4s}
-    #sound-overlay .so-icon{font-size:12vw;line-height:1}
-    #sound-overlay .so-text{font-size:4vw;font-weight:800;color:#fff;margin-top:2vw;text-align:center}
-    #sound-overlay .so-sub{font-size:2vw;color:rgba(255,255,255,.7);margin-top:1vw}
-    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    #sound-overlay{position:fixed;inset:0;z-index:9999;display:none;
+      flex-direction:column;align-items:center;justify-content:center;
+      background:rgba(0,0,0,.75);cursor:pointer}
+    #sound-overlay .ov-icon{font-size:10vw}
+    #sound-overlay .ov-text{font-size:4vw;font-weight:800;color:#fff;margin-top:2vw}
 
     /* ── Лента мотивашек ── */
     .ticker{margin-top:.4vh;background:var(--card);border:1px solid var(--line);
@@ -341,13 +337,10 @@
   <div class="ticker"><div class="quote" id="quote"></div></div>
 </div><!-- /#stage -->
 
-  <!-- Оверлей «нажмите для звука» — вне #stage чтобы position:fixed работал без scale -->
   <div id="sound-overlay">
-    <div class="so-icon">🔇</div>
-    <div class="so-text">Нажмите для включения звука</div>
-    <div class="so-sub">Нажмите любую кнопку на пульте или кликните</div>
+    <div class="ov-icon">🔇</div>
+    <div class="ov-text">Нажмите для включения звука</div>
   </div>
-
   <audio id="player"></audio>
 
   <script>
@@ -576,42 +569,26 @@
       }
     }
 
-    // ── Оверлей «включить звук» ──────────────────────────────────────────────
-    const soundOverlay = document.getElementById('sound-overlay');
-    const soText = soundOverlay.querySelector('.so-text');
+    // ── Оверлей «включить звук» (вне #stage, position:fixed работает корректно) ──
+    const ov = document.getElementById('sound-overlay');
+    const _showOv = () => { ov.style.display = 'flex'; };
+    const _hideOv = () => { ov.style.display = 'none'; };
 
-    function showSoundOverlay(){ soundOverlay.style.display='flex'; }
-    function hideSoundOverlay(){ soundOverlay.style.display='none'; }
-
-    function tryPlay(){
-      const s = STATIONS[active];
-      if (!s){ showSoundOverlay(); return; }
-      soText.textContent = 'Загружается...';
-      // Не вызываем load() — только src + play(), как работало раньше
-      if (player.src !== s.url) player.src = s.url;
-      player.play()
-        .then(()=>{
-          hideSoundOverlay();
-          soText.textContent = 'Нажмите для включения звука';
-          soundBtn.style.display = 'none';
-          lastAdvanceAt = Date.now();
-          reconnectFails = 0;
-        })
-        .catch(e=>{
-          console.error('[sound] play rejected:', e.name, e.message);
-          soText.textContent = 'Нажмите для включения звука';
-          showSoundOverlay();
-        });
-    }
-
-    // Клик по оверлею, кнопка пульта, или старая кнопка — всё запускает звук
-    soundOverlay.addEventListener('click', tryPlay);
-    document.addEventListener('keydown', ()=>{ if (player.paused) tryPlay(); });
-    soundBtn.onclick = tryPlay;
+    // Патчим soundBtn — при его показе показываем оверлей, при скрытии прячем
+    const _origOnclick = () => {
+      playActive()
+        .then(() => { soundBtn.style.display='none'; _hideOv(); })
+        .catch(() => {});
+    };
+    soundBtn.onclick = _origOnclick;
+    // Клик по оверлею или любая кнопка — делаем то же что soundBtn
+    ov.addEventListener('click', _origOnclick);
+    document.addEventListener('keydown', () => { if (ov.style.display !== 'none') _origOnclick(); });
 
     renderStations();
-    // Пробуем автовоспроизведение. Если браузер заблокировал — показываем оверлей
-    playActive().then(()=> hideSoundOverlay()).catch(()=> showSoundOverlay());
+    playActive()
+      .then(() => { soundBtn.style.display='none'; _hideOv(); })
+      .catch(() => { soundBtn.style.display=''; _showOv(); });
 
     // ── Авто-переподключение радио ───────────────────────────────────────────
     // Интернет-радио (icecast) при сетевом сбое или обрыве со стороны станции
@@ -646,12 +623,12 @@
       } catch(e){}
       player.play()
         .then(()=> {
-          hideSoundOverlay(); soundBtn.style.display='none';
+          soundBtn.style.display='none'; _hideOv();
           reconnectFails = 0;
           lastAdvanceAt = Date.now();
         })
         .catch(()=> {
-          showSoundOverlay();
+          soundBtn.style.display=''; _showOv();
           reconnectFails++;
         })
         .finally(()=> {
@@ -779,11 +756,7 @@
         .then(r => r.ok ? r.json() : Promise.reject())
         .then(d => {
           if (_serverVersion === null) { _serverVersion = d.server_version; }
-          else if (d.server_version !== _serverVersion) {
-            // Перезагружаем только если музыка не играет — не убиваем звук зря
-            if (player.paused) { location.reload(); return; }
-            _serverVersion = d.server_version; // принимаем новую версию без перезагрузки
-          }
+          else if (d.server_version !== _serverVersion) { location.reload(); return; }
           render(d);
         })
         .catch(()=>{});
