@@ -343,20 +343,6 @@ async def save_onec(
     return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
 
 
-@router.post("/onec/gen-token")
-@role_required("admin")
-async def gen_onec_token(request: Request, db: Session = Depends(get_db)):
-    """Генерирует новый токен для входящих вебхуков из 1С."""
-    import secrets
-    company = db.query(CompanySettings).first()
-    if not company:
-        company = CompanySettings()
-        db.add(company)
-    company.onec_webhook_token = secrets.token_urlsafe(32)
-    db.commit()
-    return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
-
-
 @router.post("/profile/password")
 @login_required
 async def profile_password(
