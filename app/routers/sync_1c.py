@@ -10,6 +10,7 @@ from app.services.onec_client import (
     test_connection,
     sync_products_from_1c,
     sync_payments_from_1c,
+    sync_invoices_from_1c,
     push_counterparty,
     push_order,
     push_stock_movement,
@@ -65,6 +66,15 @@ async def sync_payments(request: Request, db: Session = Depends(get_db)):
     return JSONResponse(result)
 
 
+@router.post("/invoices")
+@role_required("admin")
+async def sync_invoices(request: Request, db: Session = Depends(get_db)):
+    """Ручной запуск импорта счетов из 1С (дубль счёта без печатных форм)."""
+    result = sync_invoices_from_1c(db)
+    _audit_sync(db, "sync_invoices", result)
+    return JSONResponse(result)
+
+
 @router.post("/counterparty/{cp_id}")
 @role_required("admin")
 async def push_cp(cp_id: int, request: Request, db: Session = Depends(get_db)):
@@ -104,13 +114,15 @@ async def push_stock(movement_id: int, request: Request, db: Session = Depends(g
 @router.post("/run-all")
 @role_required("admin")
 async def run_all(request: Request, db: Session = Depends(get_db)):
-    """Полный цикл синхронизации: номенклатура + оплаты."""
+    """Полный цикл синхронизации: номенклатура + счета + оплаты."""
     r1 = sync_products_from_1c(db)
+    r3 = sync_invoices_from_1c(db)
     r2 = sync_payments_from_1c(db)
     result = {
         "products": r1,
+        "invoices": r3,
         "payments": r2,
-        "errors": r1.get("errors", []) + r2.get("errors", []),
+        "errors": r1.get("errors", []) + r3.get("errors", []) + r2.get("errors", []),
     }
     _audit_sync(db, "run_all", result)
     return JSONResponse(result)

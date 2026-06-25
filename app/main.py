@@ -240,14 +240,18 @@ def _rotate_generated(max_age_days: int = 90) -> int:
 def _run_1c_sync_job():
     """Фоновая задача APScheduler: импорт номенклатуры и оплат из 1С."""
     from app.database import SessionLocal
-    from app.services.onec_client import sync_products_from_1c, sync_payments_from_1c
+    from app.services.onec_client import (
+        sync_products_from_1c, sync_payments_from_1c, sync_invoices_from_1c,
+    )
     db = SessionLocal()
     try:
         r1 = sync_products_from_1c(db)
+        r3 = sync_invoices_from_1c(db)
         r2 = sync_payments_from_1c(db)
         logger.info(
-            "1C auto-sync: products created=%s updated=%s; payments updated=%s",
-            r1.get("created"), r1.get("updated"), r2.get("updated"),
+            "1C auto-sync: products c=%s u=%s; invoices c=%s u=%s; payments u=%s",
+            r1.get("created"), r1.get("updated"),
+            r3.get("created"), r3.get("updated"), r2.get("updated"),
         )
     except Exception as e:
         logger.error("1C auto-sync job error: %s", e)

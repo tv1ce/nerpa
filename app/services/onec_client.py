@@ -686,6 +686,170 @@ def sync_payments_from_1c(db: Session) -> dict:
     return {"updated": updated, "errors": errors}
 
 
+# ── Счета: 1С → TMS (дубль счёта без печатных форм) ──────────────────────────
+# В этой УНФ печатные формы и присоединённые файлы к документам через OData
+# недоступны, поэтому тянем только данные счёта. Счёт в 1С привязан к договору и
+# контрагенту (прямой ссылки на заказ нет) — заказ в TMS подбираем эвристически.
+
+def _parse_1c_dt(v):
+    """«2026-05-05T21:27:57» → date. None при пустом/нулевом значении."""
+    from datetime import date as _date
+    s = str(v or "")[:10]
+    if not s or s.startswith("0001"):
+        return None
+    try:
+        return _date.fromisoformat(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def _guess_order_for_invoice(db: Session, cp, contract, total: float):
+    """Эвристика привязки счёта 1С к заказу TMS (1С ссылку на заказ не хранит).
+
+    Берём заказы контрагента; если задан договор — сужаем по нему; среди них ищем
+    единственный с совпадающей суммой. Неоднозначность → не привязываем (None)."""
+    from app.models import Order
+    q = (db.query(Order)
+         .filter(Order.counterparty_id == cp.id, Order.status != "cancelled"))
+    candidates = q.all()
+    if contract:
+        narrowed = [o for o in candidates if o.contract_id == contract.id]
+        if narrowed:
+            candidates = narrowed
+    matched = [o for o in candidates if abs((o.total_amount or 0) - total) < 0.01]
+    return matched[0] if len(matched) == 1 else None
+
+
+def sync_invoices_from_1c(db: Session) -> dict:
+    """Тянет счета из 1С (Document_СчетНаОплату) и создаёт/обновляет их в TMS.
+
+    Идемпотентно по external_id_1c. Если в TMS уже есть «ручной» счёт с тем же
+    номером и суммой без привязки к 1С — присваиваем ему Ref_Key (не плодим дубль).
+    Печатные формы не тянутся (недоступны через OData в этой конфигурации).
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
+
+    from datetime import date as _date
+    from app.models import Invoice, InvoiceItem, Counterparty, Contract, Product
+
+    errors: list[str] = []
+    created = updated = 0
+
+    # Индексы TMS по Ref_Key (один проход, без N запросов)
+    cp_by_ref = {c.external_id_1c: c for c in
+                 db.query(Counterparty).filter(Counterparty.external_id_1c.isnot(None)).all()}
+    contract_by_ref = {c.external_id_1c: c for c in
+                       db.query(Contract).filter(Contract.external_id_1c.isnot(None)).all()}
+    product_by_ref = {p.external_id_1c: p for p in
+                      db.query(Product).filter(Product.external_id_1c.isnot(None)).all()}
+
+    try:
+        with _client(s) as c:
+            r = c.get("Document_СчетНаОплату", params={"$format": "json", "$top": "5000"})
+        r.raise_for_status()
+        docs = r.json().get("value", [])
+    except Exception as e:
+        logger.error("sync_invoices_from_1c: %s", e)
+        return {"created": 0, "updated": 0, "errors": [str(e)]}
+
+    for d in docs:
+        ref = d.get("Ref_Key")
+        if not ref or d.get("DeletionMark") or not d.get("Posted"):
+            continue
+        cp = cp_by_ref.get(d.get("Контрагент_Key"))
+        if not cp:
+            continue  # без контрагента в TMS привязать счёт некуда
+
+        number = (d.get("Number") or "").strip()
+        inv_date = _parse_1c_dt(d.get("Date"))
+        total = round(float(d.get("СуммаДокумента") or 0), 2)
+        contract = contract_by_ref.get(d.get("Договор_Key"))
+
+        inv = db.query(Invoice).filter(Invoice.external_id_1c == ref).first()
+        is_new = inv is None
+        if is_new:
+            # Попытка «усыновить» ранее заведённый вручную счёт (тот же номер+сумма)
+            n = _digits_to_int(number)
+            if n is not None:
+                for cand in (db.query(Invoice)
+                             .filter(Invoice.counterparty_id == cp.id,
+                                     Invoice.external_id_1c.is_(None)).all()):
+                    if _digits_to_int(cand.number) == n and round(cand.total_amount or 0, 2) == total:
+                        inv = cand
+                        is_new = False
+                        break
+        if inv is None:
+            inv = Invoice(number=number or ref[:50],
+                          date=inv_date or _date.today(),
+                          counterparty_id=cp.id, status="issued")
+            db.add(inv)
+
+        # Шапка
+        inv.external_id_1c = ref
+        inv.synced_to_1c_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        inv.number = number or inv.number
+        if inv_date:
+            inv.date = inv_date
+        inv.counterparty_id = cp.id
+        if contract:
+            inv.contract_id = contract.id
+        inv.total_amount = total
+        if inv.status not in ("paid", "cancelled"):
+            inv.status = "issued"
+        # Привязка к заказу (эвристика; только если ещё не привязан)
+        if not inv.order_id:
+            order = _guess_order_for_invoice(db, cp, contract, total)
+            if order:
+                inv.order_id = order.id
+
+        # Позиции — пересобираем из табличной части «Запасы»
+        rows = d.get("Запасы") or []
+        if rows:
+            db.flush()
+            for old in list(inv.items):
+                db.delete(old)
+            db.flush()
+            subtotal = vat_amount = 0.0
+            for row in rows:
+                qty = float(row.get("Количество") or 0)
+                price = float(row.get("Цена") or 0)
+                line_total = round(float(row.get("Всего") or row.get("Сумма") or 0), 2)
+                line_vat = round(float(row.get("СуммаНДС") or 0), 2)
+                disc = min(max(float(row.get("ПроцентСкидкиНаценки") or 0), 0), 100)
+                base = line_total - line_vat
+                vat_rate = round(line_vat / base * 100) if base > 0 and line_vat > 0 else 0.0
+                product = product_by_ref.get(row.get("Номенклатура_Key"))
+                name = (product.name if product else None) or "Позиция"
+                unit = (product.sale_unit or product.unit) if product else "шт"
+                db.add(InvoiceItem(
+                    invoice_id=inv.id,
+                    product_id=product.id if product else None,
+                    name=name[:200], quantity=qty, unit=(unit or "шт")[:20],
+                    price=price, vat_rate=vat_rate, discount_pct=disc, amount=line_total,
+                ))
+                subtotal += base
+                vat_amount += line_vat
+            inv.subtotal = round(subtotal, 2)
+            inv.vat_amount = round(vat_amount, 2)
+
+        if is_new:
+            created += 1
+        else:
+            updated += 1
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("sync_invoices_from_1c commit: %s", e)
+        return {"created": created, "updated": updated, "errors": [str(e)]}
+
+    logger.info("sync_invoices_from_1c: создано %d, обновлено %d", created, updated)
+    return {"created": created, "updated": updated, "errors": errors}
+
+
 # ── Склад: TMS → 1С ──────────────────────────────────────────────────────────
 
 def push_stock_movement(movement, db: Session) -> str | None:
