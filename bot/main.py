@@ -471,9 +471,17 @@ def _classify(filename: str) -> tuple[str, str]:
 
 def _find_order(db, caption: str, filename: str):
     """Ищет заказ по номеру в подписи (приоритет) или имени файла.
-    Сначала по счёту (Invoice.number), затем по номеру заказа."""
+
+    Если в подписи явно «заказ N» — ищем заказ №N; если «счёт N» — счёт.
+    Иначе: сначала по счёту (точно/по цифрам) → его заказ, затем по номеру заказа."""
     from app.models import Invoice, Order
-    for tok in _doc_tokens(caption) + _doc_tokens(filename):
+    cap = caption or ""
+    low = cap.lower()
+
+    def _order_by_num(tok):
+        return db.query(Order).filter(Order.number == tok).first()
+
+    def _invoice_to_order(tok):
         inv = db.query(Invoice).filter(Invoice.number == tok).first()
         if not inv:
             d = _only_digits(tok)
@@ -488,7 +496,27 @@ def _find_order(db, caption: str, filename: str):
             o = db.query(Order).filter(Order.id == inv.order_id).first()
             if o:
                 return o, inv
-        o = db.query(Order).filter(Order.number == tok).first()
+        return None, None
+
+    cap_tokens = _doc_tokens(cap)
+    # Явное указание сущности в подписи имеет приоритет
+    if "заказ" in low or "order" in low:
+        for tok in cap_tokens:
+            o = _order_by_num(tok)
+            if o:
+                return o, None
+    if "счет" in low or "счёт" in low or "счф" in low:
+        for tok in cap_tokens:
+            o, inv = _invoice_to_order(tok)
+            if o:
+                return o, inv
+
+    # Общий порядок: подпись, затем имя файла
+    for tok in cap_tokens + _doc_tokens(filename):
+        o, inv = _invoice_to_order(tok)
+        if o:
+            return o, inv
+        o = _order_by_num(tok)
         if o:
             return o, None
     return None, None
