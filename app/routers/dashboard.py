@@ -28,8 +28,11 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
 
     total_invoices = db.query(Invoice).count()
     unpaid_invoices = db.query(Invoice).filter(Invoice.status.in_(["issued", "overdue"])).count()
+    # Выручка = оплаченные счета по ДАТЕ ОПЛАТЫ (кассовый метод); для старых
+    # счетов без paid_date откатываемся на дату счёта.
+    _paid_dt = func.coalesce(Invoice.paid_date, Invoice.date)
     revenue_this_month = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= month_start, Invoice.status == "paid"
+        _paid_dt >= month_start, Invoice.status == "paid"
     ).scalar() or 0.0
     total_revenue = db.query(func.sum(Invoice.total_amount)).filter(
         Invoice.status == "paid"
@@ -62,7 +65,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         else:
             me = ms.replace(month=ms.month + 1, day=1) - timedelta(days=1)
         rev = db.query(func.sum(Invoice.total_amount)).filter(
-            Invoice.date >= ms, Invoice.date <= me, Invoice.status == "paid"
+            _paid_dt >= ms, _paid_dt <= me, Invoice.status == "paid"
         ).scalar() or 0.0
         months_data.append({"month": ms.strftime("%b %Y"), "revenue": round(rev, 2)})
 

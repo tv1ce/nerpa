@@ -134,9 +134,20 @@ async def revenue_report(
         c["share_pct"] = round(c["amount"] / _period_total * 100, 1) if _period_total > 0 else 0
 
     # ── KPI ───────────────────────────────────────────────────────────────────
-    # Выручка за год (оплаченные счета)
+    # Выручка = оплаченные счета по ДАТЕ ОПЛАТЫ (кассовый метод). Для счетов без
+    # paid_date (старые записи) откатываемся на дату счёта.
+    _paid_dt = func.coalesce(Invoice.paid_date, Invoice.date)
+
+    # Выручка за год (оплаченные счета, по дате оплаты)
     revenue_year = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= year_start,
+        _paid_dt >= year_start,
+        Invoice.status == "paid",
+    ).scalar() or 0.0
+
+    # Выручка за выбранный период таблицы (оплаченные счета, по дате оплаты) —
+    # это и есть «настоящая» выручка, включая счета без привязки к заказу.
+    revenue_period = db.query(func.sum(Invoice.total_amount)).filter(
+        _paid_dt >= tbl_from, _paid_dt <= tbl_to,
         Invoice.status == "paid",
     ).scalar() or 0.0
 
@@ -206,9 +217,9 @@ async def revenue_report(
     else:
         week_delta_pct = None
 
-    # Выручка за месяц (для плана)
+    # Выручка за месяц (для плана) — по дате оплаты
     revenue_month = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= month_start,
+        _paid_dt >= month_start,
         Invoice.status == "paid",
     ).scalar() or 0.0
 
@@ -230,8 +241,8 @@ async def revenue_report(
     ly_days_in_month = _cal.monthrange(ly_month_start.year, ly_month_start.month)[1]
     ly_month_end = ly_month_start.replace(day=ly_days_in_month)
     revenue_last_year_month = db.query(func.sum(Invoice.total_amount)).filter(
-        Invoice.date >= ly_month_start,
-        Invoice.date <= ly_month_end,
+        _paid_dt >= ly_month_start,
+        _paid_dt <= ly_month_end,
         Invoice.status == "paid",
     ).scalar() or 0.0
     if revenue_last_year_month > 0:
@@ -261,6 +272,7 @@ async def revenue_report(
         "total_qty": total_qty,
         # KPI
         "revenue_year": revenue_year,
+        "revenue_period": revenue_period,
         "nuts_year": nuts_year,
         "nuts_period": nuts_period,
         "week_start": week_start,
