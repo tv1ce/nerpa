@@ -11,6 +11,8 @@ from app.services.onec_client import (
     sync_products_from_1c,
     sync_payments_from_1c,
     sync_invoices_from_1c,
+    sync_shipments_from_1c,
+    sync_documents_from_1c,
     push_counterparty,
     push_order,
     push_stock_movement,
@@ -75,6 +77,19 @@ async def sync_invoices(request: Request, db: Session = Depends(get_db)):
     return JSONResponse(result)
 
 
+@router.post("/documents")
+@role_required("admin")
+async def sync_documents(request: Request, db: Session = Depends(get_db)):
+    """Ручной запуск: расходные + печатные формы/XML (Счёт, УПД) из расширения 1С."""
+    r1 = sync_shipments_from_1c(db)
+    r2 = sync_documents_from_1c(db)
+    result = {"shipments": r1, "documents": r2,
+              "errors": r1.get("errors", []) + r2.get("errors", [])}
+    _audit_sync(db, "sync_documents", {"updated": r2.get("attached", 0),
+                                       "errors": result["errors"]})
+    return JSONResponse(result)
+
+
 @router.post("/counterparty/{cp_id}")
 @role_required("admin")
 async def push_cp(cp_id: int, request: Request, db: Session = Depends(get_db)):
@@ -114,15 +129,20 @@ async def push_stock(movement_id: int, request: Request, db: Session = Depends(g
 @router.post("/run-all")
 @role_required("admin")
 async def run_all(request: Request, db: Session = Depends(get_db)):
-    """Полный цикл синхронизации: номенклатура + счета + оплаты."""
+    """Полный цикл синхронизации: номенклатура + счета + расходные/документы + оплаты."""
     r1 = sync_products_from_1c(db)
     r3 = sync_invoices_from_1c(db)
+    rs = sync_shipments_from_1c(db)
+    rd = sync_documents_from_1c(db)
     r2 = sync_payments_from_1c(db)
     result = {
         "products": r1,
         "invoices": r3,
+        "shipments": rs,
+        "documents": rd,
         "payments": r2,
-        "errors": r1.get("errors", []) + r3.get("errors", []) + r2.get("errors", []),
+        "errors": (r1.get("errors", []) + r3.get("errors", []) + rs.get("errors", [])
+                   + rd.get("errors", []) + r2.get("errors", [])),
     }
     _audit_sync(db, "run_all", result)
     return JSONResponse(result)

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses"
+    xmlns:v8="http://v8.1c.ru/8.1/data/core"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.18">
+  <CommonModule uuid="a1b2c3d4-0002-4a00-9000-000000000002">
+    <Properties>
+      <Name>ИнтеграцияTMSСервер</Name>
+      <Synonym>
+        <v8:item><v8:lang>ru</v8:lang><v8:content>Интеграция TMS Сервер</v8:content></v8:item>
+      </Synonym>
+      <Global>false</Global>
+      <Server>true</Server>
+      <ExternalConnection>true</ExternalConnection>
+      <ClientManagedApplication>false</ClientManagedApplication>
+      <ServerCall>false</ServerCall>
+      <Privileged>false</Privileged>
+      <ReturnValuesReuse>DontUse</ReturnValuesReuse>
+    </Properties>
+  </CommonModule>
+</MetaDataObject>

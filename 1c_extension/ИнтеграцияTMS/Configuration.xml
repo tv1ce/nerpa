@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses"
+    xmlns:app="http://v8.1c.ru/8.2/managed-application/core"
+    xmlns:v8="http://v8.1c.ru/8.1/data/core"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.18">
+  <Configuration uuid="a1b2c3d4-0001-4a00-9000-000000000001">
+    <Properties>
+      <Name>ИнтеграцияTMS</Name>
+      <Synonym>
+        <v8:item><v8:lang>ru</v8:lang><v8:content>Интеграция TMS</v8:content></v8:item>
+      </Synonym>
+      <NamePrefix>тмс_</NamePrefix>
+      <ConfigurationExtensionCompatibilityMode>8.3.21</ConfigurationExtensionCompatibilityMode>
+      <ConfigurationExtensionPurpose>Customization</ConfigurationExtensionPurpose>
+      <DefaultRunMode>ManagedApplication</DefaultRunMode>
+      <ScriptVariant>Russian</ScriptVariant>
+      <ChildObjects>
+        <CommonModule>ИнтеграцияTMSСервер</CommonModule>
+        <HTTPService>tms</HTTPService>
+      </ChildObjects>
+    </Properties>
+  </Configuration>
+</MetaDataObject>

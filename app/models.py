@@ -133,6 +133,7 @@ class Order(Base):
     # 1С:УНФ
     external_id_1c  = Column(String(36))        # Ref_Key (GUID) Document_ЗаказПокупателя в 1С
     synced_to_1c_at = Column(DateTime)          # datetime последнего успешного push в 1С
+    shipment_id_1c  = Column(String(36))        # Ref_Key (GUID) Document_РасходнаяНакладная в 1С (для УПД)
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
     supplier = relationship("Counterparty", foreign_keys=[supplier_id])
@@ -330,6 +331,7 @@ class CompanySettings(Base):
     onec_user     = Column(String(100))                  # логин пользователя 1С
     onec_password = Column(String(200))                  # пароль (зашифрован через ENCRYPT_KEY)
     onec_enabled  = Column(Boolean, default=False)       # вкл/выкл синхронизацию
+    onec_hs_url   = Column(String(500))                  # база HTTP-сервиса расширения (печать/ЭДО); пусто = вывести из onec_url
 
 
 class MonthlyPlan(Base):
@@ -605,6 +607,8 @@ class AttachedFile(Base):
     stored_path = Column(String(500), nullable=False)   # относительный путь от корня проекта
     size_original = Column(Integer, default=0)           # байт до сжатия
     size_compressed = Column(Integer, default=0)         # байт после сжатия (= original, если не сжимали)
+    source = Column(String(20), default="manual")        # manual / 1c — кто прикрепил файл
+    external_key = Column(String(80))                    # ключ источника для идемпотентности (1С: «<ref>:<type>»)
     uploaded_by_id = Column(Integer, ForeignKey("users.id"))
     uploaded_at = Column(DateTime, server_default=func.now())
 

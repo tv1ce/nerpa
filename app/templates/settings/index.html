@@ -167,6 +167,13 @@
             <div class="form-text">Оставьте пустым — не менять</div>
           </div>
           <div class="col-12">
+            <label class="form-label">URL HTTP-сервиса расширения (печать/ЭДО)</label>
+            <input type="text" name="onec_hs_url" class="form-control font-monospace"
+                   placeholder="пусто — вывести из URL OData (…/hs/tms)"
+                   value="{{ company.onec_hs_url if company and company.onec_hs_url else '' }}">
+            <div class="form-text">База расширения «ИнтеграцияTMS», напр. <code>http://srv4.life-it.pro/grach_unf/hs/tms</code>. Пусто — TMS подставит автоматически.</div>
+          </div>
+          <div class="col-12">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" role="switch"
                      name="onec_enabled" value="1" id="onecEnabled"

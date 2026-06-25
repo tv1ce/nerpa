@@ -859,6 +859,195 @@ def sync_invoices_from_1c(db: Session) -> dict:
     return {"created": created, "updated": updated, "errors": errors}
 
 
+# ── Документы (Счёт PDF / УПД PDF / УПД XML): 1С → TMS через HTTP-сервис ───────
+# Печатные формы и XML отдаёт расширение 1С (HTTP-сервис tms на той же публикации,
+# что OData). TMS тянет файлы и прикладывает к заказу. Расходная накладная
+# (Document_РасходнаяНакладная) сопоставляется с заказом по полю «Заказ» или по
+# «ДокументОснование» (→ СчетНаОплату → заказ).
+
+_ZERO_GUID_DOC = "00000000-0000-0000-0000-000000000000"
+
+
+def _hs_base(s: CompanySettings) -> str | None:
+    """База HTTP-сервиса расширения. Явный onec_hs_url или вывод из onec_url."""
+    explicit = (getattr(s, "onec_hs_url", None) or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+    if not s.onec_url:
+        return None
+    base = s.onec_url.rstrip("/").replace("/odata/standard.odata", "").rstrip("/")
+    return base + "/hs/tms"
+
+
+def fetch_doc_file(s: CompanySettings, kind: str, ref: str) -> bytes | None:
+    """Скачивает файл из расширения 1С. kind: invoice|upd|tn (PDF) или upd_xml (XML)."""
+    base = _hs_base(s)
+    if not base or not ref:
+        return None
+    if kind == "upd_xml":
+        url = f"{base}/edo?ref={ref}"
+    else:
+        url = f"{base}/print?type={kind}&ref={ref}"
+    try:
+        with httpx.Client(auth=(s.onec_user or "", s.onec_password or ""), timeout=60) as c:
+            r = c.get(url)
+        if r.status_code == 200 and r.content:
+            return r.content
+        logger.warning("fetch_doc_file %s/%s: HTTP %s %s", kind, ref, r.status_code, r.text[:200])
+    except Exception as e:
+        logger.error("fetch_doc_file %s/%s: %s", kind, ref, e)
+    return None
+
+
+def _save_order_file(db: Session, order, *, file_type: str, ext: str,
+                     external_key: str, data: bytes, original_name: str) -> bool:
+    """Идемпотентно сохраняет файл документа как вложение заказа (PDF — со сжатием)."""
+    import os, uuid as _uuid
+    from app.models import AttachedFile
+    from app.utils.file_compress import compress_file
+
+    # заменяем прежнюю версию того же документа
+    for old in (db.query(AttachedFile)
+                .filter(AttachedFile.entity_type == "order",
+                        AttachedFile.entity_id == order.id,
+                        AttachedFile.external_key == external_key).all()):
+        try:
+            if old.stored_path and os.path.exists(old.stored_path):
+                os.remove(old.stored_path)
+        except OSError:
+            pass
+        db.delete(old)
+
+    dest_dir = os.path.join("uploads", "orders", str(order.id))
+    os.makedirs(dest_dir, exist_ok=True)
+    path = os.path.join(dest_dir, f"{_uuid.uuid4().hex}{ext}")
+    with open(path, "wb") as f:
+        f.write(data)
+    size = len(data)
+    comp = size
+    if ext.lower() == ".pdf":
+        try:
+            comp = compress_file(path, ".pdf")
+        except Exception:  # noqa: BLE001
+            comp = size
+    db.add(AttachedFile(
+        entity_type="order", entity_id=order.id, file_type=file_type,
+        original_name=original_name[:300], stored_path=path.replace("\\", "/"),
+        size_original=size, size_compressed=comp,
+        source="1c", external_key=external_key,
+    ))
+    return True
+
+
+def sync_shipments_from_1c(db: Session) -> dict:
+    """Тянет Document_РасходнаяНакладная из 1С и проставляет заказам shipment_id_1c.
+
+    Сопоставление: поле «Заказ» (→ ЗаказПокупателя) либо «ДокументОснование»
+    (→ СчетНаОплату → заказ через счёт в TMS)."""
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"updated": 0, "errors": ["Синхронизация отключена"]}
+
+    from app.models import Order, Invoice
+    orders_by_1c = {o.external_id_1c: o for o in
+                    db.query(Order).filter(Order.external_id_1c.isnot(None)).all()}
+    inv_by_1c = {i.external_id_1c: i for i in
+                 db.query(Invoice).filter(Invoice.external_id_1c.isnot(None)).all()}
+    updated = 0
+    try:
+        with _client(s) as c:
+            r = c.get("Document_РасходнаяНакладная",
+                      params={"$format": "json", "$top": "5000",
+                              "$select": "Ref_Key,DeletionMark,Заказ,ДокументОснование,"
+                                         "ДокументОснование_Type,Контрагент_Key,СуммаДокумента"})
+        r.raise_for_status()
+        for d in r.json().get("value", []):
+            ref = d.get("Ref_Key")
+            if not ref or d.get("DeletionMark"):
+                continue
+            order = None
+            zak = d.get("Заказ")
+            if zak and zak != _ZERO_GUID_DOC:
+                order = orders_by_1c.get(zak)
+            if not order:
+                osn = d.get("ДокументОснование")
+                if osn and "СчетНаОплату" in (d.get("ДокументОснование_Type") or ""):
+                    inv = inv_by_1c.get(osn)
+                    if inv and inv.order_id:
+                        order = db.query(Order).filter(Order.id == inv.order_id).first()
+            if order and order.shipment_id_1c != ref:
+                order.shipment_id_1c = ref
+                updated += 1
+        if updated:
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("sync_shipments_from_1c: %s", e)
+        return {"updated": updated, "errors": [str(e)]}
+    return {"updated": updated, "errors": []}
+
+
+def sync_documents_from_1c(db: Session) -> dict:
+    """Тянет файлы документов (Счёт PDF, УПД PDF, УПД XML) из расширения 1С и
+    прикладывает к заказам. Идемпотентно: уже скачанные (по external_key) не трогаем.
+    Если HTTP-сервис недоступен — просто логируем, без падения."""
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"attached": 0, "errors": ["Синхронизация отключена"]}
+    if not _hs_base(s):
+        return {"attached": 0, "errors": ["URL HTTP-сервиса 1С не задан"]}
+
+    from app.models import Order, Invoice, AttachedFile
+    attached = 0
+    errors: list[str] = []
+
+    def _have(order_id: int, key: str) -> bool:
+        return db.query(AttachedFile.id).filter(
+            AttachedFile.entity_type == "order", AttachedFile.entity_id == order_id,
+            AttachedFile.external_key == key).first() is not None
+
+    orders = db.query(Order).filter(
+        (Order.shipment_id_1c.isnot(None)) | (Order.id.in_(
+            db.query(Invoice.order_id).filter(Invoice.external_id_1c.isnot(None),
+                                              Invoice.order_id.isnot(None))))
+    ).all()
+
+    for order in orders:
+        # Счёт PDF — по счёту заказа с external_id_1c
+        inv = next((i for i in order.invoices if i.external_id_1c), None)
+        if inv and inv.external_id_1c:
+            key = f"{inv.external_id_1c}:invoice"
+            if not _have(order.id, key):
+                data = fetch_doc_file(s, "invoice", inv.external_id_1c)
+                if data and _save_order_file(db, order, file_type="invoice", ext=".pdf",
+                                             external_key=key, data=data,
+                                             original_name=f"Счет {order.number}.pdf"):
+                    attached += 1
+        # УПД PDF + XML — по расходной накладной
+        ship = order.shipment_id_1c
+        if ship:
+            for kind, ftype, ext, label in (
+                ("upd", "upd", ".pdf", f"УПД {order.number}.pdf"),
+                ("upd_xml", "upd_xml", ".xml", f"УПД {order.number}.xml"),
+            ):
+                key = f"{ship}:{ftype}"
+                if _have(order.id, key):
+                    continue
+                data = fetch_doc_file(s, kind, ship)
+                if data and _save_order_file(db, order, file_type=ftype, ext=ext,
+                                             external_key=key, data=data,
+                                             original_name=label):
+                    attached += 1
+        if attached:
+            try:
+                db.commit()
+            except Exception as e:  # noqa: BLE001
+                db.rollback(); errors.append(str(e))
+
+    logger.info("sync_documents_from_1c: приложено %d", attached)
+    return {"attached": attached, "errors": errors}
+
+
 # ── Склад: TMS → 1С ──────────────────────────────────────────────────────────
 
 def push_stock_movement(movement, db: Session) -> str | None:

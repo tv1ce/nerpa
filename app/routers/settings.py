@@ -328,6 +328,7 @@ async def save_onec(
     onec_user: str = Form(default=""),
     onec_password: str = Form(default=""),
     onec_enabled: str = Form(default=""),
+    onec_hs_url: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -339,6 +340,7 @@ async def save_onec(
     if onec_password.strip():
         company.onec_password = onec_password.strip()
     company.onec_enabled = (onec_enabled == "1")
+    company.onec_hs_url = onec_hs_url.strip() or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
 
