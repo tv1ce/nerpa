@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram import Bot, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from telegram.request import HTTPXRequest
 
 # Подключаем корень проекта для импорта app.*
@@ -358,7 +358,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/weekly — отчёт за текущую неделю\n"
         "/monthly — отчёт за текущий месяц\n"
         "/callbacks — перезвоны на сегодня\n"
-        "/status — статус бота и расписание",
+        "/status — статус бота и расписание\n\n"
+        "📎 Пришлите файл \\(Счёт/УПД/XML\\) — приложу к заказу по номеру в имени файла "
+        "\\(или укажите номер в подписи\\)\\.",
         parse_mode=ParseMode.MARKDOWN_V2,
     )
 
@@ -417,6 +419,141 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 
 
+# ── Приём документов из 1С (Счёт / УПД / XML) ────────────────────────────────
+
+def _intake_channel() -> str:
+    """Текущий канал приёма документов из настроек компании (off/telegram/...)."""
+    db = SessionLocal()
+    try:
+        from app.models import CompanySettings
+        c = db.query(CompanySettings).first()
+        return (c.doc_intake_channel if c and c.doc_intake_channel else "off")
+    except Exception:
+        return "off"
+    finally:
+        db.close()
+
+
+def _only_digits(s) -> str:
+    return "".join(ch for ch in str(s or "") if ch.isdigit())
+
+
+def _doc_tokens(text: str) -> list[str]:
+    """Кандидаты-номера из текста: после «№», вида «НФНФ-0001», просто числа."""
+    import re
+    text = text or ""
+    toks: list[str] = []
+    toks += re.findall(r"№\s*([A-Za-zА-Яа-яЁё0-9\-]+)", text)
+    toks += re.findall(r"[А-Яа-яA-Za-zЁё]{2,}-\d+", text)
+    toks += re.findall(r"\d{1,}", text)
+    seen, out = set(), []
+    for t in toks:
+        if t not in seen:
+            seen.add(t); out.append(t)
+    return out
+
+
+def _classify(filename: str) -> tuple[str, str]:
+    """По имени файла → (file_type, расширение)."""
+    import os as _os
+    low = (filename or "").lower()
+    ext = _os.path.splitext(filename or "")[1].lower() or ".pdf"
+    if ext == ".xml":
+        return "upd_xml", ".xml"
+    if "упд" in low or "универсальн" in low:
+        return "upd", ext
+    if "торг" in low or ("накладн" in low and "сч" not in low):
+        return "tn", ext
+    if "сч" in low or "оферт" in low:
+        return "invoice", ext
+    return "other", ext
+
+
+def _find_order(db, caption: str, filename: str):
+    """Ищет заказ по номеру в подписи (приоритет) или имени файла.
+    Сначала по счёту (Invoice.number), затем по номеру заказа."""
+    from app.models import Invoice, Order
+    for tok in _doc_tokens(caption) + _doc_tokens(filename):
+        inv = db.query(Invoice).filter(Invoice.number == tok).first()
+        if not inv:
+            d = _only_digits(tok)
+            if d:
+                di = int(d)
+                for cand in db.query(Invoice).all():
+                    cd = _only_digits(cand.number)
+                    if cd and int(cd) == di:
+                        inv = cand
+                        break
+        if inv and inv.order_id:
+            o = db.query(Order).filter(Order.id == inv.order_id).first()
+            if o:
+                return o, inv
+        o = db.query(Order).filter(Order.number == tok).first()
+        if o:
+            return o, None
+    return None, None
+
+
+_FTYPE_LABEL = {"invoice": "Счёт", "upd": "УПД", "upd_xml": "УПД (XML)",
+                "tn": "ТН", "other": "Документ"}
+
+
+async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Принимает файл, находит заказ по номеру и прикладывает документ."""
+    if not _authorized(update):
+        return await _deny(update)
+    if _intake_channel() != "telegram":
+        await update.message.reply_text(
+            "📥 Приём документов через Telegram выключен.\n"
+            "Включите в TMS: Настройки → Интеграция 1С → «Приём документов» → Telegram."
+        )
+        return
+
+    doc = update.message.document
+    if not doc:
+        return
+    filename = doc.file_name or "document"
+    caption = update.message.caption or ""
+
+    file_type, ext = _classify(filename)
+    db = SessionLocal()
+    try:
+        order, inv = _find_order(db, caption, filename)
+        if not order:
+            await update.message.reply_text(
+                "🤔 Не нашёл заказ по этому файлу.\n"
+                "Добавьте в подпись к файлу номер счёта или заказа "
+                "(например: «НФНФ-000022» или «заказ 27») и пришлите снова."
+            )
+            return
+
+        # Скачиваем файл из Telegram (до 20 МБ)
+        tg_file = await context.bot.get_file(doc.file_id)
+        data = bytes(await tg_file.download_as_bytearray())
+        if not data:
+            await update.message.reply_text("⚠️ Пустой файл, не сохранил.")
+            return
+
+        from app.services.onec_client import _save_order_file
+        label = f"{_FTYPE_LABEL.get(file_type, 'Документ')} {order.number}{ext}"
+        key = f"tg:{file_type}:{order.id}"
+        _save_order_file(db, order, file_type=file_type, ext=ext,
+                         external_key=key, data=data, original_name=label,
+                         source="telegram")
+        db.commit()
+
+        await update.message.reply_text(
+            f"✅ Готово. «{_FTYPE_LABEL.get(file_type, 'Документ')}» приложен к заказу "
+            f"№{order.number} ({order.counterparty.name if order.counterparty else '—'})."
+        )
+    except Exception as e:
+        db.rollback()
+        logger.exception("on_document: %s", e)
+        await update.message.reply_text("⚠️ Не удалось сохранить файл. Попробуйте ещё раз.")
+    finally:
+        db.close()
+
+
 # ── Точка входа ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -444,6 +581,9 @@ def main() -> None:
     app.add_handler(CommandHandler("monthly", cmd_monthly))
     app.add_handler(CommandHandler("callbacks", cmd_callbacks))
     app.add_handler(CommandHandler("status",  cmd_status))
+
+    # Приём документов из 1С (Счёт/УПД/XML) — кидаешь файл боту, он цепляет к заказу
+    app.add_handler(MessageHandler(filters.Document.ALL, on_document))
 
     jq = app.job_queue
 

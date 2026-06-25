@@ -183,6 +183,22 @@
               </label>
             </div>
           </div>
+          <div class="col-12">
+            <hr class="my-2">
+            <label class="form-label"><i class="bi bi-inboxes me-1 text-success"></i>Приём документов из 1С (Счёт / УПД / XML)</label>
+            {% set _ch = company.doc_intake_channel if company and company.doc_intake_channel else 'off' %}
+            <select name="doc_intake_channel" class="form-select">
+              <option value="off"      {% if _ch=='off' %}selected{% endif %}>Выключено</option>
+              <option value="telegram" {% if _ch=='telegram' %}selected{% endif %}>Telegram-бот — кидаешь файл боту, он цепляет к заказу</option>
+              <option value="email"    {% if _ch=='email' %}selected{% endif %}>Почта (IMAP) — скоро</option>
+              <option value="folder"   {% if _ch=='folder' %}selected{% endif %}>Облачная папка — скоро</option>
+            </select>
+            <div class="form-text">
+              Канал, по которому TMS принимает печатные формы. Сейчас работает <b>Telegram</b>:
+              сохрани из 1С счёт/УПД/XML и отправь файл боту — TMS найдёт заказ по номеру в имени файла и приложит документ.
+              Отправлять может тот же chat_id, что получает отчёты.
+            </div>
+          </div>
           <div class="col-12 d-flex gap-2 align-items-center flex-wrap">
             <button type="submit" class="btn btn-accent btn-sm">
               <i class="bi bi-check-lg me-1"></i>Сохранить

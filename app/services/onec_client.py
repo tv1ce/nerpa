@@ -900,7 +900,8 @@ def fetch_doc_file(s: CompanySettings, kind: str, ref: str) -> bytes | None:
 
 
 def _save_order_file(db: Session, order, *, file_type: str, ext: str,
-                     external_key: str, data: bytes, original_name: str) -> bool:
+                     external_key: str, data: bytes, original_name: str,
+                     source: str = "1c") -> bool:
     """Идемпотентно сохраняет файл документа как вложение заказа (PDF — со сжатием)."""
     import os, uuid as _uuid
     from app.models import AttachedFile
@@ -934,7 +935,7 @@ def _save_order_file(db: Session, order, *, file_type: str, ext: str,
         entity_type="order", entity_id=order.id, file_type=file_type,
         original_name=original_name[:300], stored_path=path.replace("\\", "/"),
         size_original=size, size_compressed=comp,
-        source="1c", external_key=external_key,
+        source=source, external_key=external_key,
     ))
     return True
 

@@ -332,6 +332,8 @@ class CompanySettings(Base):
     onec_password = Column(String(200))                  # пароль (зашифрован через ENCRYPT_KEY)
     onec_enabled  = Column(Boolean, default=False)       # вкл/выкл синхронизацию
     onec_hs_url   = Column(String(500))                  # база HTTP-сервиса расширения (печать/ЭДО); пусто = вывести из onec_url
+    # ── Приём документов из 1С (Счёт/УПД/XML) ──
+    doc_intake_channel = Column(String(20), default="off")  # off / telegram / email / folder
 
 
 class MonthlyPlan(Base):

@@ -231,6 +231,7 @@ def _migrate_db():
         ("attached_files",   "source",        "TEXT DEFAULT 'manual'"),
         ("attached_files",   "external_key",  "TEXT"),
         ("orders",           "shipment_id_1c", "TEXT"),
+        ("company_settings", "doc_intake_channel", "TEXT DEFAULT 'off'"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

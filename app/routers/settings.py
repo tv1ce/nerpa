@@ -329,6 +329,7 @@ async def save_onec(
     onec_password: str = Form(default=""),
     onec_enabled: str = Form(default=""),
     onec_hs_url: str = Form(default=""),
+    doc_intake_channel: str = Form(default="off"),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -341,6 +342,8 @@ async def save_onec(
         company.onec_password = onec_password.strip()
     company.onec_enabled = (onec_enabled == "1")
     company.onec_hs_url = onec_hs_url.strip() or None
+    if doc_intake_channel in ("off", "telegram", "email", "folder"):
+        company.doc_intake_channel = doc_intake_channel
     db.commit()
     return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
 
