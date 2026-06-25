@@ -190,6 +190,38 @@
           </div>
         </div>
       </form>
+
+      <hr class="my-3">
+      <div class="form-section-title">
+        <i class="bi bi-arrow-down-left-circle me-1 text-success"></i>Вебхук: 1С → TMS (счета и печатные формы)
+      </div>
+      <div class="form-text mb-2">
+        1С на проведении документа шлёт в TMS счёт и печатную форму (PDF). Укажите в 1С
+        этот адрес и токен (заголовок <code>X-TMS-Token</code>).
+      </div>
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">URL вебхука (POST, multipart/form-data)</label>
+          <input type="text" class="form-control font-monospace" readonly
+                 value="{{ request.base_url }}sync/1c/hook/document"
+                 onclick="this.select()">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">Токен <code>X-TMS-Token</code></label>
+          <input type="text" class="form-control font-monospace" readonly
+                 onclick="this.select()"
+                 value="{{ company.onec_webhook_token if company and company.onec_webhook_token else '' }}"
+                 placeholder="не сгенерирован">
+        </div>
+        <div class="col-md-4 d-flex align-items-end">
+          <form method="post" action="/settings/onec/gen-token" class="w-100"
+                data-confirm="{% if company and company.onec_webhook_token %}Сгенерировать новый токен? Старый перестанет работать.{% endif %}">
+            <button type="submit" class="btn btn-outline-success btn-sm w-100">
+              <i class="bi bi-key me-1"></i>{% if company and company.onec_webhook_token %}Перевыпустить{% else %}Сгенерировать{% endif %} токен
+            </button>
+          </form>
+        </div>
+      </div>
     </div>
 
     <!-- Логотип -->

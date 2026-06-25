@@ -227,6 +227,9 @@ def _migrate_db():
         ("company_settings", "onec_user",     "TEXT"),
         ("company_settings", "onec_password", "TEXT"),
         ("company_settings", "onec_enabled",  "INTEGER DEFAULT 0"),
+        ("company_settings", "onec_webhook_token", "TEXT"),
+        ("attached_files", "source",       "TEXT DEFAULT 'manual'"),
+        ("attached_files", "external_key", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
