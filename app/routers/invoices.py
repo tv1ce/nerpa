@@ -296,6 +296,9 @@ async def update_invoice(
     if status == "paid":
         if invoice.paid_date is None:
             invoice.paid_date = date.today()
+        if invoice.order_id:
+            from app.utils import sync_order_paid_status
+            sync_order_paid_status(db, invoice.order, request.session.get("user_id"))
     else:
         invoice.paid_date = None
     invoice.notes = notes
@@ -322,6 +325,10 @@ async def change_status(request: Request, invoice_id: int,
             # При повторном сохранении уже оплаченного счёта дату не трогаем.
             if old_status != "paid" or invoice.paid_date is None:
                 invoice.paid_date = date.today()
+            # Подтягиваем статус связанного заказа (предоплата → «Оплачен»)
+            if invoice.order:
+                from app.utils import sync_order_paid_status
+                sync_order_paid_status(db, invoice.order, request.session.get("user_id"))
         else:
             invoice.paid_date = None
         db.commit()

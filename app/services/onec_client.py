@@ -673,6 +673,10 @@ def sync_payments_from_1c(db: Session) -> dict:
                     inv.paid_date = _date.fromisoformat(pd) if pd else _date.today()
                 except (ValueError, TypeError):
                     inv.paid_date = _date.today()
+                # Подтягиваем статус связанного заказа (предоплата → «Оплачен»)
+                if inv.order:
+                    from app.utils import sync_order_paid_status
+                    sync_order_paid_status(db, inv.order)
                 updated += 1
 
         if updated:
@@ -803,6 +807,11 @@ def sync_invoices_from_1c(db: Session) -> dict:
             order = _guess_order_for_invoice(db, cp, contract, total)
             if order:
                 inv.order_id = order.id
+        # Если счёт уже оплачен и появилась привязка к заказу — подтянуть статус заказа
+        if inv.status == "paid" and inv.order_id:
+            from app.utils import sync_order_paid_status
+            db.flush()
+            sync_order_paid_status(db, inv.order)
 
         # Позиции — пересобираем из табличной части «Запасы»
         rows = d.get("Запасы") or []
