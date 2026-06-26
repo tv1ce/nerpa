@@ -63,7 +63,7 @@
 
     {% set ns = namespace(promo=false) %}
     {% for it in order.items %}
-      {% if it.product and 'промо' in it.product.name|lower and 'подставк' in it.product.name|lower %}{% set ns.promo = true %}{% endif %}
+      {% if it.product and ('промо' in it.product.name|lower and 'подставк' in it.product.name|lower) or (it.product and 'дисплей промо' in it.product.name|lower) %}{% set ns.promo = true %}{% endif %}
     {% endfor %}
     {% if ns.promo %}
     <div class="promo-note">📌 В одной из коробок этого заказа находится промо-подставка. Пожалуйста, найдите её при распаковке.</div>
