@@ -5,7 +5,7 @@ from app.database import SessionLocal, verify_password
 from app.models import User
 import secrets as _secrets
 
-ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1}
+ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1, "demo": 1}
 
 
 def safe_redirect(url: str, default: str = "/") -> str:
@@ -21,7 +21,7 @@ def safe_redirect(url: str, default: str = "/") -> str:
 ROLE_LABELS = {
     "admin": "Администратор", "manager": "Менеджер", "sales": "Отдел продаж",
     "field_rep": "Торговый представитель",
-    "viewer": "Просмотр", "warehouse": "Склад",
+    "viewer": "Просмотр", "warehouse": "Склад", "demo": "Демо",
 }
 
 # Разделы, доступные роли "warehouse" (только чтение)
@@ -54,6 +54,15 @@ FIELD_ALLOWED_PREFIXES = (
     "/sw.js",
 )
 
+_DEMO_403_HTML = (
+    '<div style="font-family:\'Fira Sans\',sans-serif;display:flex;align-items:center;'
+    'justify-content:center;height:100vh;flex-direction:column;gap:12px">'
+    '<span style="font-size:3rem">👁</span>'
+    '<h2 style="margin:0">Демо-режим</h2>'
+    '<p style="color:#64748b">В демо-аккаунте редактирование недоступно.</p>'
+    '<a href="javascript:history.back()" style="color:#2563eb">Назад</a></div>'
+)
+
 _403_HTML = (
     '<div style="font-family:\'Fira Sans\',sans-serif;display:flex;align-items:center;'
     'justify-content:center;height:100vh;flex-direction:column;gap:12px">'
@@ -73,6 +82,14 @@ def get_current_user(request: Request):
         return db.query(User).filter(User.id == user_id, User.is_active == True).first()
     finally:
         db.close()
+
+
+def _demo_check(request: Request):
+    """Для роли demo блокирует любые изменяющие запросы."""
+    role = request.session.get("user_role", "viewer")
+    if role == "demo" and request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        return HTMLResponse(_DEMO_403_HTML, status_code=403)
+    return None
 
 
 def _warehouse_check(request: Request):
@@ -145,7 +162,7 @@ def login_required(func):
         if getattr(user, "must_change_password", False):
             if not request.url.path.startswith(_CHANGE_PWD_PATH):
                 return RedirectResponse(url=_CHANGE_PWD_PATH, status_code=302)
-        denied = _warehouse_check(request) or _field_check(request)
+        denied = _demo_check(request) or _warehouse_check(request) or _field_check(request)
         if denied:
             return denied
         # CSRF-проверка для изменяющих запросов
@@ -171,7 +188,7 @@ def role_required(min_role: str = "viewer"):
             if not user:
                 request.session.clear()
                 return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
-            denied = _warehouse_check(request) or _field_check(request)
+            denied = _demo_check(request) or _warehouse_check(request) or _field_check(request)
             if denied:
                 return denied
             role = user.role  # берём роль из БД, не из сессии
