@@ -165,18 +165,19 @@
   {% endif %}
 
   {# ── Контакт менеджера ── #}
-  {% if manager or company.phone %}
+  {% set mgr_phone = manager.phone if manager and manager.phone else company.phone %}
+  {% if manager or mgr_phone %}
   <div class="card">
     <div class="section-title">Ваш менеджер</div>
     <div class="mgr">
-      <div class="av">{{ (manager.full_name[0] if manager and manager.full_name else (company.name[0] if company.name else "?")) | upper }}</div>
+      <div class="av">{{ (manager.full_name[0] if manager and manager.full_name else (company.name[0] if company and company.name else "?")) | upper }}</div>
       <div>
         {% if manager %}<div style="font-weight:600">{{ manager.full_name }}</div>{% endif %}
-        {% if company.phone %}<a href="tel:{{ company.phone }}">{{ company.phone }}</a>{% endif %}
+        {% if mgr_phone %}<a href="tel:{{ mgr_phone }}">{{ mgr_phone }}</a>{% endif %}
       </div>
     </div>
-    {% if company.phone %}
-    <a class="call-btn" href="tel:{{ company.phone }}">Позвонить менеджеру</a>
+    {% if mgr_phone %}
+    <a class="call-btn" href="tel:{{ mgr_phone }}">Позвонить менеджеру</a>
     {% endif %}
   </div>
   {% endif %}

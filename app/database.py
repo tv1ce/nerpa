@@ -232,6 +232,10 @@ def _migrate_db():
         ("attached_files",   "external_key",  "TEXT"),
         ("orders",           "shipment_id_1c", "TEXT"),
         ("company_settings", "doc_intake_channel", "TEXT DEFAULT 'off'"),
+        # Телефон менеджера — отображается клиенту в публичной ссылке трекинга
+        ("users", "phone", "TEXT"),
+        # Менеджер по продажам заказа (может отличаться от создателя)
+        ("orders", "sales_manager_id", "INTEGER REFERENCES users(id)"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

@@ -111,6 +111,20 @@
             <input type="text" name="delivery_time" class="form-control" placeholder="12-19"
                    value="{{ order.delivery_time if order and order.delivery_time else '' }}">
           </div>
+          <div class="col-md-6">
+            <label class="form-label">Менеджер по продажам</label>
+            <select name="sales_manager_id" class="form-select">
+              {% for u in managers %}
+              <option value="{{ u.id }}"
+                {% if order and order.sales_manager_id == u.id %}selected
+                {% elif not order and u.id == current_user_id %}selected
+                {% endif %}>
+                {{ u.full_name }}{% if u.phone %} — {{ u.phone }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Этот менеджер и его телефон отображаются клиенту в ссылке трекинга</div>
+          </div>
           <div class="col-12">
             <label class="form-label">Примечания</label>
             <textarea name="notes" class="form-control" rows="2">{{ order.notes if order else '' }}</textarea>

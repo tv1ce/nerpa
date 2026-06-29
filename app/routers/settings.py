@@ -269,6 +269,7 @@ async def profile_page(request: Request, db: Session = Depends(get_db)):
 async def profile_save(
     request: Request,
     full_name: str = Form(...),
+    phone: str = Form(default=""),
     birthday: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
@@ -276,6 +277,7 @@ async def profile_save(
     user = db.query(User).filter(User.id == request.session.get("user_id")).first()
     if user:
         user.full_name = full_name.strip() or user.full_name
+        user.phone = phone.strip() or None
         if birthday:
             try:
                 user.birthday = _date.fromisoformat(birthday)

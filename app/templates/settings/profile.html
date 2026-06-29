@@ -37,6 +37,11 @@
           <input type="text" name="full_name" class="form-control" value="{{ user.full_name }}" required>
         </div>
         <div class="mb-3">
+          <label class="form-label">Рабочий телефон</label>
+          <input type="text" name="phone" class="form-control" value="{{ user.phone or '' }}" placeholder="+7 (812) 604-61-69">
+          <div class="form-text"><i class="bi bi-telephone me-1"></i>Отображается клиенту в ссылке трекинга заказа</div>
+        </div>
+        <div class="mb-3">
           <label class="form-label">День рождения</label>
           <input type="date" name="birthday" class="form-control"
                  value="{{ user.birthday.isoformat() if user.birthday else '' }}">

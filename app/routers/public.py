@@ -107,7 +107,7 @@ async def track_order(request: Request, token: str, db: Session = Depends(get_db
             {"company": company}, status_code=404,
         )
 
-    manager = order.created_by
+    manager = order.sales_manager or order.created_by
     cp = order.counterparty
 
     # Только клиентские типы файлов (счёт, УПД, ТН) — без внутренних документов

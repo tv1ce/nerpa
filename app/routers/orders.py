@@ -173,12 +173,14 @@ async def new_order(request: Request, db: Session = Depends(get_db)):
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     contracts = db.query(Contract).order_by(Contract.date.desc()).all()
     company = db.query(CompanySettings).first()
+    managers = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
     return templates.TemplateResponse(request, "orders/form.html", {
         "order": None, "counterparties": counterparties, "suppliers": suppliers,
         "carriers": carriers, "products": products, "contracts": contracts,
         "statuses": ORDER_STATUSES, "payment_types": PAYMENT_TYPES,
         "suggested_number": _next_order_number(db),
-        "company": company,
+        "company": company, "managers": managers,
+        "current_user_id": request.session.get("user_id"),
     })
 
 
@@ -202,6 +204,7 @@ async def create_order(
     delivery_contact: str = Form(default=""),
     delivery_time: str = Form(default=""),
     delivery_cost: float = Form(default=0),
+    sales_manager_id: int = Form(default=0),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -225,6 +228,7 @@ async def create_order(
         delivery_contact=delivery_contact or None,
         delivery_time=delivery_time or None,
         created_by_id=request.session.get("user_id"),
+        sales_manager_id=sales_manager_id or request.session.get("user_id"),
     )
     db.add(order)
     db.flush()  # получаем order.id, гарантированно уникальный
@@ -327,12 +331,14 @@ async def edit_order(request: Request, order_id: int, db: Session = Depends(get_
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     contracts = db.query(Contract).order_by(Contract.date.desc()).all()
     company = db.query(CompanySettings).first()
+    managers = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
     return templates.TemplateResponse(request, "orders/form.html", {
         "order": order, "counterparties": counterparties, "suppliers": suppliers,
         "carriers": carriers, "products": products, "contracts": contracts,
         "statuses": ORDER_STATUSES, "payment_types": PAYMENT_TYPES,
         "suggested_number": order.number,
-        "company": company,
+        "company": company, "managers": managers,
+        "current_user_id": request.session.get("user_id"),
     })
 
 
@@ -356,6 +362,7 @@ async def update_order(
     delivery_contact: str = Form(default=""),
     delivery_time: str = Form(default=""),
     delivery_cost: float = Form(default=0),
+    sales_manager_id: int = Form(default=0),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -378,6 +385,8 @@ async def update_order(
     order.pickup_address = pickup_address or None
     order.delivery_contact = delivery_contact or None
     order.delivery_time = delivery_time or None
+    if sales_manager_id:
+        order.sales_manager_id = sales_manager_id
     for item in order.items:
         db.delete(item)
     db.flush()

@@ -18,6 +18,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False)  # принудительная смена при следующем входе
     birthday = Column(Date)  # день рождения — для поздравлений на табло цеха
+    phone = Column(String(50))  # рабочий телефон менеджера — показывается клиенту в трекинге
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -130,6 +131,9 @@ class Order(Base):
     # Публичный токен для клиентского трекинга /track/{token} (без логина).
     # Генерируется лениво при первом запросе ссылки в карточке заказа.
     public_token = Column(String(40), unique=True, index=True)
+    # Менеджер по продажам (может отличаться от создателя заказа).
+    # Именно его имя и телефон видит клиент в публичной ссылке трекинга.
+    sales_manager_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     # 1С:УНФ
     external_id_1c  = Column(String(36))        # Ref_Key (GUID) Document_ЗаказПокупателя в 1С
     synced_to_1c_at = Column(DateTime)          # datetime последнего успешного push в 1С
@@ -141,7 +145,8 @@ class Order(Base):
     contract = relationship("Contract")
     items = relationship("OrderItem", back_populates="order", cascade="all, delete-orphan")
     invoices = relationship("Invoice", back_populates="order")
-    created_by = relationship("User")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    sales_manager = relationship("User", foreign_keys=[sales_manager_id])
 
     @property
     def total_amount(self):
