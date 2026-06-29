@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -432,6 +432,7 @@ app.include_router(files.router)
 app.include_router(public.router)
 app.include_router(sync_1c.router)
 app.include_router(sourcing.router)
+app.include_router(api_1c.router)  # приём документов из 1С (push, вариант A)
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────
