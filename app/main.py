@@ -242,17 +242,19 @@ def _run_1c_sync_job():
     from app.database import SessionLocal
     from app.services.onec_client import (
         sync_products_from_1c, sync_payments_from_1c, sync_invoices_from_1c,
-        sync_shipments_from_1c, sync_documents_from_1c,
+        sync_shipments_from_1c, sync_documents_from_1c, retry_unpushed_orders,
     )
     db = SessionLocal()
     try:
+        r0 = retry_unpushed_orders(db)   # самовосстановление пропущенного push заказов
         r1 = sync_products_from_1c(db)
         r3 = sync_invoices_from_1c(db)
         sync_shipments_from_1c(db)
         rd = sync_documents_from_1c(db)
         r2 = sync_payments_from_1c(db)
         logger.info(
-            "1C auto-sync: products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments u=%s",
+            "1C auto-sync: orders_pushed=%s; products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments u=%s",
+            r0.get("pushed"),
             r1.get("created"), r1.get("updated"),
             r3.get("created"), r3.get("updated"), rd.get("attached"), r2.get("updated"),
         )

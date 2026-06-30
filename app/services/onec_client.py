@@ -593,6 +593,45 @@ def push_order(order, db: Session) -> str | None:
         return None
 
 
+# ── Самовосстановление push заказов: TMS → 1С ───────────────────────────────
+# Push заказа триггерный (при смене статуса на confirmed) и без ретрая: при
+# рестарте сервиса/падении фонового потока заказ может не уехать. Эта функция
+# в составе регламентной синхронизации дотолкивает «застрявшие» заказы.
+
+def retry_unpushed_orders(db: Session) -> dict:
+    """Дотолкивает в 1С заказы в статусе confirmed/paid без external_id_1c.
+
+    Только активные статусы — чтобы НЕ создавать задним числом старые
+    delivered/handed заказы (риск дублей). push_order сам пропустит заказы,
+    чей контрагент ещё не в 1С (повторит на следующем цикле).
+    Возвращает {"pushed": N, "errors": [...]}.
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"pushed": 0, "errors": ["Синхронизация отключена"]}
+
+    from app.models import Order
+
+    orders = (
+        db.query(Order)
+        .filter(Order.external_id_1c.is_(None), Order.status.in_(("confirmed", "paid")))
+        .all()
+    )
+    pushed = 0
+    errors: list[str] = []
+    for order in orders:
+        try:
+            if push_order(order, db):
+                pushed += 1
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"order {order.id}: {e}")
+            logger.error("retry_unpushed_orders %s: %s", order.id, e)
+
+    if pushed:
+        logger.info("retry_unpushed_orders: дотолкнуто заказов %d", pushed)
+    return {"pushed": pushed, "errors": errors}
+
+
 # ── Оплаты: 1С → TMS ─────────────────────────────────────────────────────────
 # Счета из TMS в 1С НЕ выгружаются. Счёт ведётся в 1С, TMS только тянет статус
 # оплаты (см. sync_payments_from_1c).
