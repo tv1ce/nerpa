@@ -53,18 +53,26 @@
     <a href="/claims/" class="nav-link {% if '/claims' in request.url.path %}active{% endif %}">
       <i class="bi bi-chat-left-text"></i> <span>Рекламации</span>
     </a>
+    {% if request.session.get('mod_leads') %}
     <a href="/leads/" class="nav-link {% if '/leads' in request.url.path %}active{% endif %}">
       <i class="bi bi-telephone-outbound"></i> <span>Прозвон</span>
     </a>
+    {% endif %}
+    {% if request.session.get('mod_recon') %}
     <a href="/recon/" class="nav-link {% if '/recon' in request.url.path %}active{% endif %}">
       <i class="bi bi-binoculars"></i> <span>Разведка ЛПР</span>
     </a>
+    {% endif %}
+    {% if request.session.get('mod_sourcing') %}
     <a href="/sourcing/" class="nav-link {% if '/sourcing' in request.url.path %}active{% endif %}">
       <i class="bi bi-clipboard-data"></i> <span>Закупки</span>
     </a>
+    {% endif %}
+    {% if request.session.get('mod_field') %}
     <a href="/field/monitor" class="nav-link {% if '/field' in request.url.path %}active{% endif %}">
       <i class="bi bi-person-walking"></i> <span>Поле (торгпреды)</span>
     </a>
+    {% endif %}
     {% endif %}
 
     <div class="nav-section">Справочники</div>

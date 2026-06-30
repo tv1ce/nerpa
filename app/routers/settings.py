@@ -118,6 +118,32 @@ async def save_board(
     return RedirectResponse(url="/settings/board/?saved=1", status_code=302)
 
 
+@router.post("/modules")
+@role_required("admin")
+async def save_modules(
+    request: Request,
+    module_leads:    str = Form(default=""),
+    module_recon:    str = Form(default=""),
+    module_sourcing: str = Form(default=""),
+    module_field:    str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.module_leads    = bool(module_leads)
+    company.module_recon    = bool(module_recon)
+    company.module_sourcing = bool(module_sourcing)
+    company.module_field    = bool(module_field)
+    db.commit()
+    request.session["mod_leads"]    = company.module_leads
+    request.session["mod_recon"]    = company.module_recon
+    request.session["mod_sourcing"] = company.module_sourcing
+    request.session["mod_field"]    = company.module_field
+    return RedirectResponse(url="/settings/?saved=1&tab=modules", status_code=302)
+
+
 @router.post("/logo")
 @login_required
 async def upload_logo(

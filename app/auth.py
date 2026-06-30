@@ -2,7 +2,7 @@ from functools import wraps
 from fastapi import Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from app.database import SessionLocal, verify_password
-from app.models import User
+from app.models import User, CompanySettings
 import secrets as _secrets
 
 ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1, "demo": 1}
@@ -141,8 +141,12 @@ def _get_fresh_user(request: Request):
     try:
         user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
         if user:
-            # Синхронизируем роль в сессии с актуальной ролью из БД
             request.session["user_role"] = user.role
+            company = db.query(CompanySettings).first()
+            request.session["mod_leads"]    = bool(company and company.module_leads)
+            request.session["mod_recon"]    = bool(company and company.module_recon)
+            request.session["mod_sourcing"] = bool(company and company.module_sourcing)
+            request.session["mod_field"]    = bool(company and company.module_field)
         return user
     finally:
         db.close()

@@ -339,6 +339,11 @@ class CompanySettings(Base):
     onec_hs_url   = Column(String(500))                  # база HTTP-сервиса расширения (печать/ЭДО); пусто = вывести из onec_url
     # ── Приём документов из 1С (Счёт/УПД/XML) ──
     doc_intake_channel = Column(String(20), default="off")  # off / telegram / email / folder
+    # ── Модули (вкл/выкл из меню) ──
+    module_leads    = Column(Boolean, default=False)  # Прозвон
+    module_recon    = Column(Boolean, default=False)  # Разведка ЛПР
+    module_sourcing = Column(Boolean, default=False)  # Закупки
+    module_field    = Column(Boolean, default=False)  # Поле (торгпреды)
 
 
 class MonthlyPlan(Base):

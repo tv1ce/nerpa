@@ -236,6 +236,11 @@ def _migrate_db():
         ("users", "phone", "TEXT"),
         # Менеджер по продажам заказа (может отличаться от создателя)
         ("orders", "sales_manager_id", "INTEGER REFERENCES users(id)"),
+        # Модули (вкл/выкл в меню)
+        ("company_settings", "module_leads",    "INTEGER DEFAULT 0"),
+        ("company_settings", "module_recon",    "INTEGER DEFAULT 0"),
+        ("company_settings", "module_sourcing", "INTEGER DEFAULT 0"),
+        ("company_settings", "module_field",    "INTEGER DEFAULT 0"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
