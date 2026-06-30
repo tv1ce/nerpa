@@ -12,6 +12,25 @@ from app.models import Order, OrderItem, Invoice, Counterparty, CompanySettings,
 router = APIRouter(prefix="/reports", tags=["reports"])
 templates = Jinja2Templates(directory="app/templates")
 
+
+_LEGAL_ABBR = [
+    ("Индивидуальный предприниматель", "ИП"),
+    ("Общество с ограниченной ответственностью", "ООО"),
+    ("Публичное акционерное общество", "ПАО"),
+    ("Открытое акционерное общество", "ОАО"),
+    ("Закрытое акционерное общество", "ЗАО"),
+    ("Акционерное общество", "АО"),
+]
+
+
+def _short_legal(name: str) -> str:
+    """'Индивидуальный предприниматель Иванов И.И.' → 'ИП Иванов И.И.'"""
+    n = name.strip()
+    for full, abbr in _LEGAL_ABBR:
+        if n.lower().startswith(full.lower()):
+            return abbr + n[len(full):]
+    return n
+
 XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
@@ -108,11 +127,17 @@ async def revenue_report(
         any_inv   = next(iter(order.invoices), None)
         paid_amount = sum(inv.total_amount for inv in paid_invs)
         invoice_id  = paid_invs[0].id if paid_invs else (any_inv.id if any_inv else None)
+        cp = order.counterparty
+        cp_name  = cp.name if cp else "—"
+        cp_trade = (cp.trade_name or "").strip() if cp else ""
+        cp_short = _short_legal(cp_name)
         shipments.append({
             "id": order.id,
-            "counterparty": order.counterparty.name if order.counterparty else "—",
+            "counterparty":       cp_name,
+            "counterparty_short": cp_short,
+            "counterparty_trade": cp_trade,
             "amount": amount,
-            "paid_amount": paid_amount,   # сумма оплаченных счетов по этому заказу
+            "paid_amount": paid_amount,
             "qty": qty,
             "date": order.date,
             "status": order.status,
@@ -124,9 +149,14 @@ async def revenue_report(
     for s in shipments:
         key = s["counterparty"]
         if key not in by_client_map:
-            by_client_map[key] = {"name": key, "amount": 0.0, "qty": 0, "orders": 0}
+            by_client_map[key] = {
+                "name":  key,
+                "short": s["counterparty_short"],
+                "trade": s["counterparty_trade"],
+                "amount": 0.0, "qty": 0, "orders": 0,
+            }
         by_client_map[key]["amount"] += s["amount"]
-        by_client_map[key]["qty"] += s["qty"]
+        by_client_map[key]["qty"]    += s["qty"]
         by_client_map[key]["orders"] += 1
     _period_total = sum(c["amount"] for c in by_client_map.values()) or 0.0
     by_client = sorted(by_client_map.values(), key=lambda c: c["amount"], reverse=True)
