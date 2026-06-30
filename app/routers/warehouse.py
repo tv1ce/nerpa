@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Product, StockMovement, Order, StockAdjustment, StockAdjustmentLine
+from app.models import Product, StockMovement, Order, StockAdjustment, StockAdjustmentLine, CompanySettings
 from app.utils import maybe_notify_low_stock, log_action
 
 # Статусы заказа, считающиеся «в работе» (не черновик и не завершён/отменён)
@@ -174,7 +174,8 @@ async def order_label(request: Request, order_id: int, db: Session = Depends(get
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         return HTMLResponse("<h2 style='font-family:sans-serif'>Заказ не найден</h2>", status_code=404)
-    return templates.TemplateResponse(request, "warehouse/label.html", {"order": order})
+    company = db.query(CompanySettings).first()
+    return templates.TemplateResponse(request, "warehouse/label.html", {"order": order, "company": company})
 
 
 # ── Журнал движений ───────────────────────────────────────────────────────────
