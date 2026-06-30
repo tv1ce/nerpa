@@ -138,6 +138,14 @@ class Order(Base):
     external_id_1c  = Column(String(36))        # Ref_Key (GUID) Document_ЗаказПокупателя в 1С
     synced_to_1c_at = Column(DateTime)          # datetime последнего успешного push в 1С
     shipment_id_1c  = Column(String(36))        # Ref_Key (GUID) Document_РасходнаяНакладная в 1С (для УПД)
+    # ── Доставка: транспорт и водитель (для ЭТРН) ──
+    driver_name    = Column(String(200))        # ФИО водителя
+    vehicle_plate  = Column(String(20))         # Гос. номер ТС, напр. «А001АА77»
+    vehicle_type   = Column(String(100))        # Вид ТС, напр. «Фургон»
+    # ── СБИС ЭПД / ЭТРН ──
+    etran_id     = Column(String(100))          # ID документа в СБИС
+    etran_status = Column(String(50))           # черновик / отправлен / подписан / завершён / ошибка
+    etran_url    = Column(String(500))          # ссылка на документ в СБИС Online
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
     supplier = relationship("Counterparty", foreign_keys=[supplier_id])
@@ -339,6 +347,10 @@ class CompanySettings(Base):
     onec_hs_url   = Column(String(500))                  # база HTTP-сервиса расширения (печать/ЭДО); пусто = вывести из onec_url
     # ── Приём документов из 1С (Счёт/УПД/XML) ──
     doc_intake_channel = Column(String(20), default="off")  # off / telegram / email / folder
+    # ── СБИС (ЭДО / ЭПД / ЭТРН) ──
+    sbis_login      = Column(String(200))       # логин в СБИС (email)
+    sbis_password   = Column(EncryptedText)     # пароль (зашифровано)
+    sbis_account_id = Column(String(100))       # идентификатор аккаунта/абонента СБИС
     # ── Модули (вкл/выкл из меню) ──
     module_leads    = Column(Boolean, default=False)  # Прозвон
     module_recon    = Column(Boolean, default=False)  # Разведка ЛПР

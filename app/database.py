@@ -236,6 +236,18 @@ def _migrate_db():
         ("users", "phone", "TEXT"),
         # Менеджер по продажам заказа (может отличаться от создателя)
         ("orders", "sales_manager_id", "INTEGER REFERENCES users(id)"),
+        # Транспорт и водитель для ЭТРН
+        ("orders", "driver_name",   "TEXT"),
+        ("orders", "vehicle_plate", "TEXT"),
+        ("orders", "vehicle_type",  "TEXT"),
+        # СБИС ЭПД / ЭТРН
+        ("orders", "etran_id",     "TEXT"),
+        ("orders", "etran_status", "TEXT"),
+        ("orders", "etran_url",    "TEXT"),
+        # СБИС настройки компании
+        ("company_settings", "sbis_login",      "TEXT"),
+        ("company_settings", "sbis_password",   "TEXT"),
+        ("company_settings", "sbis_account_id", "TEXT"),
         # Модули (вкл/выкл в меню)
         ("company_settings", "module_leads",    "INTEGER DEFAULT 0"),
         ("company_settings", "module_recon",    "INTEGER DEFAULT 0"),

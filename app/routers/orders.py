@@ -205,6 +205,9 @@ async def create_order(
     delivery_time: str = Form(default=""),
     delivery_cost: float = Form(default=0),
     sales_manager_id: int = Form(default=0),
+    driver_name: str = Form(default=""),
+    vehicle_plate: str = Form(default=""),
+    vehicle_type: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -227,6 +230,9 @@ async def create_order(
         pickup_address=pickup_address or None,
         delivery_contact=delivery_contact or None,
         delivery_time=delivery_time or None,
+        driver_name=driver_name.strip() or None,
+        vehicle_plate=vehicle_plate.strip() or None,
+        vehicle_type=vehicle_type.strip() or None,
         created_by_id=request.session.get("user_id"),
         sales_manager_id=sales_manager_id or request.session.get("user_id"),
     )
@@ -300,6 +306,9 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
     cp_last_date = max((o.date for o in cp_all_orders if o.date), default=None)
     cp_avg_check = round(cp_revenue / len(cp_all_orders), 2) if cp_all_orders and cp_revenue else 0
 
+    company = db.query(CompanySettings).first()
+    sbis_configured = bool(company and company.sbis_login and company.sbis_password)
+
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
@@ -312,6 +321,7 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
         "cp_revenue": cp_revenue,
         "cp_last_date": cp_last_date,
         "cp_avg_check": cp_avg_check,
+        "sbis_configured": sbis_configured,
     })
 
 
@@ -363,6 +373,9 @@ async def update_order(
     delivery_time: str = Form(default=""),
     delivery_cost: float = Form(default=0),
     sales_manager_id: int = Form(default=0),
+    driver_name: str = Form(default=""),
+    vehicle_plate: str = Form(default=""),
+    vehicle_type: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -385,6 +398,9 @@ async def update_order(
     order.pickup_address = pickup_address or None
     order.delivery_contact = delivery_contact or None
     order.delivery_time = delivery_time or None
+    order.driver_name   = driver_name.strip() or None
+    order.vehicle_plate = vehicle_plate.strip() or None
+    order.vehicle_type  = vehicle_type.strip() or None
     if sales_manager_id:
         order.sales_manager_id = sales_manager_id
     for item in order.items:

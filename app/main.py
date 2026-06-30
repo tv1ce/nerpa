@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -434,7 +434,8 @@ app.include_router(files.router)
 app.include_router(public.router)
 app.include_router(sync_1c.router)
 app.include_router(sourcing.router)
-app.include_router(api_1c.router)  # приём документов из 1С (push, вариант A)
+app.include_router(api_1c.router)   # приём документов из 1С (push, вариант A)
+app.include_router(api_sbis.router) # СБИС ЭПД/ЭТРН (вариант C)
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────
@@ -564,6 +565,7 @@ import app.routers.files as _r_files
 import app.routers.public as _r_public
 import app.routers.sync_1c as _r_sync_1c
 import app.routers.sourcing as _r_sourcing
+import app.routers.api_sbis as _r_api_sbis
 
-for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_sync_1c, _r_sourcing]:
+for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_sync_1c, _r_sourcing, _r_api_sbis]:
     _mod.templates = _templates

@@ -376,6 +376,27 @@ async def save_onec(
     return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
 
 
+@router.post("/sbis")
+@role_required("admin")
+async def save_sbis(
+    request: Request,
+    sbis_login: str = Form(default=""),
+    sbis_password: str = Form(default=""),
+    sbis_account_id: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.sbis_login      = sbis_login.strip() or None
+    if sbis_password.strip():
+        company.sbis_password = sbis_password.strip()
+    company.sbis_account_id = sbis_account_id.strip() or None
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1&tab=integrations", status_code=302)
+
+
 @router.post("/profile/password")
 @login_required
 async def profile_password(

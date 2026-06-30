@@ -375,7 +375,47 @@
       <a href="/orders/{{ order.id }}/tn" class="btn btn-outline-danger btn-sm w-100 mb-2">
         <i class="bi bi-truck me-1"></i>Транспортная накладная
       </a>
+
+      {# ── ЭТРН (СБИС ЭПД) ── #}
+      {% if sbis_configured %}
+      <div class="mb-2">
+        {% if order.etran_id %}
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="badge
+            {% if order.etran_status == 'завершён' %}bg-success
+            {% elif order.etran_status == 'подписан' %}bg-primary
+            {% elif order.etran_status == 'отправлен' %}bg-info text-dark
+            {% elif order.etran_status == 'ошибка' %}bg-danger
+            {% else %}bg-secondary{% endif %}"
+            style="font-size:.72rem">
+            ЭТРН: {{ order.etran_status or 'черновик' }}
+          </span>
+          {% if order.etran_url %}
+          <a href="{{ order.etran_url }}" target="_blank" class="text-muted" style="font-size:.75rem" title="Открыть в СБИС">
+            <i class="bi bi-box-arrow-up-right"></i>
+          </a>
+          {% endif %}
+          <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 ms-auto"
+                  style="font-size:.72rem" onclick="refreshEtranStatus({{ order.id }})" id="btn-etran-refresh"
+                  title="Обновить статус из СБИС">
+            <i class="bi bi-arrow-repeat"></i>
+          </button>
+        </div>
+        <button type="button" class="btn btn-outline-success btn-sm w-100" id="btn-etran"
+                onclick="createEtran({{ order.id }})">
+          <i class="bi bi-arrow-repeat me-1"></i>Переотправить ЭТРН
+        </button>
+        {% else %}
+        <button type="button" class="btn btn-success btn-sm w-100" id="btn-etran"
+                onclick="createEtran({{ order.id }})">
+          <i class="bi bi-file-earmark-check me-1"></i>Создать ЭТРН
+        </button>
+        {% endif %}
+        <div id="etran-result" class="mt-1" style="font-size:.8rem"></div>
+      </div>
       {% endif %}
+      {% endif %}
+
       {% if order.carrier_id and order.carrier and order.carrier.tg_notify_enabled and order.carrier.tg_chat_id %}
       <button type="button" class="btn btn-outline-primary btn-sm w-100" id="btn-notify-carrier"
               onclick="sendToCarrier({{ order.id }})">
@@ -597,6 +637,52 @@ async function sendToCarrier(orderId) {
     errSpan.className = 'text-danger';
     errSpan.textContent = 'Сетевая ошибка: ' + e;
     result.appendChild(errSpan);
+  }
+}
+
+async function createEtran(orderId) {
+  const btn    = document.getElementById('btn-etran');
+  const result = document.getElementById('etran-result');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Создаём ЭТРН…';
+  result.innerHTML = '';
+  try {
+    const resp = await fetch(`/api/sbis/etran/${orderId}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>ЭТРН отправлен';
+      btn.classList.replace('btn-success', 'btn-outline-success');
+      result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-file-earmark-check me-1"></i>Создать ЭТРН';
+      result.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error || 'Ошибка'}</span>`;
+    }
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-file-earmark-check me-1"></i>Создать ЭТРН';
+    result.innerHTML = `<span class="text-danger">Сетевая ошибка: ${e}</span>`;
+  }
+}
+
+async function refreshEtranStatus(orderId) {
+  const btn    = document.getElementById('btn-etran-refresh');
+  const result = document.getElementById('etran-result');
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const resp = await fetch(`/api/sbis/etran/${orderId}/status`);
+    const data = await resp.json();
+    if (data.ok) {
+      result.innerHTML = `<span class="text-success"><i class="bi bi-arrow-repeat me-1"></i>Статус обновлён: ${data.status}</span>`;
+      setTimeout(() => location.reload(), 800);
+    } else {
+      result.innerHTML = `<span class="text-danger">${data.error}</span>`;
+    }
+  } catch(e) {
+    result.innerHTML = `<span class="text-danger">Ошибка: ${e}</span>`;
+  } finally {
+    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
   }
 }
 </script>

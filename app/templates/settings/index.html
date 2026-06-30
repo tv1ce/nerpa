@@ -385,6 +385,61 @@
       </form>
     </div>
   </div>
+
+  {# СБИС #}
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mt-0" id="sbis">
+      <div class="form-section-title mb-3">
+        <i class="bi bi-file-earmark-check me-1 text-success"></i>СБИС — ЭДО / ЭПД / ЭТРН
+      </div>
+      <form method="post" action="/settings/sbis">
+        <div class="row g-2">
+          <div class="col-12">
+            <div class="alert alert-info py-2 px-3 mb-1" style="font-size:.82rem">
+              <i class="bi bi-info-circle me-1"></i>
+              Укажите данные аккаунта СБИС (Saby). TMS будет создавать электронные транспортные накладные
+              (ЭТРН) и отправлять их на подписание всем участникам перевозки прямо из карточки заказа.
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Логин СБИС (email)</label>
+            <input type="email" name="sbis_login" class="form-control form-control-sm"
+                   autocomplete="off"
+                   placeholder="admin@company.ru"
+                   value="{{ company.sbis_login if company and company.sbis_login else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Пароль СБИС</label>
+            <input type="password" name="sbis_password" class="form-control form-control-sm"
+                   autocomplete="new-password"
+                   placeholder="{% if company and company.sbis_password %}(задан){% else %}Пароль от аккаунта СБИС{% endif %}">
+            <div class="form-text" style="font-size:.72rem">Пустое — не менять</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm">ID аккаунта / абонента <span class="text-muted">(необязательно)</span></label>
+            <input type="text" name="sbis_account_id" class="form-control form-control-sm font-monospace"
+                   placeholder="напр. 7712345678 (ИНН или идентификатор)"
+                   value="{{ company.sbis_account_id if company and company.sbis_account_id else '' }}">
+            <div class="form-text" style="font-size:.72rem">Если у вас несколько компаний в СБИС, укажите идентификатор нужной.</div>
+          </div>
+          {% if company and company.sbis_login %}
+          <div class="col-12">
+            <div class="text-success" style="font-size:.8rem"><i class="bi bi-check-circle me-1"></i>СБИС настроен — кнопка «Создать ЭТРН» появится в карточке заказа</div>
+          </div>
+          {% endif %}
+          <div class="col-12 d-flex gap-2 flex-wrap mt-1">
+            <button type="submit" class="btn btn-accent btn-sm">
+              <i class="bi bi-check-lg me-1"></i>Сохранить
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkSbis()">
+              <i class="bi bi-plug me-1"></i>Проверить подключение
+            </button>
+            <span id="sbisTestResult" class="ms-1 align-self-center" style="font-size:.85rem"></span>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 {% endif %}
 
@@ -618,6 +673,19 @@ async function checkOnec1c() {
     const d = await r.json();
     el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
       `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.message}</span>`;
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+async function checkSbis() {
+  const el = document.getElementById('sbisTestResult');
+  el.innerHTML = '<span class="text-muted">Проверяем подключение к СБИС…</span>';
+  try {
+    const r = await fetch('/api/sbis/test');
+    const d = await r.json();
+    el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
+      `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.message || (d.ok ? 'Подключено' : d.error)}</span>`;
   } catch(e) {
     el.innerHTML = `<span class="text-danger">${e}</span>`;
   }

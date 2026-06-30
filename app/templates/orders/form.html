@@ -112,6 +112,21 @@
                    value="{{ order.delivery_time if order and order.delivery_time else '' }}">
           </div>
           <div class="col-md-6">
+            <label class="form-label">ФИО водителя <span class="text-muted" style="font-size:.8rem">(для ЭТРН)</span></label>
+            <input type="text" name="driver_name" class="form-control" placeholder="Иванов Иван Иванович"
+                   value="{{ order.driver_name if order and order.driver_name else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Гос. номер ТС</label>
+            <input type="text" name="vehicle_plate" class="form-control font-monospace" placeholder="А001АА77"
+                   value="{{ order.vehicle_plate if order and order.vehicle_plate else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Вид ТС</label>
+            <input type="text" name="vehicle_type" class="form-control" placeholder="Фургон"
+                   value="{{ order.vehicle_type if order and order.vehicle_type else '' }}">
+          </div>
+          <div class="col-md-6">
             <label class="form-label">Менеджер по продажам</label>
             <select name="sales_manager_id" class="form-select">
               {% for u in managers %}
