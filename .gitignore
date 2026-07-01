@@ -52,5 +52,8 @@ uploads/
 .env
 teamly_tokens.json
 
+# HR-отчёт: снимок предыдущего запуска (локальное состояние, не секрет, но не для git)
+hr_report_state.json
+
 # Android APK дистрибутив (бинарь не храним в git, только version.json)
 app_dist/*.apk

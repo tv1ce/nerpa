@@ -10,7 +10,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-MODEL = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5")
+MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat")
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
