@@ -14,6 +14,7 @@ TMS Telegram Bot — ежедневные/еженедельные/ежемес�
 """
 from __future__ import annotations
 
+import asyncio
 import calendar
 import logging
 import os
@@ -31,6 +32,7 @@ from telegram.request import HTTPXRequest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import SessionLocal
+from app.services import hr_report
 from bot.metrics import (
     get_daily_metrics, get_weekly_metrics, get_monthly_metrics,
     get_callbacks_today,
@@ -65,6 +67,7 @@ def _parse_chat_ids(raw: str) -> list[int]:
 
 
 CHAT_IDS = _parse_chat_ids(os.getenv("TMS_CHAT_IDS", ""))
+HR_CHAT_IDS = _parse_chat_ids(os.getenv("TMS_HR_CHAT_IDS", ""))
 
 TZ_NAME = os.getenv("TMS_TZ", "Europe/Moscow")
 try:
@@ -93,6 +96,7 @@ DAILY_TIME    = _parse_time("TMS_DAILY_TIME",    "20:00")
 WEEKLY_TIME   = _parse_time("TMS_WEEKLY_TIME",   "18:00")
 MONTHLY_TIME  = _parse_time("TMS_MONTHLY_TIME",  "20:00")
 CALLBACK_TIME = _parse_time("TMS_CALLBACK_TIME", "09:30")
+HR_MONTHLY_TIME = _parse_time("TMS_HR_MONTHLY_TIME", "10:00")
 
 
 # ── Отправка сообщения всем подписчикам ───────────────────────────────────────
@@ -167,6 +171,39 @@ async def broadcast_callbacks(bot: Bot, text: str) -> None:
             )
         except Exception as e:
             logger.error("Ошибка отправки прозвонов в chat_id=%s: %s", chat_id, e)
+
+
+def _split_for_telegram(text: str, limit: int = 3500) -> list[str]:
+    """Режет длинный MarkdownV2-текст на части по границам пустых строк (не рвёт экранирование)."""
+    if len(text) <= limit:
+        return [text]
+    parts, buf = [], []
+    length = 0
+    for para in text.split("\n\n"):
+        if length + len(para) + 2 > limit and buf:
+            parts.append("\n\n".join(buf))
+            buf, length = [], 0
+        buf.append(para)
+        length += len(para) + 2
+    if buf:
+        parts.append("\n\n".join(buf))
+    return parts
+
+
+async def broadcast_hr(bot: Bot, text: str) -> None:
+    """Рассылка HR-отчёта в отдельный канал (TMS_HR_CHAT_IDS)."""
+    chunks = _split_for_telegram(text)
+    for chat_id in HR_CHAT_IDS:
+        for chunk in chunks:
+            try:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=chunk,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    read_timeout=20, write_timeout=20, connect_timeout=10,
+                )
+            except Exception as e:
+                logger.error("Ошибка отправки HR-отчёта в chat_id=%s: %s", chat_id, e)
 
 
 def _authorized(update: Update) -> bool:
@@ -313,6 +350,23 @@ async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
         await broadcast(context.bot, _monthly_text())
 
 
+async def cb_hr_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Запускается каждый день в HR_MONTHLY_TIME; отправляет HR-отчёт только 10-го числа месяца."""
+    from datetime import datetime
+    if not HR_CHAT_IDS:
+        return
+    now = datetime.now(tz=TZ)
+    if now.day != 10:
+        return
+    logger.info("Формирование ежемесячного HR-отчёта")
+    try:
+        text = await asyncio.to_thread(hr_report.generate_report)
+    except Exception as e:
+        logger.exception("Ошибка формирования HR-отчёта: %s", e)
+        return
+    await broadcast_hr(context.bot, text)
+
+
 async def cb_backup_check(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Проверяет нужно ли отправить бекап БД в зависимости от частоты и дня недели."""
     from datetime import datetime
@@ -358,6 +412,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/weekly — отчёт за текущую неделю\n"
         "/monthly — отчёт за текущий месяц\n"
         "/callbacks — перезвоны на сегодня\n"
+        "/hr\\_report — сформировать HR\\-отчёт по данным Teamly\n"
         "/status — статус бота и расписание\n\n"
         "📎 Пришлите файл \\(Счёт/УПД/XML\\) — приложу к заказу по номеру в имени файла "
         "\\(или укажите номер в подписи\\)\\.",
@@ -400,6 +455,20 @@ async def cmd_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not _authorized(update):
         return await _deny(update)
     await _safe_reply(update, _callbacks_text)
+
+
+async def cmd_hr_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return await _deny(update)
+    await update.message.reply_text("⏳ Формирую HR-отчёт, это может занять около минуты…")
+    try:
+        text = await asyncio.to_thread(hr_report.generate_report)
+    except Exception as e:
+        logger.exception("Ошибка формирования HR-отчёта: %s", e)
+        await update.message.reply_text("⚠️ Не удалось сформировать HR-отчёт. Проверьте логи.")
+        return
+    for chunk in _split_for_telegram(text):
+        await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN_V2)
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -608,6 +677,7 @@ def main() -> None:
     app.add_handler(CommandHandler("weekly",  cmd_weekly))
     app.add_handler(CommandHandler("monthly", cmd_monthly))
     app.add_handler(CommandHandler("callbacks", cmd_callbacks))
+    app.add_handler(CommandHandler("hr_report", cmd_hr_report))
     app.add_handler(CommandHandler("status",  cmd_status))
 
     # Приём документов из 1С (Счёт/УПД/XML) — кидаешь файл боту, он цепляет к заказу
@@ -626,6 +696,9 @@ def main() -> None:
 
     # Ежемесячный: проверяем каждый день в MONTHLY_TIME, шлём только в последний день месяца
     jq.run_daily(cb_monthly_check, time=MONTHLY_TIME, name="monthly_check")
+
+    # HR-отчёт (Teamly): проверяем каждый день в HR_MONTHLY_TIME, шлём только 10-го числа
+    jq.run_daily(cb_hr_monthly, time=HR_MONTHLY_TIME, name="hr_monthly_report")
 
     # Автобекап БД: проверяем каждый день в 21:00
     backup_time = time(hour=21, minute=0, tzinfo=TZ)
