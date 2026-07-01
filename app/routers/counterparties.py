@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
@@ -135,6 +136,26 @@ def _compute_category(cp: Counterparty) -> str | None:
     return None
 
 
+def _filtered_counterparties(db: Session, q: str, type: str, category: str, entity_type: str):
+    query = db.query(Counterparty).filter(Counterparty.is_active == True)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(or_(
+            Counterparty.name.ilike(like),
+            Counterparty.trade_name.ilike(like),
+            Counterparty.inn.ilike(like),
+            Counterparty.phone.ilike(like),
+            Counterparty.contact_person.ilike(like),
+        ))
+    if type:
+        query = query.filter(Counterparty.type == type)
+    if category:
+        query = query.filter(Counterparty.category == category)
+    if entity_type:
+        query = query.filter(Counterparty.entity_type == entity_type)
+    return query.order_by(Counterparty.name).all()
+
+
 @router.get("/", response_class=HTMLResponse)
 @login_required
 async def list_counterparties(
@@ -142,19 +163,26 @@ async def list_counterparties(
     entity_type: str = "",
     db: Session = Depends(get_db),
 ):
-    query = db.query(Counterparty).filter(Counterparty.is_active == True)
-    if q:
-        query = query.filter(Counterparty.name.ilike(f"%{q}%"))
-    if type:
-        query = query.filter(Counterparty.type == type)
-    if category:
-        query = query.filter(Counterparty.category == category)
-    if entity_type:
-        query = query.filter(Counterparty.entity_type == entity_type)
-    counterparties = query.order_by(Counterparty.name).all()
+    counterparties = _filtered_counterparties(db, q, type, category, entity_type)
     return templates.TemplateResponse(request, "counterparties/list.html", {
         "counterparties": counterparties, "q": q, "type": type,
         "category": category, "entity_type": entity_type,
+        "cp_types": CP_TYPES, "cat_colors": CAT_COLORS, "entity_types": ENTITY_TYPES,
+    })
+
+
+@router.get("/search", response_class=HTMLResponse)
+@login_required
+async def search_counterparties(
+    request: Request, q: str = "", type: str = "", category: str = "",
+    entity_type: str = "",
+    db: Session = Depends(get_db),
+):
+    """Живой поиск/фильтр — возвращает только строки таблицы (без каркаса страницы)
+    для подстановки через fetch() без перезагрузки страницы."""
+    counterparties = _filtered_counterparties(db, q, type, category, entity_type)
+    return templates.TemplateResponse(request, "counterparties/_rows.html", {
+        "counterparties": counterparties,
         "cp_types": CP_TYPES, "cat_colors": CAT_COLORS, "entity_types": ENTITY_TYPES,
     })
 

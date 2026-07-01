@@ -15,12 +15,13 @@
 {% block content %}
 <div class="card border-0 shadow-sm">
   <div class="card-body pb-0">
-    <form class="row g-2 mb-3" method="get">
+    <form class="row g-2 mb-2" method="get" id="cpFilterForm">
       <div class="col-md-5">
-        <input type="text" name="q" class="form-control form-control-sm" placeholder="Поиск по названию…" value="{{ q }}">
+        <input type="text" name="q" id="cpSearchInput" class="form-control form-control-sm"
+               placeholder="Поиск по названию… (от 3 символов)" value="{{ q }}" autocomplete="off">
       </div>
       <div class="col-md-2">
-        <select name="entity_type" class="form-select form-select-sm">
+        <select name="entity_type" id="cpEntityType" class="form-select form-select-sm">
           <option value="">ООО и ИП</option>
           {% for val, label in entity_types.items() %}
           <option value="{{ val }}" {% if entity_type == val %}selected{% endif %}>{{ label }}</option>
@@ -28,15 +29,7 @@
         </select>
       </div>
       <div class="col-md-2">
-        <select name="type" class="form-select form-select-sm">
-          <option value="">Все типы</option>
-          {% for val, label in cp_types.items() %}
-          <option value="{{ val }}" {% if type == val %}selected{% endif %}>{{ label }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-2">
-        <select name="category" class="form-select form-select-sm">
+        <select name="category" id="cpCategory" class="form-select form-select-sm">
           <option value="">Все категории</option>
           {% for cat in ['A', 'B', 'C'] %}
           <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>Категория {{ cat }}</option>
@@ -44,10 +37,18 @@
         </select>
       </div>
       <div class="col-auto">
-        <button class="btn btn-sm btn-outline-secondary">Найти</button>
-        <a href="/counterparties" class="btn btn-sm btn-link text-muted">Сбросить</a>
+        <a href="/counterparties" class="btn btn-sm btn-link text-muted" id="cpResetBtn">Сбросить</a>
       </div>
+      <input type="hidden" name="type" id="cpTypeInput" value="{{ type }}">
     </form>
+
+    {# Быстрые вкладки по типу контрагента — вместо выпадающего списка #}
+    <div class="btn-group btn-group-sm mb-3" role="group" id="cpTypeTabs">
+      <button type="button" class="btn {% if not type %}btn-accent{% else %}btn-outline-secondary{% endif %}" data-type="">Все</button>
+      {% for val, label in cp_types.items() %}
+      <button type="button" class="btn {% if type == val %}btn-accent{% else %}btn-outline-secondary{% endif %}" data-type="{{ val }}">{{ label }}</button>
+      {% endfor %}
+    </div>
   </div>
   <div class="table-responsive">
     <table class="table tms-table mb-0">
@@ -62,47 +63,95 @@
           <th></th>
         </tr>
       </thead>
-      <tbody>
-        {% for cp in counterparties %}
-        <tr>
-          <td class="ps-3 text-center">
-            {% if cp.category %}
-            <span class="badge bg-{{ cat_colors[cp.category] }} {% if cp.category == 'C' %}text-dark{% endif %} px-2" style="font-size:.75rem; font-weight:700; min-width:1.5rem">{{ cp.category }}</span>
-            {% else %}
-            <span class="text-muted" style="font-size:.75rem">—</span>
-            {% endif %}
-          </td>
-          <td class="ps-1">
-            <a href="/counterparties/{{ cp.id }}" class="fw-semibold text-decoration-none">
-              {{ cp.trade_name or cp.name }}
-            </a>
-            {% if cp.trade_name %}
-            <div class="text-muted" style="font-size:.78rem">{{ cp.name }}</div>
-            {% endif %}
-          </td>
-          <td class="text-muted">{{ cp.inn or '—' }}</td>
-          <td>{{ cp.contact_person or '—' }}</td>
-          <td>{{ cp.phone or '—' }}</td>
-          <td>
-            <span class="badge badge-{{ cp.type }}">{{ cp_types[cp.type] }}</span>
-            {% if cp.entity_type %}
-            <span class="badge bg-light text-dark border ms-1" style="font-size:.72rem">{{ entity_types.get(cp.entity_type, cp.entity_type) }}</span>
-            {% endif %}
-          </td>
-          <td class="text-end pe-3">
-            {% if request.session.get('user_role') != 'warehouse' %}
-            <a href="/counterparties/{{ cp.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
-            <form method="post" action="/counterparties/{{ cp.id }}/delete" class="d-inline" data-confirm="Удалить контрагента?">
-              <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="7" class="text-center py-4 text-muted">Контрагентов не найдено</td></tr>
-        {% endfor %}
+      <tbody id="cpRows">
+        {% include "counterparties/_rows.html" %}
       </tbody>
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  var form = document.getElementById('cpFilterForm');
+  var searchInput = document.getElementById('cpSearchInput');
+  var entitySelect = document.getElementById('cpEntityType');
+  var categorySelect = document.getElementById('cpCategory');
+  var typeInput = document.getElementById('cpTypeInput');
+  var typeTabs = document.getElementById('cpTypeTabs');
+  var rowsBody = document.getElementById('cpRows');
+  var resetBtn = document.getElementById('cpResetBtn');
+
+  var debounceTimer = null;
+  var lastRequestId = 0;
+
+  function buildParams() {
+    var params = new URLSearchParams();
+    var q = searchInput.value.trim();
+    if (q) params.set('q', q);
+    if (typeInput.value) params.set('type', typeInput.value);
+    if (entitySelect.value) params.set('entity_type', entitySelect.value);
+    if (categorySelect.value) params.set('category', categorySelect.value);
+    return params;
+  }
+
+  function runSearch() {
+    var params = buildParams();
+    var requestId = ++lastRequestId;
+    fetch('/counterparties/search?' + params.toString())
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        if (requestId !== lastRequestId) return; // устарел — пришёл более новый ответ
+        rowsBody.innerHTML = html;
+      })
+      .catch(function() { /* тихо игнорируем сетевые сбои живого поиска */ });
+    // Обновляем адресную строку, чтобы фильтр можно было сохранить/обновить страницу
+    var qs = params.toString();
+    history.replaceState(null, '', qs ? ('/counterparties?' + qs) : '/counterparties');
+  }
+
+  // Живой поиск по названию: срабатывает от 3 символов, либо когда поле очищено
+  searchInput.addEventListener('input', function() {
+    clearTimeout(debounceTimer);
+    var len = searchInput.value.trim().length;
+    if (len !== 0 && len < 3) return; // 1-2 символа — ждём, пока наберут больше
+    debounceTimer = setTimeout(runSearch, 300);
+  });
+
+  entitySelect.addEventListener('change', runSearch);
+  categorySelect.addEventListener('change', runSearch);
+
+  typeTabs.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-type]');
+    if (!btn) return;
+    typeInput.value = btn.dataset.type;
+    typeTabs.querySelectorAll('button').forEach(function(b) {
+      b.classList.toggle('btn-accent', b === btn);
+      b.classList.toggle('btn-outline-secondary', b !== btn);
+    });
+    runSearch();
+  });
+
+  resetBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    searchInput.value = '';
+    entitySelect.value = '';
+    categorySelect.value = '';
+    typeInput.value = '';
+    typeTabs.querySelectorAll('button').forEach(function(b) {
+      b.classList.toggle('btn-accent', b.dataset.type === '');
+      b.classList.toggle('btn-outline-secondary', b.dataset.type !== '');
+    });
+    runSearch();
+  });
+
+  // Обычный submit формы (например, Enter в поле поиска) — тоже без перезагрузки страницы
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    clearTimeout(debounceTimer);
+    runSearch();
+  });
+})();
+</script>
 {% endblock %}
