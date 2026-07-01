@@ -16,6 +16,11 @@ def _set_wal(connection, _):
     connection.execute("PRAGMA cache_size=-8000")       # 8 MB page cache
     connection.execute("PRAGMA wal_autocheckpoint=100") # checkpoint каждые 100 страниц
 
+    # SQLite's built-in lower() (использует его ILIKE/LIKE-поиск) казуфолдит
+    # только ASCII — «Кофе».ilike("%кофе%") не совпадёт. Подменяем на
+    # Unicode-aware str.lower(), чтобы регистр не влиял на поиск по кириллице.
+    connection.create_function("lower", 1, lambda s: s.lower() if s is not None else None)
+
 
 engine = create_engine(
     DATABASE_URL,

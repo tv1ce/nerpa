@@ -19,62 +19,30 @@
    ═══════════════════════════════════════════════════════════════ #}
 
 {# Быстрые фильтры-пилюли #}
-<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;-webkit-overflow-scrolling:touch;scrollbar-width:none">
-  <a href="/orders" style="flex-shrink:0" class="wm-pill {% if not status %}wm-pill-prepay{% else %}wm-pill-items{% endif %}">Все</a>
+<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;-webkit-overflow-scrolling:touch;scrollbar-width:none" id="mStatusPills">
+  <a href="/orders" data-status="" style="flex-shrink:0" class="wm-pill {% if not status %}wm-pill-prepay{% else %}wm-pill-items{% endif %}">Все</a>
   {% for val, label in statuses.items() %}
-  <a href="/orders?status={{ val }}" style="flex-shrink:0"
+  <a href="/orders?status={{ val }}" data-status="{{ val }}" style="flex-shrink:0"
      class="wm-pill {% if status == val %}wm-pill-prepay{% else %}wm-pill-items{% endif %}">{{ label }}</a>
   {% endfor %}
 </div>
 
 {# Поиск #}
-<form method="get" style="margin-bottom:12px;display:flex;gap:8px">
-  {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
-  <input type="text" name="q" value="{{ q }}"
+<form method="get" style="margin-bottom:12px;display:flex;gap:8px" id="mSearchForm">
+  <input type="hidden" name="status" id="mStatusInput" value="{{ status }}">
+  <input type="text" name="q" id="mSearchInput" value="{{ q }}"
          style="flex:1;height:46px;border:1.5px solid var(--wm-border);border-radius:10px;padding:0 14px;font-size:.95rem;font-family:inherit;outline:none"
-         placeholder="Номер или клиент…">
+         placeholder="Номер или клиент… (от 3 символов)" autocomplete="off">
   <button type="submit" style="height:46px;padding:0 16px;border-radius:10px;border:none;background:var(--wm-brand);color:#fff;font-size:.95rem;font-weight:700">
     <i class="bi bi-search"></i>
   </button>
-  {% if q %}<a href="/orders?status={{ status }}" style="height:46px;padding:0 14px;border-radius:10px;border:1.5px solid var(--wm-border);display:flex;align-items:center;color:var(--wm-muted);text-decoration:none;font-size:.95rem"><i class="bi bi-x-lg"></i></a>{% endif %}
+  {% if q %}<a href="/orders?status={{ status }}" id="mClearBtn" style="height:46px;padding:0 14px;border-radius:10px;border:1.5px solid var(--wm-border);display:flex;align-items:center;color:var(--wm-muted);text-decoration:none;font-size:.95rem"><i class="bi bi-x-lg"></i></a>{% endif %}
 </form>
 
 {# Карточки заказов #}
-{% for o in orders %}
-<div class="wm-card" style="margin-bottom:10px">
-  <a href="/orders/{{ o.id }}" style="display:block;text-decoration:none;color:inherit">
-    <div style="padding:12px 14px 8px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-        <div>
-          <div style="font-size:1.05rem;font-weight:800;color:var(--wm-text)">Заказ № {{ o.number }}</div>
-          <div style="font-size:.85rem;color:var(--wm-muted);margin-top:2px">{{ o.counterparty.trade_name or o.counterparty.name }}</div>
-        </div>
-        <span class="badge badge-{{ o.status }}" style="flex-shrink:0;margin-top:2px">{{ statuses[o.status] }}</span>
-      </div>
-    </div>
-    <div style="padding:0 14px 10px;display:flex;gap:8px;flex-wrap:wrap">
-      {% if o.delivery_date %}
-      <span class="wm-pill wm-pill-date"><i class="bi bi-calendar3"></i>{{ o.delivery_date | date_fmt }}</span>
-      {% endif %}
-      {% if o.payment_type == 'deferred' %}
-      <span class="wm-pill wm-pill-defer"><i class="bi bi-clock"></i>Отсрочка</span>
-      {% else %}
-      <span class="wm-pill wm-pill-prepay"><i class="bi bi-check-circle"></i>Предоплата</span>
-      {% endif %}
-      {% if o.items %}
-      <span class="wm-pill wm-pill-items"><i class="bi bi-list-ul"></i>{{ o.items|length }} поз.</span>
-      {% endif %}
-    </div>
-  </a>
+<div id="mCards">
+{% include "orders/_cards.html" %}
 </div>
-{% else %}
-<div class="wm-card">
-  <div class="wm-empty">
-    <i class="bi bi-inbox"></i>
-    <p>Заказов не найдено</p>
-  </div>
-</div>
-{% endfor %}
 
 {% else %}
 {# ═══════════════════════════════════════════════════════════════
@@ -82,12 +50,12 @@
    ═══════════════════════════════════════════════════════════════ #}
 <div class="card border-0 shadow-sm">
   <div class="card-body pb-0">
-    <form class="row g-2 mb-3" method="get">
+    <form class="row g-2 mb-3" method="get" id="oFilterForm">
       <div class="col-md-3">
-        <input type="text" name="q" class="form-control form-control-sm" placeholder="Номер или клиент…" value="{{ q }}">
+        <input type="text" name="q" id="oSearchInput" class="form-control form-control-sm" placeholder="Номер или клиент… (от 3 символов)" value="{{ q }}" autocomplete="off">
       </div>
       <div class="col-md-2">
-        <select name="status" class="form-select form-select-sm">
+        <select name="status" id="oStatus" class="form-select form-select-sm">
           <option value="">Все статусы</option>
           {% for val, label in statuses.items() %}
           <option value="{{ val }}" {% if status == val %}selected{% endif %}>{{ label }}</option>
@@ -95,7 +63,7 @@
         </select>
       </div>
       <div class="col-md-2">
-        <select name="payment_type" class="form-select form-select-sm">
+        <select name="payment_type" id="oPaymentType" class="form-select form-select-sm">
           <option value="">Любой тип оплаты</option>
           {% for val, label in payment_types.items() %}
           <option value="{{ val }}" {% if payment_type == val %}selected{% endif %}>{{ label }}</option>
@@ -103,7 +71,7 @@
         </select>
       </div>
       <div class="col-md-2">
-        <select name="counterparty_id" class="form-select form-select-sm">
+        <select name="counterparty_id" id="oCounterparty" class="form-select form-select-sm">
           <option value="0">Все клиенты</option>
           {% for cp in counterparties %}
           <option value="{{ cp.id }}" {% if counterparty_id == cp.id %}selected{% endif %}>{{ cp.trade_name or cp.name }}</option>
@@ -111,7 +79,7 @@
         </select>
       </div>
       <div class="col-md-2">
-        <select name="carrier_id" class="form-select form-select-sm">
+        <select name="carrier_id" id="oCarrier" class="form-select form-select-sm">
           <option value="0">Все перевозчики</option>
           {% for cp in carriers %}
           <option value="{{ cp.id }}" {% if carrier_id == cp.id %}selected{% endif %}>{{ cp.trade_name or cp.name }}</option>
@@ -119,14 +87,14 @@
         </select>
       </div>
       <div class="col-12 col-md-auto d-flex align-items-center gap-2 flex-wrap">
-        <input type="date" name="date_from" class="form-control form-control-sm" style="width:140px" value="{{ date_from }}" title="Дата с">
-        <input type="date" name="date_to" class="form-control form-control-sm" style="width:140px" value="{{ date_to }}" title="Дата по">
+        <input type="date" name="date_from" id="oDateFrom" class="form-control form-control-sm" style="width:140px" value="{{ date_from }}" title="Дата с">
+        <input type="date" name="date_to" id="oDateTo" class="form-control form-control-sm" style="width:140px" value="{{ date_to }}" title="Дата по">
         <div class="form-check form-check-inline mb-0">
-          <input class="form-check-input" type="checkbox" name="overdue" id="chk_overdue" value="1" {% if overdue %}checked{% endif %}>
-          <label class="form-check-label text-danger fw-semibold" for="chk_overdue" style="font-size:.82rem">Просроченные</label>
+          <input class="form-check-input" type="checkbox" name="overdue" id="oOverdue" value="1" {% if overdue %}checked{% endif %}>
+          <label class="form-check-label text-danger fw-semibold" for="oOverdue" style="font-size:.82rem">Просроченные</label>
         </div>
         <button class="btn btn-sm btn-outline-secondary">Найти</button>
-        <a href="/orders" class="btn btn-sm btn-link text-muted">Сбросить</a>
+        <a href="/orders" class="btn btn-sm btn-link text-muted" id="oResetBtn">Сбросить</a>
       </div>
     </form>
   </div>
@@ -143,50 +111,135 @@
           <th></th>
         </tr>
       </thead>
-      <tbody>
-        {% for o in orders %}
-        {% set is_overdue = o.delivery_date and o.delivery_date < today and o.status not in ['delivered', 'cancelled'] %}
-        <tr {% if is_overdue %}class="table-danger"{% endif %}>
-          <td class="ps-3">
-            <a href="/orders/{{ o.id }}" class="fw-semibold text-decoration-none">{{ o.number }}</a>
-            {% if is_overdue %}<i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="Доставка просрочена"></i>{% endif %}
-          </td>
-          <td><a href="/orders/{{ o.id }}" class="text-decoration-none">{{ o.counterparty.trade_name or o.counterparty.name }}</a></td>
-          <td>{{ o.date | date_fmt }}</td>
-          <td>
-            {% if o.delivery_date %}
-              <span {% if is_overdue %}class="text-danger fw-semibold"{% endif %}>{{ o.delivery_date | date_fmt }}</span>
-            {% endif %}
-          </td>
-          <td class="text-end">{{ o.total_amount | money }}</td>
-          <td>
-            <span class="badge badge-{{ o.status }}">{{ statuses[o.status] }}</span>
-            {% if o.payment_type == 'deferred' %}
-            <span class="badge bg-warning text-dark" style="font-size:.62rem" title="Отсрочка платежа">отсрочка</span>
-            {% endif %}
-          </td>
-          <td class="text-end pe-3">
-            {% set wf = o.workflow %}
-            {% if _role != 'warehouse' and o.status in wf and wf.index(o.status) + 1 < wf|length %}
-            {% set nxt = wf[wf.index(o.status) + 1] %}
-            <form method="post" action="/orders/{{ o.id }}/status" class="d-inline">
-              <input type="hidden" name="status" value="{{ nxt }}">
-              <input type="hidden" name="redirect_url" value="/orders?q={{ q }}&status={{ status }}">
-              <button type="submit" class="btn btn-sm btn-outline-success py-0" title="Перевести в «{{ statuses[nxt] }}»">
-                <i class="bi bi-arrow-right-circle"></i> {{ statuses[nxt] }}
-              </button>
-            </form>
-            {% endif %}
-            <a href="/orders/{{ o.id }}" class="btn btn-sm btn-outline-primary py-0"><i class="bi bi-eye"></i></a>
-            <a href="/orders/{{ o.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="7" class="text-center py-4 text-muted">Заказов не найдено</td></tr>
-        {% endfor %}
+      <tbody id="oRows">
+        {% include "orders/_rows.html" %}
       </tbody>
     </table>
   </div>
 </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  var _role = {{ (_role or '')|tojson }};
+  var _wview = {{ (_wview or '')|tojson }};
+  var isMobileWarehouse = (_role === 'warehouse' && _wview !== 'desktop');
+
+  var debounceTimer = null;
+  var lastRequestId = 0;
+
+  function fetchAndReplace(params, targetEl) {
+    var requestId = ++lastRequestId;
+    fetch('/orders/search?' + params.toString())
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        if (requestId !== lastRequestId) return; // устарел
+        targetEl.innerHTML = html;
+      })
+      .catch(function() { /* тихо игнорируем сетевые сбои живого поиска */ });
+    var qs = params.toString();
+    history.replaceState(null, '', qs ? ('/orders?' + qs) : '/orders');
+  }
+
+  if (isMobileWarehouse) {
+    var searchInput = document.getElementById('mSearchInput');
+    var statusInput = document.getElementById('mStatusInput');
+    var pills = document.getElementById('mStatusPills');
+    var cards = document.getElementById('mCards');
+    var form = document.getElementById('mSearchForm');
+
+    function runSearch() {
+      var params = new URLSearchParams();
+      var q = searchInput.value.trim();
+      if (q) params.set('q', q);
+      if (statusInput.value) params.set('status', statusInput.value);
+      fetchAndReplace(params, cards);
+    }
+
+    searchInput.addEventListener('input', function() {
+      clearTimeout(debounceTimer);
+      var len = searchInput.value.trim().length;
+      if (len !== 0 && len < 3) return;
+      debounceTimer = setTimeout(runSearch, 300);
+    });
+
+    pills.addEventListener('click', function(e) {
+      var a = e.target.closest('a[data-status]');
+      if (!a) return;
+      e.preventDefault();
+      statusInput.value = a.dataset.status;
+      pills.querySelectorAll('a').forEach(function(p) {
+        var active = p === a;
+        p.classList.toggle('wm-pill-prepay', active);
+        p.classList.toggle('wm-pill-items', !active);
+      });
+      runSearch();
+    });
+
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      clearTimeout(debounceTimer);
+      runSearch();
+    });
+  } else {
+    var oSearch = document.getElementById('oSearchInput');
+    var oStatus = document.getElementById('oStatus');
+    var oPaymentType = document.getElementById('oPaymentType');
+    var oCounterparty = document.getElementById('oCounterparty');
+    var oCarrier = document.getElementById('oCarrier');
+    var oDateFrom = document.getElementById('oDateFrom');
+    var oDateTo = document.getElementById('oDateTo');
+    var oOverdue = document.getElementById('oOverdue');
+    var oForm = document.getElementById('oFilterForm');
+    var oRows = document.getElementById('oRows');
+    var oResetBtn = document.getElementById('oResetBtn');
+
+    function runSearch() {
+      var params = new URLSearchParams();
+      var q = oSearch.value.trim();
+      if (q) params.set('q', q);
+      if (oStatus.value) params.set('status', oStatus.value);
+      if (oPaymentType.value) params.set('payment_type', oPaymentType.value);
+      if (oCounterparty.value && oCounterparty.value !== '0') params.set('counterparty_id', oCounterparty.value);
+      if (oCarrier.value && oCarrier.value !== '0') params.set('carrier_id', oCarrier.value);
+      if (oDateFrom.value) params.set('date_from', oDateFrom.value);
+      if (oDateTo.value) params.set('date_to', oDateTo.value);
+      if (oOverdue.checked) params.set('overdue', '1');
+      fetchAndReplace(params, oRows);
+    }
+
+    oSearch.addEventListener('input', function() {
+      clearTimeout(debounceTimer);
+      var len = oSearch.value.trim().length;
+      if (len !== 0 && len < 3) return;
+      debounceTimer = setTimeout(runSearch, 300);
+    });
+
+    [oStatus, oPaymentType, oCounterparty, oCarrier, oDateFrom, oDateTo, oOverdue].forEach(function(el) {
+      el.addEventListener('change', runSearch);
+    });
+
+    oForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+      clearTimeout(debounceTimer);
+      runSearch();
+    });
+
+    oResetBtn.addEventListener('click', function(e) {
+      e.preventDefault();
+      oSearch.value = '';
+      oStatus.value = '';
+      oPaymentType.value = '';
+      oCounterparty.value = '0';
+      oCarrier.value = '0';
+      oDateFrom.value = '';
+      oDateTo.value = '';
+      oOverdue.checked = false;
+      runSearch();
+    });
+  }
+})();
+</script>
 {% endblock %}

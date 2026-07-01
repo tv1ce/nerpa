@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 import httpx
 from app.database import get_db
@@ -109,24 +109,19 @@ def _resolve_payment_type(db: Session, contract_id: int, fallback: str) -> str:
     return fallback if fallback in ("prepay", "deferred") else "prepay"
 
 
-@router.get("/", response_class=HTMLResponse)
-@login_required
-async def list_orders(
-    request: Request,
-    q: str = "",
-    status: str = "",
-    date_from: str = "",
-    date_to: str = "",
-    counterparty_id: int = 0,
-    carrier_id: int = 0,
-    payment_type: str = "",
-    overdue: str = "",
-    db: Session = Depends(get_db),
+def _filtered_orders(
+    db: Session, q: str, status: str, date_from: str, date_to: str,
+    counterparty_id: int, carrier_id: int, payment_type: str, overdue: str,
 ):
     today = date.today()
     query = db.query(Order).join(Counterparty, Order.counterparty_id == Counterparty.id)
     if q:
-        query = query.filter(Order.number.ilike(f"%{q}%") | Counterparty.name.ilike(f"%{q}%"))
+        like = f"%{q}%"
+        query = query.filter(or_(
+            Order.number.ilike(like),
+            Counterparty.name.ilike(like),
+            Counterparty.trade_name.ilike(like),
+        ))
     if status:
         query = query.filter(Order.status == status)
     if date_from:
@@ -151,7 +146,27 @@ async def list_orders(
             Order.status.notin_(["delivered", "cancelled"]),
             Order.delivery_date.isnot(None),
         )
-    orders = query.order_by(Order.date.desc(), Order.id.desc()).all()
+    return query.order_by(Order.date.desc(), Order.id.desc()).all()
+
+
+@router.get("/", response_class=HTMLResponse)
+@login_required
+async def list_orders(
+    request: Request,
+    q: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    counterparty_id: int = 0,
+    carrier_id: int = 0,
+    payment_type: str = "",
+    overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    today = date.today()
+    orders = _filtered_orders(
+        db, q, status, date_from, date_to, counterparty_id, carrier_id, payment_type, overdue,
+    )
     counterparties = db.query(Counterparty).filter(
         Counterparty.is_active == True, Counterparty.type.in_(["client", "both"])
     ).order_by(Counterparty.name).all()
@@ -166,6 +181,38 @@ async def list_orders(
         "counterparties": counterparties, "carriers": carriers,
         "payment_types": PAYMENT_TYPES, "today": today,
         "assembly_queue_count": _assembly_queue_count(db),
+    })
+
+
+@router.get("/search", response_class=HTMLResponse)
+@login_required
+async def search_orders(
+    request: Request,
+    q: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    counterparty_id: int = 0,
+    carrier_id: int = 0,
+    payment_type: str = "",
+    overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    """Живой поиск/фильтр — возвращает только карточки/строки списка (без каркаса
+    страницы) для подстановки через fetch() без перезагрузки страницы."""
+    today = date.today()
+    orders = _filtered_orders(
+        db, q, status, date_from, date_to, counterparty_id, carrier_id, payment_type, overdue,
+    )
+    _role = request.session.get("user_role")
+    _wview = request.session.get("warehouse_view", "mobile")
+    if _role == "warehouse" and _wview != "desktop":
+        return templates.TemplateResponse(request, "orders/_cards.html", {
+            "orders": orders, "statuses": ORDER_STATUSES,
+        })
+    return templates.TemplateResponse(request, "orders/_rows.html", {
+        "orders": orders, "statuses": ORDER_STATUSES, "today": today,
+        "q": q, "status": status, "_role": _role,
     })
 
 
