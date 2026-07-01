@@ -63,6 +63,9 @@
     </div>
 
     <div class="row"><span class="k">Клиент:</span><span class="v">{{ order.counterparty.trade_name or order.counterparty.name }}</span></div>
+    {% if order.counterparty.trade_name and order.counterparty.name and order.counterparty.trade_name != order.counterparty.name %}
+    <div class="row"><span class="k">Контрагент:</span><span class="v">{{ order.counterparty.name }}</span></div>
+    {% endif %}
     {% set _addr = order.delivery_address or order.counterparty.actual_address or order.counterparty.legal_address %}
     {% if _addr %}<div class="row"><span class="k">Адрес:</span><span class="v">{{ _addr }}</span></div>{% endif %}
     {% if order.delivery_contact %}<div class="row"><span class="k">Получатель:</span><span class="v">{{ order.delivery_contact }}</span></div>{% endif %}

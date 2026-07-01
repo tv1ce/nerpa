@@ -51,6 +51,9 @@
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px">
       <div>
         <div style="font-size:1.1rem;font-weight:800;color:var(--wm-text)">{{ order.counterparty.trade_name or order.counterparty.name }}</div>
+        {% if order.counterparty.trade_name and order.counterparty.name and order.counterparty.trade_name != order.counterparty.name %}
+        <div style="font-size:.75rem;color:var(--wm-muted);opacity:.75">{{ order.counterparty.name }}</div>
+        {% endif %}
         <div style="font-size:.8rem;color:var(--wm-muted);margin-top:2px">{{ order.date | date_fmt }}</div>
       </div>
       <span class="badge badge-{{ order.status }}" style="font-size:.82rem;flex-shrink:0">{{ statuses[order.status] }}</span>

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -279,6 +279,29 @@ async def create_movement(
         parsed_date = date.fromisoformat(mov_date)
     except (ValueError, TypeError):
         parsed_date = date.today()
+
+    user_id = request.session.get("user_id")
+
+    # Защита от двойной отправки формы (двойной тап на мобильном и т.п.):
+    # если точно такое же движение этот же пользователь уже создал за последние
+    # несколько секунд — считаем это повторной отправкой и не дублируем запись.
+    dup_cutoff = datetime.utcnow() - timedelta(seconds=10)
+    duplicate = (
+        db.query(StockMovement)
+        .filter(
+            StockMovement.product_id == product_id,
+            StockMovement.movement_type == movement_type,
+            StockMovement.quantity == quantity,
+            StockMovement.reason == reason,
+            StockMovement.order_id == linked_order_id,
+            StockMovement.created_by_id == user_id,
+            StockMovement.created_at >= dup_cutoff,
+        )
+        .first()
+    )
+    if duplicate:
+        return RedirectResponse(url="/warehouse/", status_code=302)
+
     mv = StockMovement(
         product_id=product_id,
         movement_type=movement_type,
@@ -287,7 +310,7 @@ async def create_movement(
         reason=reason,
         order_id=linked_order_id,
         notes=notes,
-        created_by_id=request.session.get("user_id"),
+        created_by_id=user_id,
     )
     db.add(mv)
     if linked_order_id and movement_type == "out":

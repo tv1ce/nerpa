@@ -283,6 +283,12 @@ body {
   color: var(--wm-muted);
   margin-top: 2px;
 }
+.wm-queue-cp {
+  font-size: .72rem;
+  color: var(--wm-muted);
+  opacity: .75;
+  margin-top: 1px;
+}
 .wm-queue-meta {
   padding: 0 14px 10px;
   display: flex;

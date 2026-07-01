@@ -262,15 +262,28 @@ window.addEventListener('load', function() {
   }
 });
 
-// Валидация перед отправкой
+// Валидация перед отправкой + защита от двойного тапа/повторной отправки
 (function() {
   var form = document.getElementById('wm-form') || document.querySelector('form[action="/warehouse/new"]');
   if (form) {
+    var submitted = false;
     form.addEventListener('submit', function(e) {
       if (!document.getElementById('pickedProductId').value) {
         e.preventDefault();
         alert('Выберите товар');
         openWarehousePicker();
+        return;
+      }
+      if (submitted) {
+        // Форма уже отправлена — игнорируем повторный submit (двойной тап/клик)
+        e.preventDefault();
+        return;
+      }
+      submitted = true;
+      var btn = form.querySelector('button[type="submit"]');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Сохранение…';
       }
     });
   }
