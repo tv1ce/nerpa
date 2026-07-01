@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;600;700;800&display=swap">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-  <link rel="stylesheet" href="/static/css/warehouse_mobile.css">
+  <link rel="stylesheet" href="/static/css/warehouse_mobile.css?v=7">
 </head>
 <body>
 
@@ -41,9 +41,13 @@
       <i class="bi bi-bell"></i>
       <span id="notif-badge" class="wm-badge" style="display:none"></span>
     </button>
-    <a href="/auth/logout" class="wm-icon-btn" title="Выйти">
-      <i class="bi bi-box-arrow-right"></i>
-    </a>
+    <form method="post" action="/auth/logout" style="display:inline;margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <button type="submit" class="wm-icon-btn" title="Выйти"
+              style="background:none;border:none;padding:0;cursor:pointer">
+        <i class="bi bi-box-arrow-right"></i>
+      </button>
+    </form>
   </div>
 </header>
 
@@ -104,6 +108,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/app.js?v=7"></script>
 <script>
 // CSRF: автоматически добавляем скрытый токен во все POST-формы и заголовок в AJAX.
 // (Тот же механизм, что в base.html — мобильный склад его раньше не имел → POST падали с 403.)
@@ -221,10 +226,19 @@
 </div>
 
 <script>
-// Регистрация service worker
+// Регистрация service worker + авто-применение обновлений
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {});
+    navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' })
+      .then(function (reg) { reg.update(); })
+      .catch(function () {});
+  });
+  // Когда новый SW берёт контроль — один раз перезагружаем, чтобы показать свежую версию
+  var _swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (_swReloaded) return;
+    _swReloaded = true;
+    location.reload();
   });
 }
 
@@ -257,6 +271,113 @@ if ('serviceWorker' in navigator) {
     if (bar) bar.style.display = 'none';
   });
 })();
+</script>
+
+<!-- ProductPicker bottom-sheet -->
+<div id="pickerOverlay" onclick="_mp.close()"></div>
+<div id="productPickerModal">
+  <div id="pickerHandle"></div>
+  <div id="pickerHead">
+    <div id="pickerSearchWrap">
+      <i class="bi bi-search" id="pickerSearchIcon"></i>
+      <input type="text" id="pickerSearch" placeholder="Поиск по названию или артикулу…"
+             oninput="_mp.render(this.value)" autocomplete="off" inputmode="search">
+    </div>
+    <button id="pickerCloseBtn" onclick="_mp.close()">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  <div id="pickerBody"></div>
+</div>
+<script>
+// Мобильный пикер товаров — самостоятельный, без зависимости от ProductPicker/Bootstrap
+var _mp = {
+  _cb: null,
+
+  open: function(callback) {
+    this._cb = callback;
+    document.getElementById('pickerOverlay').classList.add('open');
+    document.getElementById('productPickerModal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    var inp = document.getElementById('pickerSearch');
+    if (inp) inp.value = '';
+    this.render('');
+  },
+
+  close: function() {
+    document.getElementById('pickerOverlay').classList.remove('open');
+    document.getElementById('productPickerModal').classList.remove('open');
+    document.body.style.overflow = '';
+  },
+
+  select: function(pid) {
+    var products = window._mpProducts || [];
+    var p = products.find(function(x) { return x.id == pid; });
+    if (!p) return;
+    if (this._cb) this._cb(p);
+    this.close();
+  },
+
+  render: function(query) {
+    var q = (query || '').toLowerCase().trim();
+    var products = window._mpProducts || [];
+    var balances = window._mpBalances || {};
+
+    var filtered = q ? products.filter(function(p) {
+      return (p.name || '').toLowerCase().indexOf(q) >= 0 ||
+             (p.article || '').toLowerCase().indexOf(q) >= 0;
+    }) : products;
+
+    var body = document.getElementById('pickerBody');
+    if (!body) return;
+
+    if (!filtered.length) {
+      body.innerHTML = '<div style="text-align:center;padding:40px 16px;color:#94A3B8;font-size:.9rem">Ничего не найдено</div>';
+      return;
+    }
+
+    var groups = {};
+    filtered.forEach(function(p) {
+      var cat = p.category || 'Все товары';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(p);
+    });
+
+    function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    var cats = Object.keys(groups).sort(function(a, b) {
+      if (a === 'Все товары') return 1;
+      if (b === 'Все товары') return -1;
+      return a.localeCompare(b, 'ru');
+    });
+    var multi = cats.length > 1;
+    var html = '';
+
+    cats.forEach(function(cat) {
+      if (multi) html += '<p class="picker-cat-label">' + esc(cat) + ' <span style="font-weight:400;opacity:.55">(' + groups[cat].length + ')</span></p>';
+      html += '<div class="picker-grid">';
+      groups[cat].forEach(function(p) {
+        var bal = balances[p.id];
+        var balHtml = '';
+        if (bal !== undefined && bal !== null) {
+          var bv = (bal % 1 === 0) ? bal : parseFloat(bal).toFixed(1);
+          var bc = bal <= 0 ? 'picker-bal-zero' : (p.min_stock && bal <= p.min_stock ? 'picker-bal-low' : 'picker-bal-ok');
+          balHtml = '<div class="picker-bal ' + bc + '">' + bv + ' ' + esc(p.unit || '') + '</div>';
+        }
+        html += '<div class="picker-card" onclick="_mp.select(' + p.id + ')">' +
+          (p.article ? '<div class="picker-art">' + esc(p.article) + '</div>' : '') +
+          '<div class="picker-pname">' + esc(p.name) + '</div>' +
+          balHtml + '</div>';
+      });
+      html += '</div>';
+    });
+
+    body.innerHTML = html;
+  }
+};
+
+// Совместимость: старый код мог вызывать pickerClose()
+function pickerClose() { _mp.close(); }
 </script>
 
 {% block scripts %}{% endblock %}

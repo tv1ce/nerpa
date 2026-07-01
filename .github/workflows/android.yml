@@ -7,6 +7,9 @@ on:
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,7 +33,6 @@ jobs:
 
       # Декодируем keystore из GitHub Secret (base64) в файл release.jks.
       # Секреты KEYSTORE_BASE64/KEYSTORE_PASS/KEY_ALIAS/KEY_PASS заданы в настройках репо.
-      # ВАЖНО: нельзя использовать secrets в условии if: — это делает workflow невалидным.
       - name: Decode release keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/release.jks
 

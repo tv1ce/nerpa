@@ -1,0 +1,32 @@
+{% extends "field/base_field.html" %}
+{% block title %}История{% endblock %}
+{% block page_title %}<i class="bi bi-clock-history"></i> История визитов{% endblock %}
+
+{% block content %}
+{% if visits %}
+  <div class="fld-grid">
+  {% for v in visits %}
+  {% set l = v.lead %}
+  <a href="/field/lead/{{ l.id }}" class="fld-card p-3 d-block text-decoration-none text-dark">
+    <div class="d-flex align-items-start gap-2">
+      <span class="badge-dot mt-1" style="background:var(--bs-{{ status_colors.get(v.result,'secondary') }})"></span>
+      <div class="flex-grow-1" style="min-width:0">
+        <div class="fw-semibold">{{ l.name if l else '—' }}</div>
+        <div class="text-muted" style="font-size:.78rem">
+          {{ v.checkin_at.strftime("%d.%m.%Y %H:%M") if v.checkin_at else '' }}
+          {% if l and l.city %} · {{ l.city }}{% endif %}
+        </div>
+        {% if v.comment %}<div style="font-size:.85rem" class="mt-1 text-truncate">{{ v.comment }}</div>{% endif %}
+      </div>
+      <span class="badge text-bg-{{ status_colors.get(v.result,'secondary') }}">{{ statuses.get(v.result, v.result) }}</span>
+    </div>
+  </a>
+  {% endfor %}
+  </div>
+{% else %}
+  <div class="text-center text-muted py-5">
+    <i class="bi bi-inbox" style="font-size:2.4rem; display:block; margin-bottom:10px"></i>
+    Пока нет завершённых визитов.
+  </div>
+{% endif %}
+{% endblock %}

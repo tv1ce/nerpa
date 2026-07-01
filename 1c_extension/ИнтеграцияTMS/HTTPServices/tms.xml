@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MetaDataObject xmlns="http://v8.1c.ru/8.3/MDClasses"
+    xmlns:v8="http://v8.1c.ru/8.1/data/core"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="2.18">
+  <HTTPService uuid="a1b2c3d4-0003-4a00-9000-000000000003">
+    <Properties>
+      <Name>tms</Name>
+      <Synonym>
+        <v8:item><v8:lang>ru</v8:lang><v8:content>TMS</v8:content></v8:item>
+      </Synonym>
+      <RootURL>tms</RootURL>
+      <ReuseSessions>DontUse</ReuseSessions>
+      <SessionMaxAge>20</SessionMaxAge>
+    </Properties>
+    <ChildObjects>
+      <URLTemplate uuid="a1b2c3d4-0004-4a00-9000-000000000004">
+        <Properties>
+          <Name>print</Name>
+          <Template>/print</Template>
+        </Properties>
+        <ChildObjects>
+          <Method uuid="a1b2c3d4-0005-4a00-9000-000000000005">
+            <Properties>
+              <Name>printGET</Name>
+              <HTTPMethod>GET</HTTPMethod>
+              <Handler>ПечатьGET</Handler>
+            </Properties>
+          </Method>
+        </ChildObjects>
+      </URLTemplate>
+      <URLTemplate uuid="a1b2c3d4-0006-4a00-9000-000000000006">
+        <Properties>
+          <Name>edo</Name>
+          <Template>/edo</Template>
+        </Properties>
+        <ChildObjects>
+          <Method uuid="a1b2c3d4-0007-4a00-9000-000000000007">
+            <Properties>
+              <Name>edoGET</Name>
+              <HTTPMethod>GET</HTTPMethod>
+              <Handler>ЭДОGET</Handler>
+            </Properties>
+          </Method>
+        </ChildObjects>
+      </URLTemplate>
+    </ChildObjects>
+  </HTTPService>
+</MetaDataObject>

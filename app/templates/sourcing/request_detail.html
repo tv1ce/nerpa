@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}{{ req.number }}{% endblock %}
+{% block page_title %}{{ req.number }} — {{ req.title }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/sourcing/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>К списку</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <!-- Левая колонка: инфо о запросе + веса -->
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <span class="badge bg-{{ request_status_colors.get(req.status, 'secondary') }}">
+            {{ request_statuses.get(req.status, req.status) }}
+          </span>
+          <span class="text-muted" style="font-size:.8rem">{{ req.category.name if req.category else 'без направления' }}</span>
+        </div>
+        <h6 class="mb-2">{{ req.title }}</h6>
+        {% if req.description %}<p class="text-muted mb-3" style="font-size:.85rem; white-space:pre-line">{{ req.description }}</p>{% endif %}
+        {% if req.decided_vendor %}
+        <div class="alert alert-success py-2 mb-0" style="font-size:.85rem">
+          <i class="bi bi-trophy-fill me-1"></i>Выбран: <strong>{{ req.decided_vendor.name }}</strong>
+          <form method="post" action="/sourcing/requests/{{ req.id }}/reopen" class="d-inline ms-2">
+            <button class="btn btn-xs btn-link text-muted p-0" style="font-size:.78rem">сбросить</button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Веса критериев -->
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <h6 class="mb-3"><i class="bi bi-sliders me-1"></i>Веса критериев</h6>
+        <form method="post" action="/sourcing/requests/{{ req.id }}/weights">
+          <div class="mb-2">
+            <label class="form-label mb-0" style="font-size:.85rem">Цена
+              <span class="text-muted float-end" id="lblPrice">{{ '%.2f'|format(req.weight_price) }}</span></label>
+            <input type="range" class="form-range" name="weight_price" min="0" max="1" step="0.05"
+                   value="{{ req.weight_price }}" oninput="lblPrice.textContent=(+this.value).toFixed(2)">
+          </div>
+          <div class="mb-2">
+            <label class="form-label mb-0" style="font-size:.85rem">Срок
+              <span class="text-muted float-end" id="lblTerm">{{ '%.2f'|format(req.weight_term) }}</span></label>
+            <input type="range" class="form-range" name="weight_term" min="0" max="1" step="0.05"
+                   value="{{ req.weight_term }}" oninput="lblTerm.textContent=(+this.value).toFixed(2)">
+          </div>
+          <div class="mb-3">
+            <label class="form-label mb-0" style="font-size:.85rem">Качество
+              <span class="text-muted float-end" id="lblQual">{{ '%.2f'|format(req.weight_quality) }}</span></label>
+            <input type="range" class="form-range" name="weight_quality" min="0" max="1" step="0.05"
+                   value="{{ req.weight_quality }}" oninput="lblQual.textContent=(+this.value).toFixed(2)">
+          </div>
+          <button class="btn btn-sm btn-outline-primary w-100"><i class="bi bi-arrow-repeat me-1"></i>Пересчитать баллы</button>
+        </form>
+        <div class="form-text mt-2">Баллы нормируются внутри запроса: 0–10, выше — лучше.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Правая колонка: матрица сравнения -->
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <strong><i class="bi bi-table me-1"></i>Сравнение предложений</strong>
+        <span class="text-muted" style="font-size:.8rem">{{ quotes|length }} предложений</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table tms-table mb-0 align-middle">
+          <thead>
+            <tr>
+              <th class="ps-3">Поставщик</th>
+              <th class="text-end">Цена, ₽</th>
+              <th class="text-center">Срок, дн</th>
+              <th class="text-center">Качество</th>
+              <th>Оплата</th>
+              <th class="text-center">Балл</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for q in quotes %}
+            <tr class="{% if q.id == best_id %}table-success{% endif %}">
+              <td class="ps-3">
+                {% if q.id == best_id %}<i class="bi bi-trophy-fill text-warning me-1"></i>{% endif %}
+                <a href="/sourcing/vendors/{{ q.vendor_id }}" class="text-decoration-none text-dark fw-semibold">
+                  {{ q.vendor.name if q.vendor else '—' }}
+                </a>
+              </td>
+              <td class="text-end">{{ q.price | money if q.price else '—' }}</td>
+              <td class="text-center">{{ q.term_days or '—' }}</td>
+              <td class="text-center">
+                <span class="text-warning">{{ '★' * q.quality }}</span><span class="text-muted">{{ '☆' * (5 - q.quality) }}</span>
+              </td>
+              <td class="text-muted" style="font-size:.82rem">{{ q.payment_terms or '—' }}{% if q.min_batch %}<br><span class="text-muted">мин. {{ q.min_batch }}</span>{% endif %}</td>
+              <td class="text-center">
+                <span class="badge bg-{{ 'success' if q.id == best_id else 'light text-dark border' }}" style="font-size:.9rem">
+                  {{ '%.1f'|format(q.score or 0) }}
+                </span>
+              </td>
+              <td class="pe-2 text-end" style="white-space:nowrap">
+                <button class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:.75rem"
+                        data-bs-toggle="collapse" data-bs-target="#edit{{ q.id }}"><i class="bi bi-pencil"></i></button>
+                {% if req.status != 'decided' %}
+                <form method="post" action="/sourcing/requests/{{ req.id }}/decide" class="d-inline">
+                  <input type="hidden" name="vendor_id" value="{{ q.vendor_id }}">
+                  <button class="btn btn-xs btn-outline-success py-0 px-1" style="font-size:.75rem" title="Выбрать"><i class="bi bi-check-lg"></i></button>
+                </form>
+                {% endif %}
+                <form method="post" action="/sourcing/requests/{{ req.id }}/quote/{{ q.id }}/delete" class="d-inline"
+                      data-confirm="Удалить предложение от {{ q.vendor.name if q.vendor else '' }}?">
+                  <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:.75rem"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% if q.comment %}
+            <tr class="{% if q.id == best_id %}table-success{% endif %}">
+              <td colspan="7" class="ps-3 pt-0 pb-2 text-muted" style="font-size:.82rem; border-top:0">
+                <i class="bi bi-chat-left-text me-1"></i>{{ q.comment }}
+              </td>
+            </tr>
+            {% endif %}
+            <!-- inline-редактирование -->
+            <tr class="collapse" id="edit{{ q.id }}">
+              <td colspan="7" class="bg-light">
+                <form method="post" action="/sourcing/requests/{{ req.id }}/quote/{{ q.id }}/edit" class="row g-2 px-2 py-1">
+                  <div class="col-md-2"><label class="form-label mb-0" style="font-size:.75rem">Цена</label>
+                    <input type="text" name="price" class="form-control form-control-sm" value="{{ q.price or '' }}"></div>
+                  <div class="col-md-2"><label class="form-label mb-0" style="font-size:.75rem">Срок, дн</label>
+                    <input type="text" name="term_days" class="form-control form-control-sm" value="{{ q.term_days or '' }}"></div>
+                  <div class="col-md-2"><label class="form-label mb-0" style="font-size:.75rem">Качество</label>
+                    <select name="quality" class="form-select form-select-sm">
+                      {% for n in range(1,6) %}<option value="{{ n }}" {% if q.quality == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+                    </select></div>
+                  <div class="col-md-3"><label class="form-label mb-0" style="font-size:.75rem">Оплата</label>
+                    <input type="text" name="payment_terms" class="form-control form-control-sm" value="{{ q.payment_terms or '' }}"></div>
+                  <div class="col-md-2"><label class="form-label mb-0" style="font-size:.75rem">Мин. партия</label>
+                    <input type="text" name="min_batch" class="form-control form-control-sm" value="{{ q.min_batch or '' }}"></div>
+                  <div class="col-12"><label class="form-label mb-0" style="font-size:.75rem">Комментарий</label>
+                    <input type="text" name="comment" class="form-control form-control-sm" value="{{ q.comment or '' }}"></div>
+                  <div class="col-12"><button class="btn btn-sm btn-primary">Сохранить</button></div>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7" class="text-center py-4 text-muted">Пока нет предложений. Добавьте первое ниже.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Добавить предложение -->
+      <div class="card-footer bg-white">
+        {% if available_vendors %}
+        <form method="post" action="/sourcing/requests/{{ req.id }}/quote" class="row g-2">
+          <div class="col-md-3">
+            <select name="vendor_id" class="form-select form-select-sm" required>
+              <option value="">Поставщик…</option>
+              {% for v in available_vendors %}<option value="{{ v.id }}">{{ v.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2"><input type="text" name="price" class="form-control form-control-sm" placeholder="Цена"></div>
+          <div class="col-md-2"><input type="text" name="term_days" class="form-control form-control-sm" placeholder="Срок, дн"></div>
+          <div class="col-md-2">
+            <select name="quality" class="form-select form-select-sm">
+              {% for n in range(1,6) %}<option value="{{ n }}" {% if n == 3 %}selected{% endif %}>качество {{ n }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2"><input type="text" name="payment_terms" class="form-control form-control-sm" placeholder="Оплата"></div>
+          <div class="col-md-11"><input type="text" name="comment" class="form-control form-control-sm" placeholder="Комментарий (необязательно)"></div>
+          <div class="col-md-1"><button class="btn btn-sm btn-accent w-100"><i class="bi bi-plus-lg"></i></button></div>
+        </form>
+        {% else %}
+        <div class="text-muted text-center py-1" style="font-size:.85rem">
+          Все поставщики уже добавлены. <a href="/sourcing/vendors/new">Создать нового поставщика</a>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Направления закупок{% endblock %}
+{% block page_title %}Направления закупок{% endblock %}
+{% block topbar_actions %}
+  <a href="/sourcing/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Запросы</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white"><strong>Добавить направление</strong></div>
+      <div class="card-body">
+        <form method="post" action="/sourcing/categories/new" class="row g-2">
+          <div class="col"><input type="text" name="name" class="form-control" placeholder="Напр.: Типография" required></div>
+          <div class="col-auto"><button class="btn btn-accent"><i class="bi bi-plus-lg"></i></button></div>
+        </form>
+        <div class="form-text mt-2">Примеры: Типография, Брендированные пакеты, Сувенирка, Транспорт…</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        {% for c in categories %}
+        <form method="post" action="/sourcing/categories/{{ c.id }}/edit"
+              class="d-flex gap-2 align-items-center py-2 border-bottom">
+          <input type="text" name="name" class="form-control form-control-sm" value="{{ c.name }}" style="max-width:280px">
+          <span class="badge bg-light text-dark border">поставщиков: {{ vendor_counts.get(c.id, 0) }}</span>
+          <div class="form-check mb-0 ms-auto">
+            <input type="checkbox" name="is_active" value="1" class="form-check-input" id="act{{ c.id }}" {% if c.is_active %}checked{% endif %}>
+            <label class="form-check-label" for="act{{ c.id }}" style="font-size:.82rem">активно</label>
+          </div>
+          <button class="btn btn-xs btn-outline-primary py-0 px-2" style="font-size:.75rem">Сохранить</button>
+        </form>
+        {% else %}
+        <div class="text-center py-4 text-muted">Направлений пока нет.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

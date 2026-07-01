@@ -1,0 +1,38 @@
+{% for cp in counterparties %}
+<tr>
+  <td class="ps-3 text-center">
+    {% if cp.category %}
+    <span class="badge bg-{{ cat_colors[cp.category] }} {% if cp.category == 'C' %}text-dark{% endif %} px-2" style="font-size:.75rem; font-weight:700; min-width:1.5rem">{{ cp.category }}</span>
+    {% else %}
+    <span class="text-muted" style="font-size:.75rem">—</span>
+    {% endif %}
+  </td>
+  <td class="ps-1">
+    <a href="/counterparties/{{ cp.id }}" class="fw-semibold text-decoration-none">
+      {{ cp.trade_name or cp.name }}
+    </a>
+    {% if cp.trade_name %}
+    <div class="text-muted" style="font-size:.78rem">{{ cp.name }}</div>
+    {% endif %}
+  </td>
+  <td class="text-muted">{{ cp.inn or '—' }}</td>
+  <td>{{ cp.contact_person or '—' }}</td>
+  <td>{{ cp.phone or '—' }}</td>
+  <td>
+    <span class="badge badge-{{ cp.type }}">{{ cp_types[cp.type] }}</span>
+    {% if cp.entity_type %}
+    <span class="badge bg-light text-dark border ms-1" style="font-size:.72rem">{{ entity_types.get(cp.entity_type, cp.entity_type) }}</span>
+    {% endif %}
+  </td>
+  <td class="text-end pe-3">
+    {% if request.session.get('user_role') != 'warehouse' %}
+    <a href="/counterparties/{{ cp.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
+    <form method="post" action="/counterparties/{{ cp.id }}/delete" class="d-inline" data-confirm="Удалить контрагента?">
+      <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button>
+    </form>
+    {% endif %}
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="text-center py-4 text-muted">Контрагентов не найдено</td></tr>
+{% endfor %}

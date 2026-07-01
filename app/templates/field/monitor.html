@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Поле — монитор{% endblock %}
+{% block page_title %}Поле — торговые представители{% endblock %}
+
+{% block topbar_actions %}
+<form method="get" class="d-flex align-items-center gap-2">
+  <input type="date" name="date_str" value="{{ day.isoformat() }}" class="form-control form-control-sm"
+         style="max-width:165px" onchange="this.form.submit()">
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-sm-4"><div class="card border-0 shadow-sm"><div class="card-body">
+    <div class="text-muted small">Запланировано на день</div>
+    <div class="fs-3 fw-bold">{{ totals.planned }}</div></div></div></div>
+  <div class="col-sm-4"><div class="card border-0 shadow-sm"><div class="card-body">
+    <div class="text-muted small">Пройдено визитов</div>
+    <div class="fs-3 fw-bold text-success">{{ totals.done }}</div></div></div></div>
+  <div class="col-sm-4"><div class="card border-0 shadow-sm"><div class="card-body">
+    <div class="text-muted small">Договоров</div>
+    <div class="fs-3 fw-bold text-primary">{{ totals.deals }}</div></div></div></div>
+</div>
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Торгпред</th><th class="text-center">План</th><th class="text-center">Пройдено</th>
+            <th class="text-center">Осталось</th><th class="text-center">Интерес</th>
+            <th class="text-center">Договоры</th><th>Последний визит</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="fw-semibold">{{ r.rep.full_name }}</td>
+          <td class="text-center">{{ r.planned }}</td>
+          <td class="text-center"><span class="badge text-bg-success">{{ r.done }}</span></td>
+          <td class="text-center">{% if r.left > 0 %}<span class="text-warning fw-semibold">{{ r.left }}</span>{% else %}—{% endif %}</td>
+          <td class="text-center">{{ r.interested }}</td>
+          <td class="text-center">{% if r.deals %}<span class="badge text-bg-primary">{{ r.deals }}</span>{% else %}—{% endif %}</td>
+          <td class="text-muted small">{{ r.last_at.strftime("%d.%m %H:%M") if r.last_at else "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">
+          Нет пользователей с ролью «Торговый представитель».
+          Создай их в <a href="/settings/">Настройках</a>.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# Карта дня всех торгпредов #}
+<div class="card border-0 shadow-sm">
+  <div class="card-body p-0">
+    <div id="mon-map" style="height:460px;border-radius:8px"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script>
+const STATUS_COLOR = {
+  new:'#6c757d', callback:'#0dcaf0', no_answer:'#ffc107', interested:'#0d6efd',
+  thinking:'#6f42c1', refused:'#dc3545', deal:'#198754', invalid:'#212529',
+};
+const map = L.map('mon-map').setView([55.75, 37.62], 11);
+map.attributionControl.setPrefix(false);  // убрать префикс «Leaflet» с флагом
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution:'© OpenStreetMap', maxZoom:19 }).addTo(map);
+const layer = L.layerGroup().addTo(map);
+fetch('/field/monitor/data?date_str={{ day.isoformat() }}').then(r=>r.json()).then(function(data){
+  const bounds = [];
+  data.forEach(function(d){
+    const m = L.circleMarker([d.lat, d.lng], {
+      radius:8, fillColor:STATUS_COLOR[d.status]||'#6c757d', color: d.done ? '#198754' : '#fff',
+      weight: d.done ? 3 : 2, fillOpacity:.9,
+    });
+    m.bindPopup('<b>'+d.name+'</b><br>'+d.rep+(d.done?'<br><span style="color:#198754">✓ пройдено</span>':'<br>запланировано'));
+    layer.addLayer(m); bounds.push([d.lat, d.lng]);
+  });
+  if (bounds.length) map.fitBounds(bounds, { padding:[40,40], maxZoom:14 });
+});
+</script>
+{% endblock %}

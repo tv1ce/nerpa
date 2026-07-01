@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Закупки{% endblock %}
+{% block page_title %}Закупки — сравнение поставщиков{% endblock %}
+{% block topbar_actions %}
+  <a href="/sourcing/vendors" class="btn btn-outline-secondary btn-sm me-1"><i class="bi bi-people me-1"></i>Поставщики</a>
+  <a href="/sourcing/categories" class="btn btn-outline-secondary btn-sm me-1"><i class="bi bi-tags me-1"></i>Направления</a>
+  <a href="/sourcing/requests/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новый запрос</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <form class="row g-2 mb-3" method="get">
+      <div class="col-md-3">
+        <select name="cat_id" class="form-select form-select-sm">
+          <option value="">Все направления</option>
+          {% for c in categories %}
+          <option value="{{ c.id }}" {% if filter_cat_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Все статусы</option>
+          {% for val, label in request_statuses.items() %}
+          <option value="{{ val }}" {% if filter_status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/sourcing/" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Номер</th>
+          <th>Что закупаем</th>
+          <th>Направление</th>
+          <th class="text-center">Предложений</th>
+          <th>Статус</th>
+          <th>Выбранный поставщик</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in requests %}
+        <tr>
+          <td class="ps-3 fw-semibold">
+            <a href="/sourcing/requests/{{ r.id }}" class="text-decoration-none">{{ r.number }}</a>
+          </td>
+          <td><a href="/sourcing/requests/{{ r.id }}" class="text-decoration-none text-dark">{{ r.title }}</a></td>
+          <td class="text-muted" style="font-size:.85rem">{{ r.category.name if r.category else '—' }}</td>
+          <td class="text-center">
+            <span class="badge bg-light text-dark border">{{ quote_counts.get(r.id, 0) }}</span>
+          </td>
+          <td>
+            <span class="badge bg-{{ request_status_colors.get(r.status, 'secondary') }}">
+              {{ request_statuses.get(r.status, r.status) }}
+            </span>
+          </td>
+          <td class="text-muted" style="font-size:.85rem">
+            {% if r.decided_vendor %}<i class="bi bi-trophy-fill text-warning me-1"></i>{{ r.decided_vendor.name }}{% else %}—{% endif %}
+          </td>
+          <td class="pe-2 text-end">
+            <a href="/sourcing/requests/{{ r.id }}" class="btn btn-xs btn-outline-secondary py-0 px-1" style="font-size:.75rem">
+              <i class="bi bi-table"></i>
+            </a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center py-4 text-muted">Запросов пока нет. Создайте первый.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

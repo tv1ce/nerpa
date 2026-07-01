@@ -42,11 +42,15 @@ generated/
 # User uploads
 app/static/uploads/
 
+# Прикреплённые документы карточек (договора, счета, УПД, ТН) — приватные
+uploads/
+
 # Claude Code local tooling
 .claude/
 
 # Secrets
 .env
+teamly_tokens.json
 
 # Android APK дистрибутив (бинарь не храним в git, только version.json)
 app_dist/*.apk

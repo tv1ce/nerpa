@@ -10,8 +10,28 @@ from app.database import get_db
 from app.auth import login_required, role_required
 from app.models import Contract, Counterparty, DocumentTemplate, CompanySettings
 
+import threading
+import logging as _logging
+
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 templates = Jinja2Templates(directory="app/templates")
+
+_log = _logging.getLogger(__name__)
+
+
+def _push_contract_bg(contract_id: int) -> None:
+    """Push договора в 1С в фоновом потоке (собственная сессия)."""
+    from app.database import SessionLocal
+    from app.services.onec_client import push_contract
+    db = SessionLocal()
+    try:
+        ct = db.query(Contract).filter(Contract.id == contract_id).first()
+        if ct:
+            push_contract(ct, db)
+    except Exception as e:
+        _log.error("push_contract bg %s: %s", contract_id, e)
+    finally:
+        db.close()
 
 CONTRACT_STATUSES = {
     "draft": "Черновик",
@@ -24,6 +44,14 @@ PAYMENT_TYPES = {
     "deferred": "Отсрочка платежа",
 }
 GENERATED_DIR = "generated"
+
+
+def _contract_display_name(contract, cp) -> str:
+    """Наименование договора: «24 от 24.06.2026 (ИП Данилюк Ирина Юрьевна)»."""
+    dt = contract.date.strftime("%d.%m.%Y") if contract.date else ""
+    base = f"{contract.number} от {dt}".strip()
+    name = ((getattr(cp, "short_name", None) or getattr(cp, "name", None) or "").strip()) if cp else ""
+    return f"{base} ({name})" if name else base
 
 
 def _next_contract_number(db: Session) -> str:
@@ -50,12 +78,13 @@ async def list_contracts(request: Request, q: str = "", status: str = "", db: Se
     contracts = query.order_by(Contract.date.desc(), Contract.id.desc()).all()
     return templates.TemplateResponse(request, "contracts/list.html", {
         "contracts": contracts, "q": q, "status": status, "statuses": CONTRACT_STATUSES,
+        "today": date.today(),
     })
 
 
 @router.get("/new", response_class=HTMLResponse)
 @login_required
-async def new_contract(request: Request, db: Session = Depends(get_db)):
+async def new_contract(request: Request, counterparty_id: int = 0, db: Session = Depends(get_db)):
     counterparties = db.query(Counterparty).filter(Counterparty.is_active == True).order_by(Counterparty.name).all()
     doc_templates = db.query(DocumentTemplate).filter(
         DocumentTemplate.is_active == True, DocumentTemplate.type == "contract"
@@ -64,6 +93,7 @@ async def new_contract(request: Request, db: Session = Depends(get_db)):
         "contract": None, "counterparties": counterparties, "doc_templates": doc_templates,
         "statuses": CONTRACT_STATUSES, "payment_types": PAYMENT_TYPES,
         "suggested_number": _next_contract_number(db),
+        "selected_counterparty_id": counterparty_id,
     })
 
 
@@ -108,6 +138,11 @@ async def create_contract(
     ).scalar()
     contract.number = desired_number if not conflict else str(contract.id)
 
+    # Наименование договора по шаблону «24 от 24.06.2026 (ИП Данилюк ...)»,
+    # если пользователь не задал собственный предмет вручную
+    if not (subject or "").strip():
+        contract.subject = _contract_display_name(contract, contract.counterparty)
+
     doc_error = None
     if template_id:
         try:
@@ -117,6 +152,7 @@ async def create_contract(
             logging.getLogger(__name__).error("Ошибка генерации договора %s: %s", contract.number, e)
             doc_error = str(e)
     db.commit()
+    threading.Thread(target=_push_contract_bg, args=(contract.id,), daemon=True).start()
     if doc_error:
         return RedirectResponse(
             url=f"/contracts/{contract.id}?doc_error=1", status_code=302
@@ -202,9 +238,15 @@ async def generate_contract(request: Request, contract_id: int, db: Session = De
     return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
 
 
+def _safe_filename(name: str) -> str:
+    """Убирает символы, недопустимые в имени файла (Windows/Unix)."""
+    import re as _re
+    return _re.sub(r'[\\/:*?"<>|]', "", name).strip() or "Договор"
+
+
 @router.get("/{contract_id}/download")
 @login_required
-async def download_contract(request: Request, contract_id: int, db: Session = Depends(get_db)):
+async def download_contract(request: Request, contract_id: int, fmt: str = "docx", db: Session = Depends(get_db)):
     contract = db.query(Contract).filter(Contract.id == contract_id).first()
     if not contract or not contract.file_path or not os.path.exists(contract.file_path):
         return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
@@ -213,11 +255,61 @@ async def download_contract(request: Request, contract_id: int, db: Session = De
     abs_path = os.path.abspath(contract.file_path)
     if not abs_path.startswith(allowed_dir + os.sep):
         return RedirectResponse(url=f"/contracts/{contract_id}", status_code=302)
+
+    # Имя для скачивания: «24 от 24.06.2026 (ИП Данилюк Ирина Юрьевна)»
+    base_name = _safe_filename(_contract_display_name(contract, contract.counterparty))
+
+    if fmt == "pdf":
+        from app.utils.doc_generator import convert_docx_to_pdf
+        pdf_path = convert_docx_to_pdf(abs_path, allowed_dir)
+        if not pdf_path or not os.path.exists(pdf_path):
+            # Конвертация недоступна — отдаём .docx
+            return RedirectResponse(url=f"/contracts/{contract_id}?pdf_error=1", status_code=302)
+        return FileResponse(
+            pdf_path,
+            filename=f"{base_name}.pdf",
+            media_type="application/pdf",
+        )
+
     return FileResponse(
         abs_path,
-        filename=os.path.basename(abs_path),
+        filename=f"{base_name}.docx",
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
+
+
+@router.post("/{contract_id}/duplicate")
+@login_required
+async def duplicate_contract(request: Request, contract_id: int, db: Session = Depends(get_db)):
+    """Создаёт копию договора: тот же шаблон + КА, новый номер, даты +1 год, статус draft."""
+    from datetime import timedelta
+    src = db.query(Contract).filter(Contract.id == contract_id).first()
+    if not src:
+        return RedirectResponse(url="/contracts", status_code=302)
+    today = date.today()
+    new_end = None
+    if src.end_date:
+        try:
+            new_end = src.end_date.replace(year=src.end_date.year + 1)
+        except ValueError:
+            new_end = src.end_date + timedelta(days=365)
+    dup = Contract(
+        number=_next_contract_number(db),
+        date=today,
+        counterparty_id=src.counterparty_id,
+        template_id=src.template_id,
+        subject=src.subject,
+        status="draft",
+        start_date=today,
+        end_date=new_end,
+        amount=src.amount,
+        payment_type=src.payment_type,
+        payment_days=src.payment_days,
+        notes=src.notes,
+    )
+    db.add(dup)
+    db.commit()
+    return RedirectResponse(url=f"/contracts/{dup.id}", status_code=302)
 
 
 @router.post("/{contract_id}/delete")

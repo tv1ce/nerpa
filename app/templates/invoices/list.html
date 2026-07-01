@@ -2,6 +2,8 @@
 {% block title %}Счета на оплату{% endblock %}
 {% block page_title %}Счета на оплату{% endblock %}
 {% block topbar_actions %}
+  <a href="/invoices/export.xlsx?q={{ q }}&status={{ status }}&date_from={{ date_from }}&date_to={{ date_to }}&counterparty_id={{ counterparty_id }}&overdue={{ overdue }}"
+     class="btn btn-outline-success btn-sm me-1"><i class="bi bi-file-earmark-excel me-1"></i>Excel</a>
   <a href="/invoices/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новый счёт</a>
 {% endblock %}
 
@@ -9,10 +11,10 @@
 <div class="card border-0 shadow-sm">
   <div class="card-body pb-0">
     <form class="row g-2 mb-3" method="get">
-      <div class="col-md-5">
+      <div class="col-md-3">
         <input type="text" name="q" class="form-control form-control-sm" placeholder="Номер или клиент…" value="{{ q }}">
       </div>
-      <div class="col-md-3">
+      <div class="col-md-2">
         <select name="status" class="form-select form-select-sm">
           <option value="">Все статусы</option>
           {% for val, label in statuses.items() %}
@@ -20,7 +22,21 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-auto">
+      <div class="col-md-2">
+        <select name="counterparty_id" class="form-select form-select-sm">
+          <option value="0">Все клиенты</option>
+          {% for cp in counterparties %}
+          <option value="{{ cp.id }}" {% if counterparty_id == cp.id %}selected{% endif %}>{{ cp.trade_name or cp.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-auto d-flex align-items-center gap-2 flex-wrap">
+        <input type="date" name="date_from" class="form-control form-control-sm" style="width:140px" value="{{ date_from }}" title="Дата с">
+        <input type="date" name="date_to" class="form-control form-control-sm" style="width:140px" value="{{ date_to }}" title="Дата по">
+        <div class="form-check form-check-inline mb-0">
+          <input class="form-check-input" type="checkbox" name="overdue" id="chk_overdue" value="1" {% if overdue %}checked{% endif %}>
+          <label class="form-check-label text-danger fw-semibold" for="chk_overdue" style="font-size:.82rem">Просроченные</label>
+        </div>
         <button class="btn btn-sm btn-outline-secondary">Найти</button>
         <a href="/invoices" class="btn btn-sm btn-link text-muted">Сбросить</a>
       </div>
@@ -43,7 +59,7 @@
         {% for inv in invoices %}
         <tr>
           <td class="ps-3"><a href="/invoices/{{ inv.id }}" class="fw-semibold text-decoration-none">{{ inv.number }}</a></td>
-          <td>{{ inv.counterparty.trade_name or inv.counterparty.name }}</td>
+          <td><a href="/invoices/{{ inv.id }}" class="text-decoration-none">{{ inv.counterparty.trade_name or inv.counterparty.name }}</a></td>
           <td>{{ inv.date | date_fmt }}</td>
           <td>
             {{ inv.due_date | date_fmt }}

@@ -1,0 +1,141 @@
+{% extends "field/base_field.html" %}
+{% block title %}Новая точка{% endblock %}
+{% block page_title %}<i class="bi bi-plus-circle"></i> Новая точка{% endblock %}
+
+{% block header_actions %}
+  <a href="javascript:history.back()" class="fld-ico" title="Назад"><i class="bi bi-arrow-left"></i></a>
+{% endblock %}
+
+{% block content %}
+
+{% if error == 'name' %}
+<div class="alert alert-danger py-2 d-flex align-items-center gap-2 mb-3">
+  <i class="bi bi-exclamation-triangle-fill"></i> Введите название заведения
+</div>
+{% endif %}
+
+<form method="post" action="/field/lead/new" id="new-lead-form">
+  <input type="hidden" name="gps_lat" id="gps-lat">
+  <input type="hidden" name="gps_lng" id="gps-lng">
+
+  {# Название #}
+  <div class="fld-card p-3 mb-3">
+    <div class="fw-bold mb-3"><i class="bi bi-shop text-primary"></i> Заведение</div>
+
+    <div class="mb-3">
+      <label class="form-label small text-muted mb-1">Название *</label>
+      <input type="text" name="name" class="form-control form-control-lg" required
+             placeholder="напр. Кофейня «Уют»" autofocus>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label small text-muted mb-1">Категория</label>
+      <select name="category" id="cat-select" class="form-select" onchange="onCatChange(this)">
+        <option value="">— выбери —</option>
+        {% for c in categories %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+      </select>
+      <input type="text" name="category_custom" id="cat-custom" class="form-control mt-2"
+             placeholder="Свой вариант…" style="display:none">
+    </div>
+  </div>
+
+  {# Адрес #}
+  <div class="fld-card p-3 mb-3">
+    <div class="fw-bold mb-3"><i class="bi bi-geo-alt text-primary"></i> Адрес</div>
+
+    <div class="mb-3">
+      <label class="form-label small text-muted mb-1">Город</label>
+      <input type="text" name="city" class="form-control" placeholder="напр. Москва">
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label small text-muted mb-1">Адрес</label>
+      <input type="text" name="address" class="form-control" placeholder="ул. Ленина, 12">
+    </div>
+
+    {# GPS статус #}
+    <div id="gps-status" class="d-flex align-items-center gap-2 text-muted" style="font-size:.82rem">
+      <span class="spinner-border spinner-border-sm" id="gps-spin"></span>
+      <span id="gps-text">Определяем координаты…</span>
+    </div>
+  </div>
+
+  {# Контакт #}
+  <div class="fld-card p-3 mb-3">
+    <div class="fw-bold mb-3"><i class="bi bi-telephone text-primary"></i> Контакт</div>
+    <div class="mb-3">
+      <label class="form-label small text-muted mb-1">Телефон</label>
+      <input type="tel" name="phone" class="form-control" placeholder="+7 (___) ___-__-__">
+    </div>
+  </div>
+
+  {# Заметка #}
+  <div class="fld-card p-3 mb-3">
+    <div class="fw-bold mb-3"><i class="bi bi-chat-left-text text-primary"></i> Заметка</div>
+    <textarea name="notes" rows="3" class="form-control"
+              placeholder="Что заметил, первое впечатление…"></textarea>
+  </div>
+
+  {# Добавить в план сегодня #}
+  <div class="fld-card p-3 mb-4">
+    <div class="form-check form-switch d-flex align-items-center gap-3 py-1">
+      <input class="form-check-input" type="checkbox" name="add_to_plan" id="add-plan" checked
+             style="width:3em; height:1.6em; cursor:pointer">
+      <label class="form-check-label" for="add-plan" style="font-size:.95rem; cursor:pointer">
+        <span class="fw-semibold">Добавить в план на сегодня</span><br>
+        <span class="text-muted" style="font-size:.8rem">Точка появится в «Моём дне»</span>
+      </label>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary w-100 btn-lg-touch">
+    <i class="bi bi-plus-circle me-1"></i>Добавить точку
+  </button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Категория "Другое" → показываем поле ввода
+function onCatChange(sel) {
+  var custom = document.getElementById('cat-custom');
+  if (sel.value === 'Другое') {
+    custom.style.display = '';
+    custom.required = true;
+    custom.focus();
+  } else {
+    custom.style.display = 'none';
+    custom.required = false;
+    custom.value = '';
+  }
+}
+
+// Авто-GPS — пробуем получить координаты, результат показываем пользователю
+(function () {
+  var spin = document.getElementById('gps-spin');
+  var txt  = document.getElementById('gps-text');
+
+  function ok(pos) {
+    document.getElementById('gps-lat').value = pos.coords.latitude.toFixed(6);
+    document.getElementById('gps-lng').value = pos.coords.longitude.toFixed(6);
+    spin.style.display = 'none';
+    txt.innerHTML = '<i class="bi bi-geo-alt-fill text-success"></i> Координаты получены — точка отобразится на карте';
+    txt.classList.remove('text-muted');
+    txt.classList.add('text-success');
+  }
+
+  function fail() {
+    spin.style.display = 'none';
+    txt.innerHTML = '<i class="bi bi-geo-alt text-secondary"></i> Координаты не получены — точку можно геокодировать позже';
+  }
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(ok, fail, { timeout: 8000, maximumAge: 30000 });
+  } else {
+    fail();
+  }
+})();
+</script>
+{% endblock %}

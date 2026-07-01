@@ -26,6 +26,38 @@ def log_action(
     ))
 
 
+def sync_order_paid_status(db: Session, order, user_id: int = None) -> bool:
+    """Подтягивает статус заказа по оплате связанных счетов.
+
+    Если заказ по предоплате и его привязанные счета полностью оплачены — переводит
+    заказ в «Оплачен» (с этого статуса он падает кладовщику на сборку). Только
+    продвигает вперёд: заказы в «Собран»/«Передан»/«Доставлен»/«Отменён» не трогаем.
+    Для заказов с отсрочкой шага «Оплачен» в цикле нет — статус не меняем.
+    Возвращает True, если статус был изменён.
+    """
+    if not order or not order.is_prepay:
+        return False
+    if order.status not in ("draft", "confirmed"):
+        return False
+    invoices = [i for i in order.invoices if i.status != "cancelled"]
+    if not invoices:
+        return False
+    order_total = order.total_amount or 0
+    paid_total = sum((i.total_amount or 0) for i in invoices if i.status == "paid")
+    if order_total > 0:
+        is_paid = paid_total + 0.01 >= order_total
+    else:
+        is_paid = any(i.status == "paid" for i in invoices)
+    if not is_paid:
+        return False
+    old = order.status
+    order.status = "paid"
+    log_action(db, "order", order.id, "status_changed", user_id,
+               "Заказ переведён в «Оплачен» по оплате счёта",
+               field="status", old_value=old, new_value="paid")
+    return True
+
+
 def get_balance(db: Session, product_id: int) -> float:
     from app.models import Product, StockMovement
     p = db.query(Product).filter(Product.id == product_id).first()
@@ -89,6 +121,7 @@ def maybe_notify_low_stock(db: Session, product_id: int) -> None:
                 title=f"Низкий остаток: {p.name}",
                 body=f"Текущий остаток {balance} {p.unit} ≤ минимум {p.min_stock} {p.unit}",
                 product_id=product_id,
+                link="/warehouse/",
             ))
     else:
         db.query(Notification).filter(

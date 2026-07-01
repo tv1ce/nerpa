@@ -86,9 +86,11 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        // Всегда загружаем страницу заново — LOAD_NO_CACHE гарантирует свежий HTML,
+        // поэтому нет смысла восстанавливать предыдущее состояние WebView.
+        webView.loadUrl("$serverUrl/warehouse/")
         if (savedInstanceState == null) {
-            webView.loadUrl("$serverUrl/warehouse/")
-            // Проверка обновлений приложения при запуске
+            // Проверка обновлений только при первом запуске (не при восстановлении)
             UpdateChecker(this, serverUrl).check()
         }
     }
@@ -104,7 +106,11 @@ class MainActivity : AppCompatActivity() {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true            // localStorage для PWA-логики
-            cacheMode = WebSettings.LOAD_DEFAULT
+            // LOAD_NO_CACHE: HTML-страницы всегда с сервера (или SW network-first),
+            // статика по-прежнему кешируется Service Worker через Cache API.
+            // Без этого WebView кешировал /warehouse/ в десктоп-виде и после
+            // переключения обратно на мобильный отдавал устаревший кеш.
+            cacheMode = WebSettings.LOAD_NO_CACHE
             useWideViewPort = true
             loadWithOverviewMode = true
             mediaPlaybackRequiresUserGesture = false
@@ -124,8 +130,10 @@ class MainActivity : AppCompatActivity() {
                     startActivity(Intent(Intent.ACTION_VIEW, request.url))
                     return true
                 }
-                // Свой сервер — внутри WebView; чужие http(s) — во внешний браузер
-                return if (url.startsWith(serverUrl)) {
+                // Свой сервер (сравниваем по хосту — порт может отличаться) — внутри WebView
+                val reqHost = request.url.host ?: ""
+                val serverHost = android.net.Uri.parse(serverUrl).host ?: ""
+                return if (serverHost.isNotEmpty() && reqHost == serverHost) {
                     false
                 } else if (url.startsWith("http")) {
                     startActivity(Intent(Intent.ACTION_VIEW, request.url))
@@ -180,13 +188,4 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        webView.saveState(outState)
-    }
-
-    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-        super.onRestoreInstanceState(savedInstanceState)
-        webView.restoreState(savedInstanceState)
-    }
 }

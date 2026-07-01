@@ -16,6 +16,11 @@ def _set_wal(connection, _):
     connection.execute("PRAGMA cache_size=-8000")       # 8 MB page cache
     connection.execute("PRAGMA wal_autocheckpoint=100") # checkpoint каждые 100 страниц
 
+    # SQLite's built-in lower() (использует его ILIKE/LIKE-поиск) казуфолдит
+    # только ASCII — «Кофе».ilike("%кофе%") не совпадёт. Подменяем на
+    # Unicode-aware str.lower(), чтобы регистр не влиял на поиск по кириллице.
+    connection.create_function("lower", 1, lambda s: s.lower() if s is not None else None)
+
 
 engine = create_engine(
     DATABASE_URL,
@@ -26,6 +31,47 @@ from sqlalchemy import event
 event.listen(engine, "connect", _set_wal)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def _db_file_path() -> str:
+    """Абсолютный путь к файлу SQLite-БД из DATABASE_URL."""
+    if DATABASE_URL.startswith("sqlite:///"):
+        raw = DATABASE_URL[len("sqlite:///"):]
+    else:
+        raw = "tms.db"
+    return os.path.abspath(raw)
+
+
+def make_backup_copy(dest_path: str | None = None) -> str:
+    """Создаёт целостную резервную копию БД через `VACUUM INTO`.
+
+    В отличие от копирования файла tms.db, VACUUM INTO выгружает полностью
+    согласованный снимок со всеми данными WAL — даже если checkpoint не
+    срабатывал (активные соединения приложения этому мешают). Использует
+    отдельное подключение sqlite3, чтобы не трогать пул SQLAlchemy.
+
+    Возвращает путь к созданному файлу-копии. Если dest_path не задан —
+    создаётся временный файл (вызывающий код обязан его удалить)."""
+    import sqlite3
+    import tempfile
+
+    src = _db_file_path()
+    if not os.path.exists(src):
+        raise FileNotFoundError(f"База данных не найдена: {src}")
+
+    if dest_path is None:
+        fd, dest_path = tempfile.mkstemp(prefix="tms-backup-", suffix=".db")
+        os.close(fd)
+    # VACUUM INTO требует, чтобы целевой файл не существовал
+    if os.path.exists(dest_path):
+        os.remove(dest_path)
+
+    conn = sqlite3.connect(src, timeout=15)
+    try:
+        conn.execute("VACUUM INTO ?", (dest_path,))
+    finally:
+        conn.close()
+    return dest_path
 
 
 class Base(DeclarativeBase):
@@ -100,12 +146,12 @@ def _migrate_db():
         ("products", "sale_unit", "TEXT"),
         ("products", "units_per_box", "INTEGER DEFAULT 1"),
         ("invoice_items", "discount_pct", "REAL DEFAULT 0.0"),
-        ("company_settings", "board_shift_start",    "TEXT DEFAULT '09:00'"),
-        ("company_settings", "board_shift_end",      "TEXT DEFAULT '17:00'"),
-        ("company_settings", "board_nut_price",      "REAL DEFAULT 52.0"),
         ("company_settings", "board_cost_pct",       "REAL DEFAULT 0.0"),
         ("company_settings", "board_cost_norm_pct",  "REAL DEFAULT 48.0"),
         ("company_settings", "board_cost_deviation", "REAL DEFAULT 5.0"),
+        ("sales_leads", "district",         "TEXT"),
+        ("sales_leads", "lat",              "REAL"),
+        ("sales_leads", "lng",              "REAL"),
         ("sales_leads", "converted_cp_id", "INTEGER REFERENCES counterparties(id)"),
         # Разведка ЛПР по точкам прозвона
         ("sales_leads", "inn",               "TEXT"),
@@ -143,6 +189,75 @@ def _migrate_db():
         ("company_settings", "kpi_product_filter", "TEXT DEFAULT 'орешк'"),
         # Скидка по умолчанию для контрагента (подставляется в новые заказы)
         ("counterparties", "default_discount_pct", "REAL DEFAULT 0.0"),
+        # День рождения сотрудника (для поздравлений на табло цеха)
+        ("users", "birthday", "DATE"),
+        # Ссылка на объект в уведомлении (клик → переход на страницу)
+        ("notifications", "link", "TEXT"),
+        # Пороги напоминаний (за сколько дней предупреждать), 0 = выключено
+        ("company_settings", "notify_contract_days", "INTEGER DEFAULT 14"),
+        ("company_settings", "notify_invoice_days",  "INTEGER DEFAULT 3"),
+        # Напоминания о прозвонах — отдельный чат и флаг вкл/выкл
+        ("company_settings", "tg_callback_chat_ids", "TEXT"),
+        ("company_settings", "tg_callback_enabled",  "INTEGER DEFAULT 1"),
+        # Момент сборки заказа (нажатие «Собрано») — для учёта отгрузки на табло
+        ("orders", "assembled_at", "TIMESTAMP"),
+        # Публичный токен клиентского трекинга /track/{token}
+        ("orders", "public_token", "TEXT"),
+        # ЕГРЮЛ — кэш статуса из DaData
+        ("counterparties", "egrul_status",     "TEXT"),
+        ("counterparties", "egrul_checked_at", "TIMESTAMP"),
+        # Автобекап БД в Telegram
+        ("company_settings", "backup_enabled",     "INTEGER DEFAULT 0"),
+        ("company_settings", "backup_frequency",   "TEXT DEFAULT 'weekly'"),
+        ("company_settings", "tg_backup_chat_id",  "TEXT"),
+        # Категория товара для группировки в пикере
+        ("products", "category", "TEXT"),
+        # ── Интеграция 1С:УНФ ────────────────────────────────────────────────
+        # external_id_1c — GUID объекта в 1С (заполняется при первом push/pull)
+        # synced_*_at    — datetime последней успешной синхронизации
+        ("counterparties",  "external_id_1c",    "TEXT"),
+        ("counterparties",  "synced_to_1c_at",   "TIMESTAMP"),
+        ("products",        "external_id_1c",    "TEXT"),
+        ("products",        "synced_from_1c_at", "TIMESTAMP"),
+        ("orders",          "external_id_1c",    "TEXT"),
+        ("orders",          "synced_to_1c_at",   "TIMESTAMP"),
+        ("invoices",        "external_id_1c",    "TEXT"),
+        ("invoices",        "synced_to_1c_at",   "TIMESTAMP"),
+        ("contracts",       "external_id_1c",    "TEXT"),
+        ("contracts",       "synced_to_1c_at",   "TIMESTAMP"),
+        ("stock_movements", "external_id_1c",    "TEXT"),
+        ("stock_movements", "synced_to_1c_at",   "TIMESTAMP"),
+        # Настройки подключения к 1С (URL OData, учётные данные, вкл/выкл)
+        ("company_settings", "onec_url",      "TEXT"),
+        ("company_settings", "onec_user",     "TEXT"),
+        ("company_settings", "onec_password", "TEXT"),
+        ("company_settings", "onec_enabled",  "INTEGER DEFAULT 0"),
+        ("company_settings", "onec_hs_url",   "TEXT"),
+        ("attached_files",   "source",        "TEXT DEFAULT 'manual'"),
+        ("attached_files",   "external_key",  "TEXT"),
+        ("orders",           "shipment_id_1c", "TEXT"),
+        ("company_settings", "doc_intake_channel", "TEXT DEFAULT 'off'"),
+        # Телефон менеджера — отображается клиенту в публичной ссылке трекинга
+        ("users", "phone", "TEXT"),
+        # Менеджер по продажам заказа (может отличаться от создателя)
+        ("orders", "sales_manager_id", "INTEGER REFERENCES users(id)"),
+        # Транспорт и водитель для ЭТРН
+        ("orders", "driver_name",   "TEXT"),
+        ("orders", "vehicle_plate", "TEXT"),
+        ("orders", "vehicle_type",  "TEXT"),
+        # СБИС ЭПД / ЭТРН
+        ("orders", "etran_id",     "TEXT"),
+        ("orders", "etran_status", "TEXT"),
+        ("orders", "etran_url",    "TEXT"),
+        # СБИС настройки компании
+        ("company_settings", "sbis_login",      "TEXT"),
+        ("company_settings", "sbis_password",   "TEXT"),
+        ("company_settings", "sbis_account_id", "TEXT"),
+        # Модули (вкл/выкл в меню)
+        ("company_settings", "module_leads",    "INTEGER DEFAULT 0"),
+        ("company_settings", "module_recon",    "INTEGER DEFAULT 0"),
+        ("company_settings", "module_sourcing", "INTEGER DEFAULT 0"),
+        ("company_settings", "module_field",    "INTEGER DEFAULT 0"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
@@ -165,6 +280,27 @@ def _migrate_db():
     # Перевод орешков с «Коробки» на «шт»
     cur.execute("UPDATE products SET unit='шт', sale_unit=NULL, units_per_box=1 WHERE unit='Коробки'")
     cur.execute("UPDATE invoice_items SET unit='шт' WHERE unit='Коробки'")
+
+    # Водитель/ТС перевозчика: переход с одиночных полей на список carrier_vehicles.
+    # Старые колонки удаляем (SQLite 3.35+ поддерживает DROP COLUMN); если версия
+    # SQLite старая — колонки останутся в таблице неиспользуемыми, это не критично.
+    _cp_cols = [row[1] for row in cur.execute("PRAGMA table_info(counterparties)").fetchall()]
+    if "driver_name" in _cp_cols:
+        rows = cur.execute(
+            "SELECT id, driver_name, vehicle_plate, vehicle_type FROM counterparties "
+            "WHERE driver_name IS NOT NULL OR vehicle_plate IS NOT NULL OR vehicle_type IS NOT NULL"
+        ).fetchall()
+        for cp_id, driver, plate, vtype in rows:
+            cur.execute(
+                "INSERT INTO carrier_vehicles (counterparty_id, driver_name, vehicle_plate, vehicle_type, is_active, created_at) "
+                "VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)",
+                (cp_id, driver, plate, vtype),
+            )
+        for _col in ("driver_name", "vehicle_plate", "vehicle_type"):
+            try:
+                cur.execute(f"ALTER TABLE counterparties DROP COLUMN {_col}")
+            except Exception:
+                pass
 
     # Переход на новый цикл статусов заказа: старый «shipped» (Отгружен)
     # соответствует новому «handed» (Передан поставщику)
@@ -210,6 +346,11 @@ def _migrate_db():
     cur.execute(
         "CREATE INDEX IF NOT EXISTS ix_audit_logs_entity "
         "ON audit_logs(entity_type, entity_id)"
+    )
+    # Уникальный индекс для публичного токена трекинга заказа
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_public_token "
+        "ON orders(public_token) WHERE public_token IS NOT NULL"
     )
 
     conn.commit()

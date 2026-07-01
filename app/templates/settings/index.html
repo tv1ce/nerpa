@@ -1,121 +1,164 @@
 {% extends "base.html" %}
 {% block title %}Настройки{% endblock %}
-{% block page_title %}Настройки системы{% endblock %}
+{% block page_title %}Настройки{% endblock %}
 
 {% block content %}
+{% macro cv(field, default='') %}{{ (field or default) if company else default }}{% endmacro %}
+
 {% if saved %}
-<div class="alert alert-success alert-dismissible fade show">
-  <i class="bi bi-check-circle me-1"></i>Настройки сохранены!
-  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+<div class="alert alert-success alert-dismissible fade show py-2 px-3 mb-3" style="font-size:.88rem">
+  <i class="bi bi-check-circle me-1"></i>Сохранено
+  <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
 </div>
 {% endif %}
 
-{# Удобный макрос: берём значение поля или пустую строку #}
-{% macro cv(field, default='') %}{{ (field or default) if company else default }}{% endmacro %}
+{# ── Таб-навигация ── #}
+<ul class="nav nav-tabs mb-3" id="settingsTabs" role="tablist">
+  <li class="nav-item">
+    <a class="nav-link {% if not request.query_params.get('tab') or request.query_params.get('tab') == 'company' %}active{% endif %}"
+       href="?tab=company">
+      <i class="bi bi-building me-1"></i>Компания
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if request.query_params.get('tab') == 'modules' %}active{% endif %}"
+       href="?tab=modules">
+      <i class="bi bi-toggles me-1"></i>Модули
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if request.query_params.get('tab') == 'integrations' %}active{% endif %}"
+       href="?tab=integrations">
+      <i class="bi bi-plug me-1"></i>Интеграции
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if request.query_params.get('tab') == 'telegram' %}active{% endif %}"
+       href="?tab=telegram">
+      <i class="bi bi-telegram me-1"></i>Telegram
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if request.query_params.get('tab') == 'users' %}active{% endif %}"
+       href="?tab=users">
+      <i class="bi bi-people me-1"></i>Пользователи
+    </a>
+  </li>
+</ul>
 
+{% set tab = request.query_params.get('tab', 'company') %}
+
+{# ════════════════════════════════════════════════════════════
+   ТАБ: КОМПАНИЯ
+════════════════════════════════════════════════════════════ #}
+{% if tab == 'company' %}
 <div class="row g-3">
-
-  {# ══════════════ ЛЕВАЯ КОЛОНКА ══════════════ #}
   <div class="col-lg-8">
 
-    <!-- Реквизиты компании -->
     <div class="card border-0 shadow-sm p-4 mb-3">
-      <div class="form-section-title">Реквизиты компании</div>
+      <div class="form-section-title mb-3">Реквизиты</div>
       <form method="post" action="/settings/company">
-        <div class="row g-3">
+        <div class="row g-2">
           <div class="col-12">
-            <label class="form-label">Полное наименование</label>
-            <input type="text" name="name" class="form-control" value="{{ cv(company.name) if company else '' }}">
+            <label class="form-label form-label-sm">Полное наименование</label>
+            <input type="text" name="name" class="form-control form-control-sm" value="{{ cv(company.name) if company else '' }}">
           </div>
           <div class="col-md-6">
-            <label class="form-label">Краткое наименование</label>
-            <input type="text" name="short_name" class="form-control" value="{{ cv(company.short_name) if company else '' }}">
+            <label class="form-label form-label-sm">Краткое наименование</label>
+            <input type="text" name="short_name" class="form-control form-control-sm" value="{{ cv(company.short_name) if company else '' }}">
           </div>
           <div class="col-md-3">
-            <label class="form-label">ИНН</label>
-            <input type="text" name="inn" class="form-control" maxlength="12" value="{{ cv(company.inn) if company else '' }}">
+            <label class="form-label form-label-sm">ИНН</label>
+            <input type="text" name="inn" class="form-control form-control-sm" maxlength="12" value="{{ cv(company.inn) if company else '' }}">
           </div>
           <div class="col-md-3">
-            <label class="form-label">КПП</label>
-            <input type="text" name="kpp" class="form-control" maxlength="9" value="{{ cv(company.kpp) if company else '' }}">
+            <label class="form-label form-label-sm">КПП</label>
+            <input type="text" name="kpp" class="form-control form-control-sm" maxlength="9" value="{{ cv(company.kpp) if company else '' }}">
           </div>
           <div class="col-md-6">
-            <label class="form-label">ОГРН</label>
-            <input type="text" name="ogrn" class="form-control" maxlength="15" value="{{ cv(company.ogrn) if company else '' }}">
+            <label class="form-label form-label-sm">ОГРН</label>
+            <input type="text" name="ogrn" class="form-control form-control-sm" maxlength="15" value="{{ cv(company.ogrn) if company else '' }}">
           </div>
           <div class="col-md-6">
-            <label class="form-label">Телефон</label>
-            <input type="text" name="phone" class="form-control" value="{{ cv(company.phone) if company else '' }}">
+            <label class="form-label form-label-sm">Телефон</label>
+            <input type="text" name="phone" class="form-control form-control-sm" value="{{ cv(company.phone) if company else '' }}">
           </div>
           <div class="col-12">
-            <label class="form-label">Юридический адрес</label>
-            <input type="text" name="legal_address" class="form-control" value="{{ cv(company.legal_address) if company else '' }}">
+            <label class="form-label form-label-sm">Юридический адрес</label>
+            <input type="text" name="legal_address" class="form-control form-control-sm" value="{{ cv(company.legal_address) if company else '' }}">
           </div>
           <div class="col-12">
-            <label class="form-label">Фактический адрес</label>
-            <input type="text" name="actual_address" class="form-control" value="{{ cv(company.actual_address) if company else '' }}">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">План продаж на месяц, ₽</label>
-            <input type="number" name="monthly_plan" class="form-control" step="1000" min="0"
-                   value="{{ company.monthly_plan | int if company and company.monthly_plan else 225000 }}">
-          </div>
-          <div class="col-md-6 d-flex align-items-end pb-1">
-            <span class="text-muted" style="font-size:.82rem">
-              <i class="bi bi-info-circle"></i> Используется в отчёте «Выручка» для расчёта % выполнения плана
-            </span>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">KPI-фильтр продукта</label>
-            <input type="text" name="kpi_product_filter" class="form-control"
-                   placeholder="орешк"
-                   value="{{ company.kpi_product_filter if company and company.kpi_product_filter else 'орешк' }}">
-            <div class="form-text">Подстрока для подсчёта штук в дашборде и отчёте «Выручка». Например: <code>орешк</code>, <code>кофе</code>, <code>торт</code></div>
-          </div>
-          <div class="col-md-6 d-flex align-items-end pb-1">
-            <span class="text-muted" style="font-size:.82rem">
-              <i class="bi bi-info-circle"></i> Используется ilike-поиск: подойдут «Орешки», «орешки жареные» и т.п.
-            </span>
+            <label class="form-label form-label-sm">Фактический адрес</label>
+            <input type="text" name="actual_address" class="form-control form-control-sm" value="{{ cv(company.actual_address) if company else '' }}">
           </div>
 
+          {# Аккордион: банк + подписанты #}
           <div class="col-12 mt-1">
-            <div class="form-section-title">Подписанты (для счетов)</div>
-          </div>
-          <div class="col-md-5">
-            <label class="form-label">Руководитель (ФИО)</label>
-            <input type="text" name="director" class="form-control" placeholder="Иванов И.И." value="{{ cv(company.director) if company else '' }}">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Действует на основании</label>
-            <input type="text" name="director_basis" class="form-control" placeholder="Устава" value="{{ cv(company.director_basis, 'Устава') if company else 'Устава' }}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Бухгалтер (ФИО)</label>
-            <input type="text" name="accountant" class="form-control" placeholder="Петрова П.П." value="{{ cv(company.accountant) if company else '' }}">
+            <div class="accordion accordion-flush" id="accCompany">
+
+              <div class="accordion-item border rounded mb-1">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2 px-3" type="button"
+                          data-bs-toggle="collapse" data-bs-target="#accBank" style="font-size:.88rem;font-weight:600">
+                    <i class="bi bi-bank me-2 text-muted"></i>Банковские реквизиты
+                  </button>
+                </h2>
+                <div id="accBank" class="accordion-collapse collapse">
+                  <div class="accordion-body py-2 px-3">
+                    <div class="row g-2">
+                      <div class="col-12">
+                        <label class="form-label form-label-sm">Банк</label>
+                        <input type="text" name="bank_name" class="form-control form-control-sm" value="{{ cv(company.bank_name) if company else '' }}">
+                      </div>
+                      <div class="col-md-5">
+                        <label class="form-label form-label-sm">Расчётный счёт</label>
+                        <input type="text" name="bank_account" class="form-control form-control-sm" maxlength="20" value="{{ cv(company.bank_account) if company else '' }}">
+                      </div>
+                      <div class="col-md-3">
+                        <label class="form-label form-label-sm">БИК</label>
+                        <input type="text" name="bank_bik" class="form-control form-control-sm" maxlength="9" value="{{ cv(company.bank_bik) if company else '' }}">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label form-label-sm">Корр. счёт</label>
+                        <input type="text" name="bank_corr_account" class="form-control form-control-sm" maxlength="20" value="{{ cv(company.bank_corr_account) if company else '' }}">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="accordion-item border rounded">
+                <h2 class="accordion-header">
+                  <button class="accordion-button collapsed py-2 px-3" type="button"
+                          data-bs-toggle="collapse" data-bs-target="#accSign" style="font-size:.88rem;font-weight:600">
+                    <i class="bi bi-pen me-2 text-muted"></i>Подписанты
+                  </button>
+                </h2>
+                <div id="accSign" class="accordion-collapse collapse">
+                  <div class="accordion-body py-2 px-3">
+                    <div class="row g-2">
+                      <div class="col-md-5">
+                        <label class="form-label form-label-sm">Руководитель (ФИО)</label>
+                        <input type="text" name="director" class="form-control form-control-sm" placeholder="Иванов И.И." value="{{ cv(company.director) if company else '' }}">
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label form-label-sm">Действует на основании</label>
+                        <input type="text" name="director_basis" class="form-control form-control-sm" placeholder="Устава" value="{{ cv(company.director_basis, 'Устава') if company else 'Устава' }}">
+                      </div>
+                      <div class="col-md-3">
+                        <label class="form-label form-label-sm">Бухгалтер (ФИО)</label>
+                        <input type="text" name="accountant" class="form-control form-control-sm" placeholder="Петрова П.П." value="{{ cv(company.accountant) if company else '' }}">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
           </div>
 
-          <div class="col-12 mt-1">
-            <div class="form-section-title">Банковские реквизиты</div>
-          </div>
-          <div class="col-12">
-            <label class="form-label">Банк</label>
-            <input type="text" name="bank_name" class="form-control" value="{{ cv(company.bank_name) if company else '' }}">
-          </div>
-          <div class="col-md-5">
-            <label class="form-label">Расчётный счёт</label>
-            <input type="text" name="bank_account" class="form-control" maxlength="20" value="{{ cv(company.bank_account) if company else '' }}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">БИК</label>
-            <input type="text" name="bank_bik" class="form-control" maxlength="9" value="{{ cv(company.bank_bik) if company else '' }}">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label">Корр. счёт</label>
-            <input type="text" name="bank_corr_account" class="form-control" maxlength="20" value="{{ cv(company.bank_corr_account) if company else '' }}">
-          </div>
-
-          <div class="col-12">
-            <button type="submit" class="btn btn-accent">
+          <div class="col-12 mt-1 pt-1 border-top">
+            <button type="submit" class="btn btn-accent btn-sm">
               <i class="bi bi-check-lg me-1"></i>Сохранить реквизиты
             </button>
           </div>
@@ -123,87 +166,378 @@
       </form>
     </div>
 
-    <!-- Логотип -->
-    <div class="card border-0 shadow-sm p-4">
-      <div class="form-section-title">Логотип компании</div>
+  </div>
+
+  <div class="col-lg-4">
+
+    {# Логотип #}
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2" style="font-size:.88rem"><i class="bi bi-image me-1 text-muted"></i>Логотип</div>
       <form method="post" action="/settings/logo" enctype="multipart/form-data">
-        <div class="row g-3 align-items-center">
-          {% if company and company.logo_path %}
-          <div class="col-auto">
-            <img src="/static/uploads/{{ company.logo_path.split('/')[-1] }}"
-                 style="max-height:60px; max-width:180px; object-fit:contain;"
-                 class="border rounded p-1">
-          </div>
-          {% endif %}
-          <div class="col">
-            <input type="file" name="logo" class="form-control form-control-sm"
-                   accept=".png,.jpg,.jpeg,.svg" required>
-            <div class="form-text">PNG или JPG, используется в PDF-счетах</div>
-          </div>
-          <div class="col-auto">
-            <button type="submit" class="btn btn-sm btn-accent">
-              <i class="bi bi-upload me-1"></i>Загрузить
-            </button>
-          </div>
+        {% if company and company.logo_path %}
+        <div class="mb-2">
+          <img src="/static/uploads/{{ company.logo_path.split('/')[-1] }}"
+               style="max-height:48px;max-width:160px;object-fit:contain" class="border rounded p-1">
         </div>
+        {% endif %}
+        <div class="d-flex gap-2 align-items-center">
+          <input type="file" name="logo" class="form-control form-control-sm" accept=".png,.jpg,.jpeg,.svg" required>
+          <button type="submit" class="btn btn-sm btn-accent text-nowrap">
+            <i class="bi bi-upload me-1"></i>Загрузить
+          </button>
+        </div>
+        <div class="form-text">PNG/JPG/SVG, до 5 МБ</div>
       </form>
     </div>
 
-  </div>{# /col-lg-8 #}
-
-  {# ══════════════ ПРАВАЯ КОЛОНКА ══════════════ #}
-  <div class="col-lg-4">
-
-    <!-- Telegram-бот -->
-    <div class="card border-0 shadow-sm p-4 mb-3">
-      <div class="form-section-title">
-        <i class="bi bi-telegram me-1 text-primary"></i>Telegram-бот
-      </div>
-      <form method="post" action="/settings/telegram">
-        <div class="mb-3">
-          <label class="form-label">
-            Токен бота
-            <span class="text-muted" style="font-size:.78rem">(от @BotFather)</span>
-          </label>
-          <input type="text" name="tg_bot_token"
-                 class="form-control font-monospace"
-                 placeholder="1234567890:AAF..."
-                 value="{{ company.tg_bot_token if company and company.tg_bot_token else '' }}">
-          <div class="form-text">Используется для отправки заказов перевозчикам в Telegram</div>
+    {# План и KPI #}
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2" style="font-size:.88rem"><i class="bi bi-bar-chart me-1 text-muted"></i>План и KPI</div>
+      <form method="post" action="/settings/company">
+        {# hidden fields for required company fields — pass as empty to not overwrite #}
+        <input type="hidden" name="name"           value="{{ cv(company.name) if company else '' }}">
+        <input type="hidden" name="short_name"     value="{{ cv(company.short_name) if company else '' }}">
+        <input type="hidden" name="inn"            value="{{ cv(company.inn) if company else '' }}">
+        <input type="hidden" name="kpp"            value="{{ cv(company.kpp) if company else '' }}">
+        <input type="hidden" name="ogrn"           value="{{ cv(company.ogrn) if company else '' }}">
+        <input type="hidden" name="legal_address"  value="{{ cv(company.legal_address) if company else '' }}">
+        <input type="hidden" name="actual_address" value="{{ cv(company.actual_address) if company else '' }}">
+        <input type="hidden" name="phone"          value="{{ cv(company.phone) if company else '' }}">
+        <input type="hidden" name="director"       value="{{ cv(company.director) if company else '' }}">
+        <input type="hidden" name="director_basis" value="{{ cv(company.director_basis, 'Устава') if company else 'Устава' }}">
+        <input type="hidden" name="accountant"     value="{{ cv(company.accountant) if company else '' }}">
+        <input type="hidden" name="bank_name"      value="{{ cv(company.bank_name) if company else '' }}">
+        <input type="hidden" name="bank_account"   value="{{ cv(company.bank_account) if company else '' }}">
+        <input type="hidden" name="bank_bik"       value="{{ cv(company.bank_bik) if company else '' }}">
+        <input type="hidden" name="bank_corr_account" value="{{ cv(company.bank_corr_account) if company else '' }}">
+        <div class="mb-2">
+          <label class="form-label form-label-sm">План продаж на месяц, ₽</label>
+          <input type="number" name="monthly_plan" class="form-control form-control-sm" step="1000" min="0"
+                 value="{{ company.monthly_plan | int if company and company.monthly_plan else 225000 }}">
         </div>
-        <div class="mb-3">
-          <label class="form-label">
-            Чат для отчётов о выручке
-            <span class="text-muted" style="font-size:.78rem">(chat_id, через запятую)</span>
-          </label>
-          <input type="text" name="tg_report_chat_ids"
-                 class="form-control font-monospace"
-                 placeholder="-1001234567890, 987654321"
-                 value="{{ company.tg_report_chat_ids if company and company.tg_report_chat_ids else '' }}">
-          <div class="form-text">
-            Куда бот шлёт ежедневные / еженедельные / ежемесячные отчёты.
-            Узнать chat_id группы можно у <code>@getmyid_bot</code>. Если пусто — берётся из <code>.env</code>.
+        <div class="mb-2">
+          <label class="form-label form-label-sm">KPI-фильтр продукта</label>
+          <input type="text" name="kpi_product_filter" class="form-control form-control-sm"
+                 placeholder="орешк"
+                 value="{{ company.kpi_product_filter if company and company.kpi_product_filter else 'орешк' }}">
+          <div class="form-text" style="font-size:.72rem">ilike-подстрока для счётчика штук</div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-6">
+            <label class="form-label form-label-sm">Договор: за сколько дней</label>
+            <input type="number" name="notify_contract_days" class="form-control form-control-sm" min="0" max="365"
+                   value="{{ company.notify_contract_days if company and company.notify_contract_days is not none else 14 }}">
+          </div>
+          <div class="col-6">
+            <label class="form-label form-label-sm">Счёт: за сколько дней</label>
+            <input type="number" name="notify_invoice_days" class="form-control form-control-sm" min="0" max="180"
+                   value="{{ company.notify_invoice_days if company and company.notify_invoice_days is not none else 3 }}">
+          </div>
+          <div class="col-12">
+            <div class="form-text" style="font-size:.72rem">0 — не напоминать. Используется в уведомлениях TMS</div>
           </div>
         </div>
-        {% if company and company.tg_bot_token %}
-        <div class="alert alert-success py-2 px-3 mb-3" style="font-size:.82rem">
-          <i class="bi bi-check-circle me-1"></i>Токен настроен
-        </div>
-        {% else %}
-        <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.82rem">
-          <i class="bi bi-exclamation-triangle me-1"></i>Токен не задан — отправка перевозчикам недоступна
-        </div>
-        {% endif %}
-        <button type="submit" class="btn btn-accent w-100">
-          <i class="bi bi-check-lg me-1"></i>Сохранить токен
+        <button type="submit" class="btn btn-accent btn-sm w-100">
+          <i class="bi bi-check-lg me-1"></i>Сохранить
         </button>
       </form>
     </div>
 
-    <!-- Пользователи -->
+    {% if request.session.get('user_role') == 'admin' %}
+    <div class="card border-0 shadow-sm p-3">
+      <div class="fw-semibold mb-2" style="font-size:.88rem"><i class="bi bi-tools me-1 text-muted"></i>Обслуживание</div>
+      <button class="btn btn-sm btn-outline-secondary w-100" data-bs-toggle="modal" data-bs-target="#modalBackup">
+        <i class="bi bi-database-down me-1"></i>Скачать резервную копию БД
+      </button>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
+
+{# ════════════════════════════════════════════════════════════
+   ТАБ: МОДУЛИ
+════════════════════════════════════════════════════════════ #}
+{% if tab == 'modules' %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
     <div class="card border-0 shadow-sm p-4">
-      <div class="form-section-title">Пользователи</div>
-      <table class="table table-sm tms-table mb-3">
+      <div class="form-section-title mb-1">Модули системы</div>
+      <p class="text-muted mb-4" style="font-size:.85rem">
+        Включённые модули отображаются в боковом меню. Отключённые полностью скрываются — данные не удаляются.
+      </p>
+      <form method="post" action="/settings/modules">
+        {% set modules = [
+          ('module_leads',    'mod_leads',    'bi-telephone-outbound', 'Прозвон',
+           'Обзвон клиентской базы, воронка звонков, статусы'),
+          ('module_recon',    'mod_recon',    'bi-binoculars',         'Разведка ЛПР',
+           'Поиск лиц принимающих решения, обогащение через DaData'),
+          ('module_sourcing', 'mod_sourcing', 'bi-clipboard-data',     'Закупки',
+           'Управление заявками на закупку, поставщики'),
+          ('module_field',    'mod_field',    'bi-person-walking',     'Поле (торгпреды)',
+           'Мобильный режим для торговых представителей'),
+        ] %}
+        {% for field, sess_key, icon, label, desc in modules %}
+        <div class="d-flex align-items-center justify-content-between py-3 {% if not loop.last %}border-bottom{% endif %}">
+          <div class="d-flex align-items-center gap-3">
+            <div style="width:36px;height:36px;border-radius:10px;background:#F1F5F9;display:flex;align-items:center;justify-content:center">
+              <i class="bi {{ icon }}" style="font-size:1.1rem;color:#64748b"></i>
+            </div>
+            <div>
+              <div class="fw-semibold" style="font-size:.95rem">{{ label }}</div>
+              <div class="text-muted" style="font-size:.78rem">{{ desc }}</div>
+            </div>
+          </div>
+          <div class="form-check form-switch ms-3 mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="{{ field }}" value="1" id="{{ field }}"
+                   {% if company and company|attr(field) %}checked{% endif %}
+                   style="width:2.5em;height:1.3em">
+          </div>
+        </div>
+        {% endfor %}
+        <div class="mt-4">
+          <button type="submit" class="btn btn-accent">
+            <i class="bi bi-check-lg me-1"></i>Сохранить
+          </button>
+          <span class="text-muted ms-2" style="font-size:.82rem">Изменения применяются сразу</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+
+{# ════════════════════════════════════════════════════════════
+   ТАБ: ИНТЕГРАЦИИ
+════════════════════════════════════════════════════════════ #}
+{% if tab == 'integrations' %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4" id="onec">
+      <div class="form-section-title mb-3">
+        <i class="bi bi-plug me-1 text-primary"></i>Интеграция 1С:УНФ
+      </div>
+      <form method="post" action="/settings/onec">
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label form-label-sm">URL OData API</label>
+            <input type="url" name="onec_url" class="form-control form-control-sm font-monospace"
+                   placeholder="http://srv4.life-it.pro/grach_unf/odata/standard.odata"
+                   value="{{ company.onec_url if company and company.onec_url else '' }}">
+            <div class="form-text" style="font-size:.72rem">Адрес 1С + <code>/odata/standard.odata</code></div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Логин</label>
+            <input type="text" name="onec_user" class="form-control form-control-sm"
+                   autocomplete="off"
+                   value="{{ company.onec_user if company and company.onec_user else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Пароль</label>
+            <input type="password" name="onec_password" class="form-control form-control-sm"
+                   autocomplete="new-password"
+                   placeholder="{% if company and company.onec_password %}(задан){% endif %}">
+            <div class="form-text" style="font-size:.72rem">Пустое — не менять</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm">URL HTTP-сервиса расширения (печать/ЭДО)</label>
+            <input type="text" name="onec_hs_url" class="form-control form-control-sm font-monospace"
+                   placeholder="пусто — вывести из URL OData"
+                   value="{{ company.onec_hs_url if company and company.onec_hs_url else '' }}">
+            <div class="form-text" style="font-size:.72rem">Напр. <code>http://srv4.life-it.pro/grach_unf/hs/tms</code>. Пусто — TMS подставит автоматически.</div>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     name="onec_enabled" value="1" id="onecEnabled"
+                     {% if company and company.onec_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="onecEnabled" style="font-size:.88rem">Синхронизация включена</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <hr class="my-2">
+            <label class="form-label form-label-sm"><i class="bi bi-inboxes me-1 text-success"></i>Приём документов из 1С (Счёт / УПД / XML)</label>
+            {% set _ch = company.doc_intake_channel if company and company.doc_intake_channel else 'off' %}
+            <select name="doc_intake_channel" class="form-select form-select-sm">
+              <option value="off"      {% if _ch=='off' %}selected{% endif %}>Выключено</option>
+              <option value="telegram" {% if _ch=='telegram' %}selected{% endif %}>Telegram-бот</option>
+              <option value="email"    {% if _ch=='email' %}selected{% endif %}>Почта (IMAP) — скоро</option>
+              <option value="folder"   {% if _ch=='folder' %}selected{% endif %}>Облачная папка — скоро</option>
+            </select>
+          </div>
+          <div class="col-12 d-flex gap-2 flex-wrap mt-1">
+            <button type="submit" class="btn btn-accent btn-sm">
+              <i class="bi bi-check-lg me-1"></i>Сохранить
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkOnec1c()">
+              <i class="bi bi-plug me-1"></i>Проверить подключение
+            </button>
+            <a href="/sync/1c/" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-arrow-repeat me-1"></i>Страница синхронизации
+            </a>
+            <span id="onecTestResult" class="ms-1 align-self-center" style="font-size:.85rem"></span>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# СБИС #}
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mt-0" id="sbis">
+      <div class="form-section-title mb-3">
+        <i class="bi bi-file-earmark-check me-1 text-success"></i>СБИС — ЭДО / ЭПД / ЭТРН
+      </div>
+      <form method="post" action="/settings/sbis">
+        <div class="row g-2">
+          <div class="col-12">
+            <div class="alert alert-info py-2 px-3 mb-1" style="font-size:.82rem">
+              <i class="bi bi-info-circle me-1"></i>
+              Укажите данные аккаунта СБИС (Saby). TMS будет создавать электронные транспортные накладные
+              (ЭТРН) и отправлять их на подписание всем участникам перевозки прямо из карточки заказа.
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Логин СБИС</label>
+            <input type="text" name="sbis_login" class="form-control form-control-sm"
+                   autocomplete="off"
+                   placeholder="Логин от аккаунта СБИС"
+                   value="{{ company.sbis_login if company and company.sbis_login else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Пароль СБИС</label>
+            <input type="password" name="sbis_password" class="form-control form-control-sm"
+                   autocomplete="new-password"
+                   placeholder="{% if company and company.sbis_password %}(задан){% else %}Пароль от аккаунта СБИС{% endif %}">
+            <div class="form-text" style="font-size:.72rem">Пустое — не менять</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm">ID аккаунта / абонента <span class="text-muted">(необязательно)</span></label>
+            <input type="text" name="sbis_account_id" class="form-control form-control-sm font-monospace"
+                   placeholder="напр. 7712345678 (ИНН или идентификатор)"
+                   value="{{ company.sbis_account_id if company and company.sbis_account_id else '' }}">
+            <div class="form-text" style="font-size:.72rem">Если у вас несколько компаний в СБИС, укажите идентификатор нужной.</div>
+          </div>
+          {% if company and company.sbis_login %}
+          <div class="col-12">
+            <div class="text-success" style="font-size:.8rem"><i class="bi bi-check-circle me-1"></i>СБИС настроен — кнопка «Создать ЭТРН» появится в карточке заказа</div>
+          </div>
+          {% endif %}
+          <div class="col-12 d-flex gap-2 flex-wrap mt-1">
+            <button type="submit" class="btn btn-accent btn-sm">
+              <i class="bi bi-check-lg me-1"></i>Сохранить
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkSbis()">
+              <i class="bi bi-plug me-1"></i>Проверить подключение
+            </button>
+            <span id="sbisTestResult" class="ms-1 align-self-center" style="font-size:.85rem"></span>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+
+{# ════════════════════════════════════════════════════════════
+   ТАБ: TELEGRAM
+════════════════════════════════════════════════════════════ #}
+{% if tab == 'telegram' %}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title mb-3">
+        <i class="bi bi-telegram me-1 text-primary"></i>Telegram-бот
+      </div>
+      <form method="post" action="/settings/telegram">
+        <div class="mb-3">
+          <label class="form-label form-label-sm">Токен бота <span class="text-muted">(от @BotFather)</span></label>
+          <input type="text" name="tg_bot_token" class="form-control form-control-sm font-monospace"
+                 placeholder="1234567890:AAF..."
+                 value="{{ company.tg_bot_token if company and company.tg_bot_token else '' }}">
+          {% if company and company.tg_bot_token %}
+          <div class="text-success mt-1" style="font-size:.78rem"><i class="bi bi-check-circle me-1"></i>Токен настроен</div>
+          {% else %}
+          <div class="text-warning mt-1" style="font-size:.78rem"><i class="bi bi-exclamation-triangle me-1"></i>Токен не задан</div>
+          {% endif %}
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label form-label-sm">Чат для отчётов <span class="text-muted">(chat_id через запятую)</span></label>
+          <input type="text" name="tg_report_chat_ids" class="form-control form-control-sm font-monospace"
+                 placeholder="-1001234567890"
+                 value="{{ company.tg_report_chat_ids if company and company.tg_report_chat_ids else '' }}">
+          <div class="form-text" style="font-size:.72rem">Куда идут ежедневные/ежемесячные отчёты о выручке</div>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label form-label-sm mb-0"><i class="bi bi-telephone me-1"></i>Напоминания о прозвонах</label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="tg_callback_enabled" value="1" id="tgCallbackEnabled"
+                   {% if not company or company.tg_callback_enabled is none or company.tg_callback_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="tgCallbackEnabled" style="font-size:.82rem">Вкл</label>
+          </div>
+        </div>
+        <div class="mb-3">
+          <input type="text" name="tg_callback_chat_ids" class="form-control form-control-sm font-monospace"
+                 placeholder="-1009876543210"
+                 value="{{ company.tg_callback_chat_ids if company and company.tg_callback_chat_ids else '' }}">
+          <div class="form-text" style="font-size:.72rem">Отдельный чат для прозвонов. Пусто — в чат отчётов</div>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label form-label-sm mb-0"><i class="bi bi-archive me-1"></i>Автобекап БД</label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="backup_enabled" value="1" id="backupEnabled"
+                   {% if company and company.backup_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="backupEnabled" style="font-size:.82rem">Вкл</label>
+          </div>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <select name="backup_frequency" class="form-select form-select-sm">
+              <option value="daily"   {% if company and company.backup_frequency == 'daily' %}selected{% endif %}>Ежедневно (21:00)</option>
+              <option value="weekly"  {% if not company or company.backup_frequency == 'weekly' %}selected{% endif %}>Еженедельно, пт</option>
+              <option value="monthly" {% if company and company.backup_frequency == 'monthly' %}selected{% endif %}>Ежемесячно</option>
+            </select>
+          </div>
+          <div class="col-6">
+            <input type="text" name="tg_backup_chat_id" class="form-control form-control-sm font-monospace"
+                   placeholder="chat_id"
+                   value="{{ company.tg_backup_chat_id if company and company.tg_backup_chat_id else '' }}">
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-accent btn-sm w-100">
+          <i class="bi bi-check-lg me-1"></i>Сохранить настройки Telegram
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+
+{# ════════════════════════════════════════════════════════════
+   ТАБ: ПОЛЬЗОВАТЕЛИ
+════════════════════════════════════════════════════════════ #}
+{% if tab == 'users' %}
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title mb-3">Пользователи</div>
+      <table class="table table-sm tms-table mb-4">
         <thead>
           <tr><th>Логин</th><th>Имя</th><th>Роль</th><th></th></tr>
         </thead>
@@ -212,15 +546,16 @@
           <tr>
             <td>{{ u.username }}</td>
             <td>{{ u.full_name }}</td>
-            <td><span class="badge bg-secondary">{{ role_labels.get(u.role, u.role) }}</span></td>
-            <td>
+            <td><span class="badge bg-secondary" style="font-size:.72rem">{{ role_labels.get(u.role, u.role) }}</span></td>
+            <td class="text-nowrap">
+              <button type="button" class="btn btn-xs btn-outline-secondary py-0 px-1"
+                      data-bs-toggle="modal" data-bs-target="#editUser{{ u.id }}">
+                <i class="bi bi-pencil"></i>
+              </button>
               {% if u.id != request.session.get('user_id') %}
               <form method="post" action="/settings/users/{{ u.id }}/delete"
-                    class="d-inline"
-                    data-confirm="Удалить пользователя {{ u.username }}?">
-                <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:.75rem">
-                  <i class="bi bi-trash"></i>
-                </button>
+                    class="d-inline" data-confirm="Удалить пользователя {{ u.username }}?">
+                <button class="btn btn-xs btn-outline-danger py-0 px-1"><i class="bi bi-trash"></i></button>
               </form>
               {% endif %}
             </td>
@@ -229,36 +564,131 @@
         </tbody>
       </table>
 
-      <div class="form-section-title">Добавить пользователя</div>
+      <div class="form-section-title mb-2">Добавить пользователя</div>
       <form method="post" action="/settings/users/new" autocomplete="off">
-        <div class="mb-2">
-          <input type="text" name="username" class="form-control form-control-sm"
-                 placeholder="Логин" required autocomplete="off">
+        <div class="row g-2">
+          <div class="col-md-4">
+            <input type="text" name="username" class="form-control form-control-sm" placeholder="Логин" required autocomplete="off">
+          </div>
+          <div class="col-md-4">
+            <input type="text" name="full_name" class="form-control form-control-sm" placeholder="ФИО" required>
+          </div>
+          <div class="col-md-4">
+            <input type="password" name="password" class="form-control form-control-sm" placeholder="Пароль" required autocomplete="new-password">
+          </div>
+          <div class="col-md-5">
+            <select name="role" class="form-select form-select-sm">
+              <option value="manager">Менеджер</option>
+              <option value="sales">Отдел продаж</option>
+              <option value="field_rep">Торговый представитель</option>
+              <option value="viewer">Просмотр</option>
+              <option value="warehouse">Склад</option>
+              <option value="demo">Демо</option>
+              <option value="admin">Администратор</option>
+            </select>
+          </div>
+          <div class="col-md-7 d-flex align-items-end">
+            <button type="submit" class="btn btn-sm btn-accent">
+              <i class="bi bi-person-plus me-1"></i>Добавить
+            </button>
+          </div>
         </div>
-        <div class="mb-2">
-          <input type="text" name="full_name" class="form-control form-control-sm"
-                 placeholder="ФИО" required>
-        </div>
-        <div class="mb-2">
-          <input type="password" name="password" class="form-control form-control-sm"
-                 placeholder="Пароль" required autocomplete="new-password">
-        </div>
-        <div class="mb-3">
-          <select name="role" class="form-select form-select-sm">
-            <option value="manager">Менеджер</option>
-            <option value="sales">Отдел продаж</option>
-            <option value="viewer">Просмотр</option>
-            <option value="warehouse">Склад</option>
-            <option value="admin">Администратор</option>
-          </select>
-        </div>
-        <button type="submit" class="btn btn-sm btn-accent w-100">
-          <i class="bi bi-person-plus me-1"></i>Добавить пользователя
-        </button>
       </form>
     </div>
+  </div>
+</div>
+{% endif %}
 
-  </div>{# /col-lg-4 #}
 
-</div>{# /row #}
+{# ── Модалы редактирования пользователей ── #}
+{% for u in users %}
+<div class="modal fade" id="editUser{{ u.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/settings/users/{{ u.id }}/edit">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title">{{ u.username }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="mb-2">
+            <label class="form-label form-label-sm">ФИО</label>
+            <input type="text" name="full_name" class="form-control form-control-sm" value="{{ u.full_name }}" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label form-label-sm">Роль</label>
+            <select name="role" class="form-select form-select-sm">
+              <option value="manager"   {% if u.role=='manager'   %}selected{% endif %}>Менеджер</option>
+              <option value="sales"     {% if u.role=='sales'     %}selected{% endif %}>Отдел продаж</option>
+              <option value="field_rep" {% if u.role=='field_rep' %}selected{% endif %}>Торговый представитель</option>
+              <option value="viewer"    {% if u.role=='viewer'    %}selected{% endif %}>Просмотр</option>
+              <option value="warehouse" {% if u.role=='warehouse' %}selected{% endif %}>Склад</option>
+              <option value="demo"      {% if u.role=='demo'      %}selected{% endif %}>Демо</option>
+              <option value="admin"     {% if u.role=='admin'     %}selected{% endif %}>Администратор</option>
+            </select>
+          </div>
+          <div class="mb-1">
+            <label class="form-label form-label-sm">Новый пароль <span class="text-muted">(пусто — не менять)</span></label>
+            <input type="password" name="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="••••••">
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+{% if request.session.get('user_role') == 'admin' %}
+<div class="modal fade" id="modalBackup" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-database-down me-2"></i>Резервная копия</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="font-size:.88rem">
+        Скачает файл <code>tms.db</code> с текущими данными.
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+        <a href="/settings/backup" class="btn btn-sm btn-accent" data-bs-dismiss="modal">
+          <i class="bi bi-download me-1"></i>Скачать
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+async function checkOnec1c() {
+  const el = document.getElementById('onecTestResult');
+  el.innerHTML = '<span class="text-muted">Проверяем…</span>';
+  try {
+    const r = await fetch('/sync/1c/test');
+    const d = await r.json();
+    el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
+      `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.message}</span>`;
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+async function checkSbis() {
+  const el = document.getElementById('sbisTestResult');
+  el.innerHTML = '<span class="text-muted">Проверяем подключение к СБИС…</span>';
+  try {
+    const r = await fetch('/api/sbis/test');
+    const d = await r.json();
+    el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
+      `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.message || (d.ok ? 'Подключено' : d.error)}</span>`;
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+</script>
 {% endblock %}

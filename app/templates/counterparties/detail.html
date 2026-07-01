@@ -10,6 +10,14 @@
 
 {% block content %}
 
+{# ── Плашка «Спящий клиент» ─────────────────────────────────────────────── #}
+{% if dormant_days is not none and dormant_days >= 30 %}
+<div class="alert {% if dormant_days >= 90 %}alert-danger{% else %}alert-warning{% endif %} py-2 mb-3 d-flex align-items-center gap-2">
+  <i class="bi bi-moon-stars-fill"></i>
+  <span>Не заказывал <strong>{{ dormant_days }} дн.</strong> — стоит позвонить</span>
+</div>
+{% endif %}
+
 {# ── Заголовок + категория ───────────────────────────────────────────────── #}
 <div class="d-flex align-items-start mb-3 gap-3 flex-wrap">
   <div class="flex-grow-1">
@@ -81,9 +89,9 @@
 {# ── Быстрые действия ─────────────────────────────────────────────────────── #}
 {% if request.session.get('user_role') != 'warehouse' %}
 <div class="d-flex gap-2 mb-3 flex-wrap">
-  <a href="/orders/new" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus me-1"></i>Заказ</a>
+  <a href="/orders/new?counterparty_id={{ cp.id }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus me-1"></i>Заказ</a>
   <a href="/invoices/new" class="btn btn-sm btn-outline-success"><i class="bi bi-plus me-1"></i>Счёт</a>
-  <a href="/contracts/new" class="btn btn-sm btn-outline-secondary"><i class="bi bi-plus me-1"></i>Договор</a>
+  <a href="/contracts/new?counterparty_id={{ cp.id }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-plus me-1"></i>Договор</a>
   <a href="/claims/new?cp_id={{ cp.id }}" class="btn btn-sm btn-outline-danger"><i class="bi bi-plus me-1"></i>Рекламация</a>
 </div>
 {% endif %}
@@ -119,6 +127,16 @@
         </button>
       </li>
       <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-contacts" type="button">
+          Контакты {% if contacts %}<span class="badge bg-secondary ms-1" style="font-size:.68rem">{{ contacts|length }}</span>{% endif %}
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-files" type="button">
+          Документы {% if files %}<span class="badge bg-secondary ms-1" style="font-size:.68rem">{{ files|length }}</span>{% endif %}
+        </button>
+      </li>
+      <li class="nav-item">
         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-history" type="button">
           История {% if activity %}<span class="badge bg-light text-muted border ms-1" style="font-size:.68rem">{{ activity|length }}</span>{% endif %}
         </button>
@@ -138,6 +156,22 @@
             <div class="col-md-4"><span class="text-muted">ИНН:</span> {{ cp.inn or '—' }}</div>
             <div class="col-md-4"><span class="text-muted">КПП:</span> {{ cp.kpp or '—' }}</div>
             <div class="col-md-6"><span class="text-muted">ОГРН:</span> {{ cp.ogrn or '—' }}</div>
+            {% if cp.inn %}
+            <div class="col-12 d-flex align-items-center gap-2 flex-wrap">
+              <span class="text-muted">ЕГРЮЛ:</span>
+              <span id="egrul-badge">
+                {% if cp.egrul_status %}
+                <span class="badge bg-{{ egrul_status_colors.get(cp.egrul_status, 'secondary') }}">{{ egrul_status_labels.get(cp.egrul_status, cp.egrul_status) }}</span>
+                {% if cp.egrul_checked_at %}<span class="text-muted" style="font-size:.75rem">{{ cp.egrul_checked_at.strftime('%d.%m.%Y') }}</span>{% endif %}
+                {% else %}
+                <span class="text-muted" style="font-size:.85rem">не проверялось</span>
+                {% endif %}
+              </span>
+              <button class="btn btn-xs btn-outline-secondary" id="btn-check-egrul" onclick="checkEgrul({{ cp.id }})">
+                <i class="bi bi-arrow-repeat me-1"></i>Проверить
+              </button>
+            </div>
+            {% endif %}
             <div class="col-12"><span class="text-muted">Юр. адрес:</span> {{ cp.legal_address or '—' }}</div>
             <div class="col-12"><span class="text-muted">Факт. адрес:</span> {{ cp.actual_address or '—' }}</div>
             <div class="col-md-4"><span class="text-muted">Телефон:</span> {{ cp.phone or '—' }}</div>
@@ -404,6 +438,92 @@
       </div>
     </div>
 
+    {# ─ Контакты (ЛПР) ─ #}
+    <div class="tab-pane fade" id="tab-contacts">
+      <div class="p-3">
+        {% set _can_edit = request.session.get('user_role') in ('admin','manager') %}
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="text-muted" style="font-size:.85rem">
+            Контактные лица: ЛПР, закупщики, бухгалтерия — с прямыми каналами связи.
+          </div>
+          {% if _can_edit %}
+          <button class="btn btn-sm btn-accent" onclick="openContactModal()">
+            <i class="bi bi-person-plus me-1"></i>Добавить контакт
+          </button>
+          {% endif %}
+        </div>
+
+        {% if contacts %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" style="font-size:.85rem">
+            <thead class="text-muted">
+              <tr>
+                <th>Имя</th>
+                <th>Должность</th>
+                <th>Телефон</th>
+                <th>Email</th>
+                <th>Мессенджеры</th>
+                {% if _can_edit %}<th style="width:70px"></th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in contacts %}
+              <tr>
+                <td class="fw-semibold">
+                  {% if c.is_primary %}<i class="bi bi-star-fill text-warning me-1" title="Основной контакт" style="font-size:.72rem"></i>{% endif %}
+                  {{ c.full_name }}
+                </td>
+                <td class="text-muted">{{ c.post or '—' }}</td>
+                <td class="text-nowrap">
+                  {% if c.phone %}<a href="tel:{{ c.phone }}" class="text-reset text-decoration-none">{{ c.phone }}</a>{% else %}—{% endif %}
+                </td>
+                <td>{% if c.email %}<a href="mailto:{{ c.email }}" class="text-reset">{{ c.email }}</a>{% else %}—{% endif %}</td>
+                <td class="text-nowrap">
+                  {% if c.telegram %}<a href="https://t.me/{{ c.telegram | replace('@','') }}" target="_blank" class="me-2" title="Telegram"><i class="bi bi-telegram text-primary"></i></a>{% endif %}
+                  {% if c.whatsapp %}<a href="https://wa.me/{{ c.whatsapp | replace('+','') | replace(' ','') }}" target="_blank" title="WhatsApp"><i class="bi bi-whatsapp text-success"></i></a>{% endif %}
+                  {% if not c.telegram and not c.whatsapp %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                {% if _can_edit %}
+                <td class="text-end text-nowrap">
+                  <button class="btn btn-xs btn-outline-secondary py-0 px-1" title="Изменить"
+                          onclick='openContactModal({{ {
+                            "id": c.id, "full_name": c.full_name, "post": c.post or "",
+                            "phone": c.phone or "", "email": c.email or "",
+                            "telegram": c.telegram or "", "whatsapp": c.whatsapp or "",
+                            "is_primary": c.is_primary | int
+                          } | tojson }})'>
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <form method="post" action="/counterparties/{{ cp.id }}/contacts/{{ c.id }}/delete"
+                        class="d-inline" data-confirm="Удалить контакт «{{ c.full_name }}»?">
+                    <button class="btn btn-xs btn-outline-danger py-0 px-1" title="Удалить"><i class="bi bi-trash"></i></button>
+                  </form>
+                </td>
+                {% endif %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4">
+          <i class="bi bi-people fs-3 d-block mb-2"></i>
+          Контактных лиц пока нет.
+          {% if _can_edit %}Добавьте первого — кнопка справа сверху.{% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    {# ─ Документы ─ #}
+    <div class="tab-pane fade" id="tab-files">
+      <div class="p-3">
+        {% with entity_type="counterparty", entity_id=cp.id, files=files, file_types=file_types %}
+        {% include "_files_widget.html" %}
+        {% endwith %}
+      </div>
+    </div>
+
     {# ─ История ─ #}
     <div class="tab-pane fade" id="tab-history">
       <div class="p-3">
@@ -437,6 +557,60 @@
   </div>{# /tab-content #}
 </div>
 
+{# ── Модаль добавления/редактирования контакта ── #}
+{% if request.session.get('user_role') in ('admin','manager') %}
+<div class="modal fade" id="contactModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="contactForm" action="/counterparties/{{ cp.id }}/contacts">
+        <div class="modal-header">
+          <h5 class="modal-title" id="contactModalTitle">Новый контакт</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label small text-muted mb-1">Имя <span class="text-danger">*</span></label>
+              <input type="text" name="full_name" id="cf_full_name" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small text-muted mb-1">Должность</label>
+              <input type="text" name="post" id="cf_post" class="form-control" placeholder="Закупщик / Директор">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small text-muted mb-1">Телефон</label>
+              <input type="text" name="phone" id="cf_phone" class="form-control" placeholder="+7…">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small text-muted mb-1">Email</label>
+              <input type="email" name="email" id="cf_email" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small text-muted mb-1">Telegram</label>
+              <input type="text" name="telegram" id="cf_telegram" class="form-control" placeholder="@username">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small text-muted mb-1">WhatsApp</label>
+              <input type="text" name="whatsapp" id="cf_whatsapp" class="form-control" placeholder="+7…">
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input type="checkbox" name="is_primary" id="cf_is_primary" class="form-check-input" value="1">
+                <label class="form-check-label small" for="cf_is_primary">Основной контакт точки</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-accent">Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block scripts %}
@@ -454,5 +628,48 @@
     });
   });
 })();
+
+// Открытие модали контакта: без аргумента — добавление, с объектом — редактирование
+function openContactModal(c) {
+  var form = document.getElementById('contactForm');
+  var title = document.getElementById('contactModalTitle');
+  var base = '/counterparties/{{ cp.id }}/contacts';
+  if (c && c.id) {
+    form.action = base + '/' + c.id + '/edit';
+    title.textContent = 'Редактировать контакт';
+    document.getElementById('cf_full_name').value = c.full_name || '';
+    document.getElementById('cf_post').value = c.post || '';
+    document.getElementById('cf_phone').value = c.phone || '';
+    document.getElementById('cf_email').value = c.email || '';
+    document.getElementById('cf_telegram').value = c.telegram || '';
+    document.getElementById('cf_whatsapp').value = c.whatsapp || '';
+    document.getElementById('cf_is_primary').checked = !!c.is_primary;
+  } else {
+    form.action = base;
+    title.textContent = 'Новый контакт';
+    form.reset();
+  }
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('contactModal')).show();
+}
+
+async function checkEgrul(cpId) {
+  const btn = document.getElementById('btn-check-egrul');
+  const badge = document.getElementById('egrul-badge');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Проверка…';
+  try {
+    const r = await fetch(`/counterparties/${cpId}/check-egrul`, {method: 'POST'});
+    const d = await r.json();
+    if (d.error) {
+      badge.innerHTML = `<span class="text-danger" style="font-size:.85rem">${d.error}</span>`;
+    } else {
+      badge.innerHTML = `<span class="badge bg-${d.color}">${d.label}</span> <span class="text-muted" style="font-size:.75rem">${d.checked_at}</span>`;
+    }
+  } catch(e) {
+    badge.innerHTML = '<span class="text-danger" style="font-size:.85rem">Ошибка запроса</span>';
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Проверить';
+}
 </script>
 {% endblock %}

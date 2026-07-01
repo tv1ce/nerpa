@@ -22,6 +22,32 @@ templates = Jinja2Templates(directory="app/templates")
 METAFORA_URL = "https://app2024.damasevich.ru/dl/6471c6"
 
 
+def upsert_order_delivery_cost(db: Session, order, amount: float):
+    """Создаёт/обновляет единственную строку логистики типа 'delivery' для заказа.
+
+    Единый источник правды для довоза: и карточка заказа, и раздел «Логистика»
+    пишут в одну и ту же запись. amount<=0 — строка удаляется.
+    """
+    row = db.query(LogisticsCost).filter(
+        LogisticsCost.order_id == order.id,
+        LogisticsCost.cost_type == "delivery",
+    ).first()
+    cost_date = order.delivery_date or order.date
+    if amount and amount > 0:
+        if row:
+            row.amount = amount
+            row.date = cost_date
+        else:
+            db.add(LogisticsCost(
+                date=cost_date,
+                description=f"Доставка заказа №{order.number}",
+                amount=amount, source="order",
+                cost_type="delivery", order_id=order.id,
+            ))
+    elif row:
+        db.delete(row)
+
+
 @router.get("", include_in_schema=False)
 async def logistics_redirect():
     return RedirectResponse(url="/reports/logistics/", status_code=301)
@@ -327,6 +353,9 @@ async def logistics_index(
             "notes":       r.notes,
             "source":      r.source,
             "amount":      round(r.amount * TAX, 2),
+            "cost_type":   r.cost_type or "other",
+            "order_id":    r.order_id,
+            "order_number": r.order.number if r.order else None,
         }
         for r in raw_rows
     ]
@@ -350,10 +379,12 @@ async def logistics_index(
     def _orders_count(d_from, d_to):
         if not _carrier_id:
             return 0
+        # Считаем только реально отправленные заказы (не черновики и не просто подтверждённые)
         return db.query(func.count(Order.id)).filter(
             Order.date >= d_from,
             Order.date <= d_to,
             Order.carrier_id == _carrier_id,
+            Order.status.in_(["handed", "delivered", "paid", "assembled"]),
         ).scalar() or 0
 
     def _per_order(logi, orders):
@@ -364,14 +395,61 @@ async def logistics_index(
     total_prev_month = round(_logi_sum(prev_month_start, prev_month_end) * TAX, 2)
     total_year       = round(_logi_sum(year_start, today)          * TAX, 2)
 
+    # Доля логистики = затраты / выручка ВСЕХ отгруженных заказов за период
+    # (все перевозчики — бывает доставка за счёт клиента)
+    # total_amount — @property, не колонка, суммируем в Python
+    def _all_shipped_sum(d_from, d_to):
+        orders = db.query(Order).filter(
+            Order.date >= d_from,
+            Order.date <= d_to,
+            Order.status.in_(["handed", "delivered", "paid", "assembled"]),
+        ).all()
+        return sum(o.total_amount for o in orders)
+
+    def _pct_of_revenue(logi, d_from, d_to):
+        rev = _all_shipped_sum(d_from, d_to)
+        return round(logi / rev * 100, 1) if rev > 0 else None
+
+    pct_week       = _pct_of_revenue(total_week,       week_start, week_end)
+    pct_month      = _pct_of_revenue(total_month,      month_start, month_end)
+    pct_prev_month = _pct_of_revenue(total_prev_month, prev_month_start, prev_month_end)
+    pct_year       = _pct_of_revenue(total_year,       year_start, today)
+
     orders_week       = _orders_count(week_start, week_end)
     orders_month      = _orders_count(month_start, month_end)
     orders_prev_month = _orders_count(prev_month_start, prev_month_end)
     orders_year       = _orders_count(year_start, today)
 
+    # ── График по месяцам (последние 12 месяцев) ─────────────────────────────
+    from sqlalchemy import extract, cast, String
+    import calendar
+    chart_months = []
+    chart_max = 0.0
+    for i in range(11, -1, -1):
+        # месяц = today минус i месяцев
+        m_year = today.year
+        m_month = today.month - i
+        while m_month <= 0:
+            m_month += 12
+            m_year -= 1
+        m_start = date(m_year, m_month, 1)
+        m_end = date(m_year, m_month, calendar.monthrange(m_year, m_month)[1])
+        m_sum = round((_logi_sum(m_start, m_end) or 0.0) * TAX, 2)
+        chart_months.append({
+            "label": m_start.strftime("%b"),
+            "year_month": m_start.strftime("%Y-%m"),
+            "amount": m_sum,
+        })
+        if m_sum > chart_max:
+            chart_max = m_sum
+
+    # Заказы для привязки довоза (последние 60, для выпадающего списка в форме)
+    pick_orders = db.query(Order).order_by(Order.date.desc()).limit(60).all()
+
     company = db.query(CompanySettings).first()
     return templates.TemplateResponse(request, "reports/logistics.html", {
         "rows": rows, "total": total,
+        "pick_orders": pick_orders,
         # суммы по периодам
         "total_week":       total_week,
         "total_month":      total_month,
@@ -382,6 +460,11 @@ async def logistics_index(
         "per_order_month":      _per_order(total_month,      orders_month),
         "per_order_prev_month": _per_order(total_prev_month, orders_prev_month),
         "per_order_year":       _per_order(total_year,       orders_year),
+        # доля логистики в выручке (%)
+        "pct_week":       pct_week,
+        "pct_month":      pct_month,
+        "pct_prev_month": pct_prev_month,
+        "pct_year":       pct_year,
         # кол-во заказов
         "orders_week":       orders_week,
         "orders_month":      orders_month,
@@ -396,6 +479,9 @@ async def logistics_index(
         "metafora_url":  getattr(company, "metafora_url",  None) or METAFORA_URL,
         "metafora_email": getattr(company, "metafora_email", None) or "",
         "has_token": bool(getattr(company, "metafora_token", None)),
+        # график
+        "chart_months": chart_months,
+        "chart_max": chart_max,
     })
 
 
@@ -409,18 +495,112 @@ async def add_cost(
     description: str = Form(default=""),
     amount: float = Form(...),
     notes: str = Form(default=""),
+    cost_type: str = Form(default="other"),
+    order_id: int = Form(default=0),
     db: Session = Depends(get_db),
 ):
+    if cost_type not in ("delivery", "pickup", "other"):
+        cost_type = "other"
+    # Довоз конкретного заказа — пишем через единый хелпер (синхронно с карточкой)
+    if cost_type == "delivery" and order_id:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if order:
+            upsert_order_delivery_cost(db, order, amount)
+            db.commit()
+            return RedirectResponse(url="/reports/logistics", status_code=302)
     db.add(LogisticsCost(
         date=date.fromisoformat(cost_date),
         description=description, amount=amount,
         source="manual", notes=notes or None,
+        cost_type=cost_type, order_id=order_id or None,
     ))
     db.commit()
     return RedirectResponse(url="/reports/logistics", status_code=302)
 
 
+# ── Экспорт в Excel ───────────────────────────────────────────────────────────
+
+@router.get("/export.xlsx")
+@login_required
+async def export_logistics(
+    request: Request,
+    period: str = "month", date_from: str = "", date_to: str = "",
+    db: Session = Depends(get_db),
+):
+    from app.routers.reports import _xlsx_response
+    today = date.today()
+    month_start, month_end = _month_bounds(today)
+    year_start = today.replace(month=1, day=1)
+    week_start = today - timedelta(days=today.weekday())
+    prev_month_last = month_start - timedelta(days=1)
+    prev_month_start, prev_month_end = _month_bounds(prev_month_last)
+    if period == "week":
+        tbl_from, tbl_to = week_start, week_start + timedelta(days=6)
+    elif period == "year":
+        tbl_from, tbl_to = year_start, today
+    elif period == "prev_month":
+        tbl_from, tbl_to = prev_month_start, prev_month_end
+    elif period == "custom" and date_from and date_to:
+        try: tbl_from, tbl_to = date.fromisoformat(date_from), date.fromisoformat(date_to)
+        except ValueError: tbl_from, tbl_to = month_start, today
+    else:
+        tbl_from, tbl_to = month_start, today
+
+    TAX = 1.06
+    raw = db.query(LogisticsCost).filter(
+        LogisticsCost.date >= tbl_from, LogisticsCost.date <= tbl_to,
+    ).order_by(LogisticsCost.date.desc()).all()
+    src_label = {"metafora": "Метафора", "manual": "Вручную"}
+    rows = [[
+        r.date.strftime("%d.%m.%Y") if r.date else "",
+        r.description or "",
+        round((r.amount or 0) * TAX, 2),
+        src_label.get(r.source, "Файл"),
+        r.notes or "",
+    ] for r in raw]
+    fn = f"Логистика {tbl_from.strftime('%d.%m.%Y')}-{tbl_to.strftime('%d.%m.%Y')}.xlsx"
+    return _xlsx_response(
+        ["Дата", "Описание", "Сумма ₽ (с налогом)", "Источник", "Заметки"],
+        rows, fn, widths=[14, 44, 20, 14, 30],
+    )
+
+
 # ── Удаление ──────────────────────────────────────────────────────────────────
+
+@router.get("/{cost_id}/edit", response_class=JSONResponse)
+@login_required
+async def edit_cost_get(request: Request, cost_id: int, db: Session = Depends(get_db)):
+    row = db.query(LogisticsCost).filter(LogisticsCost.id == cost_id).first()
+    if not row:
+        return JSONResponse({"error": "Не найдено"}, status_code=404)
+    return JSONResponse({
+        "id": row.id,
+        "date": row.date.isoformat(),
+        "description": row.description or "",
+        "amount": row.amount,
+        "notes": row.notes or "",
+    })
+
+
+@router.post("/{cost_id}/edit")
+@login_required
+async def edit_cost_post(
+    request: Request, cost_id: int,
+    cost_date: str = Form(...),
+    description: str = Form(default=""),
+    amount: float = Form(...),
+    notes: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    row = db.query(LogisticsCost).filter(LogisticsCost.id == cost_id).first()
+    if row:
+        row.date = date.fromisoformat(cost_date)
+        row.description = description
+        row.amount = amount
+        row.notes = notes or None
+        db.commit()
+    return RedirectResponse(url="/reports/logistics", status_code=302)
+
 
 @router.post("/{cost_id}/delete")
 @login_required

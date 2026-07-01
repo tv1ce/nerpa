@@ -92,8 +92,16 @@ def fill_contract_template(template_path: str, output_path: str, contract, compa
         payment_type_label = "Предоплата"
         payment_terms = "Оплата производится на условиях 100% предоплаты до отгрузки товара."
 
+    # Наименование договора в формате «24 от 24.06.2026 (ИП Данилюк Ирина Юрьевна)»
+    _cp_disp = (getattr(cp, "short_name", None) or cp.name or "").strip()
+    _contract_title = f"{contract.number or ''} от {_fmt_date(contract.date)}".strip()
+    if _cp_disp:
+        _contract_title += f" ({_cp_disp})"
+
     placeholders = {
         "{{contract_number}}": contract.number or "",
+        "{{contract_title}}": _contract_title,
+        "{{contract_name}}": _contract_title,
         "{{contract_date}}": _fmt_date(contract.date),
         "{{contract_date_day}}": str(d.day) if d else "___",
         "{{contract_date_month}}": _MONTHS_RU.get(d.month, "") if d else "___________",
@@ -184,18 +192,27 @@ def _replace_in_para(para, replacements: dict):
 
 def convert_docx_to_pdf(docx_path: str, output_dir: str) -> str | None:
     """Конвертирует .docx в PDF используя LibreOffice или MS Word (Windows)."""
-    try:
-        import subprocess
-        # Попытка через LibreOffice
-        result = subprocess.run(
-            ["soffice", "--headless", "--convert-to", "pdf", "--outdir", output_dir, docx_path],
-            capture_output=True, timeout=30
-        )
-        if result.returncode == 0:
-            base = os.path.splitext(os.path.basename(docx_path))[0]
-            return os.path.join(output_dir, base + ".pdf")
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+    import subprocess
+    import tempfile
+    # Попытка через LibreOffice (soffice/libreoffice). Отдельный UserInstallation —
+    # иначе на сервере под systemd профиль может быть заблокирован/недоступен.
+    for binary in ("soffice", "libreoffice"):
+        try:
+            with tempfile.TemporaryDirectory(prefix="lo_profile_") as profile:
+                result = subprocess.run(
+                    [binary,
+                     f"-env:UserInstallation=file://{profile}",
+                     "--headless", "--norestore",
+                     "--convert-to", "pdf", "--outdir", output_dir, docx_path],
+                    capture_output=True, timeout=60
+                )
+            if result.returncode == 0:
+                base = os.path.splitext(os.path.basename(docx_path))[0]
+                pdf = os.path.join(output_dir, base + ".pdf")
+                if os.path.exists(pdf):
+                    return pdf
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
 
     try:
         import subprocess

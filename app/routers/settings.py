@@ -1,6 +1,6 @@
 import os
 from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db, hash_password
@@ -60,6 +60,8 @@ async def save_company(
     bank_corr_account: str = Form(default=""),
     monthly_plan: float = Form(default=225000.0),
     kpi_product_filter: str = Form(default="орешк"),
+    notify_contract_days: int = Form(default=14),
+    notify_invoice_days: int = Form(default=3),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -76,19 +78,18 @@ async def save_company(
     company.bank_bik = bank_bik; company.bank_corr_account = bank_corr_account
     company.monthly_plan = monthly_plan
     company.kpi_product_filter = kpi_product_filter.strip() or "орешк"
+    company.notify_contract_days = max(0, notify_contract_days)
+    company.notify_invoice_days = max(0, notify_invoice_days)
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 
 
 @router.post("/board/")
-@role_required("admin")
+@login_required
 async def save_board(
     request: Request,
     brand_name: str = Form(default=""),
     board_nuts_plan: float = Form(default=0.0),
-    board_shift_start: str = Form(default="09:00"),
-    board_shift_end: str = Form(default="17:00"),
-    board_nut_price: float = Form(default=52.0),
     board_cost_pct: float = Form(default=0.0),
     board_cost_norm_pct: float = Form(default=48.0),
     board_cost_deviation: float = Form(default=5.0),
@@ -97,15 +98,16 @@ async def save_board(
     board_active_station: int = Form(default=0),
     db: Session = Depends(get_db),
 ):
+    role = request.session.get("user_role", "viewer")
+    if role not in ("admin", "warehouse"):
+        from fastapi.responses import HTMLResponse as _HTML
+        return _HTML("<h2>403 — Нет доступа</h2>", status_code=403)
     company = db.query(CompanySettings).first()
     if not company:
         company = CompanySettings()
         db.add(company)
     company.brand_name           = brand_name or None
     company.board_nuts_plan      = board_nuts_plan
-    company.board_shift_start    = board_shift_start
-    company.board_shift_end      = board_shift_end
-    company.board_nut_price      = board_nut_price
     company.board_cost_pct       = board_cost_pct
     company.board_cost_norm_pct  = board_cost_norm_pct
     company.board_cost_deviation = board_cost_deviation
@@ -114,6 +116,32 @@ async def save_board(
     company.board_active_station = board_active_station
     db.commit()
     return RedirectResponse(url="/settings/board/?saved=1", status_code=302)
+
+
+@router.post("/modules")
+@role_required("admin")
+async def save_modules(
+    request: Request,
+    module_leads:    str = Form(default=""),
+    module_recon:    str = Form(default=""),
+    module_sourcing: str = Form(default=""),
+    module_field:    str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.module_leads    = bool(module_leads)
+    company.module_recon    = bool(module_recon)
+    company.module_sourcing = bool(module_sourcing)
+    company.module_field    = bool(module_field)
+    db.commit()
+    request.session["mod_leads"]    = company.module_leads
+    request.session["mod_recon"]    = company.module_recon
+    request.session["mod_sourcing"] = company.module_sourcing
+    request.session["mod_field"]    = company.module_field
+    return RedirectResponse(url="/settings/?saved=1&tab=modules", status_code=302)
 
 
 @router.post("/logo")
@@ -126,7 +154,7 @@ async def upload_logo(
     os.makedirs("app/static/uploads", exist_ok=True)
     ext = os.path.splitext(logo.filename or "")[1].lower()
     # Разрешаем только изображения
-    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+    if ext not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
         return RedirectResponse(url="/settings/?logo_error=1", status_code=302)
     # Ограничение 5 МБ
     content = await logo.read(5 * 1024 * 1024 + 1)
@@ -144,22 +172,10 @@ async def upload_logo(
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 
 
-@router.post("/telegram")
-@role_required("admin")
-async def save_telegram(
-    request: Request,
-    tg_bot_token: str = Form(default=""),
-    tg_report_chat_ids: str = Form(default=""),
-    db: Session = Depends(get_db),
-):
-    company = db.query(CompanySettings).first()
-    if not company:
-        company = CompanySettings()
-        db.add(company)
-    company.tg_bot_token = tg_bot_token.strip() or None
-    # Нормализуем список chat_id: оставляем только числа (с возможным минусом), через запятую
+def _normalize_chat_ids(raw: str) -> str | None:
+    """Нормализует строку chat_id: оставляет только числа через запятую."""
     ids = []
-    for part in tg_report_chat_ids.replace(";", ",").replace("\n", ",").split(","):
+    for part in raw.replace(";", ",").replace("\n", ",").split(","):
         part = part.strip()
         if not part:
             continue
@@ -167,7 +183,33 @@ async def save_telegram(
             ids.append(str(int(part)))
         except ValueError:
             continue
-    company.tg_report_chat_ids = ",".join(ids) or None
+    return ",".join(ids) or None
+
+
+@router.post("/telegram")
+@role_required("admin")
+async def save_telegram(
+    request: Request,
+    tg_bot_token: str = Form(default=""),
+    tg_report_chat_ids: str = Form(default=""),
+    tg_callback_chat_ids: str = Form(default=""),
+    tg_callback_enabled: str = Form(default=""),
+    backup_enabled: str = Form(default=""),
+    backup_frequency: str = Form(default="weekly"),
+    tg_backup_chat_id: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.tg_bot_token = tg_bot_token.strip() or None
+    company.tg_report_chat_ids = _normalize_chat_ids(tg_report_chat_ids)
+    company.tg_callback_chat_ids = _normalize_chat_ids(tg_callback_chat_ids)
+    company.tg_callback_enabled = (tg_callback_enabled == "1")
+    company.backup_enabled = (backup_enabled == "1")
+    company.backup_frequency = backup_frequency if backup_frequency in ("daily", "weekly", "monthly") else "weekly"
+    company.tg_backup_chat_id = _normalize_chat_ids(tg_backup_chat_id) or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 
@@ -198,6 +240,30 @@ async def create_user(
     return RedirectResponse(url="/settings/", status_code=302)
 
 
+@router.post("/users/{user_id}/edit")
+@role_required("admin")
+async def edit_user(
+    request: Request,
+    user_id: int,
+    full_name: str = Form(...),
+    role: str = Form(default="manager"),
+    password: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    from app.auth import ROLE_LABELS
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        user.full_name = full_name.strip() or user.full_name
+        if role in ROLE_LABELS:
+            user.role = role
+        # Пароль меняем только если задан новый
+        if password.strip():
+            user.password_hash = hash_password(password.strip())
+            user.must_change_password = False
+        db.commit()
+    return RedirectResponse(url="/settings/", status_code=302)
+
+
 @router.post("/users/{user_id}/delete")
 @role_required("admin")
 async def delete_user(request: Request, user_id: int, db: Session = Depends(get_db)):
@@ -207,3 +273,150 @@ async def delete_user(request: Request, user_id: int, db: Session = Depends(get_
             user.is_active = False
             db.commit()
     return RedirectResponse(url="/settings/", status_code=302)
+
+
+# ── Профиль текущего пользователя (доступен всем ролям) ───────────────────────
+
+@router.get("/profile", response_class=HTMLResponse)
+@login_required
+async def profile_page(request: Request, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == request.session.get("user_id")).first()
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=302)
+    return templates.TemplateResponse(request, "settings/profile.html", {
+        "user": user,
+        "saved": request.query_params.get("saved"),
+        "pwd_error": request.query_params.get("pwd_error"),
+    })
+
+
+@router.post("/profile")
+@login_required
+async def profile_save(
+    request: Request,
+    full_name: str = Form(...),
+    phone: str = Form(default=""),
+    birthday: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    from datetime import date as _date
+    user = db.query(User).filter(User.id == request.session.get("user_id")).first()
+    if user:
+        user.full_name = full_name.strip() or user.full_name
+        user.phone = phone.strip() or None
+        if birthday:
+            try:
+                user.birthday = _date.fromisoformat(birthday)
+            except ValueError:
+                pass
+        else:
+            user.birthday = None
+        db.commit()
+        request.session["user_name"] = user.full_name
+    return RedirectResponse(url="/settings/profile?saved=1", status_code=302)
+
+
+@router.get("/backup")
+@role_required("admin")
+async def backup_db(request: Request, db: Session = Depends(get_db)):
+    """Скачать резервную копию БД. Только admin.
+
+    Использует `VACUUM INTO` — SQLite собирает целостную копию со всеми данными,
+    включая ещё не сброшенный WAL. Это надёжнее, чем копировать сам файл tms.db
+    (он может быть устаревшим, пока WAL не сделал checkpoint, а checkpoint не
+    срабатывает при активных соединениях приложения)."""
+    from datetime import date as _date
+    from app.utils import log_action
+    from app.database import make_backup_copy
+
+    # Логируем факт скачивания БД
+    log_action(db, "system", 0, "backup_downloaded",
+               request.session.get("user_id"),
+               f"Скачана резервная копия БД (IP: {request.client.host if request.client else '?'})")
+
+    try:
+        tmp_path = make_backup_copy()
+    except Exception as e:
+        return HTMLResponse(f"Не удалось создать резервную копию: {e}", status_code=500)
+
+    filename = f"tms-backup-{_date.today().isoformat()}.db"
+    # BackgroundTask удалит временный файл после того, как ответ отправлен клиенту
+    from starlette.background import BackgroundTask
+    return FileResponse(
+        path=tmp_path, filename=filename, media_type="application/octet-stream",
+        background=BackgroundTask(lambda: os.path.exists(tmp_path) and os.remove(tmp_path)),
+    )
+
+
+@router.post("/onec")
+@role_required("admin")
+async def save_onec(
+    request: Request,
+    onec_url: str = Form(default=""),
+    onec_user: str = Form(default=""),
+    onec_password: str = Form(default=""),
+    onec_enabled: str = Form(default=""),
+    onec_hs_url: str = Form(default=""),
+    doc_intake_channel: str = Form(default="off"),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.onec_url = onec_url.strip() or None
+    company.onec_user = onec_user.strip() or None
+    if onec_password.strip():
+        company.onec_password = onec_password.strip()
+    company.onec_enabled = (onec_enabled == "1")
+    company.onec_hs_url = onec_hs_url.strip() or None
+    if doc_intake_channel in ("off", "telegram", "email", "folder"):
+        company.doc_intake_channel = doc_intake_channel
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
+
+
+@router.post("/sbis")
+@role_required("admin")
+async def save_sbis(
+    request: Request,
+    sbis_login: str = Form(default=""),
+    sbis_password: str = Form(default=""),
+    sbis_account_id: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.sbis_login      = sbis_login.strip() or None
+    if sbis_password.strip():
+        company.sbis_password = sbis_password.strip()
+    company.sbis_account_id = sbis_account_id.strip() or None
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1&tab=integrations", status_code=302)
+
+
+@router.post("/profile/password")
+@login_required
+async def profile_password(
+    request: Request,
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    from app.database import verify_password
+    user = db.query(User).filter(User.id == request.session.get("user_id")).first()
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=302)
+    if not verify_password(current_password, user.password_hash):
+        return RedirectResponse(url="/settings/profile?pwd_error=wrong", status_code=302)
+    if len(new_password) < 8:
+        return RedirectResponse(url="/settings/profile?pwd_error=short", status_code=302)
+    if new_password != confirm_password:
+        return RedirectResponse(url="/settings/profile?pwd_error=mismatch", status_code=302)
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    db.commit()
+    return RedirectResponse(url="/settings/profile?saved=1", status_code=302)

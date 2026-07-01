@@ -53,12 +53,26 @@
     <a href="/claims/" class="nav-link {% if '/claims' in request.url.path %}active{% endif %}">
       <i class="bi bi-chat-left-text"></i> <span>Рекламации</span>
     </a>
+    {% if request.session.get('mod_leads') %}
     <a href="/leads/" class="nav-link {% if '/leads' in request.url.path %}active{% endif %}">
       <i class="bi bi-telephone-outbound"></i> <span>Прозвон</span>
     </a>
+    {% endif %}
+    {% if request.session.get('mod_recon') %}
     <a href="/recon/" class="nav-link {% if '/recon' in request.url.path %}active{% endif %}">
       <i class="bi bi-binoculars"></i> <span>Разведка ЛПР</span>
     </a>
+    {% endif %}
+    {% if request.session.get('mod_sourcing') %}
+    <a href="/sourcing/" class="nav-link {% if '/sourcing' in request.url.path %}active{% endif %}">
+      <i class="bi bi-clipboard-data"></i> <span>Закупки</span>
+    </a>
+    {% endif %}
+    {% if request.session.get('mod_field') %}
+    <a href="/field/monitor" class="nav-link {% if '/field' in request.url.path %}active{% endif %}">
+      <i class="bi bi-person-walking"></i> <span>Поле (торгпреды)</span>
+    </a>
+    {% endif %}
     {% endif %}
 
     <div class="nav-section">Справочники</div>
@@ -90,14 +104,24 @@
     {% endif %}
 
     <div class="nav-section">Склад</div>
-    <a href="/warehouse/" class="nav-link {% if '/warehouse' in request.url.path and 'journal' not in request.url.path %}active{% endif %}">
+    <a href="/warehouse/" class="nav-link {% if '/warehouse' in request.url.path and 'journal' not in request.url.path and 'inventory' not in request.url.path %}active{% endif %}">
       <i class="bi bi-boxes"></i> <span>Остатки</span>
     </a>
     <a href="/warehouse/journal" class="nav-link {% if '/warehouse/journal' in request.url.path %}active{% endif %}">
       <i class="bi bi-journal-text"></i> <span>Журнал движений</span>
     </a>
+    {% if _role in ('admin','manager') %}
+    <a href="/warehouse/inventory" class="nav-link {% if '/warehouse/inventory' in request.url.path %}active{% endif %}">
+      <i class="bi bi-clipboard-check"></i> <span>Инвентаризация</span>
+    </a>
+    {% endif %}
 
-    {% if _role != 'warehouse' %}
+    {% if _role == 'warehouse' %}
+    <div class="nav-section">Система</div>
+    <a href="/settings/board/" class="nav-link {% if '/settings/board' in request.url.path %}active{% endif %}">
+      <i class="bi bi-display"></i> <span>Табло цеха</span>
+    </a>
+    {% else %}
     <div class="nav-section">Система</div>
     <a href="/settings/" class="nav-link {% if '/settings' in request.url.path and '/settings/board' not in request.url.path %}active{% endif %}">
       <i class="bi bi-gear"></i> <span>Настройки</span>
@@ -127,10 +151,31 @@
   {% endif %}
   <div class="user-block">
     <span class="avatar" aria-hidden="true"><i class="bi bi-person-fill"></i></span>
-    <span class="uname">{{ request.session.get('user_name', 'Пользователь') }}</span>
-    <a href="/auth/logout" title="Выйти" aria-label="Выйти"><i class="bi bi-box-arrow-right"></i></a>
+    <a href="/settings/profile" class="uname text-reset text-decoration-none" title="Мой профиль">{{ request.session.get('user_name', 'Пользователь') }}</a>
+    <form method="post" action="/auth/logout" style="display:inline;margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <button type="submit" title="Выйти" aria-label="Выйти"
+              style="background:none;border:none;padding:0;cursor:pointer;color:inherit;display:inline-flex;align-items:center">
+        <i class="bi bi-box-arrow-right"></i>
+      </button>
+    </form>
   </div>
 </nav>
+
+{% if request.session.get('user_role') == 'warehouse' %}
+<form method="post" action="/warehouse/toggle-view"
+      style="position:fixed;bottom:18px;right:18px;z-index:9999;margin:0">
+  <input type="hidden" name="next" value="/warehouse/">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <button type="submit"
+          style="background:#0d6efd;color:#fff;border:none;border-radius:50px;
+                 padding:10px 18px;font-size:14px;font-weight:600;
+                 box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer;
+                 display:flex;align-items:center;gap:8px">
+    <i class="bi bi-phone-fill"></i> Мобильный вид
+  </button>
+</form>
+{% endif %}
 
 <!-- ── Main ── -->
 <div id="main">
@@ -181,6 +226,29 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="/static/js/app.js"></script>
+
+<!-- ProductPicker Modal -->
+<div class="modal fade" id="productPickerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable" style="max-width:640px">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-2 pt-3 px-3 gap-2">
+        <div class="input-group flex-grow-1">
+          <span class="input-group-text bg-white border-end-0 pe-1">
+            <i class="bi bi-search text-muted" style="font-size:.9rem"></i>
+          </span>
+          <input type="text" id="pickerSearch" class="form-control border-start-0 ps-1"
+                 placeholder="Поиск по названию или артикулу…"
+                 oninput="ProductPicker._render(this.value)" autocomplete="off">
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Закрыть"></button>
+      </div>
+      <div class="modal-body py-2 px-3" id="pickerBody"
+           style="min-height:240px; max-height:65vh; overflow-y:auto">
+      </div>
+    </div>
+  </div>
+</div>
+
 {% block scripts %}{% endblock %}
 
 <script>
@@ -240,18 +308,25 @@
       return;
     }
 
-    var icons = { low_stock: 'bi-exclamation-triangle-fill text-warning' };
+    var icons = {
+      low_stock: 'bi-exclamation-triangle-fill text-warning',
+      contract_expiry: 'bi-file-earmark-text-fill text-primary',
+      invoice_due: 'bi-cash-coin text-success'
+    };
     list.innerHTML = data.items.map(function (n) {
       var icon = icons[n.type] || 'bi-bell-fill text-primary';
-      return '<div class="nd-item' + (n.is_read ? '' : ' unread') + '">' +
+      var inner =
         '<div class="nd-icon"><i class="bi ' + icon + '"></i></div>' +
         '<div class="nd-body">' +
-          '<div class="nd-title">' + _esc(n.title) + '</div>' +
+          '<div class="nd-title">' + _esc(n.title) + (n.link ? ' <i class="bi bi-box-arrow-up-right" style="font-size:.7rem;opacity:.5"></i>' : '') + '</div>' +
           (n.body ? '<div class="nd-text">' + _esc(n.body) + '</div>' : '') +
           '<div class="nd-time">' + n.time + '</div>' +
         '</div>' +
-        (n.is_read ? '' : '<div class="nd-dot"></div>') +
-      '</div>';
+        (n.is_read ? '' : '<div class="nd-dot"></div>');
+      if (n.link) {
+        return '<a href="' + _esc(n.link) + '" class="nd-item' + (n.is_read ? '' : ' unread') + '" style="text-decoration:none;color:inherit">' + inner + '</a>';
+      }
+      return '<div class="nd-item' + (n.is_read ? '' : ' unread') + '">' + inner + '</div>';
     }).join('');
 
     var hasMore = data.total > data.items.length;
@@ -319,6 +394,23 @@
     if (e.key === 'Escape' && _open) closeNotifDrawer();
   });
 })();
+</script>
+
+<script>
+// Десктоп контролируется тем же service worker (scope '/'). Принудительно
+// проверяем обновление SW и перезагружаем страницу один раз, когда новый
+// SW берёт контроль — чтобы после деплоя не показывались старые страницы.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistration().then(function (reg) {
+    if (reg) reg.update();
+  });
+  var _swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (_swReloaded) return;
+    _swReloaded = true;
+    location.reload();
+  });
+}
 </script>
 </body>
 </html>

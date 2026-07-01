@@ -67,7 +67,10 @@
           </div>
           <div class="col-md-4">
             <label class="form-label">ИНН</label>
-            <input type="text" name="inn" id="f-inn" class="form-control" maxlength="12" value="{{ cp.inn if cp else '' }}">
+            <input type="text" name="inn" id="f-inn" class="form-control" maxlength="12"
+                   value="{{ cp.inn if cp else '' }}"
+                   oninput="checkInnDuplicate(this.value)">
+            <div id="inn-duplicate-alert" class="mt-1" style="font-size:.82rem"></div>
           </div>
           <div class="col-md-4">
             <label class="form-label">КПП</label>
@@ -177,6 +180,19 @@
       <!-- Скрытый инпут — гарантирует передачу tg_chat_id даже когда карточка скрыта -->
       <input type="hidden" name="tg_chat_id_hidden" id="tg_chat_id_hidden"
              value="{{ cp.tg_chat_id if cp and cp.tg_chat_id else '' }}">
+
+      <!-- Водители и ТС для перевозчиков — всегда в DOM, видимость через JS -->
+      <div class="card border-0 shadow-sm p-4 mb-3" id="driver-card" style="display:none">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="form-section-title mb-0"><i class="bi bi-truck me-1 text-primary"></i>Водители и транспорт</div>
+          <button type="button" class="btn btn-sm btn-accent" onclick="addVehicleRow()">
+            <i class="bi bi-plus-lg me-1"></i>Добавить
+          </button>
+        </div>
+        <div id="vehicles-list"></div>
+        <div class="form-text">Выбираются из списка при оформлении заказа этому перевозчику (для транспортной накладной и ЭТРН)</div>
+      </div>
+      <input type="hidden" name="vehicles_json" id="vehicles_json" value="[]">
 
       <div class="card border-0 shadow-sm p-4">
         <div class="form-section-title"><i class="bi bi-clock-history me-1"></i>Условия оплаты (дебиторка)</div>
@@ -372,6 +388,7 @@ updateSignatoryVisibility();
 (function() {
   var typeSel = document.querySelector('select[name="type"]');
   var tgCard  = document.getElementById('tg-card');
+  var driverCard = document.getElementById('driver-card');
   var tgInput = document.getElementById('tg_chat_id');
   var tgHidden = document.getElementById('tg_chat_id_hidden');
 
@@ -380,8 +397,10 @@ updateSignatoryVisibility();
   }
 
   function updateTgCardVisibility() {
-    if (!typeSel || !tgCard) return;
-    tgCard.style.display = (typeSel.value === 'carrier') ? 'block' : 'none';
+    if (!typeSel) return;
+    var isCarrier = (typeSel.value === 'carrier');
+    if (tgCard) tgCard.style.display = isCarrier ? 'block' : 'none';
+    if (driverCard) driverCard.style.display = isCarrier ? 'block' : 'none';
   }
 
   if (typeSel) typeSel.addEventListener('change', updateTgCardVisibility);
@@ -390,5 +409,76 @@ updateSignatoryVisibility();
   updateTgCardVisibility();
   syncHidden();
 })();
+
+// ── Водители и ТС перевозчика — список с добавлением/удалением строк ────────
+let _vehiclesData = {{ vehicles_initial | tojson }};
+
+function _escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderVehicles() {
+  const box = document.getElementById('vehicles-list');
+  if (!box) return;
+  if (_vehiclesData.length === 0) {
+    box.innerHTML = '<div class="text-muted mb-2" style="font-size:.85rem">Пока не добавлено ни одного водителя</div>';
+  } else {
+    box.innerHTML = '';
+    _vehiclesData.forEach((v, idx) => {
+      const row = document.createElement('div');
+      row.className = 'row g-2 align-items-center mb-2';
+      row.innerHTML = `
+        <div class="col-md-5"><input type="text" class="form-control form-control-sm" placeholder="ФИО водителя" value="${_escapeHtml(v.driver_name || '')}" data-idx="${idx}" data-field="driver_name" oninput="updateVehicleField(this)"></div>
+        <div class="col-md-3"><input type="text" class="form-control form-control-sm font-monospace" placeholder="А001АА77" value="${_escapeHtml(v.vehicle_plate || '')}" data-idx="${idx}" data-field="vehicle_plate" oninput="updateVehicleField(this)"></div>
+        <div class="col-md-3"><input type="text" class="form-control form-control-sm" placeholder="Вид ТС" value="${_escapeHtml(v.vehicle_type || '')}" data-idx="${idx}" data-field="vehicle_type" oninput="updateVehicleField(this)"></div>
+        <div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVehicleRow(${idx})" title="Удалить"><i class="bi bi-trash"></i></button></div>
+      `;
+      box.appendChild(row);
+    });
+  }
+  syncVehiclesJson();
+}
+
+function addVehicleRow() {
+  _vehiclesData.push({driver_name: '', vehicle_plate: '', vehicle_type: ''});
+  renderVehicles();
+}
+
+function removeVehicleRow(idx) {
+  _vehiclesData.splice(idx, 1);
+  renderVehicles();
+}
+
+function updateVehicleField(input) {
+  const idx = parseInt(input.dataset.idx);
+  _vehiclesData[idx][input.dataset.field] = input.value;
+  syncVehiclesJson();
+}
+
+function syncVehiclesJson() {
+  document.getElementById('vehicles_json').value = JSON.stringify(_vehiclesData);
+}
+
+renderVehicles();
+
+// ── Проверка дублей по ИНН ───────────────────────────────────────────────────
+let _innTimer = null;
+async function checkInnDuplicate(val) {
+  const el = document.getElementById('inn-duplicate-alert');
+  if (!el) return;
+  clearTimeout(_innTimer);
+  const digits = val.replace(/\D/g, '');
+  if (digits.length !== 10 && digits.length !== 12) { el.innerHTML = ''; return; }
+  _innTimer = setTimeout(async () => {
+    const excludeId = {{ cp.id if cp else 0 }};
+    const resp = await fetch(`/counterparties/check-inn?inn=${digits}&exclude_id=${excludeId}`);
+    const data = await resp.json();
+    if (data.duplicate) {
+      el.innerHTML = `<span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>КА с таким ИНН уже есть: <a href="/counterparties/${data.id}" target="_blank">${data.name}</a></span>`;
+    } else {
+      el.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>ИНН свободен</span>';
+    }
+  }, 400);
+}
 </script>
 {% endblock %}

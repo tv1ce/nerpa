@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Синхронизация с 1С:УНФ{% endblock %}
+{% block page_title %}Синхронизация с 1С:УНФ{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="form-section-title">Ручная синхронизация</div>
+
+      {% if not company or not company.onec_url %}
+      <div class="alert alert-warning">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        URL 1С не настроен. <a href="/settings/#onec">Перейти в настройки</a>.
+      </div>
+      {% else %}
+
+      <div class="d-flex flex-wrap gap-2 mb-4">
+        <button class="btn btn-outline-primary btn-sm" onclick="runSync('/sync/1c/products')">
+          <i class="bi bi-box-seam me-1"></i>Импорт номенклатуры
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="runSync('/sync/1c/invoices')">
+          <i class="bi bi-receipt me-1"></i>Импорт счетов
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="runSync('/sync/1c/documents')">
+          <i class="bi bi-file-earmark-pdf me-1"></i>Импорт документов (Счёт/УПД)
+        </button>
+        <button class="btn btn-outline-primary btn-sm" onclick="runSync('/sync/1c/payments')">
+          <i class="bi bi-cash-coin me-1"></i>Импорт оплат
+        </button>
+        <button class="btn btn-accent btn-sm" onclick="runSync('/sync/1c/run-all')">
+          <i class="bi bi-arrow-repeat me-1"></i>Запустить всё
+        </button>
+      </div>
+
+      <div id="syncResult" class="d-none">
+        <div class="alert mb-0" id="syncAlert"></div>
+      </div>
+
+      {% endif %}
+    </div>
+
+    <!-- Лог -->
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title">Последние операции</div>
+      {% if logs %}
+      <table class="table table-sm tms-table">
+        <thead>
+          <tr><th>Время</th><th>Операция</th><th>Результат</th></tr>
+        </thead>
+        <tbody>
+          {% for log in logs %}
+          <tr>
+            <td class="text-nowrap text-muted" style="font-size:.82rem">
+              {{ log.created_at | date_fmt }}
+            </td>
+            <td><code style="font-size:.82rem">{{ log.action }}</code></td>
+            <td style="font-size:.82rem">{{ log.note or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted mb-0">Синхронизаций ещё не было.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm p-4">
+      <div class="form-section-title">Статус</div>
+      {% if company and company.onec_url %}
+      <div class="mb-2" style="font-size:.88rem">
+        <span class="text-muted">URL:</span><br>
+        <code style="word-break:break-all">{{ company.onec_url }}</code>
+      </div>
+      <div class="mb-3" style="font-size:.88rem">
+        <span class="text-muted">Пользователь:</span>
+        {{ company.onec_user or "—" }}
+      </div>
+      <div class="mb-3">
+        {% if company.onec_enabled %}
+        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Синхронизация включена</span>
+        {% else %}
+        <span class="badge bg-secondary">Синхронизация выключена</span>
+        {% endif %}
+      </div>
+      <button class="btn btn-sm btn-outline-secondary w-100" onclick="checkConn()">
+        <i class="bi bi-plug me-1"></i>Проверить подключение
+      </button>
+      <div id="connResult" class="mt-2"></div>
+      {% else %}
+      <p class="text-muted mb-0">Не настроено.</p>
+      {% endif %}
+      <hr class="my-3">
+      <a href="/settings/#onec" class="btn btn-sm btn-outline-secondary w-100">
+        <i class="bi bi-gear me-1"></i>Настройки 1С
+      </a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+async function runSync(url) {
+  const el = document.getElementById('syncResult');
+  const alert = document.getElementById('syncAlert');
+  el.classList.remove('d-none');
+  alert.className = 'alert alert-secondary mb-0';
+  alert.textContent = 'Выполняется…';
+
+  try {
+    const r = await fetch(url, { method: 'POST' });
+    const data = await r.json();
+    const ok = !data.errors?.length;
+    alert.className = `alert alert-${ok ? 'success' : 'warning'} mb-0`;
+    const parts = [];
+    if (data.created !== undefined) parts.push(`создано: ${data.created}`);
+    if (data.updated !== undefined) parts.push(`обновлено: ${data.updated}`);
+    if (data.errors?.length)       parts.push(`ошибок: ${data.errors.length}`);
+    alert.textContent = parts.join(', ') || JSON.stringify(data);
+    if (data.errors?.length) {
+      const pre = document.createElement('pre');
+      pre.style.fontSize = '.75rem';
+      pre.style.marginTop = '8px';
+      pre.style.marginBottom = '0';
+      pre.textContent = data.errors.slice(0, 5).join('\n');
+      alert.appendChild(pre);
+    }
+  } catch(e) {
+    alert.className = 'alert alert-danger mb-0';
+    alert.textContent = `Ошибка: ${e}`;
+  }
+}
+
+async function checkConn() {
+  const el = document.getElementById('connResult');
+  el.innerHTML = '<span class="text-muted" style="font-size:.82rem">Проверяем…</span>';
+  try {
+    const r = await fetch('/sync/1c/test');
+    const data = await r.json();
+    const cls = data.ok ? 'text-success' : 'text-danger';
+    const icon = data.ok ? 'check-circle' : 'x-circle';
+    el.innerHTML = `<span class="${cls}" style="font-size:.82rem"><i class="bi bi-${icon} me-1"></i>${data.message}</span>`;
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger" style="font-size:.82rem">${e}</span>`;
+  }
+}
+</script>
+{% endblock %}

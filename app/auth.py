@@ -2,10 +2,10 @@ from functools import wraps
 from fastapi import Request
 from fastapi.responses import RedirectResponse, HTMLResponse
 from app.database import SessionLocal, verify_password
-from app.models import User
+from app.models import User, CompanySettings
 import secrets as _secrets
 
-ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "viewer": 1, "warehouse": 1}
+ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1, "demo": 1}
 
 
 def safe_redirect(url: str, default: str = "/") -> str:
@@ -20,7 +20,8 @@ def safe_redirect(url: str, default: str = "/") -> str:
 # Человекочитаемые названия ролей
 ROLE_LABELS = {
     "admin": "Администратор", "manager": "Менеджер", "sales": "Отдел продаж",
-    "viewer": "Просмотр", "warehouse": "Склад",
+    "field_rep": "Торговый представитель",
+    "viewer": "Просмотр", "warehouse": "Склад", "demo": "Демо",
 }
 
 # Разделы, доступные роли "warehouse" (только чтение)
@@ -29,12 +30,37 @@ WAREHOUSE_ALLOWED_PREFIXES = (
     "/warehouse",
     "/counterparties",
     "/products",   # кладовщику нужен список товаров
-    "/board",      # табло цеха
+    "/files",      # скачивание прикреплённых документов (загрузка/удаление закрыты role_required)
+    "/board",           # табло цеха
+    "/settings/board",  # настройки табло цеха — кладовщик управляет планом/цитатами
+    "/settings/profile",  # свой профиль (ДР, пароль) — доступен всем ролям
     "/auth",
     "/notifications",
     "/static",
     "/manifest.webmanifest",
     "/sw.js",
+)
+
+# Разделы, доступные роли "field_rep" (торговый представитель — мобильное приложение).
+# Всё остальное (дашборд, счета, склад, настройки) ему недоступно.
+FIELD_ALLOWED_PREFIXES = (
+    "/field",
+    "/counterparties",   # просмотр карточки клиента (после конвертации точки)
+    "/settings/profile", # свой профиль (ДР, смена пароля)
+    "/auth",
+    "/notifications",
+    "/static",
+    "/manifest.webmanifest",
+    "/sw.js",
+)
+
+_DEMO_403_HTML = (
+    '<div style="font-family:\'Fira Sans\',sans-serif;display:flex;align-items:center;'
+    'justify-content:center;height:100vh;flex-direction:column;gap:12px">'
+    '<span style="font-size:3rem">👁</span>'
+    '<h2 style="margin:0">Демо-режим</h2>'
+    '<p style="color:#64748b">В демо-аккаунте редактирование недоступно.</p>'
+    '<a href="javascript:history.back()" style="color:#2563eb">Назад</a></div>'
 )
 
 _403_HTML = (
@@ -58,12 +84,30 @@ def get_current_user(request: Request):
         db.close()
 
 
+def _demo_check(request: Request):
+    """Для роли demo блокирует любые изменяющие запросы."""
+    role = request.session.get("user_role", "viewer")
+    if role == "demo" and request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        return HTMLResponse(_DEMO_403_HTML, status_code=403)
+    return None
+
+
 def _warehouse_check(request: Request):
     """Возвращает 403 если роль warehouse и путь не разрешён."""
     role = request.session.get("user_role", "viewer")
     if role == "warehouse":
         path = request.url.path
         if not any(path.startswith(p) for p in WAREHOUSE_ALLOWED_PREFIXES):
+            return HTMLResponse(_403_HTML, status_code=403)
+    return None
+
+
+def _field_check(request: Request):
+    """Возвращает 403 если роль field_rep и путь вне его раздела."""
+    role = request.session.get("user_role", "viewer")
+    if role == "field_rep":
+        path = request.url.path
+        if not any(path.startswith(p) for p in FIELD_ALLOWED_PREFIXES):
             return HTMLResponse(_403_HTML, status_code=403)
     return None
 
@@ -97,8 +141,12 @@ def _get_fresh_user(request: Request):
     try:
         user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
         if user:
-            # Синхронизируем роль в сессии с актуальной ролью из БД
             request.session["user_role"] = user.role
+            company = db.query(CompanySettings).first()
+            request.session["mod_leads"]    = bool(company and company.module_leads)
+            request.session["mod_recon"]    = bool(company and company.module_recon)
+            request.session["mod_sourcing"] = bool(company and company.module_sourcing)
+            request.session["mod_field"]    = bool(company and company.module_field)
         return user
     finally:
         db.close()
@@ -118,7 +166,7 @@ def login_required(func):
         if getattr(user, "must_change_password", False):
             if not request.url.path.startswith(_CHANGE_PWD_PATH):
                 return RedirectResponse(url=_CHANGE_PWD_PATH, status_code=302)
-        denied = _warehouse_check(request)
+        denied = _demo_check(request) or _warehouse_check(request) or _field_check(request)
         if denied:
             return denied
         # CSRF-проверка для изменяющих запросов
@@ -144,7 +192,7 @@ def role_required(min_role: str = "viewer"):
             if not user:
                 request.session.clear()
                 return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
-            denied = _warehouse_check(request)
+            denied = _demo_check(request) or _warehouse_check(request) or _field_check(request)
             if denied:
                 return denied
             role = user.role  # берём роль из БД, не из сессии

@@ -2,13 +2,55 @@ from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Counterparty, Claim, Task, Comment, AuditLog, User
+from app.models import Counterparty, Claim, Task, Comment, AuditLog, User, ContactPerson, CarrierVehicle
 from app.utils import log_action
+import json
+import logging
+import threading
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/counterparties", tags=["counterparties"])
+
+
+def _sync_carrier_vehicles(db: Session, cp: Counterparty, vehicles_json: str) -> None:
+    """Полностью пересобирает список водителей/ТС перевозчика из JSON формы."""
+    try:
+        rows = json.loads(vehicles_json)
+    except (ValueError, TypeError):
+        rows = []
+    db.query(CarrierVehicle).filter(CarrierVehicle.counterparty_id == cp.id).delete()
+    for row in rows:
+        driver = (row.get("driver_name") or "").strip()
+        plate = (row.get("vehicle_plate") or "").strip()
+        vtype = (row.get("vehicle_type") or "").strip()
+        if not (driver or plate or vtype):
+            continue
+        db.add(CarrierVehicle(
+            counterparty_id=cp.id,
+            driver_name=driver or None,
+            vehicle_plate=plate or None,
+            vehicle_type=vtype or None,
+        ))
+
+
+def _push_cp_bg(cp_id: int) -> None:
+    """Push контрагента в 1С в фоновом потоке (создаёт собственную сессию)."""
+    from app.database import SessionLocal
+    from app.services.onec_client import push_counterparty
+    db = SessionLocal()
+    try:
+        cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
+        if cp:
+            push_counterparty(cp, db)
+    except Exception as e:
+        logger.error("push_counterparty bg %s: %s", cp_id, e)
+    finally:
+        db.close()
 templates = Jinja2Templates(directory="app/templates")
 
 
@@ -94,6 +136,26 @@ def _compute_category(cp: Counterparty) -> str | None:
     return None
 
 
+def _filtered_counterparties(db: Session, q: str, type: str, category: str, entity_type: str):
+    query = db.query(Counterparty).filter(Counterparty.is_active == True)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(or_(
+            Counterparty.name.ilike(like),
+            Counterparty.trade_name.ilike(like),
+            Counterparty.inn.ilike(like),
+            Counterparty.phone.ilike(like),
+            Counterparty.contact_person.ilike(like),
+        ))
+    if type:
+        query = query.filter(Counterparty.type == type)
+    if category:
+        query = query.filter(Counterparty.category == category)
+    if entity_type:
+        query = query.filter(Counterparty.entity_type == entity_type)
+    return query.order_by(Counterparty.name).all()
+
+
 @router.get("/", response_class=HTMLResponse)
 @login_required
 async def list_counterparties(
@@ -101,19 +163,26 @@ async def list_counterparties(
     entity_type: str = "",
     db: Session = Depends(get_db),
 ):
-    query = db.query(Counterparty).filter(Counterparty.is_active == True)
-    if q:
-        query = query.filter(Counterparty.name.ilike(f"%{q}%"))
-    if type:
-        query = query.filter(Counterparty.type == type)
-    if category:
-        query = query.filter(Counterparty.category == category)
-    if entity_type:
-        query = query.filter(Counterparty.entity_type == entity_type)
-    counterparties = query.order_by(Counterparty.name).all()
+    counterparties = _filtered_counterparties(db, q, type, category, entity_type)
     return templates.TemplateResponse(request, "counterparties/list.html", {
         "counterparties": counterparties, "q": q, "type": type,
         "category": category, "entity_type": entity_type,
+        "cp_types": CP_TYPES, "cat_colors": CAT_COLORS, "entity_types": ENTITY_TYPES,
+    })
+
+
+@router.get("/search", response_class=HTMLResponse)
+@login_required
+async def search_counterparties(
+    request: Request, q: str = "", type: str = "", category: str = "",
+    entity_type: str = "",
+    db: Session = Depends(get_db),
+):
+    """Живой поиск/фильтр — возвращает только строки таблицы (без каркаса страницы)
+    для подстановки через fetch() без перезагрузки страницы."""
+    counterparties = _filtered_counterparties(db, q, type, category, entity_type)
+    return templates.TemplateResponse(request, "counterparties/_rows.html", {
+        "counterparties": counterparties,
         "cp_types": CP_TYPES, "cat_colors": CAT_COLORS, "entity_types": ENTITY_TYPES,
     })
 
@@ -138,6 +207,7 @@ async def recalc_categories(request: Request, db: Session = Depends(get_db)):
 async def new_counterparty(request: Request):
     return templates.TemplateResponse(request, "counterparties/form.html", {
         "cp": None, "cp_types": CP_TYPES, "entity_types": ENTITY_TYPES, "errors": [],
+        "vehicles_initial": [],
     })
 
 
@@ -170,6 +240,7 @@ async def create_counterparty(
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
+    vehicles_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
     resolved_entity = entity_type if entity_type in ENTITY_TYPES else "ooo"
@@ -193,8 +264,34 @@ async def create_counterparty(
         tg_notify_enabled=bool(tg_notify_enabled),
     )
     db.add(cp)
+    db.flush()
+    _sync_carrier_vehicles(db, cp, vehicles_json)
     db.commit()
+    threading.Thread(target=_push_cp_bg, args=(cp.id,), daemon=True).start()
     return RedirectResponse(url="/counterparties", status_code=302)
+
+
+@router.get("/check-inn", response_class=JSONResponse)
+@login_required
+async def check_inn(request: Request, inn: str = "", exclude_id: int = 0, db: Session = Depends(get_db)):
+    """AJAX: проверяет существует ли КА с таким ИНН. exclude_id — текущий КА при редактировании."""
+    inn = _clean_digits(inn)
+    if len(inn) not in (10, 12):
+        return JSONResponse({"duplicate": False})
+    q = db.query(Counterparty).filter(
+        Counterparty.inn == inn,
+        Counterparty.is_active == True,
+    )
+    if exclude_id:
+        q = q.filter(Counterparty.id != exclude_id)
+    existing = q.first()
+    if existing:
+        return JSONResponse({
+            "duplicate": True,
+            "id": existing.id,
+            "name": existing.trade_name or existing.name,
+        })
+    return JSONResponse({"duplicate": False})
 
 
 @router.get("/dadata/party", response_class=JSONResponse)
@@ -268,6 +365,62 @@ async def dadata_bank(request: Request, bik: str = ""):
     return JSONResponse(result)
 
 
+_EGRUL_STATUS_LABELS = {
+    "ACTIVE":        "Действует",
+    "LIQUIDATING":   "В процессе ликвидации",
+    "LIQUIDATED":    "Ликвидирована",
+    "BANKRUPT":      "Банкротство",
+    "REORGANIZING":  "Реорганизация",
+}
+_EGRUL_STATUS_COLORS = {
+    "ACTIVE":        "success",
+    "LIQUIDATING":   "warning",
+    "LIQUIDATED":    "danger",
+    "BANKRUPT":      "danger",
+    "REORGANIZING":  "warning",
+}
+
+
+@router.post("/{cp_id}/check-egrul", response_class=JSONResponse)
+@login_required
+async def check_egrul(request: Request, cp_id: int, db: Session = Depends(get_db)):
+    """AJAX: запрашивает статус КА в ЕГРЮЛ через DaData, сохраняет в БД."""
+    from datetime import datetime as _dt
+    cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
+    if not cp:
+        return JSONResponse({"error": "КА не найден"}, status_code=404)
+    if not cp.inn:
+        return JSONResponse({"error": "У КА не указан ИНН"}, status_code=400)
+
+    async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
+        try:
+            resp = await client.post(
+                "https://suggestions.dadata.ru/suggestions/api/4_1/rs/findById/party",
+                headers=DADATA_HEADERS,
+                json={"query": cp.inn},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            return JSONResponse({"error": f"Ошибка запроса к DaData: {e}"}, status_code=502)
+
+    suggestions = data.get("suggestions", [])
+    if not suggestions:
+        return JSONResponse({"error": "Компания не найдена по ИНН"}, status_code=404)
+
+    status_code = suggestions[0]["data"].get("state", {}).get("status", "ACTIVE")
+    cp.egrul_status = status_code
+    cp.egrul_checked_at = _dt.utcnow()
+    db.commit()
+
+    return JSONResponse({
+        "status": status_code,
+        "label": _EGRUL_STATUS_LABELS.get(status_code, status_code),
+        "color": _EGRUL_STATUS_COLORS.get(status_code, "secondary"),
+        "checked_at": cp.egrul_checked_at.strftime("%d.%m.%Y %H:%M"),
+    })
+
+
 @router.get("/{cp_id}", response_class=HTMLResponse)
 @login_required
 async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(get_db)):
@@ -276,11 +429,17 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
         return RedirectResponse(url="/counterparties", status_code=302)
 
     # Статистика
+    from datetime import date as _date, timedelta as _td
     active_orders = [o for o in cp.orders if o.status not in ("cancelled",)]
     # Выручка — только фактически оплаченные/отгруженные заказы (без confirmed)
     total_revenue = sum(o.total_amount for o in cp.orders if o.status in REVENUE_STATUSES)
     open_invoices = [inv for inv in cp.invoices if inv.status in ("issued", "overdue")]
     open_debt = sum(inv.total_amount for inv in open_invoices)
+
+    # Дней с последнего заказа (без учёта отменённых)
+    last_order_dates = [o.date for o in cp.orders if o.status != "cancelled" and o.date]
+    last_order_date = max(last_order_dates) if last_order_dates else None
+    dormant_days = (_date.today() - last_order_date).days if last_order_date else None
     claims = db.query(Claim).filter(Claim.counterparty_id == cp_id).order_by(Claim.date.desc()).all()
 
     tasks = db.query(Task).filter(
@@ -294,11 +453,24 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
     ).order_by(AuditLog.created_at.desc()).limit(50).all()
     users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
 
+    from app.routers.files import files_for, FILE_TYPES
+    files = files_for(db, "counterparty", cp_id)
+
+    contacts = (
+        db.query(ContactPerson)
+        .filter(ContactPerson.counterparty_id == cp_id, ContactPerson.is_active == True)
+        .order_by(ContactPerson.is_primary.desc(), ContactPerson.full_name)
+        .all()
+    )
+
     return templates.TemplateResponse(request, "counterparties/detail.html", {
         "cp": cp,
         "cp_types": CP_TYPES,
         "entity_types": ENTITY_TYPES,
         "cat_colors": CAT_COLORS,
+        "files": files,
+        "file_types": FILE_TYPES["counterparty"],
+        "contacts": contacts,
         "total_orders": len(cp.orders),
         "total_revenue": total_revenue,
         "open_debt": open_debt,
@@ -312,6 +484,9 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
         "activity": activity,
         "users": users,
         "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
+        "dormant_days": dormant_days,
+        "egrul_status_labels": _EGRUL_STATUS_LABELS,
+        "egrul_status_colors": _EGRUL_STATUS_COLORS,
     })
 
 
@@ -346,8 +521,13 @@ async def edit_counterparty(request: Request, cp_id: int, db: Session = Depends(
     cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
     if not cp:
         return RedirectResponse(url="/counterparties", status_code=302)
+    vehicles_initial = [
+        {"driver_name": v.driver_name or "", "vehicle_plate": v.vehicle_plate or "", "vehicle_type": v.vehicle_type or ""}
+        for v in cp.vehicles
+    ]
     return templates.TemplateResponse(request, "counterparties/form.html", {
         "cp": cp, "cp_types": CP_TYPES, "entity_types": ENTITY_TYPES, "errors": [],
+        "vehicles_initial": vehicles_initial,
     })
 
 
@@ -380,6 +560,7 @@ async def update_counterparty(
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
+    vehicles_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
     cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
@@ -402,7 +583,9 @@ async def update_counterparty(
         cp.default_discount_pct = min(max(default_discount_pct, 0.0), 100.0)
         cp.tg_chat_id = effective_tg
         cp.tg_notify_enabled = bool(tg_notify_enabled)
+        _sync_carrier_vehicles(db, cp, vehicles_json)
         db.commit()
+        threading.Thread(target=_push_cp_bg, args=(cp_id,), daemon=True).start()
     return RedirectResponse(url=f"/counterparties/{cp_id}", status_code=302)
 
 
@@ -414,3 +597,102 @@ async def delete_counterparty(request: Request, cp_id: int, db: Session = Depend
         cp.is_active = False
         db.commit()
     return RedirectResponse(url="/counterparties", status_code=302)
+
+
+# ── Контактные лица (ЛПР) ────────────────────────────────────────────────────
+
+def _clear_other_primary(db: Session, cp_id: int, keep_id: int | None = None) -> None:
+    """Снимает флаг is_primary со всех контактов КА, кроме keep_id."""
+    q = db.query(ContactPerson).filter(
+        ContactPerson.counterparty_id == cp_id,
+        ContactPerson.is_primary == True,
+    )
+    if keep_id:
+        q = q.filter(ContactPerson.id != keep_id)
+    for c in q.all():
+        c.is_primary = False
+
+
+@router.post("/{cp_id}/contacts")
+@role_required("manager")
+async def add_contact(
+    request: Request, cp_id: int,
+    full_name: str = Form(...),
+    post: str = Form(default=""),
+    phone: str = Form(default=""),
+    email: str = Form(default=""),
+    telegram: str = Form(default=""),
+    whatsapp: str = Form(default=""),
+    is_primary: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
+    if not cp or not full_name.strip():
+        return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)
+    primary = bool(is_primary)
+    if primary:
+        _clear_other_primary(db, cp_id)
+    c = ContactPerson(
+        counterparty_id=cp_id,
+        full_name=full_name.strip()[:200],
+        post=post.strip()[:150] or None,
+        phone=phone.strip()[:100] or None,
+        email=email.strip()[:150] or None,
+        telegram=telegram.strip()[:150] or None,
+        whatsapp=whatsapp.strip()[:150] or None,
+        is_primary=primary,
+        is_active=True,
+    )
+    db.add(c)
+    log_action(db, "counterparty", cp_id, "updated",
+               request.session.get("user_id"), f"Добавлен контакт: {c.full_name}")
+    db.commit()
+    return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)
+
+
+@router.post("/{cp_id}/contacts/{contact_id}/edit")
+@role_required("manager")
+async def edit_contact(
+    request: Request, cp_id: int, contact_id: int,
+    full_name: str = Form(...),
+    post: str = Form(default=""),
+    phone: str = Form(default=""),
+    email: str = Form(default=""),
+    telegram: str = Form(default=""),
+    whatsapp: str = Form(default=""),
+    is_primary: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    c = db.query(ContactPerson).filter(
+        ContactPerson.id == contact_id, ContactPerson.counterparty_id == cp_id
+    ).first()
+    if not c or not full_name.strip():
+        return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)
+    primary = bool(is_primary)
+    if primary:
+        _clear_other_primary(db, cp_id, keep_id=contact_id)
+    c.full_name = full_name.strip()[:200]
+    c.post = post.strip()[:150] or None
+    c.phone = phone.strip()[:100] or None
+    c.email = email.strip()[:150] or None
+    c.telegram = telegram.strip()[:150] or None
+    c.whatsapp = whatsapp.strip()[:150] or None
+    c.is_primary = primary
+    db.commit()
+    return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)
+
+
+@router.post("/{cp_id}/contacts/{contact_id}/delete")
+@role_required("manager")
+async def delete_contact(request: Request, cp_id: int, contact_id: int, db: Session = Depends(get_db)):
+    c = db.query(ContactPerson).filter(
+        ContactPerson.id == contact_id, ContactPerson.counterparty_id == cp_id
+    ).first()
+    if c:
+        # Мягкое удаление — контакт может быть привязан к визитам (FieldVisit.contact_id)
+        c.is_active = False
+        c.is_primary = False
+        log_action(db, "counterparty", cp_id, "updated",
+                   request.session.get("user_id"), f"Удалён контакт: {c.full_name}")
+        db.commit()
+    return RedirectResponse(url=f"/counterparties/{cp_id}#tab-contacts", status_code=302)

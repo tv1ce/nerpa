@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -59,11 +59,157 @@ def _mark_overdue_invoices() -> int:
         db.close()
 
 
+def _mark_expired_contracts() -> int:
+    """Переводит договора active→expired если end_date < сегодня."""
+    from app.database import SessionLocal
+    from app.models import Contract
+
+    today = _date.today()
+    db = SessionLocal()
+    try:
+        updated = (
+            db.query(Contract)
+            .filter(
+                Contract.status == "active",
+                Contract.end_date.isnot(None),
+                Contract.end_date < today,
+            )
+            .update({"status": "expired"}, synchronize_session=False)
+        )
+        if updated:
+            db.commit()
+            logger.info("Договора: переведено в expired: %d", updated)
+        return updated
+    except Exception as e:
+        logger.error("_mark_expired_contracts: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
+def _notify_expiring_contracts() -> int:
+    """Создаёт уведомления о договорах, истекающих в ближайшие N дней.
+    N берётся из CompanySettings.notify_contract_days (0 = выключено).
+    Дедуп: не плодим повтор, если по этому договору уже есть непрочитанное."""
+    from datetime import timedelta
+    from app.database import SessionLocal
+    from app.models import Contract, Notification, CompanySettings
+
+    today = _date.today()
+    db = SessionLocal()
+    try:
+        company = db.query(CompanySettings).first()
+        days = (company.notify_contract_days if company else 14) or 0
+        if days <= 0:
+            return 0
+        horizon = today + timedelta(days=days)
+        created = 0
+        contracts = (
+            db.query(Contract)
+            .filter(
+                Contract.status == "active",
+                Contract.end_date.isnot(None),
+                Contract.end_date >= today,
+                Contract.end_date <= horizon,
+            )
+            .all()
+        )
+        for c in contracts:
+            link = f"/contracts/{c.id}"
+            exists = db.query(Notification).filter(
+                Notification.type == "contract_expiry",
+                Notification.link == link,
+                Notification.is_read == False,
+            ).first()
+            if exists:
+                continue
+            left = (c.end_date - today).days
+            cp = c.counterparty
+            db.add(Notification(
+                type="contract_expiry",
+                title=f"Договор №{c.number} истекает через {left} дн.",
+                body=f"Контрагент: {cp.name if cp else '—'}. Дата окончания: {c.end_date.strftime('%d.%m.%Y')}.",
+                link=link,
+            ))
+            created += 1
+        if created:
+            db.commit()
+            logger.info("Уведомления об истечении договоров: создано %d", created)
+        return created
+    except Exception as e:
+        logger.error("_notify_expiring_contracts: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
+def _notify_due_invoices() -> int:
+    """Создаёт уведомления о счетах, у которых дедлайн оплаты в ближайшие N дней.
+    N из CompanySettings.notify_invoice_days (0 = выключено). Дедлайн с учётом отсрочки КА."""
+    from datetime import timedelta
+    from app.database import SessionLocal
+    from app.models import Invoice, Notification, CompanySettings
+    from app.routers.receivables import overdue_deadline
+
+    today = _date.today()
+    db = SessionLocal()
+    try:
+        company = db.query(CompanySettings).first()
+        days = (company.notify_invoice_days if company else 3) or 0
+        if days <= 0:
+            return 0
+        created = 0
+        invoices = (
+            db.query(Invoice)
+            .filter(Invoice.status == "issued", Invoice.due_date.isnot(None))
+            .all()
+        )
+        for inv in invoices:
+            deadline = overdue_deadline(inv)
+            if not deadline:
+                continue
+            left = (deadline - today).days
+            if left < 0 or left > days:
+                continue  # уже просрочен или ещё далеко
+            link = f"/invoices/{inv.id}"
+            exists = db.query(Notification).filter(
+                Notification.type == "invoice_due",
+                Notification.link == link,
+                Notification.is_read == False,
+            ).first()
+            if exists:
+                continue
+            cp = inv.counterparty
+            when = "сегодня" if left == 0 else f"через {left} дн."
+            db.add(Notification(
+                type="invoice_due",
+                title=f"Счёт №{inv.number}: оплата {when}",
+                body=f"Контрагент: {cp.name if cp else '—'}. Сумма: {inv.total_amount:,.0f} ₽. Срок: {deadline.strftime('%d.%m.%Y')}.".replace(",", " "),
+                link=link,
+            ))
+            created += 1
+        if created:
+            db.commit()
+            logger.info("Напоминания об оплате счетов: создано %d", created)
+        return created
+    except Exception as e:
+        logger.error("_notify_due_invoices: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
 async def _overdue_loop():
-    """Фоновая задача: проверяет просрочку каждый час."""
+    """Фоновая задача: просрочка счетов/договоров + напоминания, каждый час."""
     while True:
         try:
             _mark_overdue_invoices()
+            _mark_expired_contracts()
+            _notify_expiring_contracts()
+            _notify_due_invoices()
         except Exception as e:
             logger.error("overdue_loop: %s", e)
         await asyncio.sleep(3600)  # раз в час
@@ -77,7 +223,7 @@ def _rotate_generated(max_age_days: int = 90) -> int:
 
     cutoff = _time.time() - max_age_days * 86400
     deleted = 0
-    for path in Path("generated").glob("*"):
+    for path in (Path(__file__).parent.parent / "generated").glob("*"):
         if not path.is_file():
             continue
         try:
@@ -91,13 +237,56 @@ def _rotate_generated(max_age_days: int = 90) -> int:
     return deleted
 
 
+def _run_1c_sync_job():
+    """Фоновая задача APScheduler: импорт номенклатуры и оплат из 1С."""
+    from app.database import SessionLocal
+    from app.services.onec_client import (
+        sync_products_from_1c, sync_payments_from_1c, sync_invoices_from_1c,
+        sync_shipments_from_1c, sync_documents_from_1c, retry_unpushed_orders,
+    )
+    db = SessionLocal()
+    try:
+        r0 = retry_unpushed_orders(db)   # самовосстановление пропущенного push заказов
+        r1 = sync_products_from_1c(db)
+        r3 = sync_invoices_from_1c(db)
+        sync_shipments_from_1c(db)
+        rd = sync_documents_from_1c(db)
+        r2 = sync_payments_from_1c(db)
+        logger.info(
+            "1C auto-sync: orders_pushed=%s; products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments u=%s",
+            r0.get("pushed"),
+            r1.get("created"), r1.get("updated"),
+            r3.get("created"), r3.get("updated"), rd.get("attached"), r2.get("updated"),
+        )
+    except Exception as e:
+        logger.error("1C auto-sync job error: %s", e)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
     # ── startup ──────────────────────────────────────────────────────────────
     _mark_overdue_invoices()          # перевести просроченные счета
+    _mark_expired_contracts()         # перевести истёкшие договора
+    _notify_expiring_contracts()      # уведомления об истечении договоров
+    _notify_due_invoices()            # напоминания об оплате счетов
     _rotate_generated(max_age_days=90)  # удалить старые docx
     asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
+    board.start_now_playing()         # поллер «сейчас играет» на табло
+
+    # APScheduler: поллинг 1С каждые 15 минут (отключён если onec_enabled=False)
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        _scheduler = BackgroundScheduler(timezone="Europe/Moscow")
+        _scheduler.add_job(_run_1c_sync_job, "interval", minutes=15, id="1c_sync",
+                           misfire_grace_time=60)
+        _scheduler.start()
+        logger.info("APScheduler: задача 1c_sync запущена (каждые 15 мин)")
+    except ImportError:
+        logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
+
     yield
     # ── shutdown (ничего освобождать не нужно) ────────────────────────────────
 
@@ -211,11 +400,7 @@ async def app_version():
 
 
 @app.get("/app/download", include_in_schema=False)
-async def app_download(request: Request):
-    # APK только для авторизованных пользователей
-    if not request.session.get("user_id"):
-        from fastapi.responses import RedirectResponse as _R
-        return _R(url="/auth/login", status_code=302)
+async def app_download():
     path = os.path.join(APP_DIST_DIR, "tms-sklad.apk")
     if os.path.exists(path):
         return FileResponse(
@@ -244,6 +429,13 @@ app.include_router(board.router)
 app.include_router(logistics.router)
 app.include_router(leads.router)
 app.include_router(recon.router)
+app.include_router(field.router)
+app.include_router(files.router)
+app.include_router(public.router)
+app.include_router(sync_1c.router)
+app.include_router(sourcing.router)
+app.include_router(api_1c.router)   # приём документов из 1С (push, вариант A)
+app.include_router(api_sbis.router) # СБИС ЭПД/ЭТРН (вариант C)
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────
@@ -316,6 +508,38 @@ def _safe_url(v):
 
 _templates.env.filters["safe_url"] = _safe_url
 
+
+def _from_json(v):
+    """Парсит JSON-строку в объект (для полей вроде FieldVisit.photos). Безопасно."""
+    if not v:
+        return []
+    if isinstance(v, (list, dict)):
+        return v
+    import json as _json
+    try:
+        return _json.loads(v)
+    except (ValueError, TypeError):
+        return []
+
+
+_templates.env.filters["from_json"] = _from_json
+
+
+def _fmt_filesize(value):
+    """Человекочитаемый размер файла: 2,4 МБ / 512 КБ / 320 Б."""
+    try:
+        n = float(value or 0)
+    except (TypeError, ValueError):
+        return "—"
+    if n < 1024:
+        return f"{int(n)} Б"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.0f} КБ"
+    return f"{n / 1024 / 1024:.1f} МБ".replace(".", ",")
+
+
+_templates.env.filters["filesize"] = _fmt_filesize
+
 # Патчим все роутеры, чтобы они использовали тот же env
 import app.routers.auth as _r_auth
 import app.routers.dashboard as _r_dash
@@ -336,6 +560,12 @@ import app.routers.board as _r_board
 import app.routers.logistics as _r_logistics
 import app.routers.leads as _r_leads
 import app.routers.recon as _r_recon
+import app.routers.field as _r_field
+import app.routers.files as _r_files
+import app.routers.public as _r_public
+import app.routers.sync_1c as _r_sync_1c
+import app.routers.sourcing as _r_sourcing
+import app.routers.api_sbis as _r_api_sbis
 
-for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon]:
+for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_sync_1c, _r_sourcing, _r_api_sbis]:
     _mod.templates = _templates

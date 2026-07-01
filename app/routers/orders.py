@@ -1,20 +1,50 @@
 import json
 import os
 import uuid as _uuid
-from datetime import date
+from datetime import date, datetime
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User, Contract
+from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User, Contract, CarrierVehicle
 from app.utils import log_action
+import logging
+import threading
+
+logger = logging.getLogger(__name__)
+
+
+def _carrier_vehicles_map(carriers) -> dict:
+    """{carrier_id: [{driver_name, vehicle_plate, vehicle_type}, ...]} для JS-подстановки в форме заказа."""
+    return {
+        cp.id: [
+            {"driver_name": v.driver_name or "", "vehicle_plate": v.vehicle_plate or "", "vehicle_type": v.vehicle_type or ""}
+            for v in cp.vehicles if v.is_active
+        ]
+        for cp in carriers
+    }
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+
+
+def _push_order_bg(order_id: int) -> None:
+    """Push заказа в 1С в фоновом потоке."""
+    from app.database import SessionLocal
+    from app.services.onec_client import push_order
+    db = SessionLocal()
+    try:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        if order:
+            push_order(order, db)
+    except Exception as e:
+        logger.error("push_order bg %s: %s", order_id, e)
+    finally:
+        db.close()
 templates = Jinja2Templates(directory="app/templates")
 
 ORDER_STATUSES = {
@@ -79,24 +109,116 @@ def _resolve_payment_type(db: Session, contract_id: int, fallback: str) -> str:
     return fallback if fallback in ("prepay", "deferred") else "prepay"
 
 
-@router.get("/", response_class=HTMLResponse)
-@login_required
-async def list_orders(request: Request, q: str = "", status: str = "", db: Session = Depends(get_db)):
+def _filtered_orders(
+    db: Session, q: str, status: str, date_from: str, date_to: str,
+    counterparty_id: int, carrier_id: int, payment_type: str, overdue: str,
+):
+    today = date.today()
     query = db.query(Order).join(Counterparty, Order.counterparty_id == Counterparty.id)
     if q:
-        query = query.filter(Order.number.ilike(f"%{q}%") | Counterparty.name.ilike(f"%{q}%"))
+        like = f"%{q}%"
+        query = query.filter(or_(
+            Order.number.ilike(like),
+            Counterparty.name.ilike(like),
+            Counterparty.trade_name.ilike(like),
+        ))
     if status:
         query = query.filter(Order.status == status)
-    orders = query.order_by(Order.date.desc(), Order.id.desc()).all()
+    if date_from:
+        try:
+            query = query.filter(Order.date >= date.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            query = query.filter(Order.date <= date.fromisoformat(date_to))
+        except ValueError:
+            pass
+    if counterparty_id:
+        query = query.filter(Order.counterparty_id == counterparty_id)
+    if carrier_id:
+        query = query.filter(Order.carrier_id == carrier_id)
+    if payment_type:
+        query = query.filter(Order.payment_type == payment_type)
+    if overdue:
+        query = query.filter(
+            Order.delivery_date < today,
+            Order.status.notin_(["delivered", "cancelled"]),
+            Order.delivery_date.isnot(None),
+        )
+    return query.order_by(Order.date.desc(), Order.id.desc()).all()
+
+
+@router.get("/", response_class=HTMLResponse)
+@login_required
+async def list_orders(
+    request: Request,
+    q: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    counterparty_id: int = 0,
+    carrier_id: int = 0,
+    payment_type: str = "",
+    overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    today = date.today()
+    orders = _filtered_orders(
+        db, q, status, date_from, date_to, counterparty_id, carrier_id, payment_type, overdue,
+    )
+    counterparties = db.query(Counterparty).filter(
+        Counterparty.is_active == True, Counterparty.type.in_(["client", "both"])
+    ).order_by(Counterparty.name).all()
+    carriers = db.query(Counterparty).filter(
+        Counterparty.is_active == True, Counterparty.type == "carrier"
+    ).order_by(Counterparty.name).all()
     return templates.TemplateResponse(request, "orders/list.html", {
         "orders": orders, "q": q, "status": status, "statuses": ORDER_STATUSES,
+        "date_from": date_from, "date_to": date_to,
+        "counterparty_id": counterparty_id, "carrier_id": carrier_id,
+        "payment_type": payment_type, "overdue": overdue,
+        "counterparties": counterparties, "carriers": carriers,
+        "payment_types": PAYMENT_TYPES, "today": today,
         "assembly_queue_count": _assembly_queue_count(db),
+    })
+
+
+@router.get("/search", response_class=HTMLResponse)
+@login_required
+async def search_orders(
+    request: Request,
+    q: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    counterparty_id: int = 0,
+    carrier_id: int = 0,
+    payment_type: str = "",
+    overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    """Живой поиск/фильтр — возвращает только карточки/строки списка (без каркаса
+    страницы) для подстановки через fetch() без перезагрузки страницы."""
+    today = date.today()
+    orders = _filtered_orders(
+        db, q, status, date_from, date_to, counterparty_id, carrier_id, payment_type, overdue,
+    )
+    _role = request.session.get("user_role")
+    _wview = request.session.get("warehouse_view", "mobile")
+    if _role == "warehouse" and _wview != "desktop":
+        return templates.TemplateResponse(request, "orders/_cards.html", {
+            "orders": orders, "statuses": ORDER_STATUSES,
+        })
+    return templates.TemplateResponse(request, "orders/_rows.html", {
+        "orders": orders, "statuses": ORDER_STATUSES, "today": today,
+        "q": q, "status": status, "_role": _role,
     })
 
 
 @router.get("/new", response_class=HTMLResponse)
 @login_required
-async def new_order(request: Request, db: Session = Depends(get_db)):
+async def new_order(request: Request, counterparty_id: int = 0, db: Session = Depends(get_db)):
     counterparties = db.query(Counterparty).filter(
         Counterparty.is_active == True, Counterparty.type.in_(["client", "both"])
     ).order_by(Counterparty.name).all()
@@ -109,12 +231,16 @@ async def new_order(request: Request, db: Session = Depends(get_db)):
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     contracts = db.query(Contract).order_by(Contract.date.desc()).all()
     company = db.query(CompanySettings).first()
+    managers = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
     return templates.TemplateResponse(request, "orders/form.html", {
         "order": None, "counterparties": counterparties, "suppliers": suppliers,
         "carriers": carriers, "products": products, "contracts": contracts,
         "statuses": ORDER_STATUSES, "payment_types": PAYMENT_TYPES,
         "suggested_number": _next_order_number(db),
-        "company": company,
+        "company": company, "managers": managers,
+        "current_user_id": request.session.get("user_id"),
+        "selected_counterparty_id": counterparty_id,
+        "carrier_vehicles_json": json.dumps(_carrier_vehicles_map(carriers), ensure_ascii=False),
     })
 
 
@@ -137,6 +263,11 @@ async def create_order(
     pickup_address: str = Form(default=""),
     delivery_contact: str = Form(default=""),
     delivery_time: str = Form(default=""),
+    delivery_cost: float = Form(default=0),
+    sales_manager_id: int = Form(default=0),
+    driver_name: str = Form(default=""),
+    vehicle_plate: str = Form(default=""),
+    vehicle_type: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -159,7 +290,11 @@ async def create_order(
         pickup_address=pickup_address or None,
         delivery_contact=delivery_contact or None,
         delivery_time=delivery_time or None,
+        driver_name=driver_name.strip() or None,
+        vehicle_plate=vehicle_plate.strip() or None,
+        vehicle_type=vehicle_type.strip() or None,
         created_by_id=request.session.get("user_id"),
+        sales_manager_id=sales_manager_id or request.session.get("user_id"),
     )
     db.add(order)
     db.flush()  # получаем order.id, гарантированно уникальный
@@ -176,7 +311,8 @@ async def create_order(
     except (ValueError, TypeError):
         items_data = []
     # Фильтруем позиции без выбранного товара (защита от невалидных данных)
-    items_data = [i for i in items_data if i.get("product_id")]
+    # Проверяем что product_id есть и валиден (не пустой и не 0)
+    items_data = [i for i in items_data if i.get("product_id") and int(i.get("product_id", 0)) > 0]
     for item in items_data:
         qty = float(item["quantity"])
         price = float(item["price"])
@@ -190,10 +326,14 @@ async def create_order(
             vat_rate=float(item.get("vat_rate", 20)),
             amount=round(qty * price * (1 - disc / 100), 2),
         ))
+    from app.routers.logistics import upsert_order_delivery_cost
+    upsert_order_delivery_cost(db, order, delivery_cost)
     db.commit()
     log_action(db, "order", order.id, "created",
                request.session.get("user_id"), f"Заказ {order.number} создан")
     db.commit()
+    if status == "confirmed":
+        threading.Thread(target=_push_order_bg, args=(order.id,), daemon=True).start()
     return RedirectResponse(url=f"/orders/{order.id}", status_code=302)
 
 
@@ -213,12 +353,35 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
         AuditLog.entity_type == "order", AuditLog.entity_id == order_id
     ).order_by(AuditLog.created_at.desc()).limit(50).all()
     users = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
+    from app.routers.files import files_for, FILE_TYPES
+    files = files_for(db, "order", order_id)
+    # Публичная ссылка для клиента (токен создаётся лениво при первом открытии карточки)
+    from app.routers.public import ensure_public_token
+    token = ensure_public_token(db, order)
+    track_url = str(request.base_url).rstrip("/") + f"/track/{token}"
+
+    # Мини-статистика клиента
+    cp_all_orders = [o for o in order.counterparty.orders if o.status != "cancelled"]
+    cp_revenue = sum(o.total_amount for o in cp_all_orders if o.status in ("paid", "assembled", "handed", "delivered"))
+    cp_last_date = max((o.date for o in cp_all_orders if o.date), default=None)
+    cp_avg_check = round(cp_revenue / len(cp_all_orders), 2) if cp_all_orders and cp_revenue else 0
+
+    company = db.query(CompanySettings).first()
+    sbis_configured = bool(company and company.sbis_login and company.sbis_password)
+
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
         "tasks": tasks, "comments": comments, "activity": activity, "users": users,
+        "files": files, "file_types": FILE_TYPES["order"],
+        "track_url": track_url,
         "priority_colors": {"low": "secondary", "normal": "primary", "high": "warning", "urgent": "danger"},
         "assembly_queue_count": _assembly_queue_count(db),
+        "cp_orders_count": len(cp_all_orders),
+        "cp_revenue": cp_revenue,
+        "cp_last_date": cp_last_date,
+        "cp_avg_check": cp_avg_check,
+        "sbis_configured": sbis_configured,
     })
 
 
@@ -238,12 +401,16 @@ async def edit_order(request: Request, order_id: int, db: Session = Depends(get_
     products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
     contracts = db.query(Contract).order_by(Contract.date.desc()).all()
     company = db.query(CompanySettings).first()
+    managers = db.query(User).filter(User.is_active == True).order_by(User.full_name).all()
     return templates.TemplateResponse(request, "orders/form.html", {
         "order": order, "counterparties": counterparties, "suppliers": suppliers,
         "carriers": carriers, "products": products, "contracts": contracts,
         "statuses": ORDER_STATUSES, "payment_types": PAYMENT_TYPES,
         "suggested_number": order.number,
-        "company": company,
+        "company": company, "managers": managers,
+        "current_user_id": request.session.get("user_id"),
+        "selected_counterparty_id": order.counterparty_id,
+        "carrier_vehicles_json": json.dumps(_carrier_vehicles_map(carriers), ensure_ascii=False),
     })
 
 
@@ -266,6 +433,11 @@ async def update_order(
     pickup_address: str = Form(default=""),
     delivery_contact: str = Form(default=""),
     delivery_time: str = Form(default=""),
+    delivery_cost: float = Form(default=0),
+    sales_manager_id: int = Form(default=0),
+    driver_name: str = Form(default=""),
+    vehicle_plate: str = Form(default=""),
+    vehicle_type: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -288,6 +460,11 @@ async def update_order(
     order.pickup_address = pickup_address or None
     order.delivery_contact = delivery_contact or None
     order.delivery_time = delivery_time or None
+    order.driver_name   = driver_name.strip() or None
+    order.vehicle_plate = vehicle_plate.strip() or None
+    order.vehicle_type  = vehicle_type.strip() or None
+    if sales_manager_id:
+        order.sales_manager_id = sales_manager_id
     for item in order.items:
         db.delete(item)
     db.flush()
@@ -295,7 +472,9 @@ async def update_order(
         items_data = json.loads(items_json)
     except (ValueError, TypeError):
         items_data = []
-    items_data = [i for i in items_data if i.get("product_id")]
+    # Фильтруем позиции без выбранного товара (защита от невалидных данных)
+    # Проверяем что product_id есть и валиден (не пустой и не 0)
+    items_data = [i for i in items_data if i.get("product_id") and int(i.get("product_id", 0)) > 0]
     for item in items_data:
         qty = float(item["quantity"])
         price = float(item["price"])
@@ -309,6 +488,8 @@ async def update_order(
             vat_rate=float(item.get("vat_rate", 20)),
             amount=round(qty * price * (1 - disc / 100), 2),
         ))
+    from app.routers.logistics import upsert_order_delivery_cost
+    upsert_order_delivery_cost(db, order, delivery_cost)
     db.commit()
     log_action(db, "order", order_id, "updated",
                request.session.get("user_id"), "Заказ отредактирован")
@@ -338,11 +519,17 @@ async def change_status(request: Request, order_id: int,
     if allowed:
         old_status = order.status
         order.status = status
+        # Фиксируем момент сборки при первом переходе в «Собран» — табло цеха
+        # считает заказ отгруженным именно с этого времени.
+        if status == "assembled" and order.assembled_at is None:
+            order.assembled_at = datetime.now()
         log_action(db, "order", order_id, "status_changed",
                    request.session.get("user_id"),
                    f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → {ORDER_STATUSES.get(status, status)}",
                    field="status", old_value=old_status, new_value=status)
         db.commit()
+        if status == "confirmed":
+            threading.Thread(target=_push_order_bg, args=(order_id,), daemon=True).start()
 
     target = redirect_url if redirect_url else f"/orders/{order_id}"
     return RedirectResponse(url=target, status_code=302)
@@ -477,8 +664,9 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
 
     text = "\n".join(lines)
 
+    proxy_url = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080") or None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, proxy=proxy_url) as client:
             resp = await client.post(
                 f"https://api.telegram.org/bot{bot_token}/sendMessage",
                 json={"chat_id": carrier.tg_chat_id, "text": text},
@@ -494,6 +682,50 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
                f"Заказ отправлен перевозчику {carrier.trade_name or carrier.name} в Telegram")
     db.commit()
     return JSONResponse({"ok": True})
+
+
+@router.post("/{order_id}/duplicate")
+@role_required("manager")
+async def duplicate_order(request: Request, order_id: int, db: Session = Depends(get_db)):
+    src = db.query(Order).filter(Order.id == order_id).first()
+    if not src:
+        return RedirectResponse(url="/orders", status_code=302)
+    new_order = Order(
+        number=f"~{_uuid.uuid4().hex[:12]}",
+        date=date.today(),
+        counterparty_id=src.counterparty_id,
+        supplier_id=src.supplier_id,
+        carrier_id=src.carrier_id,
+        contract_id=src.contract_id,
+        payment_type=src.payment_type,
+        status="draft",
+        delivery_address=src.delivery_address,
+        notes=src.notes,
+        pickup_city=src.pickup_city,
+        pickup_address=src.pickup_address,
+        delivery_contact=src.delivery_contact,
+        delivery_time=src.delivery_time,
+        created_by_id=request.session.get("user_id"),
+    )
+    db.add(new_order)
+    db.flush()
+    new_order.number = _next_order_number(db)
+    for item in src.items:
+        db.add(OrderItem(
+            order_id=new_order.id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            price=item.price,
+            discount_pct=item.discount_pct,
+            vat_rate=item.vat_rate,
+            amount=item.amount,
+        ))
+    db.commit()
+    log_action(db, "order", new_order.id, "created",
+               request.session.get("user_id"),
+               f"Заказ {new_order.number} создан как копия #{src.number}")
+    db.commit()
+    return RedirectResponse(url=f"/orders/{new_order.id}/edit", status_code=302)
 
 
 @router.post("/{order_id}/delete")

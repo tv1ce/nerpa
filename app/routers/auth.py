@@ -6,6 +6,10 @@ from app.database import get_db, verify_password, hash_password
 from app.models import User
 from app.auth import login_required, safe_redirect as _safe_next
 
+# Заглушка для защиты от тайминговых атак перебора username.
+# Если пользователь не найден — всё равно вызываем verify_password (постоянное время).
+_DUMMY_HASH = hash_password("__dummy_password_for_timing__")
+
 router = APIRouter(prefix="/auth", tags=["auth"])
 templates = Jinja2Templates(directory="app/templates")
 
@@ -17,11 +21,19 @@ from collections import defaultdict
 _login_attempts: dict[str, list] = defaultdict(list)
 _MAX_ATTEMPTS = 5          # попыток
 _WINDOW_SEC = 300          # за 5 минут
+_LAST_CLEANUP = 0.0        # время последней глобальной очистки
 
 
 def _rate_limited(key: str) -> bool:
+    global _LAST_CLEANUP
     now = _time.time()
-    # чистим устаревшие отметки
+    # Периодическая очистка всего словаря от устаревших записей (раз в 10 мин)
+    if now - _LAST_CLEANUP > 600:
+        stale = [k for k, ts in _login_attempts.items()
+                 if not any(now - t < _WINDOW_SEC for t in ts)]
+        for k in stale:
+            del _login_attempts[k]
+        _LAST_CLEANUP = now
     attempts = [t for t in _login_attempts[key] if now - t < _WINDOW_SEC]
     _login_attempts[key] = attempts
     return len(attempts) >= _MAX_ATTEMPTS
@@ -57,7 +69,9 @@ async def login(
         )
 
     user = db.query(User).filter(User.username == username, User.is_active == True).first()
-    if not user or not verify_password(password, user.password_hash):
+    # Всегда вызываем verify_password — защита от тайминговой атаки перебора username
+    password_ok = verify_password(password, user.password_hash if user else _DUMMY_HASH)
+    if not user or not password_ok:
         _record_attempt(rl_key)
         return templates.TemplateResponse(
             request, "auth/login.html",
@@ -72,10 +86,13 @@ async def login(
     # Для роли склада — стартовая страница остатки
     if user.role == "warehouse" and next == "/":
         next = "/warehouse/"
+    # Для торгового представителя — стартовая страница «Мой день»
+    if user.role == "field_rep" and next in ("/", ""):
+        next = "/field/"
     return RedirectResponse(url=next, status_code=302)
 
 
-@router.get("/logout")
+@router.post("/logout")
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse(url="/auth/login", status_code=302)
@@ -117,8 +134,8 @@ async def change_password(
     if not verify_password(current_password, user.password_hash):
         return _err("Текущий пароль введён неверно")
 
-    if len(new_password) < 6:
-        return _err("Новый пароль должен содержать минимум 6 символов")
+    if len(new_password) < 8:
+        return _err("Новый пароль должен содержать минимум 8 символов")
 
     if new_password != confirm_password:
         return _err("Пароли не совпадают")

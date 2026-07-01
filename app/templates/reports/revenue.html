@@ -1,76 +1,235 @@
 {% extends "base.html" %}
 {% block title %}Выручка{% endblock %}
-{% block page_title %}Отчёт по выручке{% endblock %}
+{% block page_title %}Выручка{% endblock %}
 
 {% block topbar_actions %}
-<div class="d-flex gap-2">
-  <a href="/reports/revenue?period=week"  class="btn btn-sm {% if period=='week'  %}btn-accent{% else %}btn-outline-secondary{% endif %}">Неделя</a>
-  <a href="/reports/revenue?period=month" class="btn btn-sm {% if period=='month' %}btn-accent{% else %}btn-outline-secondary{% endif %}">Месяц</a>
-  <a href="/reports/revenue?period=year"  class="btn btn-sm {% if period=='year'  %}btn-accent{% else %}btn-outline-secondary{% endif %}">Год</a>
-  <form method="get" action="/reports/revenue" class="d-flex gap-1">
+<div class="d-flex align-items-center gap-2 flex-wrap">
+  <div class="btn-group btn-group-sm">
+    <a href="/reports/revenue?period=week"   class="btn {% if period=='week'   %}btn-accent{% else %}btn-outline-secondary{% endif %}">Неделя</a>
+    <a href="/reports/revenue?period=month"  class="btn {% if period=='month'  %}btn-accent{% else %}btn-outline-secondary{% endif %}">Месяц</a>
+    <a href="/reports/revenue?period=year"   class="btn {% if period=='year'   %}btn-accent{% else %}btn-outline-secondary{% endif %}">Год</a>
+  </div>
+  <form method="get" action="/reports/revenue" class="d-flex align-items-center gap-1">
     <input type="hidden" name="period" value="custom">
     <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}" style="width:130px">
+    <span class="text-muted small">—</span>
     <input type="date" name="date_to"   class="form-control form-control-sm" value="{{ date_to }}"   style="width:130px">
     <button class="btn btn-sm btn-outline-secondary">Применить</button>
   </form>
+  <a href="/reports/revenue.xlsx?period={{ period }}&date_from={{ date_from }}&date_to={{ date_to }}"
+     class="btn btn-sm btn-outline-success ms-1">
+    <i class="bi bi-file-earmark-excel me-1"></i>Excel
+  </a>
 </div>
 {% endblock %}
 
 {% block content %}
+{% set logistics_share = (logistics_month / revenue_month * 100) | round(1) if revenue_month > 0 and logistics_month > 0 else 0 %}
+
+{# ═══════════════════ KPI ROW ════════════════════════════════════════════ #}
+<div class="row g-3 mb-3">
+
+  {# План месяца #}
+  <div class="col-md-3 col-sm-6">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <div style="width:32px;height:32px;border-radius:8px;background:#FEF9C3;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="bi bi-bullseye" style="color:#CA8A04;font-size:.95rem"></i>
+        </div>
+        <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)">План месяца</span>
+        <a href="/settings/" class="ms-auto text-muted" style="font-size:.72rem" title="Изменить"><i class="bi bi-pencil"></i></a>
+      </div>
+      <div class="d-flex align-items-end justify-content-between mb-2">
+        <div>
+          <span style="font-size:1.3rem;font-weight:800;color:{% if plan_pct >= 100 %}#16A34A{% elif plan_pct >= 60 %}#D97706{% else %}#DC2626{% endif %}">
+            {{ revenue_month | money }}
+          </span>
+          <span class="text-muted" style="font-size:.78rem"> / {{ monthly_plan | money }} ₽</span>
+        </div>
+        <span style="font-size:1.05rem;font-weight:800;color:{% if plan_pct >= 100 %}#16A34A{% elif plan_pct >= 60 %}#D97706{% else %}#DC2626{% endif %}">
+          {{ plan_pct }}%
+        </span>
+      </div>
+      <div class="progress mb-2" style="height:7px;border-radius:4px;background:#F1F5F9">
+        <div class="progress-bar" role="progressbar"
+          style="width:{{ [plan_pct,100]|min }}%;background:{% if plan_pct >= 100 %}#16A34A{% elif plan_pct >= 60 %}#D97706{% else %}#DC2626{% endif %};border-radius:4px">
+        </div>
+      </div>
+      <div class="d-flex justify-content-between" style="font-size:.72rem;color:var(--text-muted)">
+        <span>Осталось: <strong>{{ ([monthly_plan - revenue_month, 0]|max) | money }} ₽</strong></span>
+        {% if forecast_pct %}<span>Прогноз: <strong>{{ forecast_pct }}%</strong></span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# Неделя — выставлено / оплачено #}
+  <div class="col-md-3 col-sm-6">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <div style="width:32px;height:32px;border-radius:8px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="bi bi-calendar-week" style="color:#2563EB;font-size:.95rem"></i>
+        </div>
+        <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)">
+          Неделя {{ week_start.strftime('%d.%m') }}–{{ week_end.strftime('%d.%m') }}
+        </span>
+      </div>
+      <div class="d-flex gap-3">
+        <div>
+          <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#5762A0;margin-bottom:2px">Сумма заказов</div>
+          <div style="font-size:1.1rem;font-weight:800;color:var(--brand)">{{ invoiced_week | money }} ₽</div>
+        </div>
+        <div style="width:1px;background:#E2E8F0;flex-shrink:0"></div>
+        <div>
+          <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#166534;margin-bottom:2px">Оплачено по заказам</div>
+          <div style="font-size:1.1rem;font-weight:800;color:#16A34A">{{ revenue_week | money }} ₽</div>
+        </div>
+      </div>
+      {% if week_delta_pct is not none %}
+      <div class="mt-2" style="font-size:.75rem">
+        <span class="{% if week_delta_pct >= 0 %}text-success{% else %}text-danger{% endif %} fw-semibold">
+          {% if week_delta_pct >= 0 %}<i class="bi bi-arrow-up-short"></i>+{% else %}<i class="bi bi-arrow-down-short"></i>{% endif %}{{ week_delta_pct }}%
+        </span>
+        <span class="text-muted"> vs прошлая ({{ revenue_prev_week | money }} ₽)</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Орешков #}
+  <div class="col-md-3 col-sm-6">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <div style="width:32px;height:32px;border-radius:8px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="bi bi-basket2" style="color:#EA580C;font-size:.95rem"></i>
+        </div>
+        <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)">Орешков</span>
+      </div>
+      <div style="font-size:1.3rem;font-weight:800;color:#0F172A">
+        {{ nuts_period | int }} <span style="font-size:.85rem;font-weight:400">шт за период</span>
+      </div>
+      <div class="text-muted mt-1" style="font-size:.75rem">
+        За год: <strong>{{ nuts_year | int }} шт</strong>
+        &nbsp;·&nbsp; Неделя: <strong>{{ nuts_week | int }} шт</strong>
+      </div>
+    </div>
+  </div>
+
+  {# Логистика #}
+  <div class="col-md-3 col-sm-6">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <div style="width:32px;height:32px;border-radius:8px;background:#FFF1F2;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+          <i class="bi bi-truck" style="color:#DC2626;font-size:.95rem"></i>
+        </div>
+        <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted)">Логистика</span>
+        <a href="/reports/logistics/" class="ms-auto text-muted" style="font-size:.72rem"><i class="bi bi-arrow-right"></i></a>
+      </div>
+      <div style="font-size:1.3rem;font-weight:800;color:#DC2626">
+        {{ logistics_month | money }} <span style="font-size:.82rem;font-weight:400">₽ / мес</span>
+      </div>
+      <div class="mt-1" style="font-size:.75rem">
+        {% if logistics_share > 0 %}
+        <span class="{% if logistics_share > 20 %}text-danger{% else %}text-success{% endif %} fw-semibold">{{ logistics_share }}% от выручки</span>
+        <span class="text-muted"> · </span>
+        {% endif %}
+        <span class="text-muted">Год: {{ logistics_year | money }} ₽</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ═══════════════════ ОСНОВНАЯ СЕКЦИЯ: ТАБЛИЦА + КЛИЕНТЫ ════════════════ #}
 <div class="row g-3">
 
-  <!-- ── Левая часть: таблица отгрузок ──────────────────────────── -->
+  {# Таблица отгрузок #}
   <div class="col-lg-8">
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
         <div class="d-flex justify-content-between align-items-center">
           <div>
-            <span class="fw-semibold">Отгрузки</span>
+            <span class="fw-bold">Отгрузки</span>
             <span class="text-muted ms-2" style="font-size:.82rem">
               {{ tbl_from | date_fmt }} — {{ tbl_to | date_fmt }}
             </span>
           </div>
-          <span class="text-muted" style="font-size:.82rem">{{ shipments|length }} записей</span>
+          <div class="d-flex align-items-center gap-3">
+            {% if total_qty > 0 %}
+            <span class="text-muted" style="font-size:.8rem"><i class="bi bi-basket2 me-1"></i>{{ total_qty | int }} шт</span>
+            {% endif %}
+            <span class="fw-bold text-success" style="font-size:.9rem">{{ total_amount | money }} ₽</span>
+            <span class="text-muted" style="font-size:.78rem">{{ shipments|length }} зап.</span>
+          </div>
         </div>
       </div>
 
       <div class="table-responsive">
-        <table class="table table-sm tms-table mb-0">
+        <table class="table table-sm tms-table mb-0" style="font-size:.875rem">
           <thead>
             <tr>
-              <th class="ps-4" style="width:35%">ЮР. Лицо</th>
-              <th class="text-end" style="width:20%">Сумма, ₽</th>
-              <th class="text-end" style="width:15%">Орешков</th>
-              <th style="width:18%">Дата отгрузки</th>
-              <th style="width:12%"></th>
+              <th class="ps-4" style="width:32%">Клиент</th>
+              <th class="text-end" style="width:17%">Сумма, ₽</th>
+              <th class="text-end" style="width:12%">Оплачено, ₽</th>
+              <th class="text-end" style="width:11%">Орешков</th>
+              <th style="width:12%">Дата</th>
+              <th style="width:12%">Статус</th>
+              <th style="width:4%"></th>
             </tr>
           </thead>
           <tbody>
             {% for row in shipments %}
             <tr>
-              <td class="ps-4 fw-semibold" style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap">
-                {{ row.counterparty }}
+              <td class="ps-4" style="max-width:220px">
+                {% if row.counterparty_trade %}
+                  <div class="fw-semibold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.counterparty_trade }}</div>
+                  <div class="text-muted" style="font-size:.75rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.counterparty_short }}</div>
+                {% else %}
+                  <div class="fw-semibold" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.counterparty_short }}</div>
+                {% endif %}
               </td>
-              <td class="text-end text-success fw-semibold">{{ row.amount | money }}</td>
+              <td class="text-end fw-semibold text-success">{{ row.amount | money }}</td>
               <td class="text-end">
-                {% if row.qty %}{{ row.qty | int }} шт{% else %}<span class="text-muted">—</span>{% endif %}
+                {% if row.paid_amount > 0 %}
+                <span class="fw-semibold" style="color:#16A34A">
+                  <i class="bi bi-check-circle-fill" style="font-size:.7rem"></i>
+                  {{ row.paid_amount | money }}
+                </span>
+                {% else %}
+                <span class="text-muted" style="font-size:.78rem">—</span>
+                {% endif %}
               </td>
-              <td>{{ row.date | date_fmt }}</td>
+              <td class="text-end text-muted">
+                {% if row.qty %}{{ row.qty | int }} шт{% else %}—{% endif %}
+              </td>
+              <td class="text-muted">{{ row.date | date_fmt }}</td>
+              <td>
+                {% set st = row.status %}
+                {% if st == 'paid' %}
+                  <span class="badge rounded-pill text-bg-success" style="font-size:.68rem">Оплачен</span>
+                {% elif st == 'delivered' %}
+                  <span class="badge rounded-pill text-bg-primary" style="font-size:.68rem">Доставлено</span>
+                {% elif st == 'handed' %}
+                  <span class="badge rounded-pill" style="font-size:.68rem;background:#7C3AED;color:#fff">Передан</span>
+                {% elif st == 'assembled' %}
+                  <span class="badge rounded-pill text-bg-warning" style="font-size:.68rem">Собран</span>
+                {% elif st == 'confirmed' %}
+                  <span class="badge rounded-pill text-bg-info" style="font-size:.68rem;color:#fff">Подтверждён</span>
+                {% elif st == 'cancelled' %}
+                  <span class="badge rounded-pill text-bg-danger" style="font-size:.68rem">Отменён</span>
+                {% else %}
+                  <span class="badge rounded-pill text-bg-secondary" style="font-size:.68rem">Черновик</span>
+                {% endif %}
+              </td>
               <td class="text-end pe-3">
-                <a href="/orders/{{ row.id }}" class="btn btn-xs text-muted" style="font-size:.75rem; padding:1px 6px" title="Заказ">
-                  <i class="bi bi-box-seam"></i>
-                </a>
+                <a href="/orders/{{ row.id }}" class="text-muted" title="Заказ" style="font-size:.82rem"><i class="bi bi-box-seam"></i></a>
                 {% if row.invoice_id %}
-                <a href="/invoices/{{ row.invoice_id }}" class="btn btn-xs text-muted" style="font-size:.75rem; padding:1px 6px" title="Счёт">
-                  <i class="bi bi-receipt"></i>
-                </a>
+                <a href="/invoices/{{ row.invoice_id }}" class="text-muted ms-1" title="Счёт" style="font-size:.82rem"><i class="bi bi-receipt"></i></a>
                 {% endif %}
               </td>
             </tr>
             {% else %}
             <tr>
-              <td colspan="5" class="text-center text-muted py-4">
-                <i class="bi bi-inbox fs-3 d-block mb-2 opacity-25"></i>
+              <td colspan="7" class="text-center text-muted py-5">
+                <i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:8px;opacity:.25"></i>
                 Нет данных за выбранный период
               </td>
             </tr>
@@ -78,12 +237,35 @@
           </tbody>
 
           {% if shipments %}
-          <tfoot style="background:#fff8f0; font-weight:700; border-top:2px solid #f39c12">
-            <tr>
-              <td class="ps-4" style="font-size:.9rem">Итого за период</td>
-              <td class="text-end text-success" style="font-size:.95rem">{{ total_amount | money }}</td>
-              <td class="text-end">{{ total_qty | int }} шт</td>
-              <td colspan="2"></td>
+          <tfoot>
+            <tr style="background:#F8FAFC;border-top:2px solid #E2E8F0;font-weight:700">
+              <td class="ps-4" style="font-size:.85rem">Сумма заказов за период</td>
+              <td class="text-end text-success">{{ total_amount | money }}</td>
+              <td colspan="2" class="text-end text-muted" style="font-size:.78rem;font-weight:400">{{ total_qty | int }} шт</td>
+              <td colspan="3"></td>
+            </tr>
+            <tr style="background:#F0FDF4;border-top:1px solid #BBF7D0">
+              <td class="ps-4" style="font-size:.82rem;font-weight:600;color:#166534">
+                <i class="bi bi-check-circle-fill me-1" style="font-size:.75rem"></i>Оплачено по заказам
+              </td>
+              <td></td>
+              <td class="text-end fw-bold" style="color:#16A34A">{{ total_paid_invoices | money }}</td>
+              <td colspan="4" style="font-size:.75rem;color:#166534;padding-left:4px">
+                {% if total_amount > 0 and total_paid_invoices > 0 %}
+                  {{ (total_paid_invoices / total_amount * 100) | round(0) | int }}% от суммы заказов
+                {% elif total_paid_invoices == 0 %}
+                  нет оплаченных счетов
+                {% endif %}
+              </td>
+            </tr>
+            <tr style="background:#ECFDF5;border-top:2px solid #6EE7B7">
+              <td class="ps-4" style="font-size:.85rem;font-weight:800;color:#065F46">
+                <i class="bi bi-cash-coin me-1"></i>Выручка (оплаченные счета)
+              </td>
+              <td class="text-end fw-bold" style="color:#059669">{{ revenue_period | money }}</td>
+              <td colspan="5" style="font-size:.72rem;color:#047857;padding-left:4px">
+                по дате оплаты за период; включает счета без привязки к заказу
+              </td>
             </tr>
           </tfoot>
           {% endif %}
@@ -92,128 +274,57 @@
     </div>
   </div>
 
-  <!-- ── Правая часть: KPI (как в Google Sheets) ─────────────────── -->
+  {# По клиентам #}
   <div class="col-lg-4">
-
-    <!-- Выручка за год -->
-    <div class="card border-0 shadow-sm p-3 mb-3">
-      <div class="d-flex align-items-center gap-3 mb-2">
-        <div style="width:38px;height:38px;border-radius:8px;background:#fff3cd;display:flex;align-items:center;justify-content:center">
-          <i class="bi bi-graph-up-arrow text-warning"></i>
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex justify-content-between align-items-center">
+        <span class="fw-bold"><i class="bi bi-people me-1" style="color:var(--brand)"></i>По клиентам</span>
+        <span class="text-muted" style="font-size:.78rem">{{ by_client|length }} кл.</span>
+      </div>
+      <div class="card-body px-4 py-2">
+        {% for c in by_client %}
+        <div class="py-2 {% if not loop.last %}border-bottom{% endif %}">
+          <div class="d-flex justify-content-between align-items-start mb-1">
+            <div style="max-width:175px;overflow:hidden">
+              {% if c.trade %}
+                <div style="font-size:.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.trade }}</div>
+                <div style="font-size:.72rem;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.short }}</div>
+              {% else %}
+                <div style="font-size:.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.short }}</div>
+              {% endif %}
+            </div>
+            <div class="text-end ms-2 flex-shrink-0">
+              <div class="fw-bold text-success" style="font-size:.88rem">{{ c.amount | money }} ₽</div>
+              <div class="text-muted" style="font-size:.7rem">{{ c.orders }} заказов</div>
+            </div>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <div style="flex:1;height:5px;background:#F1F5F9;border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:{{ [c.share_pct,100]|min }}%;background:var(--brand);border-radius:3px"></div>
+            </div>
+            <span style="font-size:.72rem;font-weight:700;color:var(--brand);width:32px;text-align:right">{{ c.share_pct }}%</span>
+            {% if c.qty %}
+            <span class="text-muted" style="font-size:.7rem;width:42px;text-align:right">{{ c.qty | int }} шт</span>
+            {% endif %}
+          </div>
         </div>
-        <span class="text-muted" style="font-size:.82rem">Общая выручка за год</span>
-      </div>
-      <div style="font-size:1.9rem;font-weight:700;line-height:1;color:#1e2a3a">
-        {{ revenue_year | money }} <span style="font-size:1rem;font-weight:400">₽</span>
-      </div>
-      <div class="text-muted mt-1" style="font-size:.78rem">
-        <i class="bi bi-basket2"></i> Всего орешков: <strong>{{ nuts_year | int }} шт</strong>
-      </div>
-    </div>
-
-    <!-- Текущая неделя -->
-    <div class="card border-0 shadow-sm p-3 mb-3">
-      <div class="form-section-title mb-2" style="font-size:.8rem">
-        Текущая неделя ({{ week_start.strftime('%d.%m') }}–{{ week_end.strftime('%d.%m') }})
-      </div>
-
-      <div style="font-size:1.6rem;font-weight:700;color:#1e2a3a">
-        {{ revenue_week | money }} <span style="font-size:.9rem;font-weight:400">₽</span>
-      </div>
-
-      {% if week_delta_pct is not none %}
-      <div class="mt-1" style="font-size:.85rem">
-        {% if week_delta_pct >= 0 %}
-          <span class="text-success fw-semibold"><i class="bi bi-arrow-up-short"></i> +{{ week_delta_pct }}%</span>
         {% else %}
-          <span class="text-danger fw-semibold"><i class="bi bi-arrow-down-short"></i> {{ week_delta_pct }}%</span>
-        {% endif %}
-        <span class="text-muted"> vs прошлая неделя ({{ revenue_prev_week | money }} ₽)</span>
-      </div>
-      {% else %}
-      <div class="text-muted mt-1" style="font-size:.8rem">Нет данных за прошлую неделю</div>
-      {% endif %}
-    </div>
-
-    <!-- План на месяц -->
-    <div class="card border-0 shadow-sm p-3 mb-3">
-      <div class="d-flex justify-content-between align-items-center mb-1">
-        <span class="fw-semibold" style="font-size:.88rem">План на месяц</span>
-        <span class="text-muted" style="font-size:.78rem">
-          <a href="/settings/" class="text-muted" title="Изменить план"><i class="bi bi-pencil-square"></i></a>
-        </span>
-      </div>
-      <div class="d-flex justify-content-between align-items-end mb-2">
-        <div>
-          <span style="font-size:1.35rem;font-weight:700;color:#198754">{{ revenue_month | money }}</span>
-          <span class="text-muted" style="font-size:.82rem"> / {{ monthly_plan | money }} ₽</span>
-        </div>
-        <span class="fw-bold fs-5
-          {% if plan_pct >= 100 %}text-success{% elif plan_pct >= 60 %}text-warning{% else %}text-danger{% endif %}">
-          {{ plan_pct }}%
-        </span>
-      </div>
-      <div class="progress" style="height:10px;border-radius:6px">
-        <div class="progress-bar
-          {% if plan_pct >= 100 %}bg-success{% elif plan_pct >= 60 %}bg-warning{% else %}bg-danger{% endif %}"
-          role="progressbar"
-          style="width: {{ [plan_pct, 100] | min }}%; transition:width .5s">
-        </div>
-      </div>
-      <div class="text-muted mt-2" style="font-size:.75rem">
-        Осталось: <strong>{{ [monthly_plan - revenue_month, 0] | max | money }} ₽</strong>
+        <div class="text-center text-muted py-4" style="font-size:.85rem">Нет данных</div>
+        {% endfor %}
       </div>
     </div>
-
-    <!-- Затраты на логистику -->
-    <div class="card border-0 shadow-sm p-3">
-      <div class="d-flex justify-content-between align-items-center mb-2">
-        <div class="text-muted" style="font-size:.82rem">
-          <i class="bi bi-truck"></i> Затраты на логистику
-        </div>
-        <a href="/reports/logistics/" class="btn btn-xs btn-outline-secondary py-0 px-2" style="font-size:.72rem">
-          Подробнее <i class="bi bi-arrow-right"></i>
-        </a>
-      </div>
-      <div class="d-flex justify-content-between align-items-center mb-1">
-        <span class="text-muted" style="font-size:.8rem">Этот месяц</span>
-        <span style="font-size:1.3rem;font-weight:700;color:#dc3545">
-          {{ (logistics_month | default(0)) | money }} <span style="font-size:.8rem;font-weight:400">₽</span>
-        </span>
-      </div>
-      <div class="d-flex justify-content-between align-items-center">
-        <span class="text-muted" style="font-size:.8rem">Этот год</span>
-        <span style="font-size:.95rem;font-weight:600;color:#6c757d">
-          {{ (logistics_year | default(0)) | money }} ₽
-        </span>
-      </div>
-      {% set lm = logistics_month | default(0) %}
-      {% set rm = revenue_month | default(0) %}
-      {% if lm > 0 and rm > 0 %}
-      <div class="mt-2 pt-2 border-top">
-        <div class="text-muted" style="font-size:.75rem">
-          Доля в выручке месяца:
-          <strong class="{% if (lm/rm*100) > 20 %}text-danger{% else %}text-success{% endif %}">
-            {{ (lm / rm * 100) | round(1) }}%
-          </strong>
-        </div>
-      </div>
-      {% endif %}
-    </div>
-
   </div>
+
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Авто-подсветка строк с большой суммой
-document.querySelectorAll('tbody tr').forEach(tr => {
-  const amtCell = tr.children[1];
-  if (!amtCell) return;
-  const raw = amtCell.textContent.replace(/[^\d,]/g, '').replace(',', '.');
-  const val = parseFloat(raw) || 0;
-  if (val >= 50000) tr.style.background = '#fffbea';
+document.querySelectorAll('tbody tr').forEach(function(tr) {
+  var cell = tr.children[1];
+  if (!cell) return;
+  var val = parseFloat(cell.textContent.replace(/[^\d]/g, '')) || 0;
+  if (val >= 50000) tr.style.background = '#fffef0';
 });
 </script>
 {% endblock %}

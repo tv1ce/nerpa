@@ -11,6 +11,9 @@
   <a href="/contracts/{{ contract.id }}/download" class="btn btn-success btn-sm me-1">
     <i class="bi bi-download me-1"></i>Скачать .docx
   </a>
+  <a href="/contracts/{{ contract.id }}/download?fmt=pdf" class="btn btn-outline-danger btn-sm me-1">
+    <i class="bi bi-file-earmark-pdf me-1"></i>Скачать .pdf
+  </a>
   {% endif %}
   <a href="/contracts/{{ contract.id }}/edit" class="btn btn-accent btn-sm me-1"><i class="bi bi-pencil me-1"></i>Редактировать</a>
   <a href="/contracts" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Назад</a>
@@ -21,6 +24,13 @@
 <div class="alert alert-warning alert-dismissible fade show" role="alert">
   <i class="bi bi-exclamation-triangle me-2"></i>
   <strong>Документ не сформирован.</strong> Не удалось сгенерировать .docx по шаблону. Проверьте шаблон или попробуйте <a href="/contracts/{{ contract.id }}/generate">перегенерировать</a>.
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+{% if request.query_params.get('pdf_error') %}
+<div class="alert alert-warning alert-dismissible fade show" role="alert">
+  <i class="bi bi-exclamation-triangle me-2"></i>
+  <strong>PDF не сформирован.</strong> Конвертер (LibreOffice) недоступен на сервере. Скачайте .docx.
   <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
 </div>
 {% endif %}
@@ -82,11 +92,22 @@
       <a href="/contracts/{{ contract.id }}/download" class="btn btn-success btn-sm w-100 mb-2">
         <i class="bi bi-download me-1"></i>Скачать .docx
       </a>
+      <a href="/contracts/{{ contract.id }}/download?fmt=pdf" class="btn btn-outline-danger btn-sm w-100 mb-2">
+        <i class="bi bi-file-earmark-pdf me-1"></i>Скачать .pdf
+      </a>
       <a href="/contracts/{{ contract.id }}/generate" class="btn btn-outline-primary btn-sm w-100">
         <i class="bi bi-arrow-clockwise me-1"></i>Перегенерировать
       </a>
     </div>
     {% endif %}
+
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <form method="post" action="/contracts/{{ contract.id }}/duplicate">
+        <button class="btn btn-outline-secondary btn-sm w-100">
+          <i class="bi bi-copy me-1"></i>Создать похожий
+        </button>
+      </form>
+    </div>
 
     <div class="card border-0 shadow-sm p-3">
       <form method="post" action="/contracts/{{ contract.id }}/delete" data-confirm="Удалить договор {{ contract.number }}?">

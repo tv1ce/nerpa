@@ -22,11 +22,11 @@ def _esc_date(s: str) -> str:
 
 def _fmt(amount: float) -> str:
     """Форматирует число: 123456.7 → '123 456 ₽'."""
-    return f"{amount:,.0f} ₽".replace(",", " ")
+    return f"{amount:,.0f} ₽".replace(",", " ")
 
 
 def _qty(q: float) -> str:
-    return f"{q:,.0f} шт".replace(",", " ")
+    return f"{q:,.0f} шт".replace(",", " ")
 
 
 def _pct(val: float | None, positive_good: bool = True) -> str:
@@ -37,7 +37,6 @@ def _pct(val: float | None, positive_good: bool = True) -> str:
         sign = "✅" if val >= 0 else "🔴"
     else:
         sign = "🔴" if val > 0 else "✅"
-    # Экранируем точку в числе процентов
     pct_str = f"{abs(val):.1f}%".replace(".", "\\.")
     return f"{sign} {arrow} {pct_str}"
 
@@ -61,13 +60,14 @@ def format_daily(m: dict) -> str:
         f"📊 *Ежедневный отчёт — {date_str}*",
         "",
         "━━━━━━━━━━━━━━━━━━━━",
-        "📦 *Заказы*",
-        f"  Создано сегодня: `{m['orders_today']}`",
-        f"  Отгружено/доставлено: `{m['orders_shipped']}`",
-        f"  Орешков отгружено: `{_qty(m['qty_today'])}`",
+        "📦 *Отгрузки*",
+        f"  Заказов создано: `{m['orders_today']}`",
+        f"  Отгружено заказов: `{m['orders_shipped']}`",
+        f"  Сумма отгрузок: `{_fmt(m['shipped_amount_today'])}`",
+        f"  Орешков: `{_qty(m['qty_today'])}`",
         "",
-        "💰 *Финансы*",
-        f"  Оплачено сегодня: `{_fmt(m['revenue_today'])}`",
+        "💰 *Оплаты*",
+        f"  Поступило сегодня: `{_fmt(m['paid_today'])}`",
         f"  Счетов выставлено: `{m['issued_today']}`",
     ]
 
@@ -99,12 +99,17 @@ def format_weekly(m: dict) -> str:
         f"_{ws} – {we}_",
         "",
         "━━━━━━━━━━━━━━━━━━━━",
-        "💰 *Выручка*",
-        f"  Эта неделя: `{_fmt(m['revenue_week'])}`",
-        f"  Прошлая \\({pws}–{pwe}\\): `{_fmt(m['revenue_prev'])}`",
-        f"  Динамика: {_pct(m['delta_rev_pct'])}",
+        "📦 *Отгрузки* \\(по дате заказа\\)",
+        f"  Эта неделя: `{_fmt(m['shipped_week'])}`",
+        f"  Прошлая \\({pws}–{pwe}\\): `{_fmt(m['shipped_prev'])}`",
+        f"  Динамика: {_pct(m['delta_shipped_pct'])}",
         "",
-        "📦 *Орешки отгружено*",
+        "💰 *Оплаты* \\(поступило\\)",
+        f"  Эта неделя: `{_fmt(m['paid_week'])}`",
+        f"  Прошлая: `{_fmt(m['paid_prev'])}`",
+        f"  Динамика: {_pct(m['delta_paid_pct'])}",
+        "",
+        "🌰 *Орешки отгружено*",
         f"  Эта неделя: `{_qty(m['qty_week'])}`",
         f"  Прошлая: `{_qty(m['qty_prev'])}`",
         f"  Динамика: {_pct(m['delta_qty_pct'])}",
@@ -129,14 +134,15 @@ def format_weekly(m: dict) -> str:
         "",
         "━━━━━━━━━━━━━━━━━━━━",
         "🗓 *Статус месяца*",
-        f"  Выручка с начала месяца: `{_fmt(m['revenue_month_so_far'])}`",
+        f"  Отгрузки с начала месяца: `{_fmt(m['shipped_month_so_far'])}`",
+        f"  Оплаты с начала месяца: `{_fmt(m['paid_month_so_far'])}`",
     ]
     if m["plan_amount"]:
         lines.append(f"  {_plan_bar(m['plan_pct'])}")
         if m["plan_remaining"] and m["plan_remaining"] > 0:
-            lines.append(f"  До выполнения плана: `{_fmt(m['plan_remaining'])}`")
+            lines.append(f"  До плана по оплатам: `{_fmt(m['plan_remaining'])}`")
         else:
-            lines.append("  ✅ План выполнен\\!")
+            lines.append("  ✅ План по оплатам выполнен\\!")
     else:
         lines.append("  план не задан")
 
@@ -145,12 +151,12 @@ def format_weekly(m: dict) -> str:
         "",
         "━━━━━━━━━━━━━━━━━━━━",
         "📊 *Сводные показатели*",
-        f"  Выручка за {m['week_start'].year} год: `{_fmt(m['revenue_year'])}`",
+        f"  Оплаты за {m['week_start'].year} год: `{_fmt(m['paid_year'])}`",
         f"  Орешков продано за всё время: `{_qty(m['qty_all_time'])}`",
     ]
 
     if m["top_clients"]:
-        lines += ["", "🏆 *Топ клиентов за неделю*"]
+        lines += ["", "🏆 *Топ клиентов за неделю \\(по отгрузкам\\)*"]
         for i, (name, total) in enumerate(m["top_clients"], 1):
             lines.append(f"  {i}\\. {_esc(name)}: `{_fmt(total)}`")
 
@@ -165,13 +171,18 @@ def format_monthly(m: dict) -> str:
         f"🗓 *Итоги месяца — {month_lbl}*",
         "",
         "━━━━━━━━━━━━━━━━━━━━",
-        "💰 *Выручка*",
-        f"  Месяц: `{_fmt(m['revenue_month'])}`",
-        f"  {prev_month_lbl}: `{_fmt(m['revenue_prev'])}`",
-        f"  Динамика: {_pct(m['delta_month_pct'])}",
-        f"  С начала года: `{_fmt(m['revenue_year'])}`",
+        "📦 *Отгрузки* \\(по дате заказа\\)",
+        f"  Месяц: `{_fmt(m['shipped_month'])}`",
+        f"  {prev_month_lbl}: `{_fmt(m['shipped_prev'])}`",
+        f"  Динамика: {_pct(m['delta_shipped_pct'])}",
         "",
-        "🎯 *Выполнение плана*",
+        "💰 *Оплаты* \\(поступило\\)",
+        f"  Месяц: `{_fmt(m['paid_month'])}`",
+        f"  {prev_month_lbl}: `{_fmt(m['paid_prev'])}`",
+        f"  Динамика: {_pct(m['delta_paid_pct'])}",
+        f"  С начала года: `{_fmt(m['paid_year'])}`",
+        "",
+        "🎯 *Выполнение плана \\(по оплатам\\)*",
     ]
 
     if m["plan_amount"]:
@@ -182,7 +193,7 @@ def format_monthly(m: dict) -> str:
 
     lines += [
         "",
-        "📦 *Орешки*",
+        "🌰 *Орешки*",
         f"  Отгружено за месяц: `{_qty(m['qty_month'])}`",
         f"  За {prev_month_lbl}: `{_qty(m['qty_prev'])}`",
         f"  Динамика: {_pct(m['delta_qty_pct'])}",
@@ -195,6 +206,8 @@ def format_monthly(m: dict) -> str:
         f"  Расходы за месяц: `{_fmt(m['logistics_month'])}`",
         f"  На 1 заказ: `{_fmt(m['logistics_per_order_month'])}`",
         f"  За год: `{_fmt(m['logistics_year'])}`",
+        "",
+        f"📊 Маржа \\(отгрузки − логистика\\): `{_fmt(m['margin_month'])}`",
     ]
 
     if m["overdue_count"] > 0 or m["unpaid_total"] > 0:
@@ -206,7 +219,7 @@ def format_monthly(m: dict) -> str:
         ]
 
     if m["top_clients"]:
-        lines += ["", "🏆 *Топ\\-5 клиентов*"]
+        lines += ["", "🏆 *Топ\\-5 клиентов \\(по отгрузкам\\)*"]
         for i, (name, total) in enumerate(m["top_clients"], 1):
             lines.append(f"  {i}\\. {_esc(name)}: `{_fmt(total)}`")
 

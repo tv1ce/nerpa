@@ -35,7 +35,9 @@
             <select name="counterparty_id" class="form-select" required>
               <option value="">— выберите контрагента —</option>
               {% for cp in counterparties %}
-              <option value="{{ cp.id }}" {% if contract and contract.counterparty_id == cp.id %}selected{% endif %}>{{ cp.name }}</option>
+              <option value="{{ cp.id }}"
+                      {% if contract and contract.counterparty_id == cp.id %}selected
+                      {% elif not contract and selected_counterparty_id == cp.id %}selected{% endif %}>{{ cp.name }}</option>
               {% endfor %}
             </select>
           </div>

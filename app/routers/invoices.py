@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import date
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -6,7 +7,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Invoice, InvoiceItem, Counterparty, Order, Product, CompanySettings, Contract
+from app.models import Invoice, InvoiceItem, Counterparty, Order, Product, CompanySettings, Contract, Comment, AuditLog, User
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
 
@@ -51,22 +55,62 @@ INVOICE_STATUSES = {
 
 
 def _next_invoice_number(db: Session) -> str:
-    from sqlalchemy import func
-    max_id = db.query(func.max(Invoice.id)).scalar() or 0
-    return str(max_id + 1)
+    all_numbers = db.query(Invoice.number).all()
+    max_num = 0
+    for (num,) in all_numbers:
+        try:
+            max_num = max(max_num, int(num))
+        except (ValueError, TypeError):
+            pass
+    return str(max_num + 1)
 
 
 @router.get("/", response_class=HTMLResponse)
 @login_required
-async def list_invoices(request: Request, q: str = "", status: str = "", db: Session = Depends(get_db)):
+async def list_invoices(
+    request: Request,
+    q: str = "",
+    status: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    counterparty_id: int = 0,
+    overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    from datetime import date as _date
+    today = _date.today()
     query = db.query(Invoice).join(Counterparty)
     if q:
         query = query.filter(Invoice.number.ilike(f"%{q}%") | Counterparty.name.ilike(f"%{q}%"))
     if status:
         query = query.filter(Invoice.status == status)
+    if date_from:
+        try:
+            query = query.filter(Invoice.date >= _date.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            query = query.filter(Invoice.date <= _date.fromisoformat(date_to))
+        except ValueError:
+            pass
+    if counterparty_id:
+        query = query.filter(Invoice.counterparty_id == counterparty_id)
+    if overdue:
+        query = query.filter(
+            Invoice.status.in_(["issued", "overdue"]),
+            Invoice.due_date < today,
+            Invoice.due_date.isnot(None),
+        )
     invoices = query.order_by(Invoice.date.desc(), Invoice.id.desc()).all()
+    counterparties = db.query(Counterparty).filter(
+        Counterparty.is_active == True
+    ).order_by(Counterparty.name).all()
     return templates.TemplateResponse(request, "invoices/list.html", {
         "invoices": invoices, "q": q, "status": status, "statuses": INVOICE_STATUSES,
+        "date_from": date_from, "date_to": date_to,
+        "counterparty_id": counterparty_id, "overdue": overdue,
+        "counterparties": counterparties, "today": today,
     })
 
 
@@ -120,15 +164,85 @@ async def create_invoice(
     return RedirectResponse(url=f"/invoices/{invoice.id}", status_code=302)
 
 
+@router.get("/export.xlsx")
+@login_required
+async def export_invoices(
+    request: Request,
+    q: str = "", status: str = "", date_from: str = "", date_to: str = "",
+    counterparty_id: int = 0, overdue: str = "",
+    db: Session = Depends(get_db),
+):
+    from datetime import date as _date
+    from app.routers.reports import _xlsx_response
+    today = _date.today()
+    query = db.query(Invoice).join(Counterparty)
+    if q:
+        query = query.filter(Invoice.number.ilike(f"%{q}%") | Counterparty.name.ilike(f"%{q}%"))
+    if status:
+        query = query.filter(Invoice.status == status)
+    if date_from:
+        try: query = query.filter(Invoice.date >= _date.fromisoformat(date_from))
+        except ValueError: pass
+    if date_to:
+        try: query = query.filter(Invoice.date <= _date.fromisoformat(date_to))
+        except ValueError: pass
+    if counterparty_id:
+        query = query.filter(Invoice.counterparty_id == counterparty_id)
+    if overdue:
+        query = query.filter(Invoice.status.in_(["issued", "overdue"]),
+                             Invoice.due_date < today, Invoice.due_date.isnot(None))
+    invoices = query.order_by(Invoice.date.desc(), Invoice.id.desc()).all()
+    rows = [[
+        inv.number,
+        inv.counterparty.name if inv.counterparty else "—",
+        inv.date.strftime("%d.%m.%Y") if inv.date else "",
+        inv.due_date.strftime("%d.%m.%Y") if inv.due_date else "",
+        round(inv.total_amount, 2),
+        INVOICE_STATUSES.get(inv.status, inv.status),
+        inv.paid_date.strftime("%d.%m.%Y") if inv.paid_date else "",
+    ] for inv in invoices]
+    return _xlsx_response(
+        ["№ счёта", "Клиент", "Дата", "Оплатить до", "Сумма с НДС ₽", "Статус", "Оплачен"],
+        rows, "Счета.xlsx", widths=[14, 40, 14, 14, 18, 16, 14],
+    )
+
+
 @router.get("/{invoice_id}", response_class=HTMLResponse)
 @login_required
 async def view_invoice(request: Request, invoice_id: int, db: Session = Depends(get_db)):
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
         return RedirectResponse(url="/invoices", status_code=302)
+    comments = db.query(Comment).filter(
+        Comment.entity_type == "invoice", Comment.entity_id == invoice_id
+    ).order_by(Comment.created_at).all()
+    activity = db.query(AuditLog).filter(
+        AuditLog.entity_type == "invoice", AuditLog.entity_id == invoice_id
+    ).order_by(AuditLog.created_at.desc()).limit(30).all()
     return templates.TemplateResponse(request, "invoices/detail.html", {
         "invoice": invoice, "statuses": INVOICE_STATUSES,
+        "comments": comments, "activity": activity,
     })
+
+
+@router.post("/{invoice_id}/comment")
+@login_required
+async def add_invoice_comment(
+    request: Request, invoice_id: int,
+    body: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice or not body.strip():
+        return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=302)
+    db.add(Comment(
+        body=body.strip(),
+        entity_type="invoice",
+        entity_id=invoice_id,
+        created_by_id=request.session.get("user_id"),
+    ))
+    db.commit()
+    return RedirectResponse(url=f"/invoices/{invoice_id}#comments", status_code=302)
 
 
 @router.get("/{invoice_id}/edit", response_class=HTMLResponse)
@@ -158,7 +272,6 @@ async def update_invoice(
     contract_id: int = Form(default=0),
     status: str = Form(default="draft"),
     due_date: str = Form(default=""),
-    paid_date: str = Form(default=""),
     notes: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
@@ -177,7 +290,17 @@ async def update_invoice(
     invoice.status = status; invoice.subtotal = round(subtotal, 2)
     invoice.vat_amount = round(vat_amount, 2); invoice.total_amount = round(subtotal + vat_amount, 2)
     invoice.due_date = date.fromisoformat(due_date) if due_date else None
-    invoice.paid_date = date.fromisoformat(paid_date) if paid_date else None
+    # Дата оплаты выводится из статуса, а не из ручного ввода: при «Оплачен»
+    # ставим сегодня (если ещё не было), иначе очищаем. Так редактирование
+    # оплаченного счёта больше не обнуляет дату оплаты.
+    if status == "paid":
+        if invoice.paid_date is None:
+            invoice.paid_date = date.today()
+        if invoice.order_id:
+            from app.utils import sync_order_paid_status
+            sync_order_paid_status(db, invoice.order, request.session.get("user_id"))
+    else:
+        invoice.paid_date = None
     invoice.notes = notes
     for item in invoice.items:
         db.delete(item)
@@ -191,13 +314,23 @@ async def update_invoice(
 @router.post("/{invoice_id}/status")
 @role_required("manager")
 async def change_status(request: Request, invoice_id: int,
-                        status: str = Form(...), paid_date: str = Form(default=""),
+                        status: str = Form(...),
                         db: Session = Depends(get_db)):
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if invoice:
+        old_status = invoice.status
         invoice.status = status
         if status == "paid":
-            invoice.paid_date = date.fromisoformat(paid_date) if paid_date else date.today()
+            # Дата оплаты = момент перевода в «Оплачен» (автоматически).
+            # При повторном сохранении уже оплаченного счёта дату не трогаем.
+            if old_status != "paid" or invoice.paid_date is None:
+                invoice.paid_date = date.today()
+            # Подтягиваем статус связанного заказа (предоплата → «Оплачен»)
+            if invoice.order:
+                from app.utils import sync_order_paid_status
+                sync_order_paid_status(db, invoice.order, request.session.get("user_id"))
+        else:
+            invoice.paid_date = None
         db.commit()
     return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=302)
 

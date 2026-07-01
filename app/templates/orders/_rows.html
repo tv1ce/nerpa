@@ -1,0 +1,40 @@
+{% for o in orders %}
+{% set is_overdue = o.delivery_date and o.delivery_date < today and o.status not in ['delivered', 'cancelled'] %}
+<tr {% if is_overdue %}class="table-danger"{% endif %}>
+  <td class="ps-3">
+    <a href="/orders/{{ o.id }}" class="fw-semibold text-decoration-none">{{ o.number }}</a>
+    {% if is_overdue %}<i class="bi bi-exclamation-triangle-fill text-danger ms-1" title="Доставка просрочена"></i>{% endif %}
+  </td>
+  <td><a href="/orders/{{ o.id }}" class="text-decoration-none">{{ o.counterparty.trade_name or o.counterparty.name }}</a></td>
+  <td>{{ o.date | date_fmt }}</td>
+  <td>
+    {% if o.delivery_date %}
+      <span {% if is_overdue %}class="text-danger fw-semibold"{% endif %}>{{ o.delivery_date | date_fmt }}</span>
+    {% endif %}
+  </td>
+  <td class="text-end">{{ o.total_amount | money }}</td>
+  <td>
+    <span class="badge badge-{{ o.status }}">{{ statuses[o.status] }}</span>
+    {% if o.payment_type == 'deferred' %}
+    <span class="badge bg-warning text-dark" style="font-size:.62rem" title="Отсрочка платежа">отсрочка</span>
+    {% endif %}
+  </td>
+  <td class="text-end pe-3">
+    {% set wf = o.workflow %}
+    {% if _role != 'warehouse' and o.status in wf and wf.index(o.status) + 1 < wf|length %}
+    {% set nxt = wf[wf.index(o.status) + 1] %}
+    <form method="post" action="/orders/{{ o.id }}/status" class="d-inline">
+      <input type="hidden" name="status" value="{{ nxt }}">
+      <input type="hidden" name="redirect_url" value="/orders?q={{ q }}&status={{ status }}">
+      <button type="submit" class="btn btn-sm btn-outline-success py-0" title="Перевести в «{{ statuses[nxt] }}»">
+        <i class="bi bi-arrow-right-circle"></i> {{ statuses[nxt] }}
+      </button>
+    </form>
+    {% endif %}
+    <a href="/orders/{{ o.id }}" class="btn btn-sm btn-outline-primary py-0"><i class="bi bi-eye"></i></a>
+    <a href="/orders/{{ o.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
+  </td>
+</tr>
+{% else %}
+<tr><td colspan="7" class="text-center py-4 text-muted">Заказов не найдено</td></tr>
+{% endfor %}

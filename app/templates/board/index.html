@@ -16,8 +16,16 @@
     body{
       font-family:'Fira Sans','Segoe UI',system-ui,sans-serif;
       background:radial-gradient(circle at 22% -10%,var(--bg1),var(--bg2) 70%);
-      color:var(--ink);height:100vh;display:flex;flex-direction:column;padding:2.2vh 2.6vw;
+      color:var(--ink);height:100vh;width:100vw;
+      display:flex;align-items:center;justify-content:center;
       transition:background 4s ease;
+    }
+    /* Сцена масштабируется в JS (fitStage), чтобы целиком влезть в любой экран ТВ */
+    #stage{
+      width:100vw;padding:2.2vh 2.6vw;
+      display:flex;flex-direction:column;
+      transform-origin:center center;
+      will-change:transform;
     }
 
     /* ── Шапка ── */
@@ -31,7 +39,7 @@
     .hero{
       background:linear-gradient(135deg,#F2F1FC,#FFFFFF 60%);
       border:1px solid var(--line);border-radius:2.4vh;padding:3vh 3.2vw;margin-bottom:1.8vh;
-      position:relative;overflow:hidden;box-shadow:var(--shadow);
+      position:relative;box-shadow:var(--shadow);
       transition:background .5s,border-color .5s;
     }
     .hero .label{font-size:2.7vh;color:var(--muted);font-weight:600;margin-bottom:.6vh}
@@ -45,6 +53,7 @@
     .plan-head{display:flex;justify-content:space-between;align-items:baseline;
       font-size:2.3vh;color:var(--muted);margin-bottom:1vh}
     .plan-head b{color:var(--ink)}
+    #m-revenue{color:var(--green) !important}
     .plan-head .pct{font-weight:800;font-size:3vh;color:var(--purple)}
     .bar{height:3vh;background:var(--track);border-radius:2vh;overflow:hidden}
     .bar > div{
@@ -120,7 +129,7 @@
 
     /* ── Карточки-метрики ── */
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1.3vw;margin-bottom:1.4vh}
-    .stats2{display:grid;grid-template-columns:repeat(3,1fr);gap:1.3vw;margin-bottom:1.4vh}
+    .stats2{display:grid;grid-template-columns:repeat(2,1fr);gap:1.3vw;margin-bottom:1.4vh}
     .stat{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
       padding:1.8vh 1.2vw;text-align:center;box-shadow:var(--shadow);
       transition:background .5s,border-color .5s;
@@ -147,10 +156,16 @@
     @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 
     /* ── Музыкальные каналы ── */
-    .music{display:flex;align-items:center;gap:1.2vw;background:var(--card);
+    .music{display:flex;flex-direction:column;align-items:stretch;gap:1vh;background:var(--card);
       border:1px solid var(--line);border-radius:1.6vh;padding:1.4vh 1.6vw;margin-bottom:1.8vh;
       box-shadow:var(--shadow);transition:background .5s,border-color .5s;}
+    .music-row{display:flex;align-items:center;gap:1.2vw}
     .music .ico{font-size:3vh}
+    .now-playing{display:flex;align-items:center;gap:.7vw;font-size:2vh;font-weight:700;
+      color:var(--purple);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      padding-left:.4vw}
+    .now-playing .np-label{color:var(--muted);font-weight:600;flex:none}
+    .now-playing .np-title{overflow:hidden;text-overflow:ellipsis}
     .stations{display:flex;gap:.8vw;flex-wrap:wrap;flex:1}
     .chip{font-size:1.9vh;font-weight:600;padding:.8vh 1.4vw;border-radius:1.4vh;
       background:var(--track);border:1px solid var(--line);color:var(--muted);cursor:pointer;
@@ -163,9 +178,14 @@
     @keyframes eq{0%,100%{height:30%}50%{height:100%}}
     .sound-btn{font-size:1.9vh;font-weight:700;padding:.8vh 1.4vw;border-radius:1.4vh;
       background:var(--purple);color:#fff;border:none;cursor:pointer}
+    #sound-overlay{position:fixed;inset:0;z-index:9999;display:none;
+      flex-direction:column;align-items:center;justify-content:center;
+      background:rgba(0,0,0,.75);cursor:pointer}
+    #sound-overlay .ov-icon{font-size:10vw}
+    #sound-overlay .ov-text{font-size:4vw;font-weight:800;color:#fff;margin-top:2vw}
 
     /* ── Лента мотивашек ── */
-    .ticker{margin-top:auto;background:var(--card);border:1px solid var(--line);
+    .ticker{margin-top:.4vh;background:var(--card);border:1px solid var(--line);
       border-radius:1.8vh;padding:2.4vh 3vw;text-align:center;min-height:10vh;
       display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow);
       transition:background .5s,border-color .5s;}
@@ -174,14 +194,33 @@
       background-clip:text;-webkit-text-fill-color:transparent}
     .ticker .quote.show{opacity:1}
 
-    /* ── Ночной режим ── */
-    #night-overlay{
-      position:fixed;inset:0;
-      background:rgba(6,4,22,0);
-      pointer-events:none;z-index:990;
-      transition:background 5s ease;
+    /* ── День рождения ── */
+    .bday-banner{
+      display:flex;align-items:center;justify-content:center;gap:2vw;
+      background:linear-gradient(135deg,#FFE7A0,#FFC1E3 60%,#C7B6FF);
+      border:1px solid #F3C9E8;border-radius:2.4vh;padding:1.6vh 3vw;margin-bottom:1.8vh;
+      box-shadow:var(--shadow);animation:bday-pulse 2.2s ease-in-out infinite;
     }
-    body.night #night-overlay{background:rgba(6,4,22,.78)}
+    @keyframes bday-pulse{
+      0%,100%{transform:scale(1);box-shadow:0 1.4vh 3vh rgba(199,182,255,.3)}
+      50%{transform:scale(1.012);box-shadow:0 1.8vh 4vh rgba(229,124,200,.45)}
+    }
+    .bday-emoji{font-size:6vh;line-height:1;animation:bday-bounce 1.4s ease-in-out infinite}
+    @keyframes bday-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.2vh)}}
+    .bday-text{text-align:center}
+    .bday-title{font-size:3.4vh;font-weight:800;color:#B5377E;letter-spacing:.4px}
+    .bday-names{font-size:4.2vh;font-weight:800;color:var(--ink);line-height:1.05}
+
+    .bday-upcoming{
+      display:flex;align-items:center;gap:1.4vw;flex-wrap:wrap;
+      background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
+      padding:1.1vh 2vw;margin-bottom:1.4vh;box-shadow:var(--shadow);
+    }
+    .bday-up-ico{font-size:3vh}
+    .bday-up-label{font-size:2vh;font-weight:700;color:var(--muted)}
+    .bday-up-item{font-size:2.2vh;color:var(--ink);background:var(--track);
+      border-radius:1.2vh;padding:.5vh 1.4vw}
+    .bday-up-item b{color:var(--purple)}
 
     /* ── Конфетти ── */
     #confetti-canvas{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999}
@@ -189,8 +228,8 @@
 </head>
 <body data-key="{{ key }}">
 <canvas id="confetti-canvas"></canvas>
-<div id="night-overlay"></div>
 
+<div id="stage">
   <header>
     <div class="company">🥜 {{ data.company_name }}</div>
     <div class="clock">
@@ -199,21 +238,32 @@
     </div>
   </header>
 
+  {% if data.birthdays_today %}
+  <!-- Поздравление с днём рождения -->
+  <div class="bday-banner" id="bday-banner">
+    <div class="bday-emoji">🎂</div>
+    <div class="bday-text">
+      <div class="bday-title">С Днём Рождения!</div>
+      <div class="bday-names">{{ data.birthdays_today | join(', ') }}</div>
+    </div>
+    <div class="bday-emoji">🎉</div>
+  </div>
+  {% endif %}
+
   <!-- Главный показатель -->
   <div class="hero" id="hero">
     <div class="celebrate">🎉</div>
     <div class="mascot" id="mascot">😊</div>
     <div class="speech" id="speech"></div>
-    <div class="label">Отгружено орешков за месяц</div>
+    <div class="label">Собрано орешков за месяц</div>
     <div style="display:flex;align-items:baseline;flex-wrap:wrap;gap:.4vh 0">
       <span class="big" id="m-shipped">{{ data.shipped_month }}</span><span class="unit">шт</span>
-      <span class="money" id="m-money">{{ "{:,}".format(data.revenue_month).replace(",", " ") }} ₽</span>
     </div>
     <div id="record-badge" class="record-badge" style="display:{{ '' if data.is_record_today else 'none' }}">🏆 Рекорд дня!</div>
 
     <div class="plan-wrap" id="plan-wrap">
       <div class="plan-head">
-        <span>Выручка: <b id="m-revenue">{{ "{:,}".format(data.revenue_month).replace(",", " ") }}</b> ₽ &nbsp;/&nbsp; план <b id="m-revenue-plan">{{ "{:,}".format(data.revenue_plan).replace(",", " ") }}</b> ₽</span>
+        <span>Оплачено: <b id="m-revenue">{{ "{:,}".format(data.revenue_month).replace(",", " ") }}</b> ₽ &nbsp;/&nbsp; план <b id="m-revenue-plan">{{ "{:,}".format(data.revenue_plan).replace(",", " ") }}</b> ₽</span>
         <span class="pct"><span id="m-pct">{{ data.revenue_pct }}</span>%</span>
       </div>
       <div class="bar"><div id="bar-fill" style="width:0%"></div></div>
@@ -224,18 +274,19 @@
   <div class="stats">
     <div class="stat today">
       <div class="v" id="m-today">{{ data.shipped_today }} шт</div>
-      <div class="k">отгружено сегодня</div>
-      <div class="sub" id="m-today-money">{{ "{:,}".format(data.shipped_today_money).replace(",", " ") }} ₽</div>
+      <div class="k">собрано сегодня</div>
+      <div class="k" id="m-today-date" style="font-size:1.6vh;margin-top:.1vh"></div>
+      <div class="sub" id="m-today-money">оплачено {{ "{:,}".format(data.shipped_today_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat year">
       <div class="v" id="m-year">{{ data.shipped_year }} шт</div>
       <div class="k">с начала года</div>
-      <div class="sub" id="m-year-money">{{ "{:,}".format(data.shipped_year_money).replace(",", " ") }} ₽</div>
+      <div class="sub" id="m-year-money">оплачено {{ "{:,}".format(data.shipped_year_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat total">
       <div class="v" id="m-total">{{ data.shipped_total }} шт</div>
       <div class="k">всего за всё время</div>
-      <div class="sub" id="m-total-money">{{ "{:,}".format(data.shipped_total_money).replace(",", " ") }} ₽</div>
+      <div class="sub" id="m-total-money">оплачено {{ "{:,}".format(data.shipped_total_money).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat claims">
       <div class="v" id="m-claims">—</div>
@@ -247,12 +298,8 @@
   <div class="stats2">
     <div class="stat prev-nuts">
       <div class="v" id="m-lm-nuts">{{ data.last_month_nuts }} шт</div>
-      <div class="k">орешков — прошлый месяц</div>
-      <div class="sub" id="m-lm-nuts-money">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
-    </div>
-    <div class="stat prev-rev">
-      <div class="v" id="m-lm-rev">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }}</div>
-      <div class="k">выручка — прошлый месяц, ₽</div>
+      <div class="k">{{ data.last_month_name }}</div>
+      <div class="sub" id="m-lm-nuts-money">оплачено {{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
     </div>
     <div class="stat cost" id="stat-cost">
       <div class="v" id="m-cost">{{ data.cost_pct | round(1) }}%</div>
@@ -264,14 +311,36 @@
 
   <!-- Музыкальные каналы -->
   <div class="music">
-    <span class="ico">🎵</span>
-    <div class="stations" id="stations"></div>
-    <button class="sound-btn" id="sound-btn" style="display:none">▶ Включить звук</button>
+    <div class="music-row">
+      <span class="ico">🎵</span>
+      <div class="stations" id="stations"></div>
+      <button class="sound-btn" id="sound-btn" style="display:none">▶ Включить звук</button>
+    </div>
+    <div class="now-playing" id="now-playing" style="display:{{ '' if data.now_playing else 'none' }}">
+      <span class="np-label">♪ Сейчас играет:</span>
+      <span class="np-title" id="np-title">{{ data.now_playing or '' }}</span>
+    </div>
   </div>
+
+  {% if data.birthdays_upcoming %}
+  <!-- Ближайшие дни рождения -->
+  <div class="bday-upcoming">
+    <span class="bday-up-ico">🎈</span>
+    <span class="bday-up-label">Скоро ДР:</span>
+    {% for b in data.birthdays_upcoming %}
+    <span class="bday-up-item">{{ b.name }} <b>{{ b.date }}</b></span>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <!-- Лента мотивашек -->
   <div class="ticker"><div class="quote" id="quote"></div></div>
+</div><!-- /#stage -->
 
+  <div id="sound-overlay">
+    <div class="ov-icon">🔇</div>
+    <div class="ov-text">Нажмите для включения звука</div>
+  </div>
   <audio id="player"></audio>
 
   <script>
@@ -280,13 +349,8 @@
     const fmt  = n => (n ?? 0).toLocaleString('ru-RU');
     const fmtR = n => (n ?? 0).toLocaleString('ru-RU', {maximumFractionDigits:0}); // рубли без копеек
 
-    let NUT_PRICE    = {{ data.nut_price }};
     let COST_NORM    = {{ data.cost_norm_pct }};
     let COST_DEV     = {{ data.cost_deviation }};
-    const SHIFT_START = {{ data.shift_start | tojson }};  // "HH:MM"
-    const SHIFT_END   = {{ data.shift_end   | tojson }};
-
-    function parseHM(s){ const [h,m] = (s||'00:00').split(':').map(Number); return {h,m}; }
 
     let QUOTES = {{ data.quotes | tojson }};
     let STATIONS = {{ data.stations | tojson }};
@@ -304,18 +368,41 @@
         d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
       document.getElementById('clock-date').textContent =
         d.toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
+      const todayDateEl = document.getElementById('m-today-date');
+      if (todayDateEl) todayDateEl.textContent =
+        d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
     }
     tick(); setInterval(tick, 1000);
 
-    // ── Ночной режим (вне рабочего времени) ──
-    function updateNightMode(){
-      const now = new Date();
-      const {h: sh} = parseHM(SHIFT_START);
-      const {h: eh} = parseHM(SHIFT_END);
-      const hour = now.getHours();
-      document.body.classList.toggle('night', hour >= eh || hour < sh);
+    // ── Адаптив: масштабируем сцену под размер экрана ─────────────────────────
+    // Контент свёрстан в vh/vw, но из-за разных пропорций ТВ (и баннеров ДР)
+    // суммарная высота может превышать экран. Берём «натуральную» высоту сцены
+    // и ужимаем её через transform:scale, чтобы всё всегда влезало целиком.
+    const stage = document.getElementById('stage');
+    let _fitRaf = null;
+    function fitStage(){
+      if (!stage) return;
+      stage.style.transform = 'none';
+      const nh = stage.offsetHeight;
+      const nw = stage.offsetWidth;          // = ширине экрана (100vw)
+      if (!nh || !nw) return;
+      const scale = Math.min(window.innerWidth / nw, window.innerHeight / nh);
+      stage.style.transform = 'scale(' + scale + ')';
     }
-    updateNightMode(); setInterval(updateNightMode, 60000);
+    function scheduleFit(){
+      if (_fitRaf) cancelAnimationFrame(_fitRaf);
+      _fitRaf = requestAnimationFrame(fitStage);
+    }
+    window.addEventListener('resize', scheduleFit);
+    window.addEventListener('orientationchange', scheduleFit);
+    // Любое изменение раскладки (ДР, длина цитаты, перенос чипов) — переподгон
+    if (window.ResizeObserver){
+      new ResizeObserver(scheduleFit).observe(stage);
+    }
+    // Шрифты грузятся асинхронно — пересчитываем после их загрузки
+    if (document.fonts && document.fonts.ready){ document.fonts.ready.then(scheduleFit); }
+    fitStage();
+    setTimeout(fitStage, 300);   // подстраховка для медленного рендера на ТВ
 
     // ── Конфетти ──
     const confettiCanvas = document.getElementById('confetti-canvas');
@@ -472,6 +559,9 @@
     function selectStation(i, fromClick){
       active = i;
       renderStations();
+      // Прячем старый трек — обновится при следующем опросе /board/data
+      const npWrap = document.getElementById('now-playing');
+      if (npWrap) npWrap.style.display = 'none';
       playActive().then(()=> soundBtn.style.display='none')
                   .catch(()=> soundBtn.style.display='');
       if (fromClick){
@@ -479,54 +569,102 @@
       }
     }
 
-    soundBtn.onclick = () => { playActive().then(()=> soundBtn.style.display='none').catch(()=>{}); };
+    // ── Оверлей «включить звук» (вне #stage, position:fixed работает корректно) ──
+    const ov = document.getElementById('sound-overlay');
+    const _showOv = () => { ov.style.display = 'flex'; };
+    const _hideOv = () => { ov.style.display = 'none'; };
+
+    // Патчим soundBtn — при его показе показываем оверлей, при скрытии прячем
+    const _origOnclick = () => {
+      playActive()
+        .then(() => { soundBtn.style.display='none'; _hideOv(); })
+        .catch(() => {});
+    };
+    soundBtn.onclick = _origOnclick;
+    // Клик по оверлею или любая кнопка — делаем то же что soundBtn
+    ov.addEventListener('click', _origOnclick);
+    document.addEventListener('keydown', () => { if (ov.style.display !== 'none') _origOnclick(); });
+
     renderStations();
-    playActive().then(()=> soundBtn.style.display='none').catch(()=> soundBtn.style.display='');
+    playActive()
+      .then(() => { soundBtn.style.display='none'; _hideOv(); })
+      .catch(() => { soundBtn.style.display=''; _showOv(); });
 
     // ── Авто-переподключение радио ───────────────────────────────────────────
     // Интернет-радио (icecast) при сетевом сбое или обрыве со стороны станции
-    // останавливает <audio> и сам не возобновляется. Следим за событиями обрыва
-    // и за тем, что воспроизведение реально идёт; при зависании — переподключаемся.
-    let lastProgressAt = Date.now();
+    // останавливает <audio> и сам не возобновляется. Бывает и «тихий» обрыв:
+    // плеер не на паузе, error не приходит, но звук стоит. Поэтому надёжнее
+    // всего следить за реальным продвижением currentTime, а не за событиями.
     let reconnecting = false;
+    let reconnectFails = 0;
+    let lastTime = 0;            // последнее значение player.currentTime
+    let lastAdvanceAt = Date.now(); // когда currentTime в последний раз двигался
+
+    // Mixed-content: HTTP-поток на HTTPS-странице браузер молча блокирует.
+    // Это частая причина «музыка не играет/пропадает» — предупреждаем в консоль.
+    function checkMixedContent(){
+      const s = STATIONS[active];
+      if (s && location.protocol === 'https:' && /^http:\/\//i.test(s.url)){
+        console.warn('[radio] Поток по HTTP на HTTPS-странице будет заблокирован браузером:', s.url);
+        return true;
+      }
+      return false;
+    }
 
     function reconnectStream(reason){
       if (MUTE || reconnecting) return;
       const s = STATIONS[active];
       if (!s) return;
       reconnecting = true;
+      console.info('[radio] reconnect:', reason, '→', s.name);
       try {
         player.src = s.url;   // повторная установка + load() = новое соединение
         player.load();
       } catch(e){}
       player.play()
-        .then(()=> { soundBtn.style.display='none'; lastProgressAt = Date.now(); })
-        .catch(()=> { soundBtn.style.display=''; })
-        .finally(()=> { setTimeout(()=> { reconnecting = false; }, 1500); });
+        .then(()=> {
+          soundBtn.style.display='none'; _hideOv();
+          reconnectFails = 0;
+          lastAdvanceAt = Date.now();
+        })
+        .catch(()=> {
+          soundBtn.style.display=''; _showOv();
+          reconnectFails++;
+        })
+        .finally(()=> {
+          // Бэкофф: чем больше неудач подряд, тем дольше ждём (до 10с)
+          const backoff = Math.min(1500 + reconnectFails * 1500, 10000);
+          setTimeout(()=> { reconnecting = false; }, backoff);
+        });
     }
 
-    // Прогресс воспроизведения — обновляем «время последней активности»
-    ['playing','timeupdate'].forEach(ev =>
-      player.addEventListener(ev, () => { lastProgressAt = Date.now(); })
-    );
+    // Явный сброс счётчика при успешном старте воспроизведения
+    player.addEventListener('playing', () => {
+      reconnectFails = 0;
+      lastAdvanceAt = Date.now();
+    });
     // События обрыва потока — переподключаемся с небольшой задержкой
     ['error','stalled','ended','emptied','abort'].forEach(ev =>
-      player.addEventListener(ev, () => { if (!MUTE) setTimeout(()=> reconnectStream(ev), 2000); })
+      player.addEventListener(ev, () => { if (!MUTE) setTimeout(()=> reconnectStream(ev), 1500); })
     );
 
-    // Сторожевой таймер: каждые 10с проверяем, что звук идёт.
-    // Если не на паузе пользователем, но прогресса нет > 20с или плеер «встал» — реконнект.
+    // Сторожевой таймер каждые 5с: главный критерий — двигается ли currentTime.
+    // Если за 12с звук не продвинулся (или плеер на паузе) — переподключаемся.
     setInterval(() => {
       if (MUTE || !STATIONS[active]) return;
-      const stuck = (Date.now() - lastProgressAt) > 20000;
-      if (player.paused || stuck) reconnectStream('watchdog');
-    }, 10000);
+      const t = player.currentTime || 0;
+      if (t > lastTime + 0.1){ lastTime = t; lastAdvanceAt = Date.now(); }
+      const stuck = (Date.now() - lastAdvanceAt) > 12000;
+      if (player.paused || stuck) reconnectStream(player.paused ? 'paused' : 'stuck');
+    }, 5000);
 
     // Возврат вкладки в фокус / восстановление сети — сразу проверяем поток
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && !MUTE && player.paused) reconnectStream('visible');
     });
     window.addEventListener('online', () => { if (!MUTE) reconnectStream('online'); });
+
+    checkMixedContent();
 
     // ── Себестоимость: цвет и полоса ──
     function renderCost(pct, norm, dev){
@@ -550,24 +688,22 @@
     // ── Обновление данных (каждые 30 сек) ──
     function render(d){
       document.getElementById('m-shipped').textContent = fmt(d.shipped_month);
-      document.getElementById('m-money').textContent   = fmtR(d.revenue_month) + ' ₽';
       document.getElementById('m-revenue').textContent      = fmtR(d.revenue_month);
       document.getElementById('m-revenue-plan').textContent = fmtR(d.revenue_plan);
       document.getElementById('m-pct').textContent          = d.revenue_pct;
       document.getElementById('m-today').textContent        = fmt(d.shipped_today) + ' шт';
-      document.getElementById('m-today-money').textContent   = fmtR(d.shipped_today_money) + ' ₽';
+      document.getElementById('m-today-money').textContent   = 'оплачено ' + fmtR(d.shipped_today_money) + ' ₽';
       document.getElementById('m-year').textContent          = fmt(d.shipped_year) + ' шт';
-      document.getElementById('m-year-money').textContent    = fmtR(d.shipped_year_money)  + ' ₽';
+      document.getElementById('m-year-money').textContent    = 'оплачено ' + fmtR(d.shipped_year_money)  + ' ₽';
       document.getElementById('m-total').textContent         = fmt(d.shipped_total) + ' шт';
-      document.getElementById('m-total-money').textContent   = fmtR(d.shipped_total_money) + ' ₽';
+      document.getElementById('m-total-money').textContent   = 'оплачено ' + fmtR(d.shipped_total_money) + ' ₽';
 
       // Прошлый месяц
       document.getElementById('m-lm-nuts').textContent      = fmt(d.last_month_nuts) + ' шт';
-      document.getElementById('m-lm-nuts-money').textContent = fmtR(d.last_month_revenue) + ' ₽';
-      document.getElementById('m-lm-rev').textContent       = fmtR(d.last_month_revenue);
+      document.getElementById('m-lm-nuts-money').textContent = 'оплачено ' + fmtR(d.last_month_revenue) + ' ₽';
 
       // Себестоимость
-      NUT_PRICE = d.nut_price; COST_NORM = d.cost_norm_pct; COST_DEV = d.cost_deviation;
+      COST_NORM = d.cost_norm_pct; COST_DEV = d.cost_deviation;
       document.getElementById('m-cost').textContent = d.cost_pct.toFixed(1) + '%';
       renderCost(d.cost_pct, d.cost_norm_pct, d.cost_deviation);
 
@@ -601,12 +737,28 @@
         STATIONS = d.stations; renderStations();
       }
       if (d.active_station !== active) selectStation(d.active_station, false);
+
+      // «Сейчас играет»
+      const npWrap = document.getElementById('now-playing');
+      const npTitle = document.getElementById('np-title');
+      if (d.now_playing){
+        npTitle.textContent = d.now_playing;
+        npWrap.style.display = '';
+      } else {
+        npWrap.style.display = 'none';
+      }
     }
+
+    let _serverVersion = null;
 
     function refresh(){
       fetch('/board/data?key=' + encodeURIComponent(KEY))
         .then(r => r.ok ? r.json() : Promise.reject())
-        .then(render)
+        .then(d => {
+          if (_serverVersion === null) { _serverVersion = d.server_version; }
+          else if (d.server_version !== _serverVersion) { location.reload(); return; }
+          render(d);
+        })
         .catch(()=>{});
     }
     refresh(); setInterval(refresh, 30000);
