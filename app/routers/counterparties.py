@@ -5,14 +5,36 @@ from sqlalchemy.orm import Session
 import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Counterparty, Claim, Task, Comment, AuditLog, User, ContactPerson
+from app.models import Counterparty, Claim, Task, Comment, AuditLog, User, ContactPerson, CarrierVehicle
 from app.utils import log_action
+import json
 import logging
 import threading
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/counterparties", tags=["counterparties"])
+
+
+def _sync_carrier_vehicles(db: Session, cp: Counterparty, vehicles_json: str) -> None:
+    """Полностью пересобирает список водителей/ТС перевозчика из JSON формы."""
+    try:
+        rows = json.loads(vehicles_json)
+    except (ValueError, TypeError):
+        rows = []
+    db.query(CarrierVehicle).filter(CarrierVehicle.counterparty_id == cp.id).delete()
+    for row in rows:
+        driver = (row.get("driver_name") or "").strip()
+        plate = (row.get("vehicle_plate") or "").strip()
+        vtype = (row.get("vehicle_type") or "").strip()
+        if not (driver or plate or vtype):
+            continue
+        db.add(CarrierVehicle(
+            counterparty_id=cp.id,
+            driver_name=driver or None,
+            vehicle_plate=plate or None,
+            vehicle_type=vtype or None,
+        ))
 
 
 def _push_cp_bg(cp_id: int) -> None:
@@ -157,6 +179,7 @@ async def recalc_categories(request: Request, db: Session = Depends(get_db)):
 async def new_counterparty(request: Request):
     return templates.TemplateResponse(request, "counterparties/form.html", {
         "cp": None, "cp_types": CP_TYPES, "entity_types": ENTITY_TYPES, "errors": [],
+        "vehicles_initial": [],
     })
 
 
@@ -189,9 +212,7 @@ async def create_counterparty(
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
-    driver_name: str = Form(default=""),
-    vehicle_plate: str = Form(default=""),
-    vehicle_type: str = Form(default=""),
+    vehicles_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
     resolved_entity = entity_type if entity_type in ENTITY_TYPES else "ooo"
@@ -213,11 +234,10 @@ async def create_counterparty(
         default_discount_pct=min(max(default_discount_pct, 0.0), 100.0),
         tg_chat_id=effective_tg,
         tg_notify_enabled=bool(tg_notify_enabled),
-        driver_name=driver_name.strip() or None,
-        vehicle_plate=vehicle_plate.strip() or None,
-        vehicle_type=vehicle_type.strip() or None,
     )
     db.add(cp)
+    db.flush()
+    _sync_carrier_vehicles(db, cp, vehicles_json)
     db.commit()
     threading.Thread(target=_push_cp_bg, args=(cp.id,), daemon=True).start()
     return RedirectResponse(url="/counterparties", status_code=302)
@@ -473,8 +493,13 @@ async def edit_counterparty(request: Request, cp_id: int, db: Session = Depends(
     cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
     if not cp:
         return RedirectResponse(url="/counterparties", status_code=302)
+    vehicles_initial = [
+        {"driver_name": v.driver_name or "", "vehicle_plate": v.vehicle_plate or "", "vehicle_type": v.vehicle_type or ""}
+        for v in cp.vehicles
+    ]
     return templates.TemplateResponse(request, "counterparties/form.html", {
         "cp": cp, "cp_types": CP_TYPES, "entity_types": ENTITY_TYPES, "errors": [],
+        "vehicles_initial": vehicles_initial,
     })
 
 
@@ -507,9 +532,7 @@ async def update_counterparty(
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
-    driver_name: str = Form(default=""),
-    vehicle_plate: str = Form(default=""),
-    vehicle_type: str = Form(default=""),
+    vehicles_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
     cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
@@ -532,9 +555,7 @@ async def update_counterparty(
         cp.default_discount_pct = min(max(default_discount_pct, 0.0), 100.0)
         cp.tg_chat_id = effective_tg
         cp.tg_notify_enabled = bool(tg_notify_enabled)
-        cp.driver_name = driver_name.strip() or None
-        cp.vehicle_plate = vehicle_plate.strip() or None
-        cp.vehicle_type = vehicle_type.strip() or None
+        _sync_carrier_vehicles(db, cp, vehicles_json)
         db.commit()
         threading.Thread(target=_push_cp_bg, args=(cp_id,), daemon=True).start()
     return RedirectResponse(url=f"/counterparties/{cp_id}", status_code=302)

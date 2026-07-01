@@ -11,12 +11,23 @@ from sqlalchemy.exc import IntegrityError
 import httpx
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User, Contract
+from app.models import Order, OrderItem, Counterparty, Product, CompanySettings, Task, Comment, AuditLog, User, Contract, CarrierVehicle
 from app.utils import log_action
 import logging
 import threading
 
 logger = logging.getLogger(__name__)
+
+
+def _carrier_vehicles_map(carriers) -> dict:
+    """{carrier_id: [{driver_name, vehicle_plate, vehicle_type}, ...]} для JS-подстановки в форме заказа."""
+    return {
+        cp.id: [
+            {"driver_name": v.driver_name or "", "vehicle_plate": v.vehicle_plate or "", "vehicle_type": v.vehicle_type or ""}
+            for v in cp.vehicles if v.is_active
+        ]
+        for cp in carriers
+    }
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -160,7 +171,7 @@ async def list_orders(
 
 @router.get("/new", response_class=HTMLResponse)
 @login_required
-async def new_order(request: Request, db: Session = Depends(get_db)):
+async def new_order(request: Request, counterparty_id: int = 0, db: Session = Depends(get_db)):
     counterparties = db.query(Counterparty).filter(
         Counterparty.is_active == True, Counterparty.type.in_(["client", "both"])
     ).order_by(Counterparty.name).all()
@@ -181,6 +192,8 @@ async def new_order(request: Request, db: Session = Depends(get_db)):
         "suggested_number": _next_order_number(db),
         "company": company, "managers": managers,
         "current_user_id": request.session.get("user_id"),
+        "selected_counterparty_id": counterparty_id,
+        "carrier_vehicles_json": json.dumps(_carrier_vehicles_map(carriers), ensure_ascii=False),
     })
 
 
@@ -349,6 +362,8 @@ async def edit_order(request: Request, order_id: int, db: Session = Depends(get_
         "suggested_number": order.number,
         "company": company, "managers": managers,
         "current_user_id": request.session.get("user_id"),
+        "selected_counterparty_id": order.counterparty_id,
+        "carrier_vehicles_json": json.dumps(_carrier_vehicles_map(carriers), ensure_ascii=False),
     })
 
 

@@ -236,10 +236,6 @@ def _migrate_db():
         ("users", "phone", "TEXT"),
         # Менеджер по продажам заказа (может отличаться от создателя)
         ("orders", "sales_manager_id", "INTEGER REFERENCES users(id)"),
-        # Водитель и ТС по умолчанию у перевозчика (контрагент)
-        ("counterparties", "driver_name",   "TEXT"),
-        ("counterparties", "vehicle_plate", "TEXT"),
-        ("counterparties", "vehicle_type",  "TEXT"),
         # Транспорт и водитель для ЭТРН
         ("orders", "driver_name",   "TEXT"),
         ("orders", "vehicle_plate", "TEXT"),
@@ -279,6 +275,27 @@ def _migrate_db():
     # Перевод орешков с «Коробки» на «шт»
     cur.execute("UPDATE products SET unit='шт', sale_unit=NULL, units_per_box=1 WHERE unit='Коробки'")
     cur.execute("UPDATE invoice_items SET unit='шт' WHERE unit='Коробки'")
+
+    # Водитель/ТС перевозчика: переход с одиночных полей на список carrier_vehicles.
+    # Старые колонки удаляем (SQLite 3.35+ поддерживает DROP COLUMN); если версия
+    # SQLite старая — колонки останутся в таблице неиспользуемыми, это не критично.
+    _cp_cols = [row[1] for row in cur.execute("PRAGMA table_info(counterparties)").fetchall()]
+    if "driver_name" in _cp_cols:
+        rows = cur.execute(
+            "SELECT id, driver_name, vehicle_plate, vehicle_type FROM counterparties "
+            "WHERE driver_name IS NOT NULL OR vehicle_plate IS NOT NULL OR vehicle_type IS NOT NULL"
+        ).fetchall()
+        for cp_id, driver, plate, vtype in rows:
+            cur.execute(
+                "INSERT INTO carrier_vehicles (counterparty_id, driver_name, vehicle_plate, vehicle_type, is_active, created_at) "
+                "VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)",
+                (cp_id, driver, plate, vtype),
+            )
+        for _col in ("driver_name", "vehicle_plate", "vehicle_type"):
+            try:
+                cur.execute(f"ALTER TABLE counterparties DROP COLUMN {_col}")
+            except Exception:
+                pass
 
     # Переход на новый цикл статусов заказа: старый «shipped» (Отгружен)
     # соответствует новому «handed» (Передан поставщику)

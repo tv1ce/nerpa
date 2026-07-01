@@ -58,10 +58,6 @@ class Counterparty(Base):
     # Telegram-уведомления (для перевозчиков)
     tg_chat_id = Column(String(100))            # ID чата / группы Telegram
     tg_notify_enabled = Column(Boolean, default=False)  # вкл/выкл отправку заказов
-    # Водитель и ТС по умолчанию (для перевозчиков) — подставляются в заказ при выборе
-    driver_name   = Column(String(200))         # ФИО водителя
-    vehicle_plate = Column(String(20))          # Гос. номер ТС
-    vehicle_type  = Column(String(100))         # Вид ТС, напр. «Фургон»
     # ЕГРЮЛ — кэш последней проверки статуса через DaData
     egrul_status = Column(String(30))           # ACTIVE / LIQUIDATING / LIQUIDATED / BANKRUPT / REORGANIZING
     egrul_checked_at = Column(DateTime)
@@ -73,6 +69,23 @@ class Counterparty(Base):
     invoices = relationship("Invoice", back_populates="counterparty")
     contracts = relationship("Contract", back_populates="counterparty")
     claims = relationship("Claim", back_populates="counterparty", order_by="Claim.date.desc()")
+    vehicles = relationship("CarrierVehicle", back_populates="counterparty",
+                             cascade="all, delete-orphan", order_by="CarrierVehicle.id")
+
+
+class CarrierVehicle(Base):
+    """Водитель + ТС перевозчика. У одного перевозчика может быть несколько —
+    выбираются из списка при оформлении заказа."""
+    __tablename__ = "carrier_vehicles"
+    id = Column(Integer, primary_key=True, index=True)
+    counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
+    driver_name   = Column(String(200))
+    vehicle_plate = Column(String(20))
+    vehicle_type  = Column(String(100))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    counterparty = relationship("Counterparty", back_populates="vehicles")
 
 
 class Product(Base):

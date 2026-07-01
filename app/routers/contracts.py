@@ -84,7 +84,7 @@ async def list_contracts(request: Request, q: str = "", status: str = "", db: Se
 
 @router.get("/new", response_class=HTMLResponse)
 @login_required
-async def new_contract(request: Request, db: Session = Depends(get_db)):
+async def new_contract(request: Request, counterparty_id: int = 0, db: Session = Depends(get_db)):
     counterparties = db.query(Counterparty).filter(Counterparty.is_active == True).order_by(Counterparty.name).all()
     doc_templates = db.query(DocumentTemplate).filter(
         DocumentTemplate.is_active == True, DocumentTemplate.type == "contract"
@@ -93,6 +93,7 @@ async def new_contract(request: Request, db: Session = Depends(get_db)):
         "contract": None, "counterparties": counterparties, "doc_templates": doc_templates,
         "statuses": CONTRACT_STATUSES, "payment_types": PAYMENT_TYPES,
         "suggested_number": _next_contract_number(db),
+        "selected_counterparty_id": counterparty_id,
     })
 
 

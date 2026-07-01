@@ -40,7 +40,8 @@
               {% for cp in counterparties %}
               <option value="{{ cp.id }}"
                       data-discount="{{ cp.default_discount_pct or 0 }}"
-                      {% if order and order.counterparty_id == cp.id %}selected{% endif %}>
+                      {% if order and order.counterparty_id == cp.id %}selected
+                      {% elif not order and selected_counterparty_id == cp.id %}selected{% endif %}>
                 {{ cp.trade_name or cp.name }}{% if cp.trade_name %} ({{ cp.name }}){% endif %}
               </option>
               {% endfor %}
@@ -73,15 +74,19 @@
             <select name="carrier_id" id="carrier_id" class="form-select" onchange="onCarrierChange(this)">
               <option value="0">— не указан —</option>
               {% for cp in carriers %}
-              <option value="{{ cp.id }}" {% if order and order.carrier_id == cp.id %}selected{% endif %}
-                      data-driver="{{ cp.driver_name or '' }}"
-                      data-plate="{{ cp.vehicle_plate or '' }}"
-                      data-vtype="{{ cp.vehicle_type or '' }}">
+              <option value="{{ cp.id }}" {% if order and order.carrier_id == cp.id %}selected{% endif %}>
                 {{ cp.trade_name or cp.name }}{% if cp.trade_name %} ({{ cp.name }}){% endif %}
               </option>
               {% endfor %}
             </select>
             <div class="form-text">Подставляется автоматически в транспортную накладную</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Водитель / ТС перевозчика</label>
+            <select id="carrier_vehicle_select" class="form-select" onchange="onCarrierVehicleChange(this)" disabled>
+              <option value="">— выберите перевозчика —</option>
+            </select>
+            <div class="form-text">Список из карточки перевозчика — подставит ФИО/номер/тип ниже</div>
           </div>
           <div class="col-md-6">
             <label class="form-label">Стоимость доставки <span class="text-muted" style="font-size:.8rem">(довоз этого заказа, ₽)</span></label>
@@ -222,6 +227,9 @@ const CONTRACTS = [
 {% endfor %}];
 const SELECTED_CONTRACT = {{ order.contract_id if order and order.contract_id else 0 }};
 
+// Водители/ТС перевозчиков: {carrier_id: [{driver_name, vehicle_plate, vehicle_type}, ...]}
+const CARRIER_VEHICLES = {{ carrier_vehicles_json | safe }};
+
 function rebuildContracts() {
   const cpSel = document.getElementById('counterparty_id');
   const cpId = cpSel ? parseInt(cpSel.value || '0') : 0;
@@ -265,18 +273,57 @@ function onContractChange(sel) {
 }
 document.addEventListener('DOMContentLoaded', function() {
   rebuildContracts();
+  rebuildCarrierVehicles();
 });
 
-// Водитель/ТС перевозчика — подставляются автоматически при выборе
+// Перевозчик выбран — перестраиваем список его водителей/ТС
 function onCarrierChange(sel) {
-  const opt = sel.options[sel.selectedIndex];
-  if (!opt || !opt.value || opt.value === '0') return;
-  const driver = opt.dataset.driver || '';
-  const plate  = opt.dataset.plate  || '';
-  const vtype  = opt.dataset.vtype  || '';
-  if (driver) document.getElementById('driver_name').value = driver;
-  if (plate)  document.getElementById('vehicle_plate').value = plate;
-  if (vtype)  document.getElementById('vehicle_type').value = vtype;
+  rebuildCarrierVehicles();
+}
+
+function rebuildCarrierVehicles() {
+  const carrierSel = document.getElementById('carrier_id');
+  const vehSel = document.getElementById('carrier_vehicle_select');
+  if (!carrierSel || !vehSel) return;
+  const carrierId = carrierSel.value;
+  const list = CARRIER_VEHICLES[carrierId] || [];
+  vehSel.innerHTML = '';
+  if (!carrierId || carrierId === '0') {
+    vehSel.innerHTML = '<option value="">— выберите перевозчика —</option>';
+    vehSel.disabled = true;
+    return;
+  }
+  if (list.length === 0) {
+    vehSel.innerHTML = '<option value="">— нет сохранённых водителей, добавьте в карточке перевозчика —</option>';
+    vehSel.disabled = true;
+    return;
+  }
+  vehSel.disabled = false;
+  vehSel.innerHTML = '<option value="">— выберите из списка —</option>';
+  list.forEach((v, idx) => {
+    const o = document.createElement('option');
+    o.value = idx;
+    const parts = [v.driver_name, v.vehicle_plate, v.vehicle_type].filter(Boolean);
+    o.textContent = parts.join(', ') || 'Без данных';
+    vehSel.appendChild(o);
+  });
+  // Единственный вариант — подставляем сразу
+  if (list.length === 1) {
+    vehSel.value = '0';
+    onCarrierVehicleChange(vehSel);
+  }
+}
+
+// Выбор конкретного водителя/ТС из списка — подставляет значения в поля заказа
+function onCarrierVehicleChange(sel) {
+  if (sel.value === '') return;
+  const carrierId = document.getElementById('carrier_id').value;
+  const list = CARRIER_VEHICLES[carrierId] || [];
+  const v = list[parseInt(sel.value)];
+  if (!v) return;
+  document.getElementById('driver_name').value = v.driver_name || '';
+  document.getElementById('vehicle_plate').value = v.vehicle_plate || '';
+  document.getElementById('vehicle_type').value = v.vehicle_type || '';
 }
 
 // Скидка клиента — применяется ко всем позициям при выборе контрагента

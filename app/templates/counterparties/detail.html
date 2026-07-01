@@ -89,9 +89,9 @@
 {# ── Быстрые действия ─────────────────────────────────────────────────────── #}
 {% if request.session.get('user_role') != 'warehouse' %}
 <div class="d-flex gap-2 mb-3 flex-wrap">
-  <a href="/orders/new" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus me-1"></i>Заказ</a>
+  <a href="/orders/new?counterparty_id={{ cp.id }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-plus me-1"></i>Заказ</a>
   <a href="/invoices/new" class="btn btn-sm btn-outline-success"><i class="bi bi-plus me-1"></i>Счёт</a>
-  <a href="/contracts/new" class="btn btn-sm btn-outline-secondary"><i class="bi bi-plus me-1"></i>Договор</a>
+  <a href="/contracts/new?counterparty_id={{ cp.id }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-plus me-1"></i>Договор</a>
   <a href="/claims/new?cp_id={{ cp.id }}" class="btn btn-sm btn-outline-danger"><i class="bi bi-plus me-1"></i>Рекламация</a>
 </div>
 {% endif %}
