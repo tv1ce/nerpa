@@ -402,10 +402,10 @@
             </div>
           </div>
           <div class="col-md-6">
-            <label class="form-label form-label-sm">Логин СБИС (email)</label>
-            <input type="email" name="sbis_login" class="form-control form-control-sm"
+            <label class="form-label form-label-sm">Логин СБИС</label>
+            <input type="text" name="sbis_login" class="form-control form-control-sm"
                    autocomplete="off"
-                   placeholder="admin@company.ru"
+                   placeholder="Логин от аккаунта СБИС"
                    value="{{ company.sbis_login if company and company.sbis_login else '' }}">
           </div>
           <div class="col-md-6">
