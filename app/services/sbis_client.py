@@ -29,14 +29,28 @@ class SbisError(Exception):
     pass
 
 
+def _raise_for_sbis_status(resp: httpx.Response) -> None:
+    """Как resp.raise_for_status(), но при ошибке достаёт текст из тела ответа
+    (СБИС часто кладёт понятное описание ошибки в JSON даже при HTTP 4xx/5xx)."""
+    if resp.status_code < 400:
+        return
+    try:
+        body = resp.json()
+        msg = body.get("error", {}).get("message") or body
+    except Exception:
+        msg = resp.text[:500]
+    raise SbisError(f"HTTP {resp.status_code} от СБИС: {msg}")
+
+
 class SbisClient:
     """Клиент СБИС JSON-RPC API. Один экземпляр = одна сессия."""
 
-    def __init__(self, login: str, password: str):
+    def __init__(self, login: str, password: str, account_id: str | None = None):
         self.login = login
         self.password = password
+        self.account_id = account_id or None
         self._session_id: Optional[str] = None
-        self._http = httpx.Client(timeout=30)
+        self._http = httpx.Client(timeout=30, headers={"Content-Type": "application/json; charset=UTF-8"})
 
     def __enter__(self):
         return self
@@ -47,17 +61,21 @@ class SbisClient:
     # ── Аутентификация ──────────────────────────────────────────────────────
 
     def authenticate(self) -> str:
+        auth_param = {"Логин": self.login, "Пароль": self.password}
+        if self.account_id:
+            auth_param["НомерАккаунта"] = self.account_id
         resp = self._http.post(SBIS_AUTH_URL, json={
             "jsonrpc": "2.0",
             "method": "СБИС.Аутентифицировать",
-            "params": {"Логин": self.login, "Пароль": self.password},
-            "id": 0,
+            "params": {"Параметр": auth_param},
+            "id": "0",
         })
-        resp.raise_for_status()
+        _raise_for_sbis_status(resp)
         data = resp.json()
         if "error" in data:
             raise SbisError(f"Ошибка авторизации СБИС: {data['error'].get('message', data['error'])}")
-        self._session_id = data["result"]["Сессия"]
+        # Результат — просто строка с идентификатором сессии, не объект
+        self._session_id = data["result"]
         logger.info("СБИС: авторизация успешна")
         return self._session_id
 
@@ -68,11 +86,11 @@ class SbisClient:
             self.authenticate()
         resp = self._http.post(
             SBIS_API_URL,
-            json={"jsonrpc": "2.0", "method": method, "params": params, "id": 1},
-            cookies={"SBIS3SESSIONID": self._session_id},
+            json={"jsonrpc": "2.0", "method": method, "params": params, "id": "1"},
+            headers={"X-SBISSessionID": self._session_id},
             timeout=60,
         )
-        resp.raise_for_status()
+        _raise_for_sbis_status(resp)
         data = resp.json()
         if "error" in data:
             err = data["error"]
@@ -188,4 +206,5 @@ def get_sbis_client(company) -> Optional[SbisClient]:
     """Создаёт клиент из настроек компании. Возвращает None если не настроен."""
     if not company or not company.sbis_login or not company.sbis_password:
         return None
-    return SbisClient(login=company.sbis_login, password=company.sbis_password)
+    return SbisClient(login=company.sbis_login, password=company.sbis_password,
+                       account_id=company.sbis_account_id)
