@@ -70,10 +70,13 @@
           </div>
           <div class="col-md-6">
             <label class="form-label">Перевозчик</label>
-            <select name="carrier_id" class="form-select">
+            <select name="carrier_id" id="carrier_id" class="form-select" onchange="onCarrierChange(this)">
               <option value="0">— не указан —</option>
               {% for cp in carriers %}
-              <option value="{{ cp.id }}" {% if order and order.carrier_id == cp.id %}selected{% endif %}>
+              <option value="{{ cp.id }}" {% if order and order.carrier_id == cp.id %}selected{% endif %}
+                      data-driver="{{ cp.driver_name or '' }}"
+                      data-plate="{{ cp.vehicle_plate or '' }}"
+                      data-vtype="{{ cp.vehicle_type or '' }}">
                 {{ cp.trade_name or cp.name }}{% if cp.trade_name %} ({{ cp.name }}){% endif %}
               </option>
               {% endfor %}
@@ -113,17 +116,17 @@
           </div>
           <div class="col-md-6">
             <label class="form-label">ФИО водителя <span class="text-muted" style="font-size:.8rem">(для ЭТРН)</span></label>
-            <input type="text" name="driver_name" class="form-control" placeholder="Иванов Иван Иванович"
+            <input type="text" name="driver_name" id="driver_name" class="form-control" placeholder="Иванов Иван Иванович"
                    value="{{ order.driver_name if order and order.driver_name else '' }}">
           </div>
           <div class="col-md-3">
             <label class="form-label">Гос. номер ТС</label>
-            <input type="text" name="vehicle_plate" class="form-control font-monospace" placeholder="А001АА77"
+            <input type="text" name="vehicle_plate" id="vehicle_plate" class="form-control font-monospace" placeholder="А001АА77"
                    value="{{ order.vehicle_plate if order and order.vehicle_plate else '' }}">
           </div>
           <div class="col-md-3">
             <label class="form-label">Вид ТС</label>
-            <input type="text" name="vehicle_type" class="form-control" placeholder="Фургон"
+            <input type="text" name="vehicle_type" id="vehicle_type" class="form-control" placeholder="Фургон"
                    value="{{ order.vehicle_type if order and order.vehicle_type else '' }}">
           </div>
           <div class="col-md-6">
@@ -263,6 +266,18 @@ function onContractChange(sel) {
 document.addEventListener('DOMContentLoaded', function() {
   rebuildContracts();
 });
+
+// Водитель/ТС перевозчика — подставляются автоматически при выборе
+function onCarrierChange(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value || opt.value === '0') return;
+  const driver = opt.dataset.driver || '';
+  const plate  = opt.dataset.plate  || '';
+  const vtype  = opt.dataset.vtype  || '';
+  if (driver) document.getElementById('driver_name').value = driver;
+  if (plate)  document.getElementById('vehicle_plate').value = plate;
+  if (vtype)  document.getElementById('vehicle_type').value = vtype;
+}
 
 // Скидка клиента — применяется ко всем позициям при выборе контрагента
 function applyClientDiscount(sel) {

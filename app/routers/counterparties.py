@@ -189,6 +189,9 @@ async def create_counterparty(
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
+    driver_name: str = Form(default=""),
+    vehicle_plate: str = Form(default=""),
+    vehicle_type: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     resolved_entity = entity_type if entity_type in ENTITY_TYPES else "ooo"
@@ -210,6 +213,9 @@ async def create_counterparty(
         default_discount_pct=min(max(default_discount_pct, 0.0), 100.0),
         tg_chat_id=effective_tg,
         tg_notify_enabled=bool(tg_notify_enabled),
+        driver_name=driver_name.strip() or None,
+        vehicle_plate=vehicle_plate.strip() or None,
+        vehicle_type=vehicle_type.strip() or None,
     )
     db.add(cp)
     db.commit()
@@ -501,6 +507,9 @@ async def update_counterparty(
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
+    driver_name: str = Form(default=""),
+    vehicle_plate: str = Form(default=""),
+    vehicle_type: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
@@ -523,6 +532,9 @@ async def update_counterparty(
         cp.default_discount_pct = min(max(default_discount_pct, 0.0), 100.0)
         cp.tg_chat_id = effective_tg
         cp.tg_notify_enabled = bool(tg_notify_enabled)
+        cp.driver_name = driver_name.strip() or None
+        cp.vehicle_plate = vehicle_plate.strip() or None
+        cp.vehicle_type = vehicle_type.strip() or None
         db.commit()
         threading.Thread(target=_push_cp_bg, args=(cp_id,), daemon=True).start()
     return RedirectResponse(url=f"/counterparties/{cp_id}", status_code=302)

@@ -181,6 +181,31 @@
       <input type="hidden" name="tg_chat_id_hidden" id="tg_chat_id_hidden"
              value="{{ cp.tg_chat_id if cp and cp.tg_chat_id else '' }}">
 
+      <!-- Водитель и ТС для перевозчиков — всегда в DOM, видимость через JS -->
+      <div class="card border-0 shadow-sm p-4 mb-3" id="driver-card" style="display:none">
+        <div class="form-section-title"><i class="bi bi-truck me-1 text-primary"></i>Водитель и транспорт</div>
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">ФИО водителя</label>
+            <input type="text" name="driver_name" class="form-control" placeholder="Иванов Иван Иванович"
+                   value="{{ cp.driver_name if cp and cp.driver_name else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Гос. номер ТС</label>
+            <input type="text" name="vehicle_plate" class="form-control font-monospace" placeholder="А001АА77"
+                   value="{{ cp.vehicle_plate if cp and cp.vehicle_plate else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Вид ТС</label>
+            <input type="text" name="vehicle_type" class="form-control" placeholder="Фургон"
+                   value="{{ cp.vehicle_type if cp and cp.vehicle_type else '' }}">
+          </div>
+          <div class="col-12">
+            <div class="form-text">Подставится автоматически при выборе этого перевозчика в заказе (для транспортной накладной и ЭТРН)</div>
+          </div>
+        </div>
+      </div>
+
       <div class="card border-0 shadow-sm p-4">
         <div class="form-section-title"><i class="bi bi-clock-history me-1"></i>Условия оплаты (дебиторка)</div>
         <div class="row g-3">
@@ -375,6 +400,7 @@ updateSignatoryVisibility();
 (function() {
   var typeSel = document.querySelector('select[name="type"]');
   var tgCard  = document.getElementById('tg-card');
+  var driverCard = document.getElementById('driver-card');
   var tgInput = document.getElementById('tg_chat_id');
   var tgHidden = document.getElementById('tg_chat_id_hidden');
 
@@ -383,8 +409,10 @@ updateSignatoryVisibility();
   }
 
   function updateTgCardVisibility() {
-    if (!typeSel || !tgCard) return;
-    tgCard.style.display = (typeSel.value === 'carrier') ? 'block' : 'none';
+    if (!typeSel) return;
+    var isCarrier = (typeSel.value === 'carrier');
+    if (tgCard) tgCard.style.display = isCarrier ? 'block' : 'none';
+    if (driverCard) driverCard.style.display = isCarrier ? 'block' : 'none';
   }
 
   if (typeSel) typeSel.addEventListener('change', updateTgCardVisibility);

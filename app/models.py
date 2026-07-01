@@ -58,6 +58,10 @@ class Counterparty(Base):
     # Telegram-уведомления (для перевозчиков)
     tg_chat_id = Column(String(100))            # ID чата / группы Telegram
     tg_notify_enabled = Column(Boolean, default=False)  # вкл/выкл отправку заказов
+    # Водитель и ТС по умолчанию (для перевозчиков) — подставляются в заказ при выборе
+    driver_name   = Column(String(200))         # ФИО водителя
+    vehicle_plate = Column(String(20))          # Гос. номер ТС
+    vehicle_type  = Column(String(100))         # Вид ТС, напр. «Фургон»
     # ЕГРЮЛ — кэш последней проверки статуса через DaData
     egrul_status = Column(String(30))           # ACTIVE / LIQUIDATING / LIQUIDATED / BANKRUPT / REORGANIZING
     egrul_checked_at = Column(DateTime)

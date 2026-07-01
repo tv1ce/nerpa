@@ -236,6 +236,10 @@ def _migrate_db():
         ("users", "phone", "TEXT"),
         # Менеджер по продажам заказа (может отличаться от создателя)
         ("orders", "sales_manager_id", "INTEGER REFERENCES users(id)"),
+        # Водитель и ТС по умолчанию у перевозчика (контрагент)
+        ("counterparties", "driver_name",   "TEXT"),
+        ("counterparties", "vehicle_plate", "TEXT"),
+        ("counterparties", "vehicle_type",  "TEXT"),
         # Транспорт и водитель для ЭТРН
         ("orders", "driver_name",   "TEXT"),
         ("orders", "vehicle_plate", "TEXT"),
