@@ -223,6 +223,28 @@
   </div>
 </div>
 
+<!-- ── Громкое уведомление: новый заказ из Bitrix24 ── -->
+<div id="bitrix-alert-overlay" role="alertdialog" aria-label="Новый заказ из Bitrix24">
+  <div id="bitrix-alert-card">
+    <div class="bitrix-alert-header">
+      <i class="bi bi-bell-fill"></i>
+      <span>Новый заказ из Bitrix24 — нужно действие!</span>
+    </div>
+    <div class="bitrix-alert-body">
+      <div class="ba-title" id="ba-title"></div>
+      <div class="ba-text" id="ba-text"></div>
+    </div>
+    <div class="bitrix-alert-footer">
+      <a href="#" id="ba-link" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-box-arrow-up-right me-1"></i>Открыть заказ
+      </a>
+      <button type="button" class="btn btn-sm btn-danger" id="ba-ack" onclick="ackBitrixAlert()">
+        <i class="bi bi-check-lg me-1"></i>Принял в работу
+      </button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="/static/js/app.js"></script>
@@ -311,7 +333,8 @@
     var icons = {
       low_stock: 'bi-exclamation-triangle-fill text-warning',
       contract_expiry: 'bi-file-earmark-text-fill text-primary',
-      invoice_due: 'bi-cash-coin text-success'
+      invoice_due: 'bi-cash-coin text-success',
+      bitrix_order: 'bi-bell-fill text-danger'
     };
     list.innerHTML = data.items.map(function (n) {
       var icon = icons[n.type] || 'bi-bell-fill text-primary';
@@ -393,6 +416,92 @@
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && _open) closeNotifDrawer();
   });
+
+  // Периодическое обновление счётчика — чтобы бейдж не «застревал» без перезагрузки
+  setInterval(function () {
+    fetch('/notifications/count')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d) updateBadge(d.count); })
+      .catch(function () {});
+  }, 25000);
+})();
+</script>
+
+<script>
+// ── Громкое уведомление о новом заказе из Bitrix24 ──────────────────────────
+// Модалку нельзя закрыть кликом по фону/Esc — только явной кнопкой «Принял
+// в работу», которая помечает уведомление прочитанным. Звук повторяется,
+// пока модалка открыта, чтобы менеджер точно не пропустил заказ.
+(function () {
+  var _shownId = null;
+  var _beepTimer = null;
+
+  function _beep() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      var ctx = new Ctx();
+      [0, 0.18, 0.36].forEach(function (delay) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + delay + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + 0.15);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + 0.16);
+      });
+    } catch (e) { /* Web Audio недоступен — тихо игнорируем */ }
+  }
+
+  function _esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function showAlert(n) {
+    _shownId = n.id;
+    document.getElementById('ba-title').textContent = n.title || '';
+    document.getElementById('ba-text').textContent = n.body || '';
+    var link = document.getElementById('ba-link');
+    if (n.link) { link.href = n.link; link.style.display = ''; } else { link.style.display = 'none'; }
+    document.getElementById('bitrix-alert-overlay').classList.add('open');
+    _beep();
+    if (_beepTimer) clearInterval(_beepTimer);
+    _beepTimer = setInterval(_beep, 12000);
+  }
+
+  window.ackBitrixAlert = function () {
+    var id = _shownId;
+    document.getElementById('bitrix-alert-overlay').classList.remove('open');
+    if (_beepTimer) { clearInterval(_beepTimer); _beepTimer = null; }
+    _shownId = null;
+    if (id) {
+      fetch('/notifications/' + id + '/read', { method: 'POST' }).catch(function () {});
+    }
+    fetch('/notifications/count')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && document.getElementById('notif-badge')) {
+        document.getElementById('notif-badge').textContent = d.count > 99 ? '99+' : d.count;
+        document.getElementById('notif-badge').style.display = d.count > 0 ? '' : 'none';
+      }})
+      .catch(function () {});
+  };
+
+  function checkForAlert() {
+    if (document.getElementById('bitrix-alert-overlay').classList.contains('open')) return;
+    fetch('/notifications/recent')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        var hit = d.items.find(function (n) { return n.type === 'bitrix_order' && !n.is_read; });
+        if (hit) showAlert(hit);
+      })
+      .catch(function () {});
+  }
+
+  checkForAlert();
+  setInterval(checkForAlert, 20000);
 })();
 </script>
 

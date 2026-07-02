@@ -64,6 +64,9 @@ class Counterparty(Base):
     # 1С:УНФ — идентификатор объекта в 1С и дата последней синхронизации
     external_id_1c  = Column(String(36))        # Ref_Key (GUID) контрагента в 1С
     synced_to_1c_at = Column(DateTime)
+    # Bitrix24 — ID компании/контакта CRM, из которых создан этот контрагент
+    external_id_bitrix  = Column(String(20))
+    synced_to_bitrix_at = Column(DateTime)
 
     orders = relationship("Order", back_populates="counterparty", foreign_keys="Order.counterparty_id")
     invoices = relationship("Invoice", back_populates="counterparty")
@@ -163,6 +166,9 @@ class Order(Base):
     etran_id     = Column(String(100))          # ID документа в СБИС
     etran_status = Column(String(50))           # черновик / отправлен / подписан / завершён / ошибка
     etran_url    = Column(String(500))          # ссылка на документ в СБИС Online
+    # ── Bitrix24 CRM ──
+    bitrix_deal_id      = Column(String(20), index=True)  # ID сделки, из которой создан заказ
+    synced_to_bitrix_at = Column(DateTime)                # datetime последнего push статуса в Bitrix24
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
     supplier = relationship("Counterparty", foreign_keys=[supplier_id])
@@ -373,6 +379,15 @@ class CompanySettings(Base):
     module_recon    = Column(Boolean, default=False)  # Разведка ЛПР
     module_sourcing = Column(Boolean, default=False)  # Закупки
     module_field    = Column(Boolean, default=False)  # Поле (торгпреды)
+    # ── Bitrix24 CRM ──
+    bitrix_webhook_url    = Column(EncryptedText)   # входящий вебхук, напр. https://x.bitrix24.ru/rest/1/xxxxx/
+    bitrix_enabled        = Column(Boolean, default=False)
+    bitrix_stage_paid     = Column(String(60))      # STAGE_ID сделки на «Счёт оплачен»
+    bitrix_stage_shipped  = Column(String(60))      # STAGE_ID сделки на «Отгрузка» (заказ собран)
+    bitrix_stage_delivered = Column(String(60))     # STAGE_ID сделки на «Доставлено» (необязательно)
+    bitrix_field_paid     = Column(String(60))      # код UF-поля «Оплачено» (плашка), автосоздаётся
+    bitrix_field_delivered = Column(String(60))     # код UF-поля «Доставлено» (плашка), автосоздаётся
+    bitrix_alert_chat_ids = Column(Text)            # Telegram chat_id для громкого уведомления о новом заказе, через запятую
 
 
 class MonthlyPlan(Base):
@@ -471,6 +486,9 @@ class Notification(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
+    # Момент последнего эскалирующего Telegram-напоминания (напр. для bitrix_order,
+    # пока уведомление не прочитано). NULL — ещё не эскалировалось.
+    escalated_at = Column(DateTime)
 
     product = relationship("Product")
     user = relationship("User")
