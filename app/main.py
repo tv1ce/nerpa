@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_bitrix
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -215,6 +215,72 @@ async def _overdue_loop():
         await asyncio.sleep(3600)  # раз в час
 
 
+def _escalate_bitrix_alerts(threshold_minutes: int = 10) -> int:
+    """Повторно шлёт Telegram-напоминание по непрочитанным уведомлениям bitrix_order —
+    чтобы менеджер точно не пропустил новый заказ, даже если не открывал TMS в браузере.
+    Не чаще раза в threshold_minutes на одно уведомление (escalated_at)."""
+    import os
+    from datetime import timedelta
+    from app.database import SessionLocal
+    from app.models import Notification, CompanySettings
+
+    db = SessionLocal()
+    try:
+        company = db.query(CompanySettings).first()
+        chat_ids = [c.strip() for c in (company.bitrix_alert_chat_ids or "").split(",") if c.strip()] if company else []
+        bot_token = ((company.tg_bot_token or "").strip() if company else "") or os.getenv("TMS_BOT_TOKEN", "").strip()
+        if not chat_ids or not bot_token:
+            return 0
+
+        from datetime import datetime
+        now = datetime.now()
+        threshold = now - timedelta(minutes=threshold_minutes)
+        pending = db.query(Notification).filter(
+            Notification.type == "bitrix_order",
+            Notification.is_read == False,
+            Notification.created_at < threshold,
+        ).filter(
+            (Notification.escalated_at.is_(None)) | (Notification.escalated_at < threshold)
+        ).all()
+
+        if not pending:
+            return 0
+
+        import httpx
+        sent = 0
+        for n in pending:
+            text = f"⏰ Напоминание: заказ из Bitrix24 всё ещё не обработан!\n{n.title}\nОткройте TMS → Уведомления."
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    for chat_id in chat_ids:
+                        client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                                    json={"chat_id": chat_id, "text": text})
+                n.escalated_at = now
+                sent += 1
+            except Exception as e:
+                logger.warning("Эскалация bitrix_order #%s: %s", n.id, e)
+        if sent:
+            db.commit()
+            logger.info("Эскалация Bitrix24-уведомлений: отправлено %d", sent)
+        return sent
+    except Exception as e:
+        logger.error("_escalate_bitrix_alerts: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
+
+
+async def _bitrix_escalation_loop():
+    """Фоновая задача: проверка непрочитанных заказов из Bitrix24, каждые 5 минут."""
+    while True:
+        try:
+            _escalate_bitrix_alerts()
+        except Exception as e:
+            logger.error("bitrix_escalation_loop: %s", e)
+        await asyncio.sleep(300)
+
+
 def _rotate_generated(max_age_days: int = 90) -> int:
     """Удаляет файлы из generated/ старше max_age_days дней.
     Возвращает количество удалённых файлов."""
@@ -274,6 +340,7 @@ async def lifespan(_app: FastAPI):
     _notify_due_invoices()            # напоминания об оплате счетов
     _rotate_generated(max_age_days=90)  # удалить старые docx
     asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
+    asyncio.create_task(_bitrix_escalation_loop())  # напоминания о необработанных заказах Bitrix24
     board.start_now_playing()         # поллер «сейчас играет» на табло
 
     # APScheduler: поллинг 1С каждые 15 минут (отключён если onec_enabled=False)
@@ -434,8 +501,9 @@ app.include_router(files.router)
 app.include_router(public.router)
 app.include_router(sync_1c.router)
 app.include_router(sourcing.router)
-app.include_router(api_1c.router)   # приём документов из 1С (push, вариант A)
-app.include_router(api_sbis.router) # СБИС ЭПД/ЭТРН (вариант C)
+app.include_router(api_1c.router)     # приём документов из 1С (push, вариант A)
+app.include_router(api_sbis.router)   # СБИС ЭПД/ЭТРН (вариант C)
+app.include_router(api_bitrix.router) # Bitrix24 CRM — приём сделок + настройка маппинга
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────

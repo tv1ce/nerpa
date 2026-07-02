@@ -45,6 +45,22 @@ def _push_order_bg(order_id: int) -> None:
         logger.error("push_order bg %s: %s", order_id, e)
     finally:
         db.close()
+
+
+def _push_bitrix_event_bg(order_id: int, event: str) -> None:
+    """Двигает стадию/плашку сделки Bitrix24 в фоновом потоке (не блокирует смену статуса в TMS)."""
+    from app.database import SessionLocal
+    from app.services.bitrix_client import push_order_event
+    db = SessionLocal()
+    try:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        company = db.query(CompanySettings).first()
+        if order and company:
+            push_order_event(order, company, event)
+    except Exception as e:
+        logger.error("push_bitrix_event bg %s (%s): %s", order_id, event, e)
+    finally:
+        db.close()
 templates = Jinja2Templates(directory="app/templates")
 
 ORDER_STATUSES = {
@@ -530,6 +546,8 @@ async def change_status(request: Request, order_id: int,
         db.commit()
         if status == "confirmed":
             threading.Thread(target=_push_order_bg, args=(order_id,), daemon=True).start()
+        if status in ("assembled", "delivered") and order.bitrix_deal_id:
+            threading.Thread(target=_push_bitrix_event_bg, args=(order_id, status), daemon=True).start()
 
     target = redirect_url if redirect_url else f"/orders/{order_id}"
     return RedirectResponse(url=target, status_code=302)

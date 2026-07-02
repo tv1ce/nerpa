@@ -1,5 +1,6 @@
 import json
 import logging
+import threading
 from datetime import date
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -13,6 +14,22 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/invoices", tags=["invoices"])
+
+
+def _push_bitrix_paid_bg(order_id: int) -> None:
+    """Двигает сделку Bitrix24 в «Счёт оплачен» + ставит плашку «Оплачено» в фоновом потоке."""
+    from app.database import SessionLocal
+    from app.services.bitrix_client import push_order_event
+    db = SessionLocal()
+    try:
+        order = db.query(Order).filter(Order.id == order_id).first()
+        company = db.query(CompanySettings).first()
+        if order and company:
+            push_order_event(order, company, "paid")
+    except Exception as e:
+        logger.error("push_bitrix_event bg %s (paid): %s", order_id, e)
+    finally:
+        db.close()
 
 
 def _calc_totals(items: list) -> tuple[float, float]:
@@ -299,6 +316,8 @@ async def update_invoice(
         if invoice.order_id:
             from app.utils import sync_order_paid_status
             sync_order_paid_status(db, invoice.order, request.session.get("user_id"))
+            if invoice.order.bitrix_deal_id:
+                threading.Thread(target=_push_bitrix_paid_bg, args=(invoice.order_id,), daemon=True).start()
     else:
         invoice.paid_date = None
     invoice.notes = notes
@@ -329,6 +348,8 @@ async def change_status(request: Request, invoice_id: int,
             if invoice.order:
                 from app.utils import sync_order_paid_status
                 sync_order_paid_status(db, invoice.order, request.session.get("user_id"))
+                if invoice.order.bitrix_deal_id:
+                    threading.Thread(target=_push_bitrix_paid_bg, args=(invoice.order_id,), daemon=True).start()
         else:
             invoice.paid_date = None
         db.commit()

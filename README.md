@@ -250,5 +250,6 @@ tms/
 | `TMS_TZ` | Нет | Часовой пояс бота (по умолч. Europe/Moscow) |
 | `GLIDE_FB_KEY` | Нет | Firebase API-ключ интеграции с Метафорой |
 | `GLIDE_APP_ID` | Нет | ID приложения Glide |
+| `BITRIX_PUSH_KEY` | Нет | Ключ приёма сделок из Bitrix24 (см. ниже) |
 
 Полные описания и примеры — в [.env.example](.env.example).
