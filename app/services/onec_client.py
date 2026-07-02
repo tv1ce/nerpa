@@ -716,6 +716,9 @@ def sync_payments_from_1c(db: Session) -> dict:
                 if inv.order:
                     from app.utils import sync_order_paid_status
                     sync_order_paid_status(db, inv.order)
+                    if inv.order.bitrix_deal_id:
+                        from app.services.bitrix_client import push_order_event
+                        push_order_event(inv.order, s, "paid")
                 updated += 1
 
         if updated:
