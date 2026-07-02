@@ -517,6 +517,20 @@
                    value="{{ company.bitrix_alert_chat_ids if company and company.bitrix_alert_chat_ids else '' }}">
             <div class="form-text" style="font-size:.72rem">Использует токен бота из вкладки «Telegram»</div>
           </div>
+          {% set _notify_ids = (company.bitrix_notify_user_ids or '').split(',') | map('trim') | list if company and company.bitrix_notify_user_ids else [] %}
+          <div class="col-12">
+            <label class="form-label form-label-sm">Кому показывать уведомление о новом заказе в TMS</label>
+            <select name="bitrix_notify_user_ids" class="form-select form-select-sm" multiple size="5">
+              {% for u in users %}
+              <option value="{{ u.id }}" {% if _notify_ids and u.id|string in _notify_ids %}selected{% endif %}>
+                {{ u.full_name }} ({{ role_labels.get(u.role, u.role) }})
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text" style="font-size:.72rem">
+              Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано — увидят все пользователи TMS.
+            </div>
+          </div>
           {% if company and company.bitrix_field_paid %}
           <div class="col-12">
             <div class="text-success" style="font-size:.8rem"><i class="bi bi-check-circle me-1"></i>

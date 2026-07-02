@@ -407,6 +407,7 @@ async def save_bitrix(
     bitrix_stage_shipped: str = Form(default=""),
     bitrix_stage_delivered: str = Form(default=""),
     bitrix_alert_chat_ids: str = Form(default=""),
+    bitrix_notify_user_ids: list[str] = Form(default=[]),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -419,6 +420,9 @@ async def save_bitrix(
     company.bitrix_stage_shipped = bitrix_stage_shipped.strip() or None
     company.bitrix_stage_delivered = bitrix_stage_delivered.strip() or None
     company.bitrix_alert_chat_ids = bitrix_alert_chat_ids.strip() or None
+    valid_ids = {str(uid) for uid, in db.query(User.id)}
+    selected = [uid for uid in bitrix_notify_user_ids if uid in valid_ids]
+    company.bitrix_notify_user_ids = ",".join(selected) or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1&tab=integrations#bitrix", status_code=302)
 
