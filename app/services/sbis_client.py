@@ -115,12 +115,6 @@ class SbisClient:
         logger.info("СБИС: создан ЭТРН id=%s для заказа #%s", doc_id, order.number)
         return {"id": doc_id, "url": url, "raw": result}
 
-    def send_etran(self, etran_id: str) -> dict:
-        """Отправляет ЭТРН на подписание всем участникам."""
-        result = self._call("СБИС.ОтправитьДокумент", {"Идентификатор": etran_id})
-        logger.info("СБИС: ЭТРН %s отправлен на подписание", etran_id)
-        return result
-
     def get_status(self, etran_id: str) -> str:
         """Возвращает текстовый статус ЭТРН из СБИС."""
         result = self._call("СБИС.ПрочитатьДокумент", {"Идентификатор": etran_id})
@@ -150,7 +144,7 @@ class SbisClient:
                 })
 
         return {
-            "Тип": "ТН",
+            "Тип": "ConsignmentNote",
             "НашаОрганизация": {
                 "СвЮЛ": {
                     "ИННЮЛ":   company.inn or "",

@@ -379,7 +379,7 @@
         <i class="bi bi-truck me-1"></i>Транспортная накладная
       </a>
 
-      {# ── ЭТРН (СБИС ЭПД) ── #}
+      {# ── ЭТРН (СБИС) — черновик; титулы и подписание оформляются в личном кабинете СБИС ── #}
       {% if sbis_configured %}
       <div class="mb-2">
         {% if order.etran_id %}
@@ -393,26 +393,29 @@
             style="font-size:.72rem">
             ЭТРН: {{ order.etran_status or 'черновик' }}
           </span>
-          {% if order.etran_url %}
-          <a href="{{ order.etran_url }}" target="_blank" class="text-muted" style="font-size:.75rem" title="Открыть в СБИС">
-            <i class="bi bi-box-arrow-up-right"></i>
-          </a>
-          {% endif %}
           <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 ms-auto"
                   style="font-size:.72rem" onclick="refreshEtranStatus({{ order.id }})" id="btn-etran-refresh"
                   title="Обновить статус из СБИС">
             <i class="bi bi-arrow-repeat"></i>
           </button>
         </div>
-        <button type="button" class="btn btn-outline-success btn-sm w-100" id="btn-etran"
+        {% if order.etran_url %}
+        <a href="{{ order.etran_url }}" target="_blank" class="btn btn-success btn-sm w-100 mb-1">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Открыть в СБИС — оформить титулы и подписать
+        </a>
+        {% endif %}
+        <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="btn-etran"
                 onclick="createEtran({{ order.id }})">
-          <i class="bi bi-arrow-repeat me-1"></i>Переотправить ЭТРН
+          <i class="bi bi-arrow-repeat me-1"></i>Пересоздать черновик
         </button>
         {% else %}
         <button type="button" class="btn btn-success btn-sm w-100" id="btn-etran"
                 onclick="createEtran({{ order.id }})">
-          <i class="bi bi-file-earmark-check me-1"></i>Создать ЭТРН
+          <i class="bi bi-file-earmark-check me-1"></i>Создать черновик ЭТРН
         </button>
+        <div class="text-muted mt-1" style="font-size:.72rem">
+          TMS создаёт черновик с реквизитами заказа. Титулы и подписание всеми сторонами — в личном кабинете СБИС.
+        </div>
         {% endif %}
         <div id="etran-result" class="mt-1" style="font-size:.8rem"></div>
       </div>
@@ -647,24 +650,22 @@ async function createEtran(orderId) {
   const btn    = document.getElementById('btn-etran');
   const result = document.getElementById('etran-result');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Создаём ЭТРН…';
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Создаём черновик…';
   result.innerHTML = '';
   try {
     const resp = await fetch(`/api/sbis/etran/${orderId}`, { method: 'POST' });
     const data = await resp.json();
     if (data.ok) {
-      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>ЭТРН отправлен';
-      btn.classList.replace('btn-success', 'btn-outline-success');
       result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
-      setTimeout(() => location.reload(), 1500);
+      setTimeout(() => location.reload(), 1200);
     } else {
       btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-file-earmark-check me-1"></i>Создать ЭТРН';
+      btn.innerHTML = '<i class="bi bi-file-earmark-check me-1"></i>Создать черновик ЭТРН';
       result.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error || 'Ошибка'}</span>`;
     }
   } catch(e) {
     btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-file-earmark-check me-1"></i>Создать ЭТРН';
+    btn.innerHTML = '<i class="bi bi-file-earmark-check me-1"></i>Создать черновик ЭТРН';
     result.innerHTML = `<span class="text-danger">Сетевая ошибка: ${e}</span>`;
   }
 }

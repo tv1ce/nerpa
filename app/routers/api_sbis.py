@@ -1,7 +1,13 @@
 """
 Эндпоинты СБИС ЭПД/ЭТРН.
 
-POST /api/sbis/etran/{order_id}        — создать + отправить ЭТРН
+ЭТРН в СБИС — это процесс из 4 «титулов», которые создают и подписывают
+разные стороны (грузоотправитель → перевозчик → грузополучатель → перевозчик).
+Точная схема полей для каждого титула не описана в публичной документации,
+поэтому TMS только создаёт черновик документа с базовыми реквизитами —
+остальное (титулы, подписание) оформляется вручную в личном кабинете СБИС.
+
+POST /api/sbis/etran/{order_id}        — создать черновик ЭТРН
 GET  /api/sbis/etran/{order_id}/status — опросить статус из СБИС
 POST /api/sbis/webhook                 — приём уведомлений от СБИС
 """
@@ -69,11 +75,8 @@ async def create_etran(
             if not etran_id:
                 return _json(False, error="СБИС не вернул ID документа", raw=result.get("raw"))
 
-            # Отправляем на подписание сразу
-            client.send_etran(etran_id)
-
         order.etran_id     = etran_id
-        order.etran_status = "отправлен"
+        order.etran_status = "черновик"
         order.etran_url    = result.get("url") or f"https://online.sbis.ru/opendoc.html?guid={etran_id}"
         db.commit()
 
@@ -81,7 +84,7 @@ async def create_etran(
             True,
             etran_id=etran_id,
             url=order.etran_url,
-            message="ЭТРН создан и отправлен на подписание",
+            message="Черновик ЭТРН создан в СБИС. Титулы и подписание — в личном кабинете СБИС по ссылке.",
         )
     except SbisError as e:
         logger.error("СБИС ЭТРН ошибка для заказа #%s: %s", order.number, e)
