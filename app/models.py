@@ -168,6 +168,7 @@ class Order(Base):
     etran_url    = Column(String(500))          # ссылка на документ в СБИС Online
     # ── Bitrix24 CRM ──
     bitrix_deal_id      = Column(String(20), index=True)  # ID сделки, из которой создан заказ
+    bitrix_category_id  = Column(Integer)                 # CATEGORY_ID направления (воронки) сделки
     synced_to_bitrix_at = Column(DateTime)                # datetime последнего push статуса в Bitrix24
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
@@ -388,6 +389,25 @@ class CompanySettings(Base):
     bitrix_field_paid     = Column(String(60))      # код UF-поля «Оплачено» (плашка), автосоздаётся
     bitrix_field_delivered = Column(String(60))     # код UF-поля «Доставлено» (плашка), автосоздаётся
     bitrix_alert_chat_ids = Column(Text)            # Telegram chat_id для громкого уведомления о новом заказе, через запятую
+
+
+class BitrixPipeline(Base):
+    """Маппинг стадий Bitrix24 → события TMS для конкретного направления (воронки) сделок.
+
+    Портал Bitrix24 обычно имеет несколько направлений (напр. «Первичные продажи»,
+    «Вторичные продажи») с независимыми наборами STAGE_ID — значение стадии одной
+    воронки бессмысленно/невалидно в другой. Если для CATEGORY_ID сделки есть
+    строка здесь — используются её стадии (пустая стадия = событие не пушится,
+    напр. «Вторичные продажи» без «Отгрузки»). Если строки нет — используются
+    глобальные bitrix_stage_* из CompanySettings (направление по умолчанию)."""
+    __tablename__ = "bitrix_pipelines"
+    id = Column(Integer, primary_key=True)
+    category_id = Column(Integer, nullable=False, unique=True)  # CATEGORY_ID в Bitrix24 (0 = общая воронка)
+    name = Column(String(200))            # название направления — кэш для отображения в Настройках
+    stage_paid = Column(String(60))       # STAGE_ID на «Счёт оплачен»
+    stage_shipped = Column(String(60))    # STAGE_ID на «Отгрузка»; пусто — заказ на этом и заканчивается
+    stage_delivered = Column(String(60))  # STAGE_ID на «Доставлено» (необязательно)
+    created_at = Column(DateTime, server_default=func.now())
 
 
 class MonthlyPlan(Base):

@@ -541,6 +541,44 @@
           </div>
         </div>
       </form>
+
+      <hr class="my-3">
+      <div class="form-section-title mb-2" style="font-size:.92rem">
+        <i class="bi bi-signpost-split me-1 text-primary"></i>Направления с другими стадиями
+      </div>
+      <div class="form-text mb-2" style="font-size:.78rem">
+        Стадия действует только внутри своего направления в Bitrix24. Если у вас есть, например,
+        отдельная воронка «Вторичные продажи» без стадии «Отгрузка» — добавьте её здесь и оставьте
+        поле «Отгрузка» пустым: TMS доведёт заказ до «Счёт оплачен» и на этом остановится, а стадию
+        «по умолчанию» (форма выше) трогать не будет.
+      </div>
+      <div id="bitrixPipelinesList" class="mb-2" style="font-size:.85rem">
+        <span class="text-muted">Загрузка…</span>
+      </div>
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label form-label-sm">Направление</label>
+          <select id="bpCategory" class="form-select form-select-sm"></select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label form-label-sm">«Счёт оплачен»</label>
+          <select id="bpStagePaid" class="form-select form-select-sm"><option value="">— не двигать —</option></select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label form-label-sm">«Отгрузка» <span class="text-muted">(необяз.)</span></label>
+          <select id="bpStageShipped" class="form-select form-select-sm"><option value="">— нет такой стадии —</option></select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label form-label-sm">«Доставлено» <span class="text-muted">(необяз.)</span></label>
+          <select id="bpStageDelivered" class="form-select form-select-sm"><option value="">— только плашка —</option></select>
+        </div>
+        <div class="col-12">
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="addBitrixPipeline()">
+            <i class="bi bi-plus-lg me-1"></i>Добавить направление
+          </button>
+          <span id="bpResult" class="ms-2" style="font-size:.85rem"></span>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -871,6 +909,108 @@ async function ensureBitrixFields() {
 
 if ({{ 'true' if company and company.bitrix_webhook_url else 'false' }} && document.getElementById('bitrixStagePaid')) {
   loadBitrixStages();
+}
+
+// ── Направления с отдельными стадиями (BitrixPipeline) ──────────────────────
+
+let BITRIX_CATEGORIES_CACHE = [];
+
+async function initBitrixPipelineForm() {
+  const catSel = document.getElementById('bpCategory');
+  if (!catSel) return;
+  try {
+    const rc = await fetch('/api/bitrix/categories');
+    const dc = await rc.json();
+    if (!dc.ok) return;
+    BITRIX_CATEGORIES_CACHE = dc.categories;
+    catSel.innerHTML = dc.categories.map(c => `<option value="${c.id}">${_bpEsc(c.name)}</option>`).join('');
+    catSel.onchange = loadBitrixPipelineFormStages;
+    loadBitrixPipelineFormStages();
+  } catch (e) { /* тихо — карточка уже покажет ошибку через checkBitrix() */ }
+}
+
+async function loadBitrixPipelineFormStages() {
+  const catId = document.getElementById('bpCategory').value;
+  const selects = {
+    paid: document.getElementById('bpStagePaid'),
+    shipped: document.getElementById('bpStageShipped'),
+    delivered: document.getElementById('bpStageDelivered'),
+  };
+  const placeholders = {
+    paid: '— не двигать —', shipped: '— нет такой стадии —', delivered: '— только плашка —',
+  };
+  try {
+    const rs = await fetch('/api/bitrix/stages?category_id=' + catId);
+    const ds = await rs.json();
+    if (!ds.ok) return;
+    Object.entries(selects).forEach(([key, sel]) => {
+      sel.innerHTML = `<option value="">${placeholders[key]}</option>` +
+        ds.stages.map(st => `<option value="${st.id}">${_bpEsc(st.name)}</option>`).join('');
+    });
+  } catch (e) { /* игнор */ }
+}
+
+function _bpEsc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function loadBitrixPipelines() {
+  const el = document.getElementById('bitrixPipelinesList');
+  try {
+    const r = await fetch('/api/bitrix/pipelines');
+    const d = await r.json();
+    if (!d.ok) { el.innerHTML = '<span class="text-danger">Ошибка загрузки</span>'; return; }
+    if (!d.pipelines.length) {
+      el.innerHTML = '<span class="text-muted">Дополнительных направлений пока нет — используется направление по умолчанию (форма выше).</span>';
+      return;
+    }
+    el.innerHTML = '<table class="table table-sm mb-0"><thead><tr>' +
+      '<th>Направление</th><th>Оплачен</th><th>Отгрузка</th><th>Доставлено</th><th></th></tr></thead><tbody>' +
+      d.pipelines.map(p => `<tr>
+        <td>${_bpEsc(p.name || ('CATEGORY_ID ' + p.category_id))}</td>
+        <td>${p.stage_paid ? '<i class="bi bi-check text-success"></i>' : '<span class="text-muted">—</span>'}</td>
+        <td>${p.stage_shipped ? '<i class="bi bi-check text-success"></i>' : '<span class="text-muted">не пушится</span>'}</td>
+        <td>${p.stage_delivered ? '<i class="bi bi-check text-success"></i>' : '<span class="text-muted">только плашка</span>'}</td>
+        <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="deleteBitrixPipeline(${p.id})"><i class="bi bi-trash"></i></button></td>
+      </tr>`).join('') + '</tbody></table>';
+  } catch (e) {
+    el.innerHTML = '<span class="text-danger">' + e + '</span>';
+  }
+}
+
+async function addBitrixPipeline() {
+  const el = document.getElementById('bpResult');
+  const catSel = document.getElementById('bpCategory');
+  const categoryId = catSel.value;
+  const categoryName = catSel.options[catSel.selectedIndex] ? catSel.options[catSel.selectedIndex].textContent : '';
+  const body = new URLSearchParams({
+    category_id: categoryId,
+    name: categoryName,
+    stage_paid: document.getElementById('bpStagePaid').value,
+    stage_shipped: document.getElementById('bpStageShipped').value,
+    stage_delivered: document.getElementById('bpStageDelivered').value,
+  });
+  el.innerHTML = '<span class="text-muted">Сохраняем…</span>';
+  try {
+    const r = await fetch('/api/bitrix/pipelines', { method: 'POST', body });
+    const d = await r.json();
+    el.innerHTML = d.ok
+      ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Добавлено</span>'
+      : '<span class="text-danger">' + (d.error || 'Ошибка') + '</span>';
+    if (d.ok) loadBitrixPipelines();
+  } catch (e) {
+    el.innerHTML = '<span class="text-danger">' + e + '</span>';
+  }
+}
+
+async function deleteBitrixPipeline(id) {
+  await fetch('/api/bitrix/pipelines/' + id + '/delete', { method: 'POST' });
+  loadBitrixPipelines();
+}
+
+if (document.getElementById('bitrixPipelinesList')) {
+  loadBitrixPipelines();
+  initBitrixPipelineForm();
 }
 </script>
 {% endblock %}
