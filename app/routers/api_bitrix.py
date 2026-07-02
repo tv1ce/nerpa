@@ -123,8 +123,15 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         cp = Counterparty(**{k: v for k, v in cp_data.items() if k in _CP_FIELDS})
         db.add(cp)
         db.flush()
-    elif not cp.external_id_bitrix:
-        cp.external_id_bitrix = cp_data["external_id_bitrix"]
+    else:
+        if not cp.external_id_bitrix:
+            cp.external_id_bitrix = cp_data["external_id_bitrix"]
+        if not cp.is_active:
+            # Найденный по ИНН/привязке контрагент был деактивирован (архивирован
+            # вручную) — новая сделка из Bitrix24 означает, что он снова активен.
+            cp.is_active = True
+            log_action(db, "counterparty", cp.id, "updated", None,
+                       "Контрагент реактивирован — новая сделка из Bitrix24")
 
     is_primary_sale = is_new_counterparty or db.query(Order.id).filter(
         Order.counterparty_id == cp.id
