@@ -6,20 +6,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required
 from app.models import Invoice
+from app.utils import add_banking_days
 
 router = APIRouter(prefix="/receivables", tags=["receivables"])
 templates = Jinja2Templates(directory="app/templates")
-
-
-def add_banking_days(start: date, n: int) -> date:
-    """Прибавляет n банковских (рабочих, пн–пт) дней к дате."""
-    d = start
-    added = 0
-    while added < n:
-        d += timedelta(days=1)
-        if d.weekday() < 5:   # 0=пн … 4=пт
-            added += 1
-    return d
 
 
 def overdue_deadline(inv: Invoice) -> date | None:

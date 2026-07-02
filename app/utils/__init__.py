@@ -1,5 +1,41 @@
+from datetime import date, timedelta
+
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+
+
+def add_banking_days(start: date, n: int) -> date:
+    """Прибавляет n банковских (рабочих, пн–пт) дней к дате."""
+    d = start
+    added = 0
+    while added < n:
+        d += timedelta(days=1)
+        if d.weekday() < 5:   # 0=пн … 4=пт
+            added += 1
+    return d
+
+
+def compute_invoice_due_date(inv_date: date, contract, counterparty) -> date | None:
+    """Срок оплаты счёта — по отсрочке договора, иначе по условиям оплаты контрагента.
+
+    Договор «с отсрочкой» (payment_type=deferred) даёт payment_days календарных дней
+    от даты счёта. Договор «по предоплате» — оплата в день выставления счёта.
+    Без договора (или без указанных дней отсрочки) — используем условия оплаты
+    контрагента (payment_delay_days/payment_delay_type, банковские либо календарные дни).
+    """
+    if not inv_date:
+        return None
+    if contract and contract.payment_type == "deferred" and contract.payment_days:
+        return inv_date + timedelta(days=contract.payment_days)
+    if contract and contract.payment_type == "prepay":
+        return inv_date
+    delay = (counterparty.payment_delay_days or 0) if counterparty else 0
+    if not delay:
+        return inv_date
+    dtype = (counterparty.payment_delay_type or "banking") if counterparty else "banking"
+    if dtype == "banking":
+        return add_banking_days(inv_date, delay)
+    return inv_date + timedelta(days=delay)
 
 
 def log_action(
