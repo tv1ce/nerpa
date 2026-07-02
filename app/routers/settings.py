@@ -397,6 +397,32 @@ async def save_sbis(
     return RedirectResponse(url="/settings/?saved=1&tab=integrations", status_code=302)
 
 
+@router.post("/bitrix")
+@role_required("admin")
+async def save_bitrix(
+    request: Request,
+    bitrix_webhook_url: str = Form(default=""),
+    bitrix_enabled: str = Form(default=""),
+    bitrix_stage_paid: str = Form(default=""),
+    bitrix_stage_shipped: str = Form(default=""),
+    bitrix_stage_delivered: str = Form(default=""),
+    bitrix_alert_chat_ids: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    company.bitrix_webhook_url = bitrix_webhook_url.strip() or None
+    company.bitrix_enabled = (bitrix_enabled == "1")
+    company.bitrix_stage_paid = bitrix_stage_paid.strip() or None
+    company.bitrix_stage_shipped = bitrix_stage_shipped.strip() or None
+    company.bitrix_stage_delivered = bitrix_stage_delivered.strip() or None
+    company.bitrix_alert_chat_ids = bitrix_alert_chat_ids.strip() or None
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1&tab=integrations#bitrix", status_code=302)
+
+
 @router.post("/profile/password")
 @login_required
 async def profile_password(

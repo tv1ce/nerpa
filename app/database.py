@@ -258,6 +258,20 @@ def _migrate_db():
         ("company_settings", "module_recon",    "INTEGER DEFAULT 0"),
         ("company_settings", "module_sourcing", "INTEGER DEFAULT 0"),
         ("company_settings", "module_field",    "INTEGER DEFAULT 0"),
+        # ── Интеграция Bitrix24 CRM ────────────────────────────────────────────
+        ("counterparties", "external_id_bitrix",  "TEXT"),
+        ("counterparties", "synced_to_bitrix_at", "TIMESTAMP"),
+        ("orders",         "bitrix_deal_id",      "TEXT"),
+        ("orders",         "synced_to_bitrix_at", "TIMESTAMP"),
+        ("company_settings", "bitrix_webhook_url",     "TEXT"),
+        ("company_settings", "bitrix_enabled",          "INTEGER DEFAULT 0"),
+        ("company_settings", "bitrix_stage_paid",       "TEXT"),
+        ("company_settings", "bitrix_stage_shipped",    "TEXT"),
+        ("company_settings", "bitrix_stage_delivered",  "TEXT"),
+        ("company_settings", "bitrix_field_paid",       "TEXT"),
+        ("company_settings", "bitrix_field_delivered",  "TEXT"),
+        ("company_settings", "bitrix_alert_chat_ids",   "TEXT"),
+        ("notifications",    "escalated_at",            "TIMESTAMP"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

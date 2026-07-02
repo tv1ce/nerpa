@@ -440,6 +440,109 @@
       </form>
     </div>
   </div>
+
+  {# Bitrix24 #}
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mt-0" id="bitrix">
+      <div class="form-section-title mb-3">
+        <i class="bi bi-kanban me-1 text-danger"></i>Bitrix24 CRM
+      </div>
+
+      <div class="accordion mb-3" id="bitrixHelp">
+        <div class="accordion-item">
+          <h2 class="accordion-header">
+            <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse" data-bs-target="#bitrixHelpBody" style="font-size:.85rem">
+              <i class="bi bi-info-circle me-2"></i>Как настроить связку с Bitrix24
+            </button>
+          </h2>
+          <div id="bitrixHelpBody" class="accordion-collapse collapse" data-bs-parent="#bitrixHelp">
+            <div class="accordion-body" style="font-size:.82rem">
+              <b>1. Входящий вебхук (Bitrix24 → сюда данные не идут, а TМS ходит в Bitrix24):</b>
+              Битрикс24 → Приложения → Разработчикам → Другое → Входящий вебхук. Права: <code>crm</code>.
+              Скопируйте URL вида <code>https://nuttinelle.bitrix24.ru/rest/1/xxxxxxxxxxxxx/</code> в поле ниже.<br>
+              <b>2. Ключ приёма сделок</b> — на сервере TMS в <code>.env</code> задайте <code>BITRIX_PUSH_KEY</code>
+              (сгенерировать: <code>python -c "import secrets; print(secrets.token_urlsafe(32))"</code>).<br>
+              <b>3. Правило автоматизации на стадии «Заказ согласован»:</b> откройте нужную воронку сделок →
+              настройте роботов на этой стадии → добавьте робота «Вебхук» (Webhook) с параметрами:<br>
+              URL: <code>https://ваш-tms-домен/api/bitrix/webhook/deal-approved?key=ВАШ_BITRIX_PUSH_KEY&deal_id={=Document:ID}</code>,
+              метод POST.<br>
+              <b>4. Нажмите «Создать UF-поля»</b> ниже — TMS создаст в сделках два булевых поля-плашки
+              «Оплачено (TMS)» и «Доставлено (TMS)», которые можно добавить в карточку/список сделки через
+              настройку вида канбана в Bitrix24.<br>
+              <b>5. Выберите стадии</b> для «Счёт оплачен» и «Отгрузка» — TMS будет двигать сделку
+              автоматически при оплате счёта и сборке заказа.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <form method="post" action="/settings/bitrix">
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label form-label-sm">URL входящего вебхука</label>
+            <input type="url" name="bitrix_webhook_url" class="form-control form-control-sm font-monospace"
+                   placeholder="https://nuttinelle.bitrix24.ru/rest/1/xxxxxxxxxxxxxxxx/"
+                   value="{{ company.bitrix_webhook_url if company and company.bitrix_webhook_url else '' }}">
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     name="bitrix_enabled" value="1" id="bitrixEnabled"
+                     {% if company and company.bitrix_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="bitrixEnabled" style="font-size:.88rem">Синхронизация включена</label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm">Стадия «Счёт оплачен»</label>
+            <select name="bitrix_stage_paid" id="bitrixStagePaid" class="form-select form-select-sm">
+              <option value="">— не двигать стадию —</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm">Стадия «Отгрузка»</label>
+            <select name="bitrix_stage_shipped" id="bitrixStageShipped" class="form-select form-select-sm">
+              <option value="">— не двигать стадию —</option>
+            </select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm">Стадия «Доставлено» <span class="text-muted">(необязательно)</span></label>
+            <select name="bitrix_stage_delivered" id="bitrixStageDelivered" class="form-select form-select-sm">
+              <option value="">— только плашка —</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm">Telegram chat_id для громкого уведомления о новом заказе <span class="text-muted">(через запятую)</span></label>
+            <input type="text" name="bitrix_alert_chat_ids" class="form-control form-control-sm font-monospace"
+                   placeholder="123456789, -100987654321"
+                   value="{{ company.bitrix_alert_chat_ids if company and company.bitrix_alert_chat_ids else '' }}">
+            <div class="form-text" style="font-size:.72rem">Использует токен бота из вкладки «Telegram»</div>
+          </div>
+          {% if company and company.bitrix_field_paid %}
+          <div class="col-12">
+            <div class="text-success" style="font-size:.8rem"><i class="bi bi-check-circle me-1"></i>
+              UF-поля созданы: <code>{{ company.bitrix_field_paid }}</code>, <code>{{ company.bitrix_field_delivered }}</code>
+            </div>
+          </div>
+          {% endif %}
+          <div class="col-12 d-flex gap-2 flex-wrap mt-1">
+            <button type="submit" class="btn btn-accent btn-sm">
+              <i class="bi bi-check-lg me-1"></i>Сохранить
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkBitrix()">
+              <i class="bi bi-plug me-1"></i>Проверить подключение
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="loadBitrixStages()">
+              <i class="bi bi-arrow-repeat me-1"></i>Загрузить стадии
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="ensureBitrixFields()">
+              <i class="bi bi-flag me-1"></i>Создать UF-поля
+            </button>
+            <span id="bitrixTestResult" class="ms-1 align-self-center" style="font-size:.85rem"></span>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 {% endif %}
 
@@ -689,6 +792,85 @@ async function checkSbis() {
   } catch(e) {
     el.innerHTML = `<span class="text-danger">${e}</span>`;
   }
+}
+
+const BITRIX_SAVED_STAGES = {
+  paid: {{ (company.bitrix_stage_paid if company and company.bitrix_stage_paid else '') | tojson }},
+  shipped: {{ (company.bitrix_stage_shipped if company and company.bitrix_stage_shipped else '') | tojson }},
+  delivered: {{ (company.bitrix_stage_delivered if company and company.bitrix_stage_delivered else '') | tojson }},
+};
+
+async function checkBitrix() {
+  const el = document.getElementById('bitrixTestResult');
+  el.innerHTML = '<span class="text-muted">Проверяем подключение к Bitrix24…</span>';
+  try {
+    const r = await fetch('/api/bitrix/test');
+    const d = await r.json();
+    el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
+      `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.message || d.error}</span>`;
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+async function loadBitrixStages() {
+  const el = document.getElementById('bitrixTestResult');
+  const selects = {
+    paid: document.getElementById('bitrixStagePaid'),
+    shipped: document.getElementById('bitrixStageShipped'),
+    delivered: document.getElementById('bitrixStageDelivered'),
+  };
+  el.innerHTML = '<span class="text-muted">Загружаем стадии из Bitrix24…</span>';
+  try {
+    const rc = await fetch('/api/bitrix/categories');
+    const dc = await rc.json();
+    if (!dc.ok) { el.innerHTML = `<span class="text-danger">${dc.error}</span>`; return; }
+
+    Object.entries(selects).forEach(([key, sel]) => {
+      const placeholder = sel.options[0];
+      sel.innerHTML = '';
+      sel.appendChild(placeholder);
+    });
+
+    for (const cat of dc.categories) {
+      const rs = await fetch('/api/bitrix/stages?category_id=' + cat.id);
+      const ds = await rs.json();
+      if (!ds.ok) continue;
+      Object.values(selects).forEach(sel => {
+        const grp = document.createElement('optgroup');
+        grp.label = cat.name;
+        ds.stages.forEach(st => {
+          const opt = document.createElement('option');
+          opt.value = st.id; opt.textContent = st.name;
+          grp.appendChild(opt);
+        });
+        sel.appendChild(grp);
+      });
+    }
+    selects.paid.value = BITRIX_SAVED_STAGES.paid;
+    selects.shipped.value = BITRIX_SAVED_STAGES.shipped;
+    selects.delivered.value = BITRIX_SAVED_STAGES.delivered;
+    el.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Стадии загружены</span>';
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+async function ensureBitrixFields() {
+  const el = document.getElementById('bitrixTestResult');
+  el.innerHTML = '<span class="text-muted">Создаём UF-поля в Bitrix24…</span>';
+  try {
+    const r = await fetch('/api/bitrix/ensure-userfields', { method: 'POST' });
+    const d = await r.json();
+    el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
+      `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.ok ? 'Поля созданы: ' + d.field_paid + ', ' + d.field_delivered : d.error}</span>`;
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+if ({{ 'true' if company and company.bitrix_webhook_url else 'false' }} && document.getElementById('bitrixStagePaid')) {
+  loadBitrixStages();
 }
 </script>
 {% endblock %}

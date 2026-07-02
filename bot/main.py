@@ -97,6 +97,7 @@ WEEKLY_TIME   = _parse_time("TMS_WEEKLY_TIME",   "18:00")
 MONTHLY_TIME  = _parse_time("TMS_MONTHLY_TIME",  "20:00")
 CALLBACK_TIME = _parse_time("TMS_CALLBACK_TIME", "09:30")
 HR_MONTHLY_TIME = _parse_time("TMS_HR_MONTHLY_TIME", "10:00")
+HR_METRICS_TIME = _parse_time("TMS_HR_METRICS_TIME", "10:00")
 
 
 # ── Отправка сообщения всем подписчикам ───────────────────────────────────────
@@ -207,10 +208,10 @@ async def broadcast_hr(bot: Bot, text: str) -> None:
 
 
 def _authorized(update: Update) -> bool:
-    """Команды бота доступны только подписчикам из TMS_CHAT_IDS.
-    Если список пуст — доступ запрещён всем (безопасно по умолчанию)."""
+    """Команды бота доступны подписчикам из TMS_CHAT_IDS и TMS_HR_CHAT_IDS (HR-канал).
+    Если оба списка пусты — доступ запрещён всем (безопасно по умолчанию)."""
     chat = update.effective_chat
-    return bool(chat and chat.id in CHAT_IDS)
+    return bool(chat and chat.id in CHAT_IDS + HR_CHAT_IDS)
 
 
 async def _deny(update: Update) -> None:
@@ -351,7 +352,7 @@ async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cb_hr_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Запускается каждый день в HR_MONTHLY_TIME; отправляет HR-отчёт только 10-го числа месяца."""
+    """Запускается каждый день в HR_MONTHLY_TIME; отправляет полный HR-отчёт только 10-го числа месяца."""
     from datetime import datetime
     if not HR_CHAT_IDS:
         return
@@ -360,9 +361,29 @@ async def cb_hr_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     logger.info("Формирование ежемесячного HR-отчёта")
     try:
-        text = await asyncio.to_thread(hr_report.generate_report)
+        text = await asyncio.to_thread(hr_report.generate_full_report)
     except Exception as e:
         logger.exception("Ошибка формирования HR-отчёта: %s", e)
+        return
+    await broadcast_hr(context.bot, text)
+
+
+async def cb_hr_metrics(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Запускается каждый день в HR_METRICS_TIME; отправляет новые метрики только 1-го и 15-го числа."""
+    from datetime import datetime
+    if not HR_CHAT_IDS:
+        return
+    now = datetime.now(tz=TZ)
+    if now.day not in (1, 15):
+        return
+    logger.info("Проверка новых HR-метрик")
+    try:
+        text = await asyncio.to_thread(hr_report.generate_metrics_report)
+    except Exception as e:
+        logger.exception("Ошибка формирования отчёта по метрикам: %s", e)
+        return
+    if text is None:
+        logger.info("Новых метрик нет — отправка пропущена")
         return
     await broadcast_hr(context.bot, text)
 
@@ -412,7 +433,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/weekly — отчёт за текущую неделю\n"
         "/monthly — отчёт за текущий месяц\n"
         "/callbacks — перезвоны на сегодня\n"
-        "/hr\\_report — сформировать HR\\-отчёт по данным Teamly\n"
+        "/hr\\_report — полный HR\\-отчёт \\(новое с прошлого месяца\\)\n"
+        "/hr\\_metrics — проверить новые метрики\n"
         "/status — статус бота и расписание\n\n"
         "📎 Пришлите файл \\(Счёт/УПД/XML\\) — приложу к заказу по номеру в имени файла "
         "\\(или укажите номер в подписи\\)\\.",
@@ -462,10 +484,27 @@ async def cmd_hr_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return await _deny(update)
     await update.message.reply_text("⏳ Формирую HR-отчёт, это может занять около минуты…")
     try:
-        text = await asyncio.to_thread(hr_report.generate_report)
+        text = await asyncio.to_thread(hr_report.generate_full_report)
     except Exception as e:
         logger.exception("Ошибка формирования HR-отчёта: %s", e)
         await update.message.reply_text("⚠️ Не удалось сформировать HR-отчёт. Проверьте логи.")
+        return
+    for chunk in _split_for_telegram(text):
+        await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN_V2)
+
+
+async def cmd_hr_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _authorized(update):
+        return await _deny(update)
+    await update.message.reply_text("⏳ Проверяю новые метрики…")
+    try:
+        text = await asyncio.to_thread(hr_report.generate_metrics_report)
+    except Exception as e:
+        logger.exception("Ошибка формирования отчёта по метрикам: %s", e)
+        await update.message.reply_text("⚠️ Не удалось сформировать отчёт по метрикам. Проверьте логи.")
+        return
+    if text is None:
+        await update.message.reply_text("Новых метрик с прошлой проверки нет.")
         return
     for chunk in _split_for_telegram(text):
         await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN_V2)
@@ -678,6 +717,7 @@ def main() -> None:
     app.add_handler(CommandHandler("monthly", cmd_monthly))
     app.add_handler(CommandHandler("callbacks", cmd_callbacks))
     app.add_handler(CommandHandler("hr_report", cmd_hr_report))
+    app.add_handler(CommandHandler("hr_metrics", cmd_hr_metrics))
     app.add_handler(CommandHandler("status",  cmd_status))
 
     # Приём документов из 1С (Счёт/УПД/XML) — кидаешь файл боту, он цепляет к заказу
@@ -699,6 +739,9 @@ def main() -> None:
 
     # HR-отчёт (Teamly): проверяем каждый день в HR_MONTHLY_TIME, шлём только 10-го числа
     jq.run_daily(cb_hr_monthly, time=HR_MONTHLY_TIME, name="hr_monthly_report")
+
+    # HR-метрики (Teamly): проверяем каждый день в HR_METRICS_TIME, шлём только 1-го и 15-го
+    jq.run_daily(cb_hr_metrics, time=HR_METRICS_TIME, name="hr_metrics_report")
 
     # Автобекап БД: проверяем каждый день в 21:00
     backup_time = time(hour=21, minute=0, tzinfo=TZ)
