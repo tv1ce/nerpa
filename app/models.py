@@ -389,6 +389,7 @@ class CompanySettings(Base):
     bitrix_field_paid     = Column(String(60))      # код UF-поля «Оплачено» (плашка), автосоздаётся
     bitrix_field_delivered = Column(String(60))     # код UF-поля «Доставлено» (плашка), автосоздаётся
     bitrix_alert_chat_ids = Column(Text)            # Telegram chat_id для громкого уведомления о новом заказе, через запятую
+    bitrix_notify_user_ids = Column(Text)           # ID пользователей TMS для уведомления о новом заказе (через запятую); пусто = все
 
 
 class BitrixPipeline(Base):

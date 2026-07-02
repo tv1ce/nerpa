@@ -211,13 +211,16 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
     )
     if unmatched:
         body += f"\nПроверьте товарные позиции — часть не сопоставлена автоматически."
-    notif = Notification(
-        type="bitrix_order",
-        title=f"🔴 Новый заказ из Bitrix24 — «{title}»",
-        body=body,
-        link=f"/orders/{order.id}",
-    )
-    db.add(notif)
+    notif_title = f"🔴 Новый заказ из Bitrix24 — «{title}»"
+    notify_ids = [uid.strip() for uid in (company.bitrix_notify_user_ids or "").split(",") if uid.strip()]
+    if notify_ids:
+        for uid in notify_ids:
+            db.add(Notification(type="bitrix_order", title=notif_title, body=body,
+                                 link=f"/orders/{order.id}", user_id=int(uid)))
+    else:
+        # Настройка не задана — уведомление системное, видят все пользователи TMS
+        db.add(Notification(type="bitrix_order", title=notif_title, body=body,
+                             link=f"/orders/{order.id}"))
     db.commit()
 
     await _send_bitrix_alert(company, order, cp, actions)
