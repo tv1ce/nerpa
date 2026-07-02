@@ -272,6 +272,7 @@ def _migrate_db():
         ("company_settings", "bitrix_field_delivered",  "TEXT"),
         ("company_settings", "bitrix_alert_chat_ids",   "TEXT"),
         ("notifications",    "escalated_at",            "TIMESTAMP"),
+        ("orders",           "bitrix_category_id",      "INTEGER"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

@@ -718,7 +718,7 @@ def sync_payments_from_1c(db: Session) -> dict:
                     sync_order_paid_status(db, inv.order)
                     if inv.order.bitrix_deal_id:
                         from app.services.bitrix_client import push_order_event
-                        push_order_event(inv.order, s, "paid")
+                        push_order_event(inv.order, s, "paid", db=db)
                 updated += 1
 
         if updated:
@@ -779,6 +779,7 @@ def sync_invoices_from_1c(db: Session) -> dict:
 
     from datetime import date as _date
     from app.models import Invoice, InvoiceItem, Counterparty, Contract, Product
+    from app.utils import compute_invoice_due_date
 
     errors: list[str] = []
     created = updated = 0
@@ -842,6 +843,7 @@ def sync_invoices_from_1c(db: Session) -> dict:
         if contract:
             inv.contract_id = contract.id
         inv.total_amount = total
+        inv.due_date = compute_invoice_due_date(inv.date, contract, cp)
         if inv.status not in ("paid", "cancelled"):
             inv.status = "issued"
         # Привязка к заказу (эвристика; только если ещё не привязан)

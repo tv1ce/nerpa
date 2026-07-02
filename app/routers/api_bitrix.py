@@ -17,13 +17,15 @@ import logging
 import os
 import secrets
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.auth import role_required
 from app.database import get_db
-from app.models import Counterparty, Order, OrderItem, Contract, Product, CompanySettings, Notification
+from app.models import (
+    Counterparty, Order, OrderItem, Contract, Product, CompanySettings, Notification, BitrixPipeline,
+)
 from app.services.bitrix_client import (
     BitrixError, get_bitrix_client, extract_counterparty_data, enrich_from_dadata,
 )
@@ -146,6 +148,11 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
     if comments:
         notes += f"\n{comments}"
 
+    try:
+        category_id = int(deal.get("CATEGORY_ID")) if deal.get("CATEGORY_ID") is not None else None
+    except (TypeError, ValueError):
+        category_id = None
+
     order = Order(
         number=_next_order_number(db),
         date=_date.today(),
@@ -154,6 +161,7 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         payment_type="prepay",
         notes=notes,
         bitrix_deal_id=deal_id,
+        bitrix_category_id=category_id,
     )
     db.add(order)
     db.flush()
@@ -306,3 +314,50 @@ async def ensure_userfields(request: Request, db: Session = Depends(get_db)):
     company.bitrix_field_delivered = delivered_code
     db.commit()
     return _json(True, field_paid=paid_code, field_delivered=delivered_code)
+
+
+# ── Маппинг направлений (воронок) — для сценариев вроде «Вторичных продаж»,
+#    у которых свой набор стадий и часть событий (напр. «Отгрузка») не нужна ──
+
+@router.get("/pipelines")
+@role_required("admin")
+async def list_pipelines(request: Request, db: Session = Depends(get_db)):
+    rows = db.query(BitrixPipeline).order_by(BitrixPipeline.id).all()
+    return _json(True, pipelines=[{
+        "id": p.id, "category_id": p.category_id, "name": p.name,
+        "stage_paid": p.stage_paid, "stage_shipped": p.stage_shipped,
+        "stage_delivered": p.stage_delivered,
+    } for p in rows])
+
+
+@router.post("/pipelines")
+@role_required("admin")
+async def upsert_pipeline(
+    request: Request,
+    category_id: int = Form(...),
+    name: str = Form(default=""),
+    stage_paid: str = Form(default=""),
+    stage_shipped: str = Form(default=""),
+    stage_delivered: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    row = db.query(BitrixPipeline).filter(BitrixPipeline.category_id == category_id).first()
+    if not row:
+        row = BitrixPipeline(category_id=category_id)
+        db.add(row)
+    row.name = name.strip() or None
+    row.stage_paid = stage_paid.strip() or None
+    row.stage_shipped = stage_shipped.strip() or None
+    row.stage_delivered = stage_delivered.strip() or None
+    db.commit()
+    return _json(True, id=row.id)
+
+
+@router.post("/pipelines/{pipeline_id}/delete")
+@role_required("admin")
+async def delete_pipeline(request: Request, pipeline_id: int, db: Session = Depends(get_db)):
+    row = db.query(BitrixPipeline).filter(BitrixPipeline.id == pipeline_id).first()
+    if row:
+        db.delete(row)
+        db.commit()
+    return _json(True)

@@ -256,13 +256,20 @@ def enrich_from_dadata(data: dict) -> dict:
 
 # ── TMS → Bitrix24: push статуса заказа в сделку ─────────────────────────────
 
-def push_order_event(order, company, event: str) -> bool:
+def push_order_event(order, company, event: str, db=None) -> bool:
     """Двигает стадию сделки и/или ставит булево UF-поле-«плашку» по событию TMS.
 
     event:
-      'paid'      — счёт оплачен      → стадия bitrix_stage_paid + флаг bitrix_field_paid=Y
-      'assembled' — заказ собран      → стадия bitrix_stage_shipped («Отгрузка»)
-      'delivered' — заказ доставлен   → флаг bitrix_field_delivered=Y (+ стадия, если задана)
+      'paid'      — счёт оплачен      → стадия «paid» + флаг bitrix_field_paid=Y
+      'assembled' — заказ собран      → стадия «shipped» («Отгрузка»)
+      'delivered' — заказ доставлен   → флаг bitrix_field_delivered=Y (+ стадия «delivered», если задана)
+
+    STAGE_ID валиден только внутри своего направления (CATEGORY_ID) — у разных
+    воронок (напр. «Первичные» и «Вторичные продажи») разные наборы стадий.
+    Если для order.bitrix_category_id есть строка в BitrixPipeline — берём
+    стадии оттуда (пустая стадия там = событие для этого направления не
+    пушится, напр. у «Вторичных продаж» нет «Отгрузки»). Иначе — глобальные
+    bitrix_stage_* из CompanySettings (направление по умолчанию).
 
     Не бросает исключения наружу — только логирует, чтобы сбой Bitrix24
     не мешал основному действию в TMS (аналогично push в 1С)."""
@@ -272,18 +279,34 @@ def push_order_event(order, company, event: str) -> bool:
     if not client:
         return False
 
+    pipeline = None
+    if db is not None and order.bitrix_category_id is not None:
+        from app.models import BitrixPipeline
+        pipeline = db.query(BitrixPipeline).filter(
+            BitrixPipeline.category_id == order.bitrix_category_id
+        ).first()
+
+    if pipeline:
+        stage_paid, stage_shipped, stage_delivered = (
+            pipeline.stage_paid, pipeline.stage_shipped, pipeline.stage_delivered,
+        )
+    else:
+        stage_paid, stage_shipped, stage_delivered = (
+            company.bitrix_stage_paid, company.bitrix_stage_shipped, company.bitrix_stage_delivered,
+        )
+
     fields = {}
     if event == "paid":
-        if company.bitrix_stage_paid:
-            fields["STAGE_ID"] = company.bitrix_stage_paid
+        if stage_paid:
+            fields["STAGE_ID"] = stage_paid
         if company.bitrix_field_paid:
             fields[company.bitrix_field_paid] = "Y"
     elif event == "assembled":
-        if company.bitrix_stage_shipped:
-            fields["STAGE_ID"] = company.bitrix_stage_shipped
+        if stage_shipped:
+            fields["STAGE_ID"] = stage_shipped
     elif event == "delivered":
-        if company.bitrix_stage_delivered:
-            fields["STAGE_ID"] = company.bitrix_stage_delivered
+        if stage_delivered:
+            fields["STAGE_ID"] = stage_delivered
         if company.bitrix_field_delivered:
             fields[company.bitrix_field_delivered] = "Y"
 

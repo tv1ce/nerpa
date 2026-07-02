@@ -56,7 +56,7 @@ def _push_bitrix_event_bg(order_id: int, event: str) -> None:
         order = db.query(Order).filter(Order.id == order_id).first()
         company = db.query(CompanySettings).first()
         if order and company:
-            push_order_event(order, company, event)
+            push_order_event(order, company, event, db=db)
     except Exception as e:
         logger.error("push_bitrix_event bg %s (%s): %s", order_id, event, e)
     finally:
