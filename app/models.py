@@ -161,7 +161,7 @@ class Order(Base):
     # ── Доставка: транспорт и водитель (для ЭТРН) ──
     driver_name    = Column(String(200))        # ФИО водителя
     vehicle_plate  = Column(String(20))         # Гос. номер ТС, напр. «А001АА77»
-    vehicle_type   = Column(String(100))        # Вид ТС, напр. «Фургон»
+    vehicle_type   = Column(String(100))        # Марка/модель ТС, напр. «ГАЗель Next»
     # ── СБИС ЭПД / ЭТРН ──
     etran_id     = Column(String(100))          # ID документа в СБИС
     etran_status = Column(String(50))           # черновик / отправлен / подписан / завершён / ошибка

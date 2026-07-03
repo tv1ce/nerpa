@@ -430,7 +430,7 @@ function renderVehicles() {
       row.innerHTML = `
         <div class="col-md-5"><input type="text" class="form-control form-control-sm" placeholder="ФИО водителя" value="${_escapeHtml(v.driver_name || '')}" data-idx="${idx}" data-field="driver_name" oninput="updateVehicleField(this)"></div>
         <div class="col-md-3"><input type="text" class="form-control form-control-sm font-monospace" placeholder="А001АА77" value="${_escapeHtml(v.vehicle_plate || '')}" data-idx="${idx}" data-field="vehicle_plate" oninput="updateVehicleField(this)"></div>
-        <div class="col-md-3"><input type="text" class="form-control form-control-sm" placeholder="Вид ТС" value="${_escapeHtml(v.vehicle_type || '')}" data-idx="${idx}" data-field="vehicle_type" oninput="updateVehicleField(this)"></div>
+        <div class="col-md-3"><input type="text" class="form-control form-control-sm" placeholder="Марка/модель ТС" value="${_escapeHtml(v.vehicle_type || '')}" data-idx="${idx}" data-field="vehicle_type" oninput="updateVehicleField(this)"></div>
         <div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVehicleRow(${idx})" title="Удалить"><i class="bi bi-trash"></i></button></div>
       `;
       box.appendChild(row);
