@@ -740,6 +740,7 @@
               <option value="field_rep">Торговый представитель</option>
               <option value="viewer">Просмотр</option>
               <option value="warehouse">Склад</option>
+              <option value="hr">HR</option>
               <option value="demo">Демо</option>
               <option value="admin">Администратор</option>
             </select>
@@ -780,6 +781,7 @@
               <option value="field_rep" {% if u.role=='field_rep' %}selected{% endif %}>Торговый представитель</option>
               <option value="viewer"    {% if u.role=='viewer'    %}selected{% endif %}>Просмотр</option>
               <option value="warehouse" {% if u.role=='warehouse' %}selected{% endif %}>Склад</option>
+              <option value="hr"        {% if u.role=='hr'        %}selected{% endif %}>HR</option>
               <option value="demo"      {% if u.role=='demo'      %}selected{% endif %}>Демо</option>
               <option value="admin"     {% if u.role=='admin'     %}selected{% endif %}>Администратор</option>
             </select>

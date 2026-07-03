@@ -380,10 +380,7 @@ class CompanySettings(Base):
     module_recon    = Column(Boolean, default=False)  # Разведка ЛПР
     module_sourcing = Column(Boolean, default=False)  # Закупки
     module_field    = Column(Boolean, default=False)  # Поле (торгпреды)
-    module_hr       = Column(Boolean, default=False)  # HR-отчётность (Teamly)
-    # ── HR-отчётность (синхронизация с Teamly) ──
-    hr_sync_interval_minutes = Column(Integer, default=360)  # как часто подтягивать новое из Teamly
-    hr_last_synced_at        = Column(DateTime)
+    module_hr       = Column(Boolean, default=False)  # HR-учёт
     # ── Bitrix24 CRM ──
     bitrix_webhook_url    = Column(EncryptedText)   # входящий вебхук, напр. https://x.bitrix24.ru/rest/1/xxxxx/
     bitrix_enabled        = Column(Boolean, default=False)
@@ -846,30 +843,70 @@ class VendorQuote(Base):
     vendor = relationship("Vendor", back_populates="quotes")
 
 
-# ── HR-отчётность (синхронизация с Teamly) ────────────────────────────────────
+# ── HR-учёт (ручной ввод; форма по образцу статьи Teamly «Отчётность HR») ─────
 
-class HrEntry(Base):
-    """Одна запись HR-отчёта, синхронизированная из статьи Teamly «Отчётность HR».
-
-    Статья в Teamly растёт со временем — HR добавляет новые записи, старые не
-    удаляет (месяц-колонки в достижениях, дата-карточки в eNPS/личностном
-    профиле). Поэтому синхронизация не перезаписывает, а до-заливает новые
-    строки: source_key — устойчивый ключ записи в Teamly, по нему определяется,
-    что уже завезено (идемпотентный импорт, в т.ч. полный бэкфилл истории)."""
-    __tablename__ = "hr_entries"
+class HrEmployee(Base):
+    """Сотрудник для HR-учёта (не обязательно имеет логин в TMS)."""
+    __tablename__ = "hr_employees"
     id = Column(Integer, primary_key=True)
-    # personal / complaints / achievements / enps / enps_managers / metrics / vacancies
-    section = Column(String(30), nullable=False)
-    subject_name = Column(String(200), nullable=False)   # имя сотрудника или название вакансии
-    period_label = Column(String(100))                   # дата/месяц записи, если есть в Teamly
-    raw_text = Column(Text, nullable=False)
-    source_key = Column(String(400), unique=True, nullable=False)
-    imported_at = Column(DateTime, server_default=func.now())
+    full_name = Column(String(200), nullable=False)
+    position = Column(String(200))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    records = relationship("HrRecord", back_populates="employee")
 
 
-Index("ix_hr_entries_section",      HrEntry.section)
-Index("ix_hr_entries_subject_name", HrEntry.subject_name)
-Index("ix_hr_entries_imported_at",  HrEntry.imported_at)
+# Разделы HR-учёта — соответствуют вкладкам статьи Teamly «Отчётность HR»:
+#   personal       — Личностный профиль сотрудника (2 текстовых вопроса)
+#   complaints     — «С какой дичью вам приходится сталкиваться каждый день?» (1 вопрос)
+#   achievements   — Достижения (свободный текст/список)
+#   enps           — eNPS: оценка 0-10 + комментарий
+#   enps_managers  — eNPS Руководителей: оценка 0-10 + комментарий
+#   metrics        — Метрика сотрудников (свободный текст)
+#   gravity        — Гравитация и антигравитация (свободный текст)
+HR_SECTIONS = (
+    "personal", "complaints", "achievements",
+    "enps", "enps_managers", "metrics", "gravity",
+)
+
+
+class HrRecord(Base):
+    """Одна запись HR-учёта за период (месяц) по одному сотруднику.
+
+    Разделы имеют разную форму — под это переиспользуются общие поля:
+    text_1/text_2 — тексты ответов (для personal используются оба, для
+    остальных текстовых разделов — только text_1); score — только для eNPS."""
+    __tablename__ = "hr_records"
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("hr_employees.id"), nullable=False)
+    section = Column(String(20), nullable=False)  # см. HR_SECTIONS
+    period = Column(Date, nullable=False)          # месяц записи (хранится 1-м числом)
+    text_1 = Column(Text)
+    text_2 = Column(Text)
+    score = Column(Integer)   # eNPS: 0-10
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    employee = relationship("HrEmployee", back_populates="records")
+    author = relationship("User")
+
+
+class HrVacancy(Base):
+    """Вакансия — срок закрытия (не привязана к конкретному сотруднику)."""
+    __tablename__ = "hr_vacancies"
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    opened_at = Column(Date)
+    closed_at = Column(Date)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+
+Index("ix_hr_records_employee_id", HrRecord.employee_id)
+Index("ix_hr_records_section",     HrRecord.section)
+Index("ix_hr_records_period",      HrRecord.period)
 
 Index("ix_orders_date",            Order.date)
 Index("ix_orders_counterparty_id", Order.counterparty_id)

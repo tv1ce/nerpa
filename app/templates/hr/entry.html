@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}{{ employee.full_name }} — HR-учёт{% endblock %}
+{% block page_title %}{{ employee.full_name }}{% endblock %}
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2">
+  <a href="/hr/entry/{{ employee.id }}?period={{ prev_period }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a>
+  <span class="fw-semibold px-2" style="min-width:140px;text-align:center">{{ period_label }}</span>
+  <a href="/hr/entry/{{ employee.id }}?period={{ next_period }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a>
+  <a href="/hr/" class="btn btn-sm btn-link">← Ко всем сотрудникам</a>
+</div>
+{% endblock %}
+
+{% block content %}
+<p class="text-muted mb-3">{{ employee.position or '' }}</p>
+
+<form method="post" action="/hr/entry/{{ employee.id }}">
+<input type="hidden" name="period" value="{{ period }}">
+
+<div class="accordion" id="hrAccordion">
+
+  <div class="accordion-item border-0 shadow-sm mb-2">
+    <h2 class="accordion-header">
+      <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#secPersonal">
+        {{ section_meta.personal.icon }}&nbsp; {{ section_meta.personal.label }}
+      </button>
+    </h2>
+    <div id="secPersonal" class="accordion-collapse collapse show" data-bs-parent="#hrAccordion">
+      <div class="accordion-body">
+        <label class="form-label form-label-sm text-muted">{{ q_personal_1 }}</label>
+        <textarea name="personal_1" class="form-control mb-3" rows="3">{{ records.personal.text_1 if records.personal else '' }}</textarea>
+        <label class="form-label form-label-sm text-muted">{{ q_personal_2 }}</label>
+        <textarea name="personal_2" class="form-control" rows="3">{{ records.personal.text_2 if records.personal else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion-item border-0 shadow-sm mb-2">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#secComplaints">
+        {{ section_meta.complaints.icon }}&nbsp; {{ section_meta.complaints.label }}
+      </button>
+    </h2>
+    <div id="secComplaints" class="accordion-collapse collapse" data-bs-parent="#hrAccordion">
+      <div class="accordion-body">
+        <textarea name="complaints_1" class="form-control" rows="3">{{ records.complaints.text_1 if records.complaints else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion-item border-0 shadow-sm mb-2">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#secAchievements">
+        {{ section_meta.achievements.icon }}&nbsp; {{ section_meta.achievements.label }}
+      </button>
+    </h2>
+    <div id="secAchievements" class="accordion-collapse collapse" data-bs-parent="#hrAccordion">
+      <div class="accordion-body">
+        <textarea name="achievements_1" class="form-control" rows="4" placeholder="По одному достижению на строку">{{ records.achievements.text_1 if records.achievements else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion-item border-0 shadow-sm mb-2">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#secEnps">
+        {{ section_meta.enps.icon }}&nbsp; {{ section_meta.enps.label }}
+      </button>
+    </h2>
+    <div id="secEnps" class="accordion-collapse collapse" data-bs-parent="#hrAccordion">
+      <div class="accordion-body">
+        <label class="form-label form-label-sm text-muted">{{ q_enps_1 }}</label>
+        <select name="enps_score" class="form-select form-select-sm mb-3" style="max-width:120px">
+          <option value="">—</option>
+          {% for i in range(0, 11) %}
+          <option value="{{ i }}" {% if records.enps and records.enps.score == i %}selected{% endif %}>{{ i }}</option>
+          {% endfor %}
+        </select>
+        <label class="form-label form-label-sm text-muted">{{ q_enps_2 }}</label>
+        <textarea name="enps_comment" class="form-control" rows="2">{{ records.enps.text_1 if records.enps else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion-item border-0 shadow-sm mb-2">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#secEnpsMgr">
+        {{ section_meta.enps_managers.icon }}&nbsp; {{ section_meta.enps_managers.label }}
+      </button>
+    </h2>
+    <div id="secEnpsMgr" class="accordion-collapse collapse" data-bs-parent="#hrAccordion">
+      <div class="accordion-body">
+        <label class="form-label form-label-sm text-muted">{{ q_enps_mgr_1 }}</label>
+        <select name="enps_managers_score" class="form-select form-select-sm mb-3" style="max-width:120px">
+          <option value="">—</option>
+          {% for i in range(0, 11) %}
+          <option value="{{ i }}" {% if records.enps_managers and records.enps_managers.score == i %}selected{% endif %}>{{ i }}</option>
+          {% endfor %}
+        </select>
+        <label class="form-label form-label-sm text-muted">{{ q_enps_mgr_2 }}</label>
+        <textarea name="enps_managers_comment" class="form-control" rows="2">{{ records.enps_managers.text_1 if records.enps_managers else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion-item border-0 shadow-sm mb-2">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#secMetrics">
+        {{ section_meta.metrics.icon }}&nbsp; {{ section_meta.metrics.label }}
+      </button>
+    </h2>
+    <div id="secMetrics" class="accordion-collapse collapse" data-bs-parent="#hrAccordion">
+      <div class="accordion-body">
+        <textarea name="metrics_1" class="form-control" rows="3">{{ records.metrics.text_1 if records.metrics else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="accordion-item border-0 shadow-sm mb-2">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#secGravity">
+        {{ section_meta.gravity.icon }}&nbsp; {{ section_meta.gravity.label }}
+      </button>
+    </h2>
+    <div id="secGravity" class="accordion-collapse collapse" data-bs-parent="#hrAccordion">
+      <div class="accordion-body">
+        <textarea name="gravity_1" class="form-control" rows="3">{{ records.gravity.text_1 if records.gravity else '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="d-flex justify-content-end mt-3">
+  <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+</div>
+
+</form>
+{% endblock %}
