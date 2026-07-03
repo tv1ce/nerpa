@@ -843,19 +843,7 @@ class VendorQuote(Base):
     vendor = relationship("Vendor", back_populates="quotes")
 
 
-# ── HR-учёт (ручной ввод; форма по образцу статьи Teamly «Отчётность HR») ─────
-
-class HrEmployee(Base):
-    """Сотрудник для HR-учёта (не обязательно имеет логин в TMS)."""
-    __tablename__ = "hr_employees"
-    id = Column(Integer, primary_key=True)
-    full_name = Column(String(200), nullable=False)
-    position = Column(String(200))
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
-
-    records = relationship("HrRecord", back_populates="employee")
-
+# ── HR-учёт (ручной ввод + сбор через опросы; форма по образцу статьи Teamly) ─
 
 # Разделы HR-учёта — соответствуют вкладкам статьи Teamly «Отчётность HR»:
 #   personal       — Личностный профиль сотрудника (2 текстовых вопроса)
@@ -869,6 +857,94 @@ HR_SECTIONS = (
     "personal", "complaints", "achievements",
     "enps", "enps_managers", "metrics", "gravity",
 )
+
+
+class HrPosition(Base):
+    """Должность (справочник). Позволяет отключить отдельные разделы отчёта для
+    должности — напр. «Метрика сотрудников» и eNPS руководителя нужны не всем."""
+    __tablename__ = "hr_positions"
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True)
+    disabled_sections = Column(Text)  # CSV кодов разделов, выключенных для должности
+    created_at = Column(DateTime, server_default=func.now())
+
+    employees = relationship("HrEmployee", back_populates="position_ref")
+
+    @property
+    def disabled_set(self) -> set[str]:
+        return {s.strip() for s in (self.disabled_sections or "").split(",") if s.strip()}
+
+    @property
+    def enabled_sections(self) -> list[str]:
+        off = self.disabled_set
+        return [s for s in HR_SECTIONS if s not in off]
+
+
+class HrEmployee(Base):
+    """Сотрудник для HR-учёта (не обязательно имеет логин в TMS)."""
+    __tablename__ = "hr_employees"
+    id = Column(Integer, primary_key=True)
+    full_name = Column(String(200), nullable=False)
+    position = Column(String(200))                                    # legacy: текст должности
+    position_id = Column(Integer, ForeignKey("hr_positions.id"))      # ссылка на справочник должностей
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    records = relationship("HrRecord", back_populates="employee")
+    position_ref = relationship("HrPosition", back_populates="employees")
+
+    @property
+    def position_title(self) -> str:
+        if self.position_ref:
+            return self.position_ref.title
+        return self.position or ""
+
+    @property
+    def enabled_sections(self) -> list[str]:
+        """Разделы, применимые к сотруднику с учётом его должности."""
+        if self.position_ref:
+            return self.position_ref.enabled_sections
+        return list(HR_SECTIONS)
+
+
+class HrSurvey(Base):
+    """Раунд-рассылка опроса за период: HR выбирает разделы и сотрудников,
+    система выдаёт персональные токен-ссылки для сбора ответов без входа в TMS."""
+    __tablename__ = "hr_surveys"
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200))
+    period = Column(Date, nullable=False)     # месяц опроса (хранится 1-м числом)
+    sections = Column(Text, nullable=False)   # CSV кодов разделов этого раунда
+    is_open = Column(Boolean, default=True)   # принимаются ли ещё ответы
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+    tokens = relationship("HrSurveyToken", back_populates="survey", cascade="all, delete-orphan")
+
+    @property
+    def section_list(self) -> list[str]:
+        return [s.strip() for s in (self.sections or "").split(",") if s.strip()]
+
+
+class HrSurveyToken(Base):
+    """Персональная ссылка сотрудника в рамках раунда опроса."""
+    __tablename__ = "hr_survey_tokens"
+    id = Column(Integer, primary_key=True)
+    survey_id = Column(Integer, ForeignKey("hr_surveys.id"), nullable=False)
+    employee_id = Column(Integer, ForeignKey("hr_employees.id"), nullable=False)
+    token = Column(String(64), unique=True, nullable=False)
+    submitted_at = Column(DateTime)
+    created_at = Column(DateTime, server_default=func.now())
+
+    survey = relationship("HrSurvey", back_populates="tokens")
+    employee = relationship("HrEmployee")
+
+    @property
+    def effective_sections(self) -> list[str]:
+        """Разделы раунда, применимые к должности сотрудника."""
+        enabled = set(self.employee.enabled_sections) if self.employee else set(HR_SECTIONS)
+        return [s for s in self.survey.section_list if s in enabled]
 
 
 class HrRecord(Base):
@@ -907,6 +983,9 @@ class HrVacancy(Base):
 Index("ix_hr_records_employee_id", HrRecord.employee_id)
 Index("ix_hr_records_section",     HrRecord.section)
 Index("ix_hr_records_period",      HrRecord.period)
+Index("ix_hr_employees_position_id",  HrEmployee.position_id)
+Index("ix_hr_survey_tokens_survey_id", HrSurveyToken.survey_id)
+Index("ix_hr_survey_tokens_token",     HrSurveyToken.token)
 
 Index("ix_orders_date",            Order.date)
 Index("ix_orders_counterparty_id", Order.counterparty_id)

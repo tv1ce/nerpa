@@ -3,6 +3,9 @@
 {% block page_title %}HR-учёт{% endblock %}
 {% block topbar_actions %}
 <div class="d-flex align-items-center gap-2">
+  <a href="/hr/surveys" class="btn btn-sm btn-outline-secondary"><i class="bi bi-send me-1"></i>Опросы</a>
+  <a href="/hr/positions" class="btn btn-sm btn-outline-secondary"><i class="bi bi-diagram-3 me-1"></i>Должности</a>
+  <span class="vr mx-1"></span>
   <a href="/hr/?period={{ prev_period }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a>
   <span class="fw-semibold px-2" style="min-width:140px;text-align:center">{{ period_label }}</span>
   <a href="/hr/?period={{ next_period }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a>
@@ -45,14 +48,16 @@
                 {{ e.full_name }}
                 {% if not e.is_active %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">неактивен</span>{% endif %}
               </td>
-              <td class="text-muted" style="font-size:.85rem">{{ e.position or '—' }}</td>
+              <td class="text-muted" style="font-size:.85rem">{{ e.position_title or '—' }}</td>
               <td>
-                {% set done = filled_sections.get(e.id, []) | length %}
+                {% set enabled = e.enabled_sections %}
+                {% set total = enabled | length %}
+                {% set done = (filled_sections.get(e.id, []) | select('in', enabled) | list) | length %}
                 <div class="progress" style="height:8px">
-                  <div class="progress-bar {% if done == total_sections %}bg-success{% elif done > 0 %}bg-warning{% else %}bg-secondary{% endif %}"
-                       style="width:{{ (done / total_sections * 100) | round }}%"></div>
+                  <div class="progress-bar {% if total and done == total %}bg-success{% elif done > 0 %}bg-warning{% else %}bg-secondary{% endif %}"
+                       style="width:{{ (done / total * 100) | round if total else 0 }}%"></div>
                 </div>
-                <span class="text-muted" style="font-size:.75rem">{{ done }} / {{ total_sections }} разделов</span>
+                <span class="text-muted" style="font-size:.75rem">{{ done }} / {{ total }} разделов</span>
               </td>
               <td>
                 <a href="/hr/entry/{{ e.id }}?period={{ period }}" class="btn btn-sm btn-outline-primary">
@@ -128,7 +133,15 @@
           </div>
           <div class="mb-1">
             <label class="form-label form-label-sm">Должность</label>
-            <input type="text" name="position" class="form-control form-control-sm">
+            <select name="position_id" class="form-select form-select-sm">
+              <option value="">— не задана —</option>
+              {% for p in positions %}
+              <option value="{{ p.id }}">{{ p.title }}</option>
+              {% endfor %}
+            </select>
+            {% if not positions %}
+            <div class="form-text">Сначала создайте должности в разделе <a href="/hr/positions">Должности</a>.</div>
+            {% endif %}
           </div>
         </div>
         <div class="modal-footer py-2 px-3">
@@ -157,7 +170,12 @@
           </div>
           <div class="mb-2">
             <label class="form-label form-label-sm">Должность</label>
-            <input type="text" name="position" class="form-control form-control-sm" value="{{ e.position or '' }}">
+            <select name="position_id" class="form-select form-select-sm">
+              <option value="">— не задана —</option>
+              {% for p in positions %}
+              <option value="{{ p.id }}" {% if e.position_id == p.id %}selected{% endif %}>{{ p.title }}</option>
+              {% endfor %}
+            </select>
           </div>
           <div class="form-check">
             <input type="checkbox" name="is_active" value="1" class="form-check-input" id="active{{ e.id }}" {% if e.is_active %}checked{% endif %}>

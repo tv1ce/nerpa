@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ survey.title or 'Опрос' }} — HR{% endblock %}
+{% block page_title %}{{ survey.title or 'Опрос' }}{% endblock %}
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2">
+  <a href="/hr/surveys" class="btn btn-sm btn-link">← Ко всем опросам</a>
+  <form method="post" action="/hr/surveys/{{ survey.id }}/toggle" class="d-inline">
+    {% if survey.is_open %}
+    <button class="btn btn-sm btn-outline-secondary">Закрыть приём ответов</button>
+    {% else %}
+    <button class="btn btn-sm btn-outline-success">Открыть приём ответов</button>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <span class="text-muted">Период:</span> <b>{{ period_label }}</b>
+  <span class="mx-2">·</span>
+  <span class="text-muted">Разделы:</span>
+  {% for code in survey.section_list %}
+  <span class="badge bg-light text-dark border">{{ section_meta[code].icon }} {{ section_meta[code].label|truncate(24) }}</span>
+  {% endfor %}
+  <span class="mx-2">·</span>
+  {% if survey.is_open %}<span class="badge bg-success">Открыт</span>{% else %}<span class="badge bg-secondary">Закрыт</span>{% endif %}
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-2 d-flex justify-content-between align-items-center">
+    <div class="fw-semibold">Персональные ссылки</div>
+    <button class="btn btn-sm btn-outline-secondary" onclick="copyAll()"><i class="bi bi-clipboard me-1"></i>Скопировать все</button>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Сотрудник</th>
+          <th>Ссылка</th>
+          <th>Статус</th>
+          <th class="pe-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in survey.tokens %}
+        {% set link = base_url ~ '/hr/s/' ~ t.token %}
+        <tr>
+          <td class="ps-3 fw-semibold">
+            {{ t.employee.full_name }}
+            <div class="text-muted" style="font-size:.78rem">{{ t.employee.position_title or 'без должности' }}</div>
+          </td>
+          <td>
+            <input type="text" readonly value="{{ link }}" class="form-control form-control-sm link-input" style="font-size:.78rem" onclick="this.select()">
+          </td>
+          <td>
+            {% if t.submitted_at %}
+            <span class="badge bg-success">Ответил</span>
+            <div class="text-muted" style="font-size:.72rem">{{ t.submitted_at.strftime('%d.%m %H:%M') }}</div>
+            {% else %}
+            <span class="badge bg-secondary">Ожидает</span>
+            {% endif %}
+          </td>
+          <td class="pe-3 text-end">
+            <button class="btn btn-sm btn-outline-primary" onclick="copyOne(this)" data-link="{{ link }}">
+              <i class="bi bi-clipboard"></i>
+            </button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center py-4 text-muted">
+          Нет получателей — возможно, у выбранных сотрудников должность не включает разделы этого раунда.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function copyOne(btn) {
+  navigator.clipboard.writeText(btn.dataset.link);
+  const i = btn.querySelector('i');
+  i.className = 'bi bi-check2';
+  setTimeout(() => { i.className = 'bi bi-clipboard'; }, 1200);
+}
+function copyAll() {
+  const rows = [...document.querySelectorAll('.link-input')].map(i => i.value).join('\n');
+  navigator.clipboard.writeText(rows);
+}
+</script>
+{% endblock %}

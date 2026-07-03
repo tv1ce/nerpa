@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Опрос — TMS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@300;400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    body { font-family: 'Fira Sans', system-ui, sans-serif; background:#f4f5f7; }
+    .survey-wrap { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+    .survey-head { text-align:center; margin-bottom: 20px; }
+    .sec-card { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); padding:20px 22px; margin-bottom:14px; }
+    .sec-title { font-weight:600; margin-bottom:12px; font-size:1.02rem; }
+  </style>
+</head>
+<body>
+<div class="survey-wrap">
+
+{% if invalid %}
+  <div class="survey-head">
+    <div style="font-size:3rem">🔗</div>
+    <h4>Ссылка недействительна</h4>
+    <p class="text-muted">Возможно, опрос удалён или ссылка скопирована не полностью.</p>
+  </div>
+
+{% elif done %}
+  <div class="survey-head">
+    <div style="font-size:3rem">✅</div>
+    <h4>Спасибо! Ответы сохранены.</h4>
+    <p class="text-muted">Можно закрыть страницу. Если нужно поправить ответ — форма ниже.</p>
+  </div>
+
+{% endif %}
+
+{% if not invalid %}
+  <div class="survey-head">
+    <h4 class="mb-1">{{ survey.title or 'Опрос сотрудника' }}</h4>
+    <div class="text-muted">{{ employee.full_name }} · {{ period_label }}</div>
+  </div>
+
+  {% if closed %}
+  <div class="alert alert-secondary text-center">Приём ответов по этому опросу закрыт.</div>
+  {% else %}
+    {% if submitted and not done %}
+    <div class="alert alert-info py-2">Вы уже отвечали. Можно изменить ответы и сохранить снова.</div>
+    {% endif %}
+    <form method="post" action="/hr/s/{{ token }}">
+      {% for code in sections %}
+      <div class="sec-card">
+        <div class="sec-title">{{ section_meta[code].icon }} {{ section_meta[code].label }}</div>
+        {% include "hr/_section_fields.html" %}
+      </div>
+      {% endfor %}
+      <div class="d-grid mt-3">
+        <button type="submit" class="btn btn-primary btn-lg">Отправить</button>
+      </div>
+    </form>
+  {% endif %}
+{% endif %}
+
+</div>
+</body>
+</html>
