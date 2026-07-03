@@ -73,6 +73,11 @@
       <i class="bi bi-person-walking"></i> <span>Поле (торгпреды)</span>
     </a>
     {% endif %}
+    {% if request.session.get('mod_hr') %}
+    <a href="/hr/" class="nav-link {% if '/hr' in request.url.path %}active{% endif %}">
+      <i class="bi bi-people"></i> <span>HR-отчётность</span>
+    </a>
+    {% endif %}
     {% endif %}
 
     <div class="nav-section">Справочники</div>

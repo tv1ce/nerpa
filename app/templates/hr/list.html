@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}HR-отчётность{% endblock %}
+{% block page_title %}HR-отчётность{% endblock %}
+
+{% block content %}
+
+{% if synced %}
+<div class="alert alert-success py-2">Синхронизация выполнена — новых записей: {{ synced }}.</div>
+{% endif %}
+{% if reported == 'full' %}
+<div class="alert alert-success py-2">Полный отчёт отправлен в Telegram.</div>
+{% elif reported == 'metrics' %}
+<div class="alert alert-success py-2">Отчёт по метрикам отправлен в Telegram.</div>
+{% elif reported == 'metrics-empty' %}
+<div class="alert alert-info py-2">Новых метрик с прошлой отправки нет — отчёт не отправлялся.</div>
+{% endif %}
+{% if error %}
+<div class="alert alert-danger py-2">Ошибка: {{ error }}</div>
+{% endif %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body d-flex flex-wrap align-items-center gap-2">
+    <div class="me-auto">
+      <div class="fw-semibold">Синхронизация с Teamly</div>
+      <div class="text-muted" style="font-size:.85rem">
+        {% if last_synced_at %}
+          Последняя синхронизация: {{ last_synced_at.strftime('%d.%m.%Y %H:%M') }} ·
+          автоматически каждые {{ sync_interval }} мин.
+        {% else %}
+          Синхронизация ещё не запускалась.
+        {% endif %}
+      </div>
+    </div>
+    <form method="post" action="/hr/sync" class="d-inline">
+      <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat me-1"></i>Синхронизировать сейчас</button>
+    </form>
+    <form method="post" action="/hr/report/metrics" class="d-inline">
+      <button class="btn btn-sm btn-outline-primary"><i class="bi bi-graph-up me-1"></i>Отправить метрики</button>
+    </form>
+    <form method="post" action="/hr/report/full" class="d-inline">
+      <button class="btn btn-sm btn-accent"><i class="bi bi-send me-1"></i>Сформировать и отправить отчёт</button>
+    </form>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-0">
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      <a href="/hr/" class="btn btn-sm {% if not filter_section %}btn-accent{% else %}btn-outline-secondary{% endif %}">
+        Все ({{ counts.values() | sum }})
+      </a>
+      {% for code, label in section_labels.items() %}
+      <a href="/hr/?section={{ code }}" class="btn btn-sm {% if filter_section == code %}btn-accent{% else %}btn-outline-secondary{% endif %}">
+        {{ label }} ({{ counts.get(code, 0) }})
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Сотрудник / вакансия</th>
+          <th>Раздел</th>
+          <th>Период</th>
+          <th>Текст</th>
+          <th>Импортировано</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+        <tr>
+          <td class="ps-3 fw-semibold">{{ e.subject_name }}</td>
+          <td class="text-muted" style="font-size:.85rem">{{ section_labels.get(e.section, e.section) }}</td>
+          <td class="text-muted" style="font-size:.85rem">{{ e.period_label or '—' }}</td>
+          <td style="max-width:420px; max-height:120px; overflow-y:auto; white-space:pre-wrap; font-size:.85rem">{{ e.raw_text }}</td>
+          <td class="text-muted" style="font-size:.8rem; white-space:nowrap">{{ e.imported_at.strftime('%d.%m.%Y %H:%M') }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center py-4 text-muted">
+          Записей нет. Нажмите «Синхронизировать сейчас», чтобы забрать данные из Teamly.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

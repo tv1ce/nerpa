@@ -380,6 +380,10 @@ class CompanySettings(Base):
     module_recon    = Column(Boolean, default=False)  # Разведка ЛПР
     module_sourcing = Column(Boolean, default=False)  # Закупки
     module_field    = Column(Boolean, default=False)  # Поле (торгпреды)
+    module_hr       = Column(Boolean, default=False)  # HR-отчётность (Teamly)
+    # ── HR-отчётность (синхронизация с Teamly) ──
+    hr_sync_interval_minutes = Column(Integer, default=360)  # как часто подтягивать новое из Teamly
+    hr_last_synced_at        = Column(DateTime)
     # ── Bitrix24 CRM ──
     bitrix_webhook_url    = Column(EncryptedText)   # входящий вебхук, напр. https://x.bitrix24.ru/rest/1/xxxxx/
     bitrix_enabled        = Column(Boolean, default=False)
@@ -841,6 +845,31 @@ class VendorQuote(Base):
     request = relationship("SourcingRequest", back_populates="quotes", foreign_keys=[request_id])
     vendor = relationship("Vendor", back_populates="quotes")
 
+
+# ── HR-отчётность (синхронизация с Teamly) ────────────────────────────────────
+
+class HrEntry(Base):
+    """Одна запись HR-отчёта, синхронизированная из статьи Teamly «Отчётность HR».
+
+    Статья в Teamly растёт со временем — HR добавляет новые записи, старые не
+    удаляет (месяц-колонки в достижениях, дата-карточки в eNPS/личностном
+    профиле). Поэтому синхронизация не перезаписывает, а до-заливает новые
+    строки: source_key — устойчивый ключ записи в Teamly, по нему определяется,
+    что уже завезено (идемпотентный импорт, в т.ч. полный бэкфилл истории)."""
+    __tablename__ = "hr_entries"
+    id = Column(Integer, primary_key=True)
+    # personal / complaints / achievements / enps / enps_managers / metrics / vacancies
+    section = Column(String(30), nullable=False)
+    subject_name = Column(String(200), nullable=False)   # имя сотрудника или название вакансии
+    period_label = Column(String(100))                   # дата/месяц записи, если есть в Teamly
+    raw_text = Column(Text, nullable=False)
+    source_key = Column(String(400), unique=True, nullable=False)
+    imported_at = Column(DateTime, server_default=func.now())
+
+
+Index("ix_hr_entries_section",      HrEntry.section)
+Index("ix_hr_entries_subject_name", HrEntry.subject_name)
+Index("ix_hr_entries_imported_at",  HrEntry.imported_at)
 
 Index("ix_orders_date",            Order.date)
 Index("ix_orders_counterparty_id", Order.counterparty_id)

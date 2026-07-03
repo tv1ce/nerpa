@@ -278,6 +278,8 @@
            'Управление заявками на закупку, поставщики'),
           ('module_field',    'mod_field',    'bi-person-walking',     'Поле (торгпреды)',
            'Мобильный режим для торговых представителей'),
+          ('module_hr',       'mod_hr',       'bi-people',             'HR-отчётность',
+           'Сбор данных из Teamly (личностный профиль, eNPS, достижения) и отчёты в Telegram'),
         ] %}
         {% for field, sess_key, icon, label, desc in modules %}
         <div class="d-flex align-items-center justify-content-between py-3 {% if not loop.last %}border-bottom{% endif %}">
