@@ -126,6 +126,7 @@ async def save_modules(
     module_recon:    str = Form(default=""),
     module_sourcing: str = Form(default=""),
     module_field:    str = Form(default=""),
+    module_hr:       str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -136,11 +137,13 @@ async def save_modules(
     company.module_recon    = bool(module_recon)
     company.module_sourcing = bool(module_sourcing)
     company.module_field    = bool(module_field)
+    company.module_hr       = bool(module_hr)
     db.commit()
     request.session["mod_leads"]    = company.module_leads
     request.session["mod_recon"]    = company.module_recon
     request.session["mod_sourcing"] = company.module_sourcing
     request.session["mod_field"]    = company.module_field
+    request.session["mod_hr"]       = company.module_hr
     return RedirectResponse(url="/settings/?saved=1&tab=modules", status_code=302)
 
 

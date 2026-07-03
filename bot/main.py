@@ -32,7 +32,7 @@ from telegram.request import HTTPXRequest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import SessionLocal
-from app.services import hr_report
+from app.services import hr_report, hr_sync
 from bot.metrics import (
     get_daily_metrics, get_weekly_metrics, get_monthly_metrics,
     get_callbacks_today,
@@ -351,6 +351,69 @@ async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
         await broadcast(context.bot, _monthly_text())
 
 
+def _generate_full_hr_report() -> str:
+    db = SessionLocal()
+    try:
+        return hr_report.generate_full_report(db)
+    finally:
+        db.close()
+
+
+def _generate_metrics_hr_report() -> str | None:
+    db = SessionLocal()
+    try:
+        return hr_report.generate_metrics_report(db)
+    finally:
+        db.close()
+
+
+def _sync_hr_from_teamly() -> dict:
+    db = SessionLocal()
+    try:
+        return hr_sync.sync_from_teamly(db)
+    finally:
+        db.close()
+
+
+async def cb_hr_sync(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Проверяет каждые 15 минут, не пора ли подтянуть новые данные из Teamly
+    (интервал настраивается в Настройках — CompanySettings.hr_sync_interval_minutes)."""
+    from datetime import datetime, timezone
+
+    db = SessionLocal()
+    try:
+        from app.models import CompanySettings
+        settings = db.query(CompanySettings).first()
+        if not settings or not settings.module_hr:
+            return
+        interval = settings.hr_sync_interval_minutes or 360
+        last = settings.hr_last_synced_at
+        if last is not None:
+            elapsed_minutes = (datetime.utcnow() - last).total_seconds() / 60
+            if elapsed_minutes < interval:
+                return
+    finally:
+        db.close()
+
+    logger.info("Синхронизация HR-данных из Teamly (по расписанию)")
+    try:
+        stats = await asyncio.to_thread(_sync_hr_from_teamly)
+    except Exception as e:
+        logger.exception("Ошибка синхронизации HR-данных: %s", e)
+        return
+    logger.info("HR-синхронизация завершена: %s", stats)
+
+    db = SessionLocal()
+    try:
+        from app.models import CompanySettings
+        settings = db.query(CompanySettings).first()
+        if settings:
+            settings.hr_last_synced_at = datetime.utcnow()
+            db.commit()
+    finally:
+        db.close()
+
+
 async def cb_hr_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Запускается каждый день в HR_MONTHLY_TIME; отправляет полный HR-отчёт только 10-го числа месяца."""
     from datetime import datetime
@@ -361,7 +424,7 @@ async def cb_hr_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     logger.info("Формирование ежемесячного HR-отчёта")
     try:
-        text = await asyncio.to_thread(hr_report.generate_full_report)
+        text = await asyncio.to_thread(_generate_full_hr_report)
     except Exception as e:
         logger.exception("Ошибка формирования HR-отчёта: %s", e)
         return
@@ -378,7 +441,7 @@ async def cb_hr_metrics(context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     logger.info("Проверка новых HR-метрик")
     try:
-        text = await asyncio.to_thread(hr_report.generate_metrics_report)
+        text = await asyncio.to_thread(_generate_metrics_hr_report)
     except Exception as e:
         logger.exception("Ошибка формирования отчёта по метрикам: %s", e)
         return
@@ -484,7 +547,7 @@ async def cmd_hr_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return await _deny(update)
     await update.message.reply_text("⏳ Формирую HR-отчёт, это может занять около минуты…")
     try:
-        text = await asyncio.to_thread(hr_report.generate_full_report)
+        text = await asyncio.to_thread(_generate_full_hr_report)
     except Exception as e:
         logger.exception("Ошибка формирования HR-отчёта: %s", e)
         await update.message.reply_text("⚠️ Не удалось сформировать HR-отчёт. Проверьте логи.")
@@ -498,7 +561,7 @@ async def cmd_hr_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return await _deny(update)
     await update.message.reply_text("⏳ Проверяю новые метрики…")
     try:
-        text = await asyncio.to_thread(hr_report.generate_metrics_report)
+        text = await asyncio.to_thread(_generate_metrics_hr_report)
     except Exception as e:
         logger.exception("Ошибка формирования отчёта по метрикам: %s", e)
         await update.message.reply_text("⚠️ Не удалось сформировать отчёт по метрикам. Проверьте логи.")
@@ -742,6 +805,9 @@ def main() -> None:
 
     # HR-метрики (Teamly): проверяем каждый день в HR_METRICS_TIME, шлём только 1-го и 15-го
     jq.run_daily(cb_hr_metrics, time=HR_METRICS_TIME, name="hr_metrics_report")
+
+    # HR-синхронизация с Teamly: интервал настраивается в Настройках (по умолчанию 6 часов)
+    jq.run_repeating(cb_hr_sync, interval=15 * 60, first=30, name="hr_sync")
 
     # Автобекап БД: проверяем каждый день в 21:00
     backup_time = time(hour=21, minute=0, tzinfo=TZ)

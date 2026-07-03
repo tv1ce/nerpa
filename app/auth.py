@@ -147,6 +147,7 @@ def _get_fresh_user(request: Request):
             request.session["mod_recon"]    = bool(company and company.module_recon)
             request.session["mod_sourcing"] = bool(company and company.module_sourcing)
             request.session["mod_field"]    = bool(company and company.module_field)
+            request.session["mod_hr"]       = bool(company and company.module_hr)
         return user
     finally:
         db.close()
