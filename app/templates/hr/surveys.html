@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Опросы — HR{% endblock %}
+{% block page_title %}Опросы (рассылки){% endblock %}
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2">
+  <a href="/hr/" class="btn btn-sm btn-link">← К сотрудникам</a>
+  <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#newSurvey">
+    <i class="bi bi-plus-lg me-1"></i>Новый раунд
+  </button>
+</div>
+{% endblock %}
+
+{% block content %}
+{% if request.query_params.get('error') == 'empty' %}
+<div class="alert alert-warning py-2">Выберите хотя бы один раздел и одного сотрудника.</div>
+{% endif %}
+
+<p class="text-muted mb-3" style="font-size:.9rem">
+  Раунд — это рассылка опроса за месяц. Выбираете разделы и сотрудников, система
+  выдаёт персональные ссылки. Каждый отвечает по своей ссылке без входа в TMS,
+  ответы попадают в учёт. Хотите собрать только один пункт (напр. eNPS) — создайте
+  раунд с одним разделом.
+</p>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Раунд</th>
+          <th>Период</th>
+          <th>Разделы</th>
+          <th>Ответили</th>
+          <th>Статус</th>
+          <th class="pe-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in surveys %}
+        <tr>
+          <td class="ps-3 fw-semibold">
+            <a href="/hr/surveys/{{ s.id }}" class="text-decoration-none">{{ s.title or 'Опрос' }}</a>
+          </td>
+          <td class="text-muted" style="font-size:.85rem">{{ period_label_fn(s.period) }}</td>
+          <td class="text-muted" style="font-size:.8rem">
+            {% for code in s.section_list %}{{ section_meta[code].icon }}{% endfor %}
+            {{ s.section_list | length }} разд.
+          </td>
+          <td class="text-muted">
+            {{ s.tokens | selectattr('submitted_at') | list | length }} / {{ s.tokens | length }}
+          </td>
+          <td>
+            {% if s.is_open %}<span class="badge bg-success">Открыт</span>
+            {% else %}<span class="badge bg-secondary">Закрыт</span>{% endif %}
+          </td>
+          <td class="pe-3 text-end">
+            <a href="/hr/surveys/{{ s.id }}" class="btn btn-sm btn-outline-primary">Ссылки</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center py-4 text-muted">Опросов пока нет.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Модалка: новый раунд ── #}
+<div class="modal fade" id="newSurvey" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/hr/surveys">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title">Новый раунд опроса</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="row g-3">
+            <div class="col-md-7">
+              <label class="form-label form-label-sm">Название (необязательно)</label>
+              <input type="text" name="title" class="form-control form-control-sm" placeholder="напр. eNPS за июль">
+            </div>
+            <div class="col-md-5">
+              <label class="form-label form-label-sm">Период (месяц)</label>
+              <input type="month" name="period" class="form-control form-control-sm" value="{{ today_period }}" required>
+            </div>
+          </div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-md-6">
+              <label class="form-label form-label-sm text-muted">Разделы для сбора:</label>
+              {% for code in all_sections %}
+              <div class="form-check">
+                <input type="checkbox" name="sec_{{ code }}" value="1" class="form-check-input" id="sv_sec_{{ code }}">
+                <label class="form-check-label" for="sv_sec_{{ code }}">
+                  {{ section_meta[code].icon }} {{ section_meta[code].label }}
+                </label>
+              </div>
+              {% endfor %}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label form-label-sm text-muted d-flex justify-content-between">
+                Сотрудники:
+                <a href="#" onclick="document.querySelectorAll('#newSurvey .emp-cb').forEach(c=>c.checked=true);return false;" style="font-size:.75rem">выбрать всех</a>
+              </label>
+              <div style="max-height:260px;overflow-y:auto">
+                {% for e in employees %}
+                <div class="form-check">
+                  <input type="checkbox" name="employee_ids" value="{{ e.id }}" class="form-check-input emp-cb" id="sv_emp_{{ e.id }}">
+                  <label class="form-check-label" for="sv_emp_{{ e.id }}">
+                    {{ e.full_name }} <span class="text-muted" style="font-size:.8rem">— {{ e.position_title or 'без должности' }}</span>
+                  </label>
+                </div>
+                {% else %}
+                <div class="text-muted">Нет активных сотрудников.</div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-send me-1"></i>Создать и получить ссылки</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

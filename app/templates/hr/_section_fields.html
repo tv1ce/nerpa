@@ -1,0 +1,44 @@
+{# Поля одного раздела HR-учёта. Ожидает: code, records (dict), questions.
+   Имена полей совпадают с тем, что читает _save_from_form в routers/hr.py. #}
+{% set rec = records.get(code) %}
+
+{% if code == 'personal' %}
+  <label class="form-label form-label-sm text-muted">{{ questions.personal_1 }}</label>
+  <textarea name="personal_1" class="form-control mb-3" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
+  <label class="form-label form-label-sm text-muted">{{ questions.personal_2 }}</label>
+  <textarea name="personal_2" class="form-control" rows="3">{{ rec.text_2 if rec else '' }}</textarea>
+
+{% elif code == 'complaints' %}
+  <textarea name="complaints_1" class="form-control" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
+
+{% elif code == 'achievements' %}
+  <textarea name="achievements_1" class="form-control" rows="4" placeholder="По одному достижению на строку">{{ rec.text_1 if rec else '' }}</textarea>
+
+{% elif code == 'enps' %}
+  <label class="form-label form-label-sm text-muted">{{ questions.enps_1 }}</label>
+  <select name="enps_score" class="form-select form-select-sm mb-3" style="max-width:120px">
+    <option value="">—</option>
+    {% for i in range(0, 11) %}
+    <option value="{{ i }}" {% if rec and rec.score == i %}selected{% endif %}>{{ i }}</option>
+    {% endfor %}
+  </select>
+  <label class="form-label form-label-sm text-muted">{{ questions.enps_2 }}</label>
+  <textarea name="enps_comment" class="form-control" rows="2">{{ rec.text_1 if rec else '' }}</textarea>
+
+{% elif code == 'enps_managers' %}
+  <label class="form-label form-label-sm text-muted">{{ questions.enps_mgr_1 }}</label>
+  <select name="enps_managers_score" class="form-select form-select-sm mb-3" style="max-width:120px">
+    <option value="">—</option>
+    {% for i in range(0, 11) %}
+    <option value="{{ i }}" {% if rec and rec.score == i %}selected{% endif %}>{{ i }}</option>
+    {% endfor %}
+  </select>
+  <label class="form-label form-label-sm text-muted">{{ questions.enps_mgr_2 }}</label>
+  <textarea name="enps_managers_comment" class="form-control" rows="2">{{ rec.text_1 if rec else '' }}</textarea>
+
+{% elif code == 'metrics' %}
+  <textarea name="metrics_1" class="form-control" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
+
+{% elif code == 'gravity' %}
+  <textarea name="gravity_1" class="form-control" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
+{% endif %}

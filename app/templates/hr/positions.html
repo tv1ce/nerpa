@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Должности — HR{% endblock %}
+{% block page_title %}Должности{% endblock %}
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2">
+  <a href="/hr/" class="btn btn-sm btn-link">← К сотрудникам</a>
+  <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#addPosition">
+    <i class="bi bi-plus-lg me-1"></i>Добавить должность
+  </button>
+</div>
+{% endblock %}
+
+{% block content %}
+<p class="text-muted mb-3" style="font-size:.9rem">
+  Должность определяет, какие разделы отчёта нужно заполнять по сотруднику.
+  Отключённые разделы не показываются ни в форме HR, ни в опросах.
+</p>
+
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Должность</th>
+          <th>Сотрудников</th>
+          <th>Разделы отчёта</th>
+          <th class="pe-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in positions %}
+        <tr class="{% if not p.is_active %}text-muted{% endif %}">
+          <td class="ps-3 fw-semibold">
+            {{ p.title }}
+            {% if not p.is_active %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">неактивна</span>{% endif %}
+          </td>
+          <td class="text-muted">{{ emp_counts.get(p.id, 0) }}</td>
+          <td>
+            {% for code in all_sections %}
+            {% if code in p.enabled_sections %}
+            <span class="badge bg-light text-dark border me-1 mb-1" style="font-size:.7rem">
+              {{ section_meta[code].icon }} {{ section_meta[code].label|truncate(22) }}
+            </span>
+            {% endif %}
+            {% endfor %}
+          </td>
+          <td class="pe-3 text-end">
+            <button class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="modal" data-bs-target="#editPosition{{ p.id }}">
+              <i class="bi bi-pencil"></i>
+            </button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center py-4 text-muted">Должностей пока нет.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# ── Модалка: добавить должность ── #}
+<div class="modal fade" id="addPosition" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/hr/positions">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title">Новая должность</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="mb-3">
+            <label class="form-label form-label-sm">Название</label>
+            <input type="text" name="title" class="form-control form-control-sm" required>
+          </div>
+          <label class="form-label form-label-sm text-muted">Какие разделы заполнять для этой должности:</label>
+          {% for code in all_sections %}
+          <div class="form-check">
+            <input type="checkbox" name="sec_{{ code }}" value="1" class="form-check-input" id="new_sec_{{ code }}" checked>
+            <label class="form-check-label" for="new_sec_{{ code }}">
+              {{ section_meta[code].icon }} {{ section_meta[code].label }}
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Добавить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ── Модалки: редактировать должность ── #}
+{% for p in positions %}
+<div class="modal fade" id="editPosition{{ p.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/hr/positions/{{ p.id }}/edit">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title">{{ p.title }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="mb-3">
+            <label class="form-label form-label-sm">Название</label>
+            <input type="text" name="title" class="form-control form-control-sm" value="{{ p.title }}" required>
+          </div>
+          <label class="form-label form-label-sm text-muted">Разделы отчёта:</label>
+          {% for code in all_sections %}
+          <div class="form-check">
+            <input type="checkbox" name="sec_{{ code }}" value="1" class="form-check-input" id="p{{ p.id }}_sec_{{ code }}"
+                   {% if code in p.enabled_sections %}checked{% endif %}>
+            <label class="form-check-label" for="p{{ p.id }}_sec_{{ code }}">
+              {{ section_meta[code].icon }} {{ section_meta[code].label }}
+            </label>
+          </div>
+          {% endfor %}
+          <div class="form-check mt-3 border-top pt-2">
+            <input type="checkbox" name="is_active" value="1" class="form-check-input" id="p{{ p.id }}_active" {% if p.is_active %}checked{% endif %}>
+            <label class="form-check-label" for="p{{ p.id }}_active">Должность активна</label>
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

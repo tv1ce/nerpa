@@ -276,6 +276,7 @@ def _migrate_db():
         ("orders",           "bitrix_category_id",      "INTEGER"),
         # ── HR-учёт ──
         ("company_settings", "module_hr", "INTEGER DEFAULT 0"),
+        ("hr_employees", "position_id", "INTEGER REFERENCES hr_positions(id)"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
