@@ -11,6 +11,10 @@
     <button class="btn btn-sm btn-outline-success">Открыть приём ответов</button>
     {% endif %}
   </form>
+  <form method="post" action="/hr/surveys/{{ survey.id }}/delete" class="d-inline"
+        data-confirm="Удалить опрос «{{ survey.title or 'Опрос' }}»? Ссылки перестанут работать, собранные ответы останутся.">
+    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Удалить опрос</button>
+  </form>
 </div>
 {% endblock %}
 

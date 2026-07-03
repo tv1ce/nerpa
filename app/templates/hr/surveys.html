@@ -41,7 +41,7 @@
           <td class="ps-3 fw-semibold">
             <a href="/hr/surveys/{{ s.id }}" class="text-decoration-none">{{ s.title or 'Опрос' }}</a>
           </td>
-          <td class="text-muted" style="font-size:.85rem">{{ period_label_fn(s.period) }}</td>
+          <td class="text-muted" style="font-size:.85rem">{{ period_label_fn(s.period, s.period_kind or 'month') }}</td>
           <td class="text-muted" style="font-size:.8rem">
             {% for code in s.section_list %}{{ section_meta[code].icon }}{% endfor %}
             {{ s.section_list | length }} разд.
@@ -55,6 +55,10 @@
           </td>
           <td class="pe-3 text-end">
             <a href="/hr/surveys/{{ s.id }}" class="btn btn-sm btn-outline-primary">Ссылки</a>
+            <form method="post" action="/hr/surveys/{{ s.id }}/delete" class="d-inline"
+                  data-confirm="Удалить опрос «{{ s.title or 'Опрос' }}»? Ссылки перестанут работать, собранные ответы останутся.">
+              <button class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-trash"></i></button>
+            </form>
           </td>
         </tr>
         {% else %}
@@ -84,6 +88,17 @@
               <label class="form-label form-label-sm">Период (месяц)</label>
               <input type="month" name="period" class="form-control form-control-sm" value="{{ today_period }}" required>
             </div>
+          </div>
+
+          <div class="mt-3">
+            <label class="form-label form-label-sm text-muted">Периодичность сбора:</label>
+            <div class="btn-group w-100" role="group">
+              {% for k in period_kinds %}
+              <input type="radio" class="btn-check" name="period_kind" id="pk_{{ k }}" value="{{ k }}" {% if k == 'month' %}checked{% endif %}>
+              <label class="btn btn-outline-secondary btn-sm" for="pk_{{ k }}">{{ period_kind_labels[k] }}</label>
+              {% endfor %}
+            </div>
+            <div class="form-text">Для двухнедельного сбора (напр. метрики) создайте отдельные раунды на 1–15 и 16–конец.</div>
           </div>
 
           <div class="row g-3 mt-1">

@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required
 from app.models import (
-    HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken, HR_SECTIONS,
+    HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
+    HR_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
 )
 
 router = APIRouter(prefix="/hr", tags=["hr"])
@@ -84,7 +85,7 @@ def _score(raw) -> int | None:
     return max(0, min(10, v))
 
 
-def _upsert_record(db: Session, employee_id: int, section: str, period_date: date,
+def _upsert_record(db: Session, employee_id: int, section: str, period_date: date, period_kind: str,
                    text_1: str | None, text_2: str | None, score: int | None, user_id: int | None) -> None:
     text_1 = (text_1 or "").strip() or None
     text_2 = (text_2 or "").strip() or None
@@ -94,39 +95,56 @@ def _upsert_record(db: Session, employee_id: int, section: str, period_date: dat
         HrRecord.employee_id == employee_id,
         HrRecord.section == section,
         HrRecord.period == period_date,
+        HrRecord.period_kind == period_kind,
     ).first()
     if not record:
-        record = HrRecord(employee_id=employee_id, section=section, period=period_date, created_by=user_id)
+        record = HrRecord(employee_id=employee_id, section=section, period=period_date,
+                          period_kind=period_kind, created_by=user_id)
         db.add(record)
     record.text_1 = text_1
     record.text_2 = text_2
     record.score = score
 
 
-def _save_from_form(db: Session, employee_id: int, period_date: date, form,
+def _save_from_form(db: Session, employee_id: int, period_date: date, period_kind: str, form,
                     allowed: set[str], user_id: int | None) -> None:
     """Сохраняет только разрешённые (allowed) разделы из тела формы."""
     def g(name):
         return form.get(name, "")
 
+    def up(section, t1, t2=None, sc=None):
+        _upsert_record(db, employee_id, section, period_date, period_kind, t1, t2, sc, user_id)
+
     if "personal" in allowed:
-        _upsert_record(db, employee_id, "personal", period_date, g("personal_1"), g("personal_2"), None, user_id)
+        up("personal", g("personal_1"), g("personal_2"))
     if "complaints" in allowed:
-        _upsert_record(db, employee_id, "complaints", period_date, g("complaints_1"), None, None, user_id)
+        up("complaints", g("complaints_1"))
     if "achievements" in allowed:
-        _upsert_record(db, employee_id, "achievements", period_date, g("achievements_1"), None, None, user_id)
+        up("achievements", g("achievements_1"))
     if "enps" in allowed:
-        _upsert_record(db, employee_id, "enps", period_date, g("enps_comment"), None, _score(g("enps_score")), user_id)
+        up("enps", g("enps_comment"), sc=_score(g("enps_score")))
     if "enps_managers" in allowed:
-        _upsert_record(db, employee_id, "enps_managers", period_date, g("enps_managers_comment"), None, _score(g("enps_managers_score")), user_id)
+        up("enps_managers", g("enps_managers_comment"), sc=_score(g("enps_managers_score")))
     if "metrics" in allowed:
-        _upsert_record(db, employee_id, "metrics", period_date, g("metrics_1"), None, None, user_id)
+        up("metrics", g("metrics_1"))
     if "gravity" in allowed:
-        _upsert_record(db, employee_id, "gravity", period_date, g("gravity_1"), None, None, user_id)
+        up("gravity", g("gravity_1"))
 
 
 def _section_ctx() -> dict:
-    return {"section_meta": SECTION_META, "questions": QUESTIONS, "all_sections": list(HR_SECTIONS)}
+    return {
+        "section_meta": SECTION_META, "questions": QUESTIONS, "all_sections": list(HR_SECTIONS),
+        "period_kinds": list(HR_PERIOD_KINDS), "period_kind_labels": HR_PERIOD_KIND_LABELS,
+    }
+
+
+def _norm_kind(raw) -> str:
+    return raw if raw in HR_PERIOD_KINDS else "month"
+
+
+def _period_full_label(d: date, kind: str) -> str:
+    base = _period_label(d)
+    return base if kind == "month" else f"{base} · {HR_PERIOD_KIND_LABELS[kind]}"
 
 
 # ── Дашборд ──────────────────────────────────────────────────────────────────
@@ -137,6 +155,7 @@ async def hr_home(request: Request, period: str = "", db: Session = Depends(get_
     period_date = _period_from_str(period)
 
     employees = db.query(HrEmployee).order_by(HrEmployee.is_active.desc(), HrEmployee.full_name).all()
+    # раздел считается заполненным, если за месяц есть хотя бы одна запись (любой полумесяц)
     records = db.query(HrRecord).filter(HrRecord.period == period_date).all()
     filled_sections: dict[int, set] = {}
     for r in records:
@@ -283,17 +302,27 @@ async def reopen_vacancy(request: Request, vacancy_id: int, db: Session = Depend
 
 @router.get("/entry/{employee_id}", response_class=HTMLResponse)
 @login_required
-async def hr_entry_form(request: Request, employee_id: int, period: str = "", db: Session = Depends(get_db)):
+async def hr_entry_form(request: Request, employee_id: int, period: str = "", kind: str = "month",
+                        db: Session = Depends(get_db)):
     employee = db.query(HrEmployee).filter(HrEmployee.id == employee_id).first()
     if not employee:
         return RedirectResponse(url="/hr/", status_code=302)
 
     period_date = _period_from_str(period)
+    kind = _norm_kind(kind)
     records = {
         r.section: r
         for r in db.query(HrRecord).filter(
-            HrRecord.employee_id == employee_id, HrRecord.period == period_date
+            HrRecord.employee_id == employee_id,
+            HrRecord.period == period_date,
+            HrRecord.period_kind == kind,
         ).all()
+    }
+    # какие полумесяцы уже имеют данные (для подсветки вкладок)
+    kinds_with_data = {
+        row[0] for row in db.query(HrRecord.period_kind).filter(
+            HrRecord.employee_id == employee_id, HrRecord.period == period_date
+        ).distinct().all()
     }
 
     return templates.TemplateResponse(request, "hr/entry.html", {
@@ -302,6 +331,8 @@ async def hr_entry_form(request: Request, employee_id: int, period: str = "", db
         "sections": employee.enabled_sections,
         "period": _period_str(period_date),
         "period_label": _period_label(period_date),
+        "kind": kind,
+        "kinds_with_data": kinds_with_data,
         "prev_period": _period_str(_shift_period(period_date, -1)),
         "next_period": _period_str(_shift_period(period_date, 1)),
         "saved": request.query_params.get("saved"),
@@ -319,10 +350,11 @@ async def hr_entry_save(request: Request, employee_id: int, db: Session = Depend
 
     period = form.get("period", "")
     period_date = _period_from_str(period)
+    kind = _norm_kind(form.get("kind"))
     user_id = request.session.get("user_id")
-    _save_from_form(db, employee_id, period_date, form, set(employee.enabled_sections), user_id)
+    _save_from_form(db, employee_id, period_date, kind, form, set(employee.enabled_sections), user_id)
     db.commit()
-    return RedirectResponse(url=f"/hr/entry/{employee_id}?period={period}&saved=1", status_code=302)
+    return RedirectResponse(url=f"/hr/entry/{employee_id}?period={period}&kind={kind}&saved=1", status_code=302)
 
 
 # ── Опросы (раунды-рассылки) ──────────────────────────────────────────────────
@@ -336,7 +368,7 @@ async def surveys_list(request: Request, db: Session = Depends(get_db)):
         "surveys": surveys,
         "employees": employees,
         "today_period": _period_str(date.today()),
-        "period_label_fn": _period_label,
+        "period_label_fn": _period_full_label,
         **_section_ctx(),
     })
 
@@ -355,6 +387,7 @@ async def create_survey(request: Request, db: Session = Depends(get_db)):
     survey = HrSurvey(
         title=title,
         period=period_date,
+        period_kind=_norm_kind(form.get("period_kind")),
         sections=",".join(sections),
         created_by=request.session.get("user_id"),
     )
@@ -383,7 +416,7 @@ async def survey_detail(request: Request, survey_id: int, db: Session = Depends(
     base_url = str(request.base_url).rstrip("/")
     return templates.TemplateResponse(request, "hr/survey_detail.html", {
         "survey": survey,
-        "period_label": _period_label(survey.period),
+        "period_label": _period_full_label(survey.period, survey.period_kind or "month"),
         "base_url": base_url,
         **_section_ctx(),
     })
@@ -397,6 +430,18 @@ async def survey_toggle(request: Request, survey_id: int, db: Session = Depends(
         survey.is_open = not survey.is_open
         db.commit()
     return RedirectResponse(url=f"/hr/surveys/{survey_id}", status_code=302)
+
+
+@router.post("/surveys/{survey_id}/delete")
+@login_required
+async def survey_delete(request: Request, survey_id: int, db: Session = Depends(get_db)):
+    """Удаляет раунд опроса вместе с его ссылками. Собранные ответы (HrRecord)
+    остаются — они уже часть учёта сотрудника."""
+    survey = db.query(HrSurvey).filter(HrSurvey.id == survey_id).first()
+    if survey:
+        db.delete(survey)  # токены удалятся каскадом (cascade на relationship)
+        db.commit()
+    return RedirectResponse(url="/hr/surveys", status_code=302)
 
 
 # ── Публичная форма опроса (без входа в TMS) ─────────────────────────────────
@@ -433,11 +478,14 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
         return templates.TemplateResponse(request, "hr/survey_public.html", {"invalid": True}, status_code=404)
 
     survey = tok.survey
+    kind = survey.period_kind or "month"
     sections = tok.effective_sections
     records = {
         r.section: r
         for r in db.query(HrRecord).filter(
-            HrRecord.employee_id == tok.employee_id, HrRecord.period == survey.period
+            HrRecord.employee_id == tok.employee_id,
+            HrRecord.period == survey.period,
+            HrRecord.period_kind == kind,
         ).all()
     }
     return templates.TemplateResponse(request, "hr/survey_public.html", {
@@ -447,7 +495,7 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
         "survey": survey,
         "sections": sections,
         "records": records,
-        "period_label": _period_label(survey.period),
+        "period_label": _period_full_label(survey.period, kind),
         "closed": not survey.is_open,
         "submitted": tok.submitted_at is not None,
         "done": request.query_params.get("done"),
@@ -466,7 +514,8 @@ async def public_survey_submit(request: Request, token: str, db: Session = Depen
         return RedirectResponse(url=f"/hr/s/{token}", status_code=302)
 
     form = await request.form()
-    _save_from_form(db, tok.employee_id, tok.survey.period, form, set(tok.effective_sections), None)
+    kind = tok.survey.period_kind or "month"
+    _save_from_form(db, tok.employee_id, tok.survey.period, kind, form, set(tok.effective_sections), None)
     tok.submitted_at = datetime.utcnow()
     db.commit()
     return RedirectResponse(url=f"/hr/s/{token}?done=1", status_code=302)
