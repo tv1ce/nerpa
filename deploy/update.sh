@@ -52,6 +52,8 @@ rsync -a --delete \
     --exclude='*.db-wal' \
     --exclude='*.db-shm' \
     --exclude='.env' \
+    --exclude='teamly_tokens.json' \
+    --exclude='hr_report_state.json' \
     --exclude='logs/' \
     --exclude='generated/' \
     --exclude='document_templates/' \
