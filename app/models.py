@@ -858,6 +858,11 @@ HR_SECTIONS = (
     "enps", "enps_managers", "metrics", "gravity",
 )
 
+# Вид периода сбора: весь месяц или половина месяца (двухнедельный сбор).
+#   month — весь месяц; h1 — 1–15; h2 — 16–конец
+HR_PERIOD_KINDS = ("month", "h1", "h2")
+HR_PERIOD_KIND_LABELS = {"month": "весь месяц", "h1": "1–15", "h2": "16–конец"}
+
 
 class HrPosition(Base):
     """Должность (справочник). Позволяет отключить отдельные разделы отчёта для
@@ -915,6 +920,7 @@ class HrSurvey(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(200))
     period = Column(Date, nullable=False)     # месяц опроса (хранится 1-м числом)
+    period_kind = Column(String(8), default="month")  # month / h1 / h2 (двухнедельный сбор)
     sections = Column(Text, nullable=False)   # CSV кодов разделов этого раунда
     is_open = Column(Boolean, default=True)   # принимаются ли ещё ответы
     created_by = Column(Integer, ForeignKey("users.id"))
@@ -958,6 +964,7 @@ class HrRecord(Base):
     employee_id = Column(Integer, ForeignKey("hr_employees.id"), nullable=False)
     section = Column(String(20), nullable=False)  # см. HR_SECTIONS
     period = Column(Date, nullable=False)          # месяц записи (хранится 1-м числом)
+    period_kind = Column(String(8), default="month")  # month / h1 / h2 (см. HR_PERIOD_KINDS)
     text_1 = Column(Text)
     text_2 = Column(Text)
     score = Column(Integer)   # eNPS: 0-10
