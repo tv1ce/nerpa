@@ -187,6 +187,11 @@ class SbisClient:
                     "ЕдИзм":             i.product.unit or "шт",
                 })
 
+        # NB: реальная схема полей ConsignmentNote нигде в открытой документации
+        # Saby не описана. В первом тесте поля внутри "Вложение" были молча
+        # проигнорированы СБИС (создался только "Отправитель" из НашаОрганизация) —
+        # похоже, специфичные для типа документа поля должны быть на верхнем уровне
+        # объекта "Документ", а не вложены в "Вложение". Пробуем так.
         return {
             "Тип": "ConsignmentNote",
             "НашаОрганизация": {
@@ -203,44 +208,34 @@ class SbisClient:
                     "НаимОрг": receiver_name,
                 }
             },
-            "Вложение": [{
-                "Тип": "ЭТРН",
-                "Документ": {
-                    "Грузоотправитель": {
-                        "ИНН":          company.inn or "",
-                        "КПП":          company.kpp or "",
-                        "Наименование": company.name or "",
-                        "Адрес":        company.actual_address or company.legal_address or "",
-                    },
-                    "Грузополучатель": {
-                        "ИНН":          cp.inn or "",
-                        "КПП":          receiver_kpp,
-                        "Наименование": receiver_name,
-                        "Адрес":        receiver_addr,
-                    },
-                    "Перевозчик": {
-                        "ИНН":          carrier.inn if carrier else "",
-                        "Наименование": (carrier.trade_name or carrier.name) if carrier else "",
-                    },
-                    "ТС": {
-                        "ГосНомер": order.vehicle_plate or "",
-                        "Марка":    order.vehicle_type or "",
-                    },
-                    "Водитель": {
-                        "ФИО": order.driver_name or "",
-                    },
-                    "ПунктПогрузки": {
-                        "Адрес": order.pickup_address or company.actual_address or "",
-                    },
-                    "ПунктВыгрузки": {
-                        "Адрес": receiver_addr,
-                    },
-                    "Груз": items,
-                    "ДатаОтгрузки":   order.date.isoformat() if order.date else "",
-                    "СрокДоставки":   order.delivery_date.isoformat() if order.delivery_date else "",
-                    "ВремяДоставки":  order.delivery_time or "",
-                }
-            }]
+            "Получатель": {
+                "ИНН":          cp.inn or "",
+                "КПП":          receiver_kpp,
+                "Наименование": receiver_name,
+                "Адрес":        receiver_addr,
+            },
+            "Перевозчик": {
+                "ИНН":          carrier.inn if carrier else "",
+                "Наименование": (carrier.trade_name or carrier.name) if carrier else "",
+            },
+            "ТС": {
+                "ГосНомер": order.vehicle_plate or "",
+                "Марка":    order.vehicle_type or "",
+            },
+            "Водитель": {
+                "ФИО": order.driver_name or "",
+            },
+            "ПунктПогрузки": {
+                "Адрес": order.pickup_address or company.actual_address or "",
+            },
+            "ПунктВыгрузки": {
+                "Адрес": receiver_addr,
+            },
+            "АдресДоставки": receiver_addr,
+            "Груз": items,
+            "ДатаОтгрузки":  order.date.isoformat() if order.date else "",
+            "СрокДоставки":  order.delivery_date.isoformat() if order.delivery_date else "",
+            "ВремяДоставки": order.delivery_time or "",
         }
 
 
