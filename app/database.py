@@ -274,10 +274,8 @@ def _migrate_db():
         ("company_settings", "bitrix_notify_user_ids",  "TEXT"),
         ("notifications",    "escalated_at",            "TIMESTAMP"),
         ("orders",           "bitrix_category_id",      "INTEGER"),
-        # ── HR-отчётность (Teamly) ──
-        ("company_settings", "module_hr",                 "INTEGER DEFAULT 0"),
-        ("company_settings", "hr_sync_interval_minutes",  "INTEGER DEFAULT 360"),
-        ("company_settings", "hr_last_synced_at",         "TIMESTAMP"),
+        # ── HR-учёт ──
+        ("company_settings", "module_hr", "INTEGER DEFAULT 0"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

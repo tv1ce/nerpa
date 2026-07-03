@@ -5,7 +5,7 @@ from app.database import SessionLocal, verify_password
 from app.models import User, CompanySettings
 import secrets as _secrets
 
-ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1, "demo": 1}
+ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1, "hr": 1, "demo": 1}
 
 
 def safe_redirect(url: str, default: str = "/") -> str:
@@ -21,7 +21,7 @@ def safe_redirect(url: str, default: str = "/") -> str:
 ROLE_LABELS = {
     "admin": "Администратор", "manager": "Менеджер", "sales": "Отдел продаж",
     "field_rep": "Торговый представитель",
-    "viewer": "Просмотр", "warehouse": "Склад", "demo": "Демо",
+    "viewer": "Просмотр", "warehouse": "Склад", "hr": "HR", "demo": "Демо",
 }
 
 # Разделы, доступные роли "warehouse" (только чтение)
@@ -47,6 +47,17 @@ FIELD_ALLOWED_PREFIXES = (
     "/field",
     "/counterparties",   # просмотр карточки клиента (после конвертации точки)
     "/settings/profile", # свой профиль (ДР, смена пароля)
+    "/auth",
+    "/notifications",
+    "/static",
+    "/manifest.webmanifest",
+    "/sw.js",
+)
+
+# Разделы, доступные роли "hr" — HR-раздел и общий дашборд, больше ничего.
+HR_ALLOWED_PREFIXES = (
+    "/hr",
+    "/settings/profile",
     "/auth",
     "/notifications",
     "/static",
@@ -112,6 +123,16 @@ def _field_check(request: Request):
     return None
 
 
+def _hr_check(request: Request):
+    """Возвращает 403 если роль hr и путь вне дашборда/HR-раздела."""
+    role = request.session.get("user_role", "viewer")
+    if role == "hr":
+        path = request.url.path
+        if path != "/" and not any(path.startswith(p) for p in HR_ALLOWED_PREFIXES):
+            return HTMLResponse(_403_HTML, status_code=403)
+    return None
+
+
 async def _verify_csrf(request: Request) -> bool:
     """Проверяет CSRF-токен для POST-запросов.
     Принимает токен из тела формы (csrf_token) или заголовка X-CSRF-Token."""
@@ -167,7 +188,7 @@ def login_required(func):
         if getattr(user, "must_change_password", False):
             if not request.url.path.startswith(_CHANGE_PWD_PATH):
                 return RedirectResponse(url=_CHANGE_PWD_PATH, status_code=302)
-        denied = _demo_check(request) or _warehouse_check(request) or _field_check(request)
+        denied = _demo_check(request) or _warehouse_check(request) or _field_check(request) or _hr_check(request)
         if denied:
             return denied
         # CSRF-проверка для изменяющих запросов
@@ -193,7 +214,7 @@ def role_required(min_role: str = "viewer"):
             if not user:
                 request.session.clear()
                 return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
-            denied = _demo_check(request) or _warehouse_check(request) or _field_check(request)
+            denied = _demo_check(request) or _warehouse_check(request) or _field_check(request) or _hr_check(request)
             if denied:
                 return denied
             role = user.role  # берём роль из БД, не из сессии

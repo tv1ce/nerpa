@@ -32,6 +32,17 @@
   {% set _role = request.session.get('user_role', 'viewer') %}
   <div class="pt-2">
 
+    {% if _role == 'hr' %}
+    <div class="nav-section">Главное</div>
+    <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
+      <i class="bi bi-speedometer2"></i> <span>Дашборд</span>
+    </a>
+    <div class="nav-section">HR</div>
+    <a href="/hr/" class="nav-link {% if '/hr' in request.url.path %}active{% endif %}">
+      <i class="bi bi-people"></i> <span>HR-отчётность</span>
+    </a>
+  {% else %}
+
     {% if _role != 'warehouse' %}
     <div class="nav-section">Главное</div>
     <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">
@@ -141,6 +152,7 @@
     {% endif %}
     {% endif %}
 
+    {% endif %}
   </div>
 
   {% if request.session.get('user_role') == 'warehouse' %}
