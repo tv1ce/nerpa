@@ -437,10 +437,12 @@
               Для мгновенных оплат TMS сама подписывает вебхук Точки на адрес
               <code>{{ request.base_url }}api/tochka/webhook</code> при сохранении (нужен публичный HTTPS).
               Без вебхука оплаты подтягиваются опросом выписки раз в ~15 минут.
-              {% if company and company.tochka_webhook_url %}
-              <span class="text-success"><i class="bi bi-check-circle me-1"></i>Вебхук подписан: <code>{{ company.tochka_webhook_url }}</code></span>
-              {% endif %}
             </div>
+            {% if company and company.tochka_token %}
+            <div id="tochkaWebhookStatus" class="mt-1" style="font-size:.8rem">
+              <span class="text-muted"><i class="bi bi-hourglass-split me-1"></i>Проверяем статус подписки в Точке…</span>
+            </div>
+            {% endif %}
           </div>
           <div class="col-12 d-flex gap-2 flex-wrap mt-1">
             <button type="submit" class="btn btn-accent btn-sm">
@@ -952,7 +954,35 @@ async function subscribeTochka() {
   } catch(e) {
     el.innerHTML = `<span class="text-danger">${e}</span>`;
   }
+  loadTochkaWebhookStatus();   // независимо от результата PUT/POST — сверяем реальное состояние
 }
+
+async function loadTochkaWebhookStatus() {
+  const el = document.getElementById('tochkaWebhookStatus');
+  if (!el) return;
+  el.innerHTML = '<span class="text-muted"><i class="bi bi-hourglass-split me-1"></i>Проверяем статус подписки в Точке…</span>';
+  try {
+    const r = await fetch('/api/tochka/webhook-status');
+    if (!r.ok) { el.innerHTML = ''; return; }   // не-админ и т.п. — просто не показываем
+    const d = await r.json();
+    if (d.ok && d.exists) {
+      const events = (d.data && d.data.webhooksList || []).join(', ');
+      el.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>` +
+        `Вебхук подписан: <code>${d.data.url}</code> (${events})</span>`;
+    } else if (d.ok) {
+      el.innerHTML = '<span class="text-muted"><i class="bi bi-dash-circle me-1"></i>' +
+        'Вебхук не подписан — оплаты подтягиваются опросом выписки раз в ~15 минут.</span>';
+    } else {
+      el.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${d.message || 'Не удалось проверить статус'}</span>`;
+    }
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">Ошибка проверки: ${e}</span>`;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (document.getElementById('tochkaWebhookStatus')) loadTochkaWebhookStatus();
+});
 
 async function checkSbis() {
   const el = document.getElementById('sbisTestResult');
