@@ -235,10 +235,11 @@ class Invoice(Base):
     order_id = Column(Integer, ForeignKey("orders.id"))
     counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
     status = Column(String(20), default="draft")
-    # draft / issued / paid / overdue / cancelled
+    # draft / issued / partial / paid / overdue / cancelled
     subtotal = Column(Float, default=0.0)
     vat_amount = Column(Float, default=0.0)
     total_amount = Column(Float, default=0.0)
+    paid_amount = Column(Float, default=0.0)   # фактически оплачено (сумма привязанных платежей)
     due_date = Column(Date)
     paid_date = Column(Date)
     notes = Column(Text)
@@ -253,6 +254,31 @@ class Invoice(Base):
     order = relationship("Order", back_populates="invoices")
     contract = relationship("Contract")
     items = relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
+    payments = relationship("Payment", back_populates="invoice",
+                            cascade="all, delete-orphan", order_by="Payment.date")
+
+
+class Payment(Base):
+    """Банковское поступление (оплата счёта). Единый журнал для всех источников —
+    источник истины для суммы оплаты счёта, частичной оплаты и дедупа «Точка ↔ 1С».
+
+    external_id — идентификатор платежа в источнике (paymentId Точки / Ref документа
+    1С). Пара (source, external_id) уникальна — гарантирует идемпотентность приёма."""
+    __tablename__ = "payments"
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.id"))          # NULL = не привязан (ручной разбор)
+    counterparty_id = Column(Integer, ForeignKey("counterparties.id"))
+    amount = Column(Float, nullable=False)
+    date = Column(Date, nullable=False)
+    purpose = Column(Text)                                           # назначение платежа
+    payer_inn = Column(String(12))
+    payer_name = Column(String(200))
+    source = Column(String(10), default="tochka")                   # tochka / 1c
+    external_id = Column(String(64))                                # paymentId Точки / Ref 1С
+    created_at = Column(DateTime, server_default=func.now())
+
+    invoice = relationship("Invoice", back_populates="payments")
+    counterparty = relationship("Counterparty")
 
 
 class InvoiceItem(Base):
@@ -369,6 +395,12 @@ class CompanySettings(Base):
     onec_password = Column(String(200))                  # пароль (зашифрован через ENCRYPT_KEY)
     onec_enabled  = Column(Boolean, default=False)       # вкл/выкл синхронизацию
     onec_hs_url   = Column(String(500))                  # база HTTP-сервиса расширения (печать/ЭДО); пусто = вывести из onec_url
+    # ── Интеграция с банком «Точка» (авто-оплата счетов) ──
+    tochka_token         = Column(EncryptedText)         # JWT-ключ (Bearer-токен), зашифрован
+    tochka_account_id    = Column(String(64))            # accountId (счёт/БИК); пусто = автоопределение через /accounts
+    tochka_customer_code = Column(String(32))            # код клиента в Точке
+    tochka_enabled       = Column(Boolean, default=False)  # вкл/выкл сверку с Точкой
+    tochka_webhook_url   = Column(String(500))           # публичный HTTPS-адрес подписки на вебхуки (мгновенные оплаты)
     # ── Приём документов из 1С (Счёт/УПД/XML) ──
     doc_intake_channel = Column(String(20), default="off")  # off / telegram / email / folder
     # ── СБИС (ЭДО / ЭПД / ЭТРН) ──

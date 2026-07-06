@@ -36,6 +36,19 @@
         <div class="col-md-6"><span class="text-muted">Клиент:</span> <a href="/counterparties/{{ invoice.counterparty_id }}">{{ invoice.counterparty.trade_name or invoice.counterparty.name }}</a></div>
         <div class="col-md-3"><span class="text-muted">Оплатить до:</span> {{ invoice.due_date | date_fmt }}</div>
         <div class="col-md-3"><span class="text-muted">Оплачено:</span> {{ invoice.paid_date | date_fmt }}</div>
+        {% if invoice.status == "partial" or (invoice.paid_amount and invoice.status != "paid") %}
+        <div class="col-12">
+          <span class="text-muted">Поступило:</span>
+          <strong class="text-warning">{{ invoice.paid_amount | money }} ₽</strong>
+          <span class="text-muted">из {{ invoice.total_amount | money }} ₽</span>
+          {% set rest = (invoice.total_amount or 0) - (invoice.paid_amount or 0) %}
+          <span class="text-muted">· остаток {{ rest | money }} ₽</span>
+          <div class="progress mt-1" style="height:6px">
+            {% set pct = ((invoice.paid_amount or 0) / invoice.total_amount * 100) if invoice.total_amount else 0 %}
+            <div class="progress-bar bg-warning" style="width:{{ pct if pct < 100 else 100 }}%"></div>
+          </div>
+        </div>
+        {% endif %}
         {% if invoice.order %}<div class="col-12"><span class="text-muted">Заказ:</span> <a href="/orders/{{ invoice.order_id }}">{{ invoice.order.number }}</a></div>{% endif %}
         {% if invoice.notes %}<div class="col-12"><span class="text-muted">Примечание:</span> {{ invoice.notes }}</div>{% endif %}
       </div>
@@ -88,6 +101,40 @@
           </tfoot>
         </table>
       </div>
+    </div>
+
+    <!-- Поступления (оплаты из банка/1С) -->
+    <div class="card border-0 shadow-sm p-4 mt-3">
+      <div class="form-section-title">
+        Поступления
+        {% if invoice.payments %}<span class="text-muted">— оплачено {{ invoice.paid_amount | money }} из {{ invoice.total_amount | money }} ₽</span>{% endif %}
+      </div>
+      {% if invoice.payments %}
+      <div class="table-responsive">
+        <table class="table tms-table mb-0" style="font-size:.86rem">
+          <thead>
+            <tr><th>Дата</th><th class="text-end">Сумма</th><th>Плательщик</th><th>Источник</th><th>Назначение</th></tr>
+          </thead>
+          <tbody>
+            {% for p in invoice.payments %}
+            <tr>
+              <td>{{ p.date | date_fmt }}</td>
+              <td class="text-end fw-semibold">{{ p.amount | money }} ₽</td>
+              <td>{{ p.payer_name or '—' }}{% if p.payer_inn %}<div class="text-muted" style="font-size:.78rem">ИНН {{ p.payer_inn }}</div>{% endif %}</td>
+              <td>
+                {% if p.source == 'tochka' %}<span class="badge" style="background:#EEF2FF;color:#4338CA">Точка</span>
+                {% elif p.source == '1c' %}<span class="badge" style="background:#FEF3C7;color:#92400E">1С</span>
+                {% else %}<span class="badge bg-light text-dark">{{ p.source }}</span>{% endif %}
+              </td>
+              <td class="text-muted">{{ (p.purpose or '') | truncate(60) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-muted" style="font-size:.85rem">Поступлений по счёту пока нет. Оплаты подтягиваются автоматически из банка «Точка» и 1С.</div>
+      {% endif %}
     </div>
   </div>
 

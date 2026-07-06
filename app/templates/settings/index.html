@@ -388,6 +388,80 @@
     </div>
   </div>
 
+  {# Банк «Точка» #}
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mt-0" id="tochka">
+      <div class="form-section-title mb-3">
+        <i class="bi bi-bank me-1 text-primary"></i>Банк «Точка» — авто-оплата счетов
+      </div>
+      <form method="post" action="/settings/tochka">
+        <div class="row g-2">
+          <div class="col-12">
+            <div class="alert alert-info py-2 px-3 mb-1" style="font-size:.82rem">
+              <i class="bi bi-info-circle me-1"></i>
+              TMS читает выписку по счёту и автоматически разносит входящие оплаты:
+              по ИНН плательщика и номеру счёта в назначении платежа находит счёт и
+              переводит его в «Оплачен» (или «Частично оплачено»). JWT-ключ выпускается
+              в кабинете Точки: «Интеграции и API → JWT-ключи» (нужны права на выписки).
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm">JWT-токен</label>
+            <input type="password" name="tochka_token" class="form-control form-control-sm font-monospace"
+                   autocomplete="new-password"
+                   placeholder="{% if company and company.tochka_token %}(задан — пустое не меняет){% else %}eyJhbGciOiJSUzI1NiI...{% endif %}">
+            <div class="form-text" style="font-size:.72rem">Пустое — не менять уже сохранённый токен</div>
+          </div>
+          <div class="col-md-7">
+            <label class="form-label form-label-sm">accountId (счёт/БИК) <span class="text-muted">(необязательно)</span></label>
+            <input type="text" name="tochka_account_id" class="form-control form-control-sm font-monospace"
+                   placeholder="автоопределение, если счёт один"
+                   value="{{ company.tochka_account_id if company and company.tochka_account_id else '' }}">
+            <div class="form-text" style="font-size:.72rem">Укажите, только если счетов несколько</div>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label form-label-sm">Код клиента <span class="text-muted">(необязательно)</span></label>
+            <input type="text" name="tochka_customer_code" class="form-control form-control-sm font-monospace"
+                   value="{{ company.tochka_customer_code if company and company.tochka_customer_code else '' }}">
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch"
+                     name="tochka_enabled" value="1" id="tochkaEnabled"
+                     {% if company and company.tochka_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="tochkaEnabled" style="font-size:.88rem">Сверка с Точкой включена</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="form-text" style="font-size:.72rem">
+              Для мгновенных оплат TMS сама подписывает вебхук Точки на адрес
+              <code>{{ request.base_url }}api/tochka/webhook</code> при сохранении (нужен публичный HTTPS).
+              Без вебхука оплаты подтягиваются опросом выписки раз в ~15 минут.
+              {% if company and company.tochka_webhook_url %}
+              <span class="text-success"><i class="bi bi-check-circle me-1"></i>Вебхук подписан: <code>{{ company.tochka_webhook_url }}</code></span>
+              {% endif %}
+            </div>
+          </div>
+          <div class="col-12 d-flex gap-2 flex-wrap mt-1">
+            <button type="submit" class="btn btn-accent btn-sm">
+              <i class="bi bi-check-lg me-1"></i>Сохранить
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="checkTochka()">
+              <i class="bi bi-plug me-1"></i>Проверить подключение
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="syncTochka()">
+              <i class="bi bi-arrow-repeat me-1"></i>Сверить оплаты сейчас
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="subscribeTochka()">
+              <i class="bi bi-broadcast me-1"></i>Подписать вебхук
+            </button>
+            <span id="tochkaTestResult" class="ms-1 align-self-center" style="font-size:.85rem"></span>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   {# СБИС #}
   <div class="col-lg-8">
     <div class="card border-0 shadow-sm p-4 mt-0" id="sbis">
@@ -829,6 +903,49 @@ async function checkOnec1c() {
   el.innerHTML = '<span class="text-muted">Проверяем…</span>';
   try {
     const r = await fetch('/sync/1c/test');
+    const d = await r.json();
+    el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
+      `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.message}</span>`;
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+async function checkTochka() {
+  const el = document.getElementById('tochkaTestResult');
+  el.innerHTML = '<span class="text-muted">Проверяем…</span>';
+  try {
+    const r = await fetch('/api/tochka/test');
+    const d = await r.json();
+    el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
+      `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.message}</span>`;
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+async function syncTochka() {
+  const el = document.getElementById('tochkaTestResult');
+  el.innerHTML = '<span class="text-muted">Сверяем выписку…</span>';
+  try {
+    const r = await fetch('/api/tochka/sync', {method: 'POST'});
+    const d = await r.json();
+    if (d.errors && d.errors.length) {
+      el.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${d.errors.join('; ')}</span>`;
+    } else {
+      el.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>` +
+        `Разнесено: ${d.matched}, без счёта: ${d.unmatched}</span>`;
+    }
+  } catch(e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+async function subscribeTochka() {
+  const el = document.getElementById('tochkaTestResult');
+  el.innerHTML = '<span class="text-muted">Подписываем вебхук…</span>';
+  try {
+    const r = await fetch('/api/tochka/webhook-subscribe', {method: 'POST'});
     const d = await r.json();
     el.innerHTML = `<span class="${d.ok ? 'text-success' : 'text-danger'}">` +
       `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.message}</span>`;

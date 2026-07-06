@@ -68,7 +68,12 @@
             {% endif %}
           </td>
           <td class="text-end fw-semibold">{{ inv.total_amount | money }}</td>
-          <td><span class="badge badge-{{ inv.status }}">{{ statuses[inv.status] }}</span></td>
+          <td>
+            <span class="badge badge-{{ inv.status }}">{{ statuses[inv.status] }}</span>
+            {% if inv.status == 'partial' %}
+            <div class="text-muted" style="font-size:.75rem">{{ inv.paid_amount | money }} из {{ inv.total_amount | money }}</div>
+            {% endif %}
+          </td>
           <td class="text-end pe-3">
             <a href="/invoices/{{ inv.id }}/pdf" class="btn btn-sm btn-outline-danger py-0" title="Скачать PDF"><i class="bi bi-file-pdf"></i></a>
             <a href="/invoices/{{ inv.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>

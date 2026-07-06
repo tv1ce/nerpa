@@ -233,6 +233,13 @@ def _migrate_db():
         ("company_settings", "onec_password", "TEXT"),
         ("company_settings", "onec_enabled",  "INTEGER DEFAULT 0"),
         ("company_settings", "onec_hs_url",   "TEXT"),
+        # ── Интеграция с банком «Точка» ──
+        ("invoices",         "paid_amount",          "REAL DEFAULT 0.0"),
+        ("company_settings", "tochka_token",         "TEXT"),
+        ("company_settings", "tochka_account_id",    "TEXT"),
+        ("company_settings", "tochka_customer_code", "TEXT"),
+        ("company_settings", "tochka_enabled",       "INTEGER DEFAULT 0"),
+        ("company_settings", "tochka_webhook_url",   "TEXT"),
         ("attached_files",   "source",        "TEXT DEFAULT 'manual'"),
         ("attached_files",   "external_key",  "TEXT"),
         ("orders",           "shipment_id_1c", "TEXT"),
@@ -352,6 +359,7 @@ def _migrate_db():
         ("ix_invoices_date",            "invoices",       "date"),
         ("ix_invoices_counterparty_id", "invoices",       "counterparty_id"),
         ("ix_invoice_items_invoice_id", "invoice_items",  "invoice_id"),
+        ("ix_payments_invoice_id",      "payments",       "invoice_id"),
         ("ix_order_items_order_id",     "order_items",    "order_id"),
         ("ix_order_items_product_id",   "order_items",    "product_id"),
         ("ix_sales_leads_call_status",  "sales_leads",    "call_status"),
@@ -373,6 +381,11 @@ def _migrate_db():
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_public_token "
         "ON orders(public_token) WHERE public_token IS NOT NULL"
+    )
+    # Идемпотентность приёма платежей: один (источник, внешний id) = одна запись
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_payments_source_ext "
+        "ON payments(source, external_id) WHERE external_id IS NOT NULL"
     )
 
     conn.commit()
