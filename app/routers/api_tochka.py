@@ -77,25 +77,31 @@ def _first(d: dict, *keys):
 
 
 def _webhook_to_tx(payload: dict) -> dict | None:
-    """Приводит payload incomingPayment к формату _parse_transaction (защитно —
-    имена полей вебхука могут отличаться, берём с несколькими фолбэками)."""
+    """Приводит payload incomingPayment к формату _parse_transaction.
+
+    Реальная схема (подтверждена документацией и живым вебхуком):
+    {SidePayer: {inn, name, amount, ...}, SideRecipient: {...}, purpose,
+     documentNumber, paymentId, date, webhookType, customerCode}.
+    Плательщик и сумма лежат внутри SidePayer, а не плоско в payload."""
     from datetime import date
-    amount = _first(payload, "amount", "sumAmount", "paymentAmount")
-    d = str(_first(payload, "date", "paymentDate", "documentProcessDate",
-                   "operationDate") or "")[:10]
+    payer = payload.get("SidePayer") or {}
+    amount = _first(payer, "amount") or _first(payload, "amount")
+    d = str(_first(payload, "date", "paymentDate", "documentProcessDate") or "")[:10]
     try:
         pay_date = date.fromisoformat(d) if d else date.today()
     except ValueError:
         pay_date = date.today()
+    try:
+        amount = float(amount) if amount is not None else None
+    except (TypeError, ValueError):
+        amount = None
     return {
-        "external_id": _first(payload, "paymentId", "transactionId", "documentId"),
-        "amount": float(amount) if amount is not None else None,
+        "external_id": _first(payload, "paymentId", "documentNumber"),
+        "amount": amount,
         "pay_date": pay_date,
-        "purpose": _first(payload, "purpose", "paymentPurpose", "description") or "",
-        "payer_inn": (_first(payload, "payerInn", "sidePayerInn", "counterpartyInn",
-                             "payerINN") or "").strip(),
-        "payer_name": (_first(payload, "payerName", "counterpartyName",
-                              "payerNameFull") or "").strip(),
+        "purpose": _first(payload, "purpose") or "",
+        "payer_inn": (_first(payer, "inn") or "").strip(),
+        "payer_name": (_first(payer, "name") or "").strip(),
     }
 
 

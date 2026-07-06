@@ -269,7 +269,9 @@ def ensure_webhook(db: Session, webhook_url: str) -> dict:
     cid = _client_id_from_token(s.tochka_token)
     if not cid:
         return {"ok": False, "message": "Не удалось определить client_id из токена"}
-    body = {"Data": {"webhooksList": WEBHOOK_EVENTS, "url": webhook_url}}
+    # Без обёртки "Data" — API вебхуков (в отличие от Open Banking) принимает
+    # плоское тело с полями webhooks_list/url (проверено на живом API).
+    body = {"webhooks_list": WEBHOOK_EVENTS, "url": webhook_url}
     try:
         with _client(s) as c:
             r = c.put(f"{WH}/{cid}", json=body)
