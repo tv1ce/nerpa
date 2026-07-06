@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required
 from app.models import (
-    HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
+    HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken, Notification, User,
     HR_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
 )
 
@@ -154,7 +154,10 @@ def _period_full_label(d: date, kind: str) -> str:
 async def hr_home(request: Request, period: str = "", db: Session = Depends(get_db)):
     period_date = _period_from_str(period)
 
-    employees = db.query(HrEmployee).order_by(HrEmployee.is_active.desc(), HrEmployee.full_name).all()
+    all_employees = db.query(HrEmployee).order_by(HrEmployee.is_active.desc(), HrEmployee.full_name).all()
+    # уволенные не показываются в периодах после месяца увольнения — история за прошлые
+    # месяцы при этом сохраняется, чтобы старые отчёты не «теряли» человека задним числом
+    employees = [e for e in all_employees if e.visible_in_period(period_date)]
     # раздел считается заполненным, если за месяц есть хотя бы одна запись (любой полумесяц)
     records = db.query(HrRecord).filter(HrRecord.period == period_date).all()
     filled_sections: dict[int, set] = {}
@@ -208,9 +211,17 @@ async def edit_employee(
 ):
     emp = db.query(HrEmployee).filter(HrEmployee.id == employee_id).first()
     if emp:
+        now_active = bool(is_active)
         emp.full_name = full_name.strip()
         emp.position_id = int(position_id) if position_id else None
-        emp.is_active = bool(is_active)
+        if emp.is_active and not now_active:
+            # увольняем: запоминаем месяц, начиная с которого сотрудник больше не в учёте
+            today = date.today()
+            emp.deactivated_at = date(today.year, today.month, 1)
+        elif not emp.is_active and now_active:
+            # восстанавливаем — снова виден во всех периодах
+            emp.deactivated_at = None
+        emp.is_active = now_active
         db.commit()
     return RedirectResponse(url="/hr/", status_code=302)
 
@@ -255,6 +266,23 @@ async def edit_position(request: Request, position_id: int, db: Session = Depend
         disabled = [s for s in HR_SECTIONS if not form.get(f"sec_{s}")]
         pos.disabled_sections = ",".join(disabled)
         db.commit()
+    return RedirectResponse(url="/hr/positions", status_code=302)
+
+
+@router.post("/positions/{position_id}/delete")
+@login_required
+async def delete_position(request: Request, position_id: int, db: Session = Depends(get_db)):
+    """Удаляет должность, только если на неё не назначен ни один сотрудник
+    (иначе они молча остались бы без применимых разделов отчёта) — в этом
+    случае предлагается деактивировать должность вместо удаления."""
+    pos = db.query(HrPosition).filter(HrPosition.id == position_id).first()
+    if not pos:
+        return RedirectResponse(url="/hr/positions", status_code=302)
+    in_use = db.query(HrEmployee).filter(HrEmployee.position_id == position_id).count()
+    if in_use:
+        return RedirectResponse(url="/hr/positions?error=in_use", status_code=302)
+    db.delete(pos)
+    db.commit()
     return RedirectResponse(url="/hr/positions", status_code=302)
 
 
@@ -469,6 +497,20 @@ def _load_token(db: Session, token: str) -> HrSurveyToken | None:
     return db.query(HrSurveyToken).filter(HrSurveyToken.token == token).first()
 
 
+def _notify_survey_answered(db: Session, tok: HrSurveyToken) -> None:
+    """Уведомляет HR/admin (колокольчик в TMS) о первом ответе сотрудника на раунд."""
+    survey = tok.survey
+    title = f"✅ {tok.employee.full_name} ответил(а) на опрос «{survey.title or 'Опрос'}»"
+    recipients = db.query(User).filter(User.role.in_(("hr", "admin")), User.is_active == True).all()
+    for user in recipients:
+        db.add(Notification(
+            type="hr_survey_answered",
+            title=title,
+            link=f"/hr/surveys/{survey.id}",
+            user_id=user.id,
+        ))
+
+
 @router.get("/s/{token}", response_class=HTMLResponse)
 async def public_survey_form(request: Request, token: str, db: Session = Depends(get_db)):
     if _rate_limited(request.client.host if request.client else "?"):
@@ -515,7 +557,10 @@ async def public_survey_submit(request: Request, token: str, db: Session = Depen
 
     form = await request.form()
     kind = tok.survey.period_kind or "month"
+    is_first_submit = tok.submitted_at is None
     _save_from_form(db, tok.employee_id, tok.survey.period, kind, form, set(tok.effective_sections), None)
     tok.submitted_at = datetime.utcnow()
+    if is_first_submit:
+        _notify_survey_answered(db, tok)
     db.commit()
     return RedirectResponse(url=f"/hr/s/{token}?done=1", status_code=302)
