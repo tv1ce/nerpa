@@ -725,9 +725,11 @@ async def export_xlsx(
 # ── Карта ────────────────────────────────────────────────────────────────────
 
 # Состояние фонового геокодирования (singleton, один сервер)
-_geo_state: dict = {"running": False, "done": 0, "total": 0, "errors": 0}
-# ID лидов, для которых геокодирование уже пробовали и Nominatim ничего не вернул.
-# Сбрасывается при рестарте сервера — тогда можно попробовать снова.
+_geo_state: dict = {"running": False, "done": 0, "total": 0, "errors": 0, "last_error": None, "blocked": False}
+# ID лидов, для которых геокодирование уже пробовали и Nominatim ОКОНЧАТЕЛЬНО ничего не нашёл
+# (адрес не существует) — сбрасывается при рестарте сервера, либо вручную через /retry-failed.
+# НЕ используется для транзитных ошибок запроса (429/5xx/сеть) — те просто повторяются в
+# следующем запуске, иначе один сбой Nominatim навсегда "хоронит" адрес.
 _geocode_failed_ids: set[int] = set()
 
 
@@ -880,13 +882,34 @@ async def geocode_leads(request: Request, db: Session = Depends(get_db)):
     ]
 
     def _run():
+        import logging
         from app.database import SessionLocal
-        from app.utils.geocode import geocode_address_sync
-        _geo_state.update({"running": True, "done": 0, "total": len(items), "errors": 0})
+        from app.utils.geocode import GeocodeRequestError, geocode_address_sync
+        logger = logging.getLogger("tms.geocode")
+        _geo_state.update({
+            "running": True, "done": 0, "total": len(items), "errors": 0,
+            "last_error": None, "blocked": False,
+        })
         s = SessionLocal()
+        consecutive_request_errors = 0
         try:
             for i, (lead_id, query) in enumerate(items):
-                result = geocode_address_sync(query)
+                try:
+                    result = geocode_address_sync(query)
+                except GeocodeRequestError as e:
+                    consecutive_request_errors += 1
+                    _geo_state["errors"] += 1
+                    _geo_state["last_error"] = str(e)
+                    logger.warning("Geocode request failed for lead %s: %s", lead_id, e)
+                    # Не баним lead_id навсегда — это сбой запроса, не "адрес не найден".
+                    if consecutive_request_errors >= 3:
+                        # Похоже, Nominatim блокирует/троттлит нас — прекращаем, чтобы не
+                        # прожечь остаток очереди впустую; попробуем снова в следующий запуск.
+                        _geo_state["blocked"] = True
+                        break
+                    time.sleep(e.retry_after or 5)
+                    continue
+                consecutive_request_errors = 0
                 if result:
                     lead = s.get(SalesLead, lead_id)
                     if lead:
@@ -894,15 +917,26 @@ async def geocode_leads(request: Request, db: Session = Depends(get_db)):
                         s.commit()
                 else:
                     _geo_state["errors"] += 1
-                    _geocode_failed_ids.add(lead_id)  # не спрашивать Nominatim про этот адрес снова
+                    _geocode_failed_ids.add(lead_id)  # адрес окончательно не найден
                 _geo_state["done"] = i + 1
                 if i < len(items) - 1:
                     time.sleep(1.15)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Geocode batch crashed")
+            _geo_state["last_error"] = str(e)
         finally:
             s.close()
             _geo_state["running"] = False
 
     threading.Thread(target=_run, daemon=True).start()
     return JSONResponse({"ok": True, "started": True, "total": len(items)})
+
+
+@router.post("/geocode/retry-failed", response_class=JSONResponse)
+@login_required
+async def geocode_retry_failed(request: Request):
+    """Сбрасывает список адресов, для которых Nominatim ничего не нашёл, чтобы попробовать снова
+    (например, после исправления опечатки в адресе или снятия блокировки Nominatim)."""
+    count = len(_geocode_failed_ids)
+    _geocode_failed_ids.clear()
+    return JSONResponse({"ok": True, "cleared": count})

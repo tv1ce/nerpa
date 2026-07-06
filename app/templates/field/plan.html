@@ -54,6 +54,7 @@
   <div><span class="leg-dot" style="background:#6c757d"></span>не прозвонен</div>
   <div><span class="leg-dot" style="background:#0d6efd"></span>заинтересован</div>
   <div><span class="leg-dot" style="background:#dc3545"></span>отказ</div>
+  <div><span class="leg-dot" style="background:#6c757d;border:2px solid #f59e0b"></span>чужая точка</div>
 </div>
 {% endblock %}
 
@@ -89,6 +90,7 @@ function popupHtml(d){
     + (d.address?'<div style="font-size:.78rem">'+(d.city?d.city+', ':'')+d.address+'</div>':'')
     + (d.phone?'<div style="margin-top:3px"><a href="tel:'+d.phone+'">'+d.phone+'</a></div>':'')
     + '<div style="margin-top:6px"><span style="background:'+(STATUS_COLOR[d.status]||'#6c757d')+';color:#fff;font-size:.7rem;padding:2px 7px;border-radius:6px">'+(STATUS_LABEL[d.status]||d.status)+'</span></div>'
+    + (d.other_rep?'<div style="margin-top:6px;color:#b45309;font-size:.76rem"><i class="bi bi-person-fill-lock"></i> Закреплено за: '+d.other_rep+'</div>':'')
     + '<button onclick="togglePlan('+d.id+')" id="pbtn-'+d.id+'" '
       + 'style="display:block;width:100%;margin-top:8px;padding:8px;border:none;border-radius:8px;font-weight:600;color:#fff;background:'+(inPlan?'#dc3545':'#2563EB')+'">'
       + (inPlan?'Убрать из плана':'В план на день')+'</button>'
@@ -98,7 +100,15 @@ function popupHtml(d){
 
 function styleMarker(id){
   const e = allMarkers[id]; if(!e) return;
-  e.marker.setStyle({ fillColor: colorFor(e.data), color:'#fff', weight:2, fillOpacity:.9, radius: e.data.planned?10:8 });
+  // Точки чужого торгпреда — приглушённая заливка + янтарная обводка, чтобы не путать со своими
+  const isOther = !!e.data.other_rep;
+  e.marker.setStyle({
+    fillColor: colorFor(e.data),
+    color: isOther ? '#f59e0b' : '#fff',
+    weight: isOther ? 3 : 2,
+    fillOpacity: isOther ? .55 : .9,
+    radius: e.data.planned?10:8,
+  });
 }
 
 async function load(){
@@ -120,6 +130,9 @@ async function load(){
 
 async function togglePlan(id){
   const e = allMarkers[id]; if(!e) return;
+  if (!e.data.planned && e.data.other_rep) {
+    if (!confirm('Эта точка закреплена за '+e.data.other_rep+'. Всё равно добавить в свой план на день?')) return;
+  }
   const url = e.data.planned ? '/field/plan/remove' : '/field/plan/add';
   try {
     const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
@@ -155,12 +168,18 @@ map.on(L.Draw.Event.CREATED, function(e){
   drawn.clearLayers(); drawn.addLayer(e.layer);
   const vs = e.layer.getLatLngs()[0];
   zoneIds = [];
+  let zoneOtherCount = 0;
   Object.values(allMarkers).forEach(function(it){
     const ll = it.marker.getLatLng();
-    if(pointInPolygon(ll.lat, ll.lng, vs) && !it.data.planned) zoneIds.push(it.data.id);
+    if(!pointInPolygon(ll.lat, ll.lng, vs) || it.data.planned) return;
+    // Точки, закреплённые за другим торгпредом, не попадают в зону автоматически —
+    // их можно добавить только вручную через карточку точки (см. togglePlan).
+    if (it.data.other_rep) { zoneOtherCount++; return; }
+    zoneIds.push(it.data.id);
   });
-  document.getElementById('zone-count').textContent = zoneIds.length;
-  document.getElementById('zone-panel').style.display = zoneIds.length ? 'block' : 'none';
+  document.getElementById('zone-count').innerHTML = zoneIds.length
+    + (zoneOtherCount ? ' <span style="color:#b45309;font-size:.75rem">(+'+zoneOtherCount+' чужих пропущено)</span>' : '');
+  document.getElementById('zone-panel').style.display = (zoneIds.length || zoneOtherCount) ? 'block' : 'none';
 });
 function clearZone(){ drawn.clearLayers(); zoneIds=[]; document.getElementById('zone-panel').style.display='none'; }
 async function addZone(){
