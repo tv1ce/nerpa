@@ -256,7 +256,12 @@ def get_webhook(db: Session) -> dict:
 
 
 def ensure_webhook(db: Session, webhook_url: str) -> dict:
-    """Создаёт/обновляет подписку на входящие платежи (PUT).
+    """Создаёт/обновляет подписку на входящие платежи.
+
+    У Точки это разные методы: PUT — только первое создание (повторный PUT при
+    уже существующей подписке отвечает 400 "Object already exists"), POST —
+    изменение существующей. Поэтому сначала смотрим текущее состояние (GET) и
+    выбираем метод; на всякий случай при "already exists" тоже ретраим POST'ом.
 
     Точка при подписке шлёт тестовый вебхук на указанный URL и требует, чтобы он
     был доступен по HTTPS:443 из интернета — иначе вернёт ошибку. Возвращает
@@ -272,9 +277,13 @@ def ensure_webhook(db: Session, webhook_url: str) -> dict:
     # Без обёртки "Data" — API вебхуков (в отличие от Open Banking) принимает
     # плоское тело с полями webhooks_list/url (проверено на живом API).
     body = {"webhooks_list": WEBHOOK_EVENTS, "url": webhook_url}
+    existing = get_webhook(db)
     try:
         with _client(s) as c:
-            r = c.put(f"{WH}/{cid}", json=body)
+            method = c.post if existing.get("exists") else c.put
+            r = method(f"{WH}/{cid}", json=body)
+            if r.status_code == 400 and "already exists" in r.text.lower():
+                r = c.post(f"{WH}/{cid}", json=body)   # подписка уже есть — правим POST'ом
         if r.status_code in (200, 201):
             return {"ok": True, "message": "Вебхук подписан", "url": webhook_url}
         return {"ok": False, "message": f"HTTP {r.status_code}: {r.text[:200]}"}
