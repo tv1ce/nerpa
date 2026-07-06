@@ -279,6 +279,7 @@ def _migrate_db():
         ("hr_employees", "position_id", "INTEGER REFERENCES hr_positions(id)"),
         ("hr_records", "period_kind", "TEXT DEFAULT 'month'"),
         ("hr_surveys", "period_kind", "TEXT DEFAULT 'month'"),
+        ("hr_employees", "deactivated_at", "DATE"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

@@ -894,6 +894,9 @@ class HrEmployee(Base):
     position = Column(String(200))                                    # legacy: текст должности
     position_id = Column(Integer, ForeignKey("hr_positions.id"))      # ссылка на справочник должностей
     is_active = Column(Boolean, default=True)
+    # Месяц (1-е число), с которого сотрудник снят с учёта — сохраняется при деактивации,
+    # чтобы прошлые периоды по-прежнему его показывали, а новые — нет. NULL — не увольнялся.
+    deactivated_at = Column(Date)
     created_at = Column(DateTime, server_default=func.now())
 
     records = relationship("HrRecord", back_populates="employee")
@@ -911,6 +914,13 @@ class HrEmployee(Base):
         if self.position_ref:
             return self.position_ref.enabled_sections
         return list(HR_SECTIONS)
+
+    def visible_in_period(self, period_date) -> bool:
+        """Виден ли сотрудник в списке за данный месяц: активные — всегда,
+        уволенные — только в периодах до месяца увольнения включительно."""
+        if self.is_active:
+            return True
+        return self.deactivated_at is not None and period_date <= self.deactivated_at
 
 
 class HrSurvey(Base):
