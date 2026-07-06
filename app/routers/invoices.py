@@ -65,6 +65,7 @@ templates = Jinja2Templates(directory="app/templates")
 INVOICE_STATUSES = {
     "draft": "Черновик",
     "issued": "Выставлен",
+    "partial": "Частично оплачено",
     "paid": "Оплачен",
     "overdue": "Просрочен",
     "cancelled": "Отменён",
@@ -115,7 +116,7 @@ async def list_invoices(
         query = query.filter(Invoice.counterparty_id == counterparty_id)
     if overdue:
         query = query.filter(
-            Invoice.status.in_(["issued", "overdue"]),
+            Invoice.status.in_(["issued", "overdue", "partial"]),
             Invoice.due_date < today,
             Invoice.due_date.isnot(None),
         )
@@ -206,7 +207,7 @@ async def export_invoices(
     if counterparty_id:
         query = query.filter(Invoice.counterparty_id == counterparty_id)
     if overdue:
-        query = query.filter(Invoice.status.in_(["issued", "overdue"]),
+        query = query.filter(Invoice.status.in_(["issued", "overdue", "partial"]),
                              Invoice.due_date < today, Invoice.due_date.isnot(None))
     invoices = query.order_by(Invoice.date.desc(), Invoice.id.desc()).all()
     rows = [[

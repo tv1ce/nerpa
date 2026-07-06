@@ -379,6 +379,45 @@ async def save_onec(
     return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
 
 
+@router.post("/tochka")
+@role_required("admin")
+async def save_tochka(
+    request: Request,
+    tochka_token: str = Form(default=""),
+    tochka_account_id: str = Form(default=""),
+    tochka_customer_code: str = Form(default=""),
+    tochka_enabled: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    # Токен не перетираем пустым значением (как onec_password) — чтобы «Сохранить»
+    # без повторного ввода токена не стирал его.
+    if tochka_token.strip():
+        company.tochka_token = tochka_token.strip()
+    company.tochka_account_id = tochka_account_id.strip() or None
+    company.tochka_customer_code = tochka_customer_code.strip() or None
+    company.tochka_enabled = (tochka_enabled == "1")
+    db.commit()
+    # Автоподписка на вебхук: при включённой сверке и наличии токена регистрируем
+    # приёмник /api/tochka/webhook по публичному адресу приложения (Точка требует
+    # HTTPS:443 и доступность из интернета). Ошибка не мешает сохранению настроек.
+    hook = ""
+    if company.tochka_enabled and company.tochka_token:
+        from app.services.tochka_client import ensure_webhook, webhook_url_from_base
+        url = webhook_url_from_base(str(request.base_url))
+        res = ensure_webhook(db, url)
+        if res.get("ok"):
+            company.tochka_webhook_url = url
+            db.commit()
+            hook = "&hook=ok"
+        else:
+            hook = "&hook=fail"
+    return RedirectResponse(url=f"/settings/?saved=1&tab=integrations{hook}#tochka", status_code=302)
+
+
 @router.post("/sbis")
 @role_required("admin")
 async def save_sbis(

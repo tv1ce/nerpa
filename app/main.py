@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_bitrix, hr
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_bitrix, api_tochka, hr
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ def _mark_overdue_invoices() -> int:
         updated = (
             db.query(Invoice)
             .filter(
-                Invoice.status == "issued",
+                Invoice.status.in_(["issued", "partial"]),
                 Invoice.due_date != None,
                 Invoice.due_date < today,
             )
@@ -163,7 +163,7 @@ def _notify_due_invoices() -> int:
         created = 0
         invoices = (
             db.query(Invoice)
-            .filter(Invoice.status == "issued", Invoice.due_date.isnot(None))
+            .filter(Invoice.status.in_(["issued", "partial"]), Invoice.due_date.isnot(None))
             .all()
         )
         for inv in invoices:
@@ -304,28 +304,34 @@ def _rotate_generated(max_age_days: int = 90) -> int:
 
 
 def _run_1c_sync_job():
-    """Фоновая задача APScheduler: импорт номенклатуры и оплат из 1С."""
+    """Фоновая задача APScheduler: сверка оплат (Точка → 1С) + импорт из 1С.
+
+    Порядок сверки важен: СНАЧАЛА банк «Точка», ПОТОМ 1С. Так оплата, уже
+    разнесённая по банковской выписке, при последующей сверке 1С не задваивается
+    (дедуп в apply_payment по этому и заботится)."""
     from app.database import SessionLocal
+    from app.services.tochka_client import sync_payments_from_tochka
     from app.services.onec_client import (
         sync_products_from_1c, sync_payments_from_1c, sync_invoices_from_1c,
         sync_shipments_from_1c, sync_documents_from_1c, retry_unpushed_orders,
     )
     db = SessionLocal()
     try:
-        r0 = retry_unpushed_orders(db)   # самовосстановление пропущенного push заказов
+        rt = sync_payments_from_tochka(db)   # 1) банк «Точка» — приоритетный источник оплат
+        r0 = retry_unpushed_orders(db)       # самовосстановление пропущенного push заказов
         r1 = sync_products_from_1c(db)
         r3 = sync_invoices_from_1c(db)
         sync_shipments_from_1c(db)
         rd = sync_documents_from_1c(db)
-        r2 = sync_payments_from_1c(db)
+        r2 = sync_payments_from_1c(db)        # 2) 1С — добор того, чего не было в банке
         logger.info(
-            "1C auto-sync: orders_pushed=%s; products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments u=%s",
-            r0.get("pushed"),
+            "auto-sync: tochka m=%s u=%s; orders_pushed=%s; products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments_1c u=%s",
+            rt.get("matched"), rt.get("unmatched"), r0.get("pushed"),
             r1.get("created"), r1.get("updated"),
             r3.get("created"), r3.get("updated"), rd.get("attached"), r2.get("updated"),
         )
     except Exception as e:
-        logger.error("1C auto-sync job error: %s", e)
+        logger.error("auto-sync job error: %s", e)
     finally:
         db.close()
 
@@ -353,6 +359,20 @@ async def lifespan(_app: FastAPI):
         logger.info("APScheduler: задача 1c_sync запущена (каждые 15 мин)")
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
+
+    # Переподписка вебхука Точки по сохранённому адресу (переживает рестарт/деплой)
+    try:
+        from app.database import SessionLocal
+        from app.services.tochka_client import ensure_webhook_saved
+        _wdb = SessionLocal()
+        try:
+            r = ensure_webhook_saved(_wdb)
+            if r.get("ok"):
+                logger.info("Точка: вебхук переподписан (%s)", r.get("url"))
+        finally:
+            _wdb.close()
+    except Exception as e:
+        logger.warning("Точка: переподписка вебхука не выполнена: %s", e)
 
     yield
     # ── shutdown (ничего освобождать не нужно) ────────────────────────────────
@@ -504,6 +524,7 @@ app.include_router(sourcing.router)
 app.include_router(api_1c.router)     # приём документов из 1С (push, вариант A)
 app.include_router(api_sbis.router)   # СБИС ЭПД/ЭТРН (вариант C)
 app.include_router(api_bitrix.router) # Bitrix24 CRM — приём сделок + настройка маппинга
+app.include_router(api_tochka.router) # Банк «Точка» — вебхук/сверка входящих оплат
 app.include_router(hr.router)         # HR-отчётность (Teamly)
 
 

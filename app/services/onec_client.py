@@ -645,10 +645,12 @@ def _digits_to_int(v) -> int | None:
 
 def sync_payments_from_1c(db: Session) -> dict:
     """
-    Тянет статус оплаты счетов ИЗ 1С (счета НЕ пушатся из TMS).
+    Тянет оплату счетов ИЗ 1С (счета НЕ пушатся из TMS) и разносит её через общий
+    журнал платежей (app.utils.apply_payment/recompute_invoice_payment).
     Сопоставление: числовой номер счёта 1С == номер счёта TMS И совпадение суммы.
-    Счёт считается оплаченным, если в регистре ОплатаСчетовИЗаказов
-    (СуммаОплаты + СуммаАванса) >= Сумма (обязательство).
+    Оплата берётся из регистра ОплатаСчетовИЗаказов (СуммаОплаты + СуммаАванса) —
+    поддерживается частичная оплата. 1С — вторичный источник: то, что уже разнесено
+    из банка «Точка», повторно не заводится (сверка сначала по Точке, потом по 1С).
     """
     s = _get_settings(db)
     if not s or not s.onec_enabled:
@@ -682,44 +684,54 @@ def sync_payments_from_1c(db: Session) -> dict:
                         p = (ln.get("Period") or "")[:10]
                         if p and p > last_pay.get(ref, ""):
                             last_pay[ref] = p
-            paid_refs = {ref for ref, (ob, pd) in agg.items() if ob > 0 and pd + 0.01 >= ob}
-
-            # 2. Карта оплаченных счетов 1С: (числовой номер, сумма) -> дата оплаты
+            # 2. Карта оплат 1С: (числовой номер, сумма документа) -> (оплачено, дата).
+            #    Берём счета с ненулевой оплатой — в т.ч. частично оплаченные (не только закрытые).
             ri = c.get("Document_СчетНаОплату",
                        params={"$format": "json", "$select": "Ref_Key,Number,СуммаДокумента"})
             ri.raise_for_status()
-            paid_index: dict[tuple, str | None] = {}
+            pay_index: dict[tuple, tuple[float, str | None]] = {}
             for d in ri.json().get("value", []):
                 ref = d.get("Ref_Key")
-                if ref not in paid_refs:
+                ob_pd = agg.get(ref)
+                if not ob_pd or ob_pd[1] <= 0:
                     continue
                 n = _digits_to_int(d.get("Number"))
                 amt = round(d.get("СуммаДокумента") or 0, 2)
                 if n is not None:
-                    paid_index[(n, amt)] = last_pay.get(ref)
+                    pay_index[(n, amt)] = (round(ob_pd[1], 2), last_pay.get(ref))
 
-        # 3. Применяем к неоплаченным счетам TMS
-        for inv in db.query(Invoice).filter(Invoice.status != "paid").all():
+        # 3. Разносим оплаты 1С по счетам TMS через общий журнал платежей.
+        #    «Top-up до фактической суммы»: доводим оплату счёта до значения из 1С,
+        #    не задваивая то, что уже пришло из Точки (Точка — приоритетный источник).
+        from sqlalchemy import func as _func
+        from app.models import Payment
+        from app.utils import recompute_invoice_payment
+        for inv in db.query(Invoice).filter(~Invoice.status.in_(["cancelled", "draft"])).all():
             n = _digits_to_int(inv.number)
             amt = round(inv.total_amount or 0, 2)
             if n is None:
                 continue
-            key = (n, amt)
-            if key in paid_index:
-                inv.status = "paid"
-                pd = paid_index[key]
-                try:
-                    inv.paid_date = _date.fromisoformat(pd) if pd else _date.today()
-                except (ValueError, TypeError):
-                    inv.paid_date = _date.today()
-                # Подтягиваем статус связанного заказа (предоплата → «Оплачен»)
-                if inv.order:
-                    from app.utils import sync_order_paid_status
-                    sync_order_paid_status(db, inv.order)
-                    if inv.order.bitrix_deal_id:
-                        from app.services.bitrix_client import push_order_event
-                        push_order_event(inv.order, s, "paid", db=db)
-                updated += 1
+            hit = pay_index.get((n, amt))
+            if not hit:
+                continue
+            paid_total, pd = hit
+            existing = db.query(_func.coalesce(_func.sum(Payment.amount), 0.0)) \
+                         .filter(Payment.invoice_id == inv.id).scalar() or 0.0
+            delta = round(paid_total - existing, 2)
+            if delta <= 0.01:
+                continue   # уже покрыто (в т.ч. Точкой) — не дублируем
+            try:
+                pay_date = _date.fromisoformat(pd) if pd else _date.today()
+            except (ValueError, TypeError):
+                pay_date = _date.today()
+            db.add(Payment(
+                invoice_id=inv.id, counterparty_id=inv.counterparty_id,
+                amount=delta, date=pay_date, source="1c",
+                external_id=f"1c:{n}:{paid_total}", purpose="Оплата по данным 1С",
+            ))
+            db.flush()
+            recompute_invoice_payment(db, inv)
+            updated += 1
 
         if updated:
             db.commit()

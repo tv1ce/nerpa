@@ -278,6 +278,7 @@ a:hover { text-decoration: none; }
 .badge-delivered { background:#DCFCE7; color:#166534; }
 .badge-cancelled { background:#FEE2E2; color:#B91C1C; }
 .badge-issued    { background:#CFFAFE; color:#0E7490; }
+.badge-partial   { background:#FEF3C7; color:#92400E; }
 .badge-paid      { background:#DCFCE7; color:#166534; }
 .badge-overdue   { background:#FEE2E2; color:#B91C1C; }
 .badge-active    { background:#DCFCE7; color:#166534; }
