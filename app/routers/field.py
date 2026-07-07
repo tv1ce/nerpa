@@ -7,6 +7,7 @@
 
 Карта переиспользует ту же базу SalesLead и геокодинг, что и /leads.
 """
+import io
 import json
 import math
 import os
@@ -14,7 +15,7 @@ import uuid
 from datetime import datetime, date
 
 from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session, joinedload
 
@@ -501,6 +502,10 @@ async def save_visit(
     db.add(LeadCall(lead_id=lead.id, user_id=uid, status=result,
                     comment=(("[Визит] " + comment) if comment else "[Визит]")))
     db.commit()
+    if result == "deal":
+        from app.models import CompanySettings
+        from app.services.bitrix_client import push_lead_deal_to_bitrix
+        push_lead_deal_to_bitrix(lead, db.query(CompanySettings).first(), db=db)
 
     return RedirectResponse(url=f"/field/lead/{lead_id}?saved=1", status_code=302)
 
@@ -782,3 +787,121 @@ async def monitor_data(request: Request, date_str: str = "", db: Session = Depen
             "rep_id": v.rep_id,
         })
     return out
+
+
+# ── Отчёт по торгпредам (за период) ──────────────────────────────────────────
+
+def _report_period(date_from: str, date_to: str) -> tuple[date, date]:
+    """По умолчанию — текущий месяц."""
+    today = date.today()
+    try:
+        d_from = date.fromisoformat(date_from) if date_from else today.replace(day=1)
+    except ValueError:
+        d_from = today.replace(day=1)
+    try:
+        d_to = date.fromisoformat(date_to) if date_to else today
+    except ValueError:
+        d_to = today
+    if d_to < d_from:
+        d_from, d_to = d_to, d_from
+    return d_from, d_to
+
+
+def _report_rows(db: Session, d_from: date, d_to: date, rep_id: str = "") -> list[dict]:
+    """Агрегирует визиты по торгпредам за период: план/факт, конверсия, договоры, отказы."""
+    reps_q = db.query(User).filter(User.is_active == True, User.role == "field_rep")
+    if rep_id.isdigit():
+        reps_q = reps_q.filter(User.id == int(rep_id))
+    reps = reps_q.order_by(User.full_name).all()
+
+    rows = []
+    for r in reps:
+        visits = db.query(FieldVisit).filter(
+            FieldVisit.rep_id == r.id,
+            FieldVisit.planned_date >= d_from, FieldVisit.planned_date <= d_to,
+        ).all()
+        done = [v for v in visits if v.status == "done"]
+        planned = len(visits)
+        done_n = len(done)
+        deals = sum(1 for v in done if v.result == "deal")
+        refused = sum(1 for v in done if v.result == "refused")
+        interested = sum(1 for v in done if v.result in ("interested", "thinking"))
+        no_answer = sum(1 for v in done if v.result == "no_answer")
+        rows.append({
+            "rep": r,
+            "planned": planned,
+            "done": done_n,
+            "left": planned - done_n,
+            "deals": deals,
+            "interested": interested,
+            "refused": refused,
+            "no_answer": no_answer,
+            "conv": round(deals / done_n * 100) if done_n else 0,
+        })
+    rows.sort(key=lambda x: x["deals"], reverse=True)
+    return rows
+
+
+def _report_totals(rows: list[dict]) -> dict:
+    planned = sum(x["planned"] for x in rows)
+    done = sum(x["done"] for x in rows)
+    deals = sum(x["deals"] for x in rows)
+    return {
+        "planned": planned, "done": done, "left": planned - done,
+        "deals": deals,
+        "interested": sum(x["interested"] for x in rows),
+        "refused": sum(x["refused"] for x in rows),
+        "no_answer": sum(x["no_answer"] for x in rows),
+        "conv": round(deals / done * 100) if done else 0,
+    }
+
+
+@router.get("/report", response_class=HTMLResponse)
+@role_required("manager")
+async def report(request: Request, date_from: str = "", date_to: str = "",
+                 rep_id: str = "", db: Session = Depends(get_db)):
+    denied = _block_field_rep(request)
+    if denied:
+        return denied
+    d_from, d_to = _report_period(date_from, date_to)
+    rows = _report_rows(db, d_from, d_to, rep_id)
+    reps = db.query(User).filter(User.is_active == True, User.role == "field_rep")\
+        .order_by(User.full_name).all()
+    return templates.TemplateResponse(request, "field/report.html", {
+        "rows": rows, "totals": _report_totals(rows),
+        "date_from": d_from, "date_to": d_to,
+        "reps": reps, "rep_id": rep_id,
+    })
+
+
+@router.get("/report.xlsx")
+@role_required("manager")
+async def report_export(request: Request, date_from: str = "", date_to: str = "",
+                        rep_id: str = "", db: Session = Depends(get_db)):
+    from openpyxl import Workbook
+    d_from, d_to = _report_period(date_from, date_to)
+    rows = _report_rows(db, d_from, d_to, rep_id)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Отчёт по торгпредам"
+    ws.append(["Торгпред", "План визитов", "Пройдено", "Осталось", "Договоров",
+               "Заинтересовано", "Отказов", "Не застал", "Конверсия, %"])
+    for r in rows:
+        ws.append([
+            r["rep"].full_name, r["planned"], r["done"], r["left"], r["deals"],
+            r["interested"], r["refused"], r["no_answer"], r["conv"],
+        ])
+    widths = [28, 13, 11, 11, 11, 15, 10, 11, 13]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+    ws.freeze_panes = "A2"
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    fname = f"torgpred_{d_from.isoformat()}_{d_to.isoformat()}.xlsx"
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )

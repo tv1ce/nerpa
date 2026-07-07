@@ -423,6 +423,9 @@ class CompanySettings(Base):
     bitrix_field_delivered = Column(String(60))     # код UF-поля «Доставлено» (плашка), автосоздаётся
     bitrix_alert_chat_ids = Column(Text)            # Telegram chat_id для громкого уведомления о новом заказе, через запятую
     bitrix_notify_user_ids = Column(Text)           # ID пользователей TMS для уведомления о новом заказе (через запятую); пусто = все
+    # Авто-выгрузка лидов «Прозвон»/«Поле» в Bitrix24 при статусе «Договор/продажа»
+    bitrix_lead_export_enabled = Column(Boolean, default=False)
+    bitrix_lead_responsible_id = Column(String(20))  # ID пользователя Bitrix24 — ASSIGNED_BY_ID нового CRM-лида
 
 
 class BitrixPipeline(Base):
@@ -624,6 +627,9 @@ class SalesLead(Base):
     recon_reviewed_at = Column(DateTime)
     # Конвертация в контрагента
     converted_cp_id = Column(Integer, ForeignKey("counterparties.id"))
+    # Bitrix24: авто-выгрузка при переходе в статус «Договор/продажа» (deal)
+    bitrix_lead_id = Column(String(20))          # ID созданного CRM-лида в Bitrix24
+    bitrix_lead_synced_at = Column(DateTime)     # когда выгружен
 
     assigned_to = relationship("User")
     converted_cp = relationship("Counterparty")

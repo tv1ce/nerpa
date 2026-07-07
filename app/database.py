@@ -287,6 +287,11 @@ def _migrate_db():
         ("hr_records", "period_kind", "TEXT DEFAULT 'month'"),
         ("hr_surveys", "period_kind", "TEXT DEFAULT 'month'"),
         ("hr_employees", "deactivated_at", "DATE"),
+        # ── Bitrix24: авто-выгрузка лидов «Прозвон»/«Поле» при статусе «Договор/продажа» ──
+        ("company_settings", "bitrix_lead_responsible_id", "TEXT"),
+        ("company_settings", "bitrix_lead_export_enabled", "INTEGER DEFAULT 0"),
+        ("sales_leads", "bitrix_lead_id", "TEXT"),
+        ("sales_leads", "bitrix_lead_synced_at", "TIMESTAMP"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

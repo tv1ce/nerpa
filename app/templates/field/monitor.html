@@ -3,6 +3,9 @@
 {% block page_title %}Поле — торговые представители{% endblock %}
 
 {% block topbar_actions %}
+<a href="/field/report" class="btn btn-sm btn-outline-secondary me-2">
+  <i class="bi bi-bar-chart-line me-1"></i>Отчёт по торгпредам
+</a>
 <form method="get" class="d-flex align-items-center gap-2">
   <input type="date" name="date_str" value="{{ day.isoformat() }}" class="form-control form-control-sm"
          style="max-width:165px" onchange="this.form.submit()">

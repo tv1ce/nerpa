@@ -16,6 +16,7 @@ Bitrix24 CRM — интеграция через входящий вебхук (
 Docs: https://apidocs.bitrix24.ru/api-reference/
 """
 import logging
+from datetime import datetime
 from typing import Optional
 
 import httpx
@@ -111,6 +112,23 @@ class BitrixClient:
         entity_id = "DEAL_STAGE" if not category_id else f"DEAL_STAGE_{category_id}"
         rows = self.call("crm.status.list", filter={"ENTITY_ID": entity_id}, order={"SORT": "ASC"}) or []
         return [{"id": r.get("STATUS_ID"), "name": r.get("NAME")} for r in rows]
+
+    # ── CRM-лиды (TMS → Bitrix24, авто-выгрузка «Прозвон»/«Поле») ─────────────
+
+    def add_lead(self, fields: dict) -> str:
+        """Создаёт CRM-лид, возвращает его ID."""
+        result = self.call("crm.lead.add", fields=fields)
+        return str(result)
+
+    # ── Пользователи (для настройки ответственного) ───────────────────────────
+
+    def list_users(self) -> list:
+        """Активные сотрудники портала — для выбора ответственного в настройках."""
+        rows = self.call("user.get", ACTIVE=True, ADMIN_MODE=True) or []
+        return [
+            {"id": r.get("ID"), "name": f"{r.get('LAST_NAME', '')} {r.get('NAME', '')}".strip() or r.get("ID")}
+            for r in rows
+        ]
 
     # ── Пользовательские поля-«плашки» ────────────────────────────────────────
 
@@ -320,4 +338,51 @@ def push_order_event(order, company, event: str, db=None) -> bool:
     except BitrixError as e:
         logger.error("Bitrix24 push (%s) заказ #%s сделка %s: %s",
                      event, order.number, order.bitrix_deal_id, e)
+        return False
+
+
+# ── TMS → Bitrix24: авто-выгрузка лидов «Прозвон»/«Поле» в статусе «deal» ────
+
+def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
+    """Создаёт CRM-лид в Bitrix24, когда точка «Прозвона»/«Поля» переходит в
+    статус call_status == 'deal'. Ответственный всегда один и тот же —
+    company.bitrix_lead_responsible_id (задаётся в Настройках → Bitrix24).
+
+    Идемпотентно: если lead.bitrix_lead_id уже заполнен, повторно не создаёт.
+    Не бросает исключения наружу — только логирует, как и push_order_event."""
+    if lead.call_status != "deal" or lead.bitrix_lead_id:
+        return False
+    if not company or not company.bitrix_lead_export_enabled:
+        return False
+    client = get_bitrix_client(company)
+    if not client:
+        return False
+
+    address = ", ".join(p for p in (lead.city, lead.address) if p) or None
+    fields = {
+        "TITLE": lead.name,
+        "STATUS_ID": "NEW",
+        "SOURCE_ID": "OTHER",
+        "SOURCE_DESCRIPTION": "TMS — Прозвон/Поле",
+        "COMPANY_TITLE": lead.name,
+        "PHONE": [{"VALUE": lead.phone, "VALUE_TYPE": "WORK"}] if lead.phone else None,
+        "EMAIL": [{"VALUE": lead.email, "VALUE_TYPE": "WORK"}] if lead.email else None,
+        "ADDRESS": address,
+        "COMMENTS": lead.notes or None,
+    }
+    fields = {k: v for k, v in fields.items() if v}
+    if company.bitrix_lead_responsible_id:
+        fields["ASSIGNED_BY_ID"] = company.bitrix_lead_responsible_id
+
+    try:
+        with client:
+            new_id = client.add_lead(fields)
+        lead.bitrix_lead_id = new_id
+        lead.bitrix_lead_synced_at = datetime.now()
+        if db is not None:
+            db.commit()
+        return True
+    except BitrixError as e:
+        logger.error("Bitrix24: не удалось создать CRM-лид из точки #%s (%s): %s",
+                     lead.id, lead.name, e)
         return False
