@@ -362,6 +362,10 @@ def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
     fields = {
         "TITLE": lead.name,
         "STATUS_ID": "NEW",
+        # OPENED=Y значит «лид доступен всем» — Bitrix кладёт такие лиды в общий
+        # раздел «Неразобранные» ВНЕ ЗАВИСИМОСТИ от ASSIGNED_BY_ID. Явно ставим
+        # 'N', чтобы лид сразу был закреплён за ответственным, а не висел в общей куче.
+        "OPENED": "N",
         "SOURCE_ID": "OTHER",
         "SOURCE_DESCRIPTION": "TMS — Прозвон/Поле",
         "COMPANY_TITLE": lead.name,
