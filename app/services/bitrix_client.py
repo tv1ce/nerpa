@@ -345,11 +345,14 @@ def push_order_event(order, company, event: str, db=None) -> bool:
 
 def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
     """Создаёт CRM-лид в Bitrix24, когда точка «Прозвона»/«Поля» переходит в
-    статус call_status == 'deal'. Ответственный всегда один и тот же —
-    company.bitrix_lead_responsible_id (задаётся в Настройках → Bitrix24).
+    статус call_status == 'deal'.
 
-    Идемпотентно: если lead.bitrix_lead_id уже заполнен, повторно не создаёт.
-    Не бросает исключения наружу — только логирует, как и push_order_event."""
+    Ответственный: если у назначенного в TMS торгпреда/менеджера (lead.assigned_to)
+    задан персональный User.bitrix_user_id — лид уходит на него, иначе на общий
+    company.bitrix_lead_responsible_id (Настройки → Bitrix24).
+
+    Идемпотентно: если lead.bitrix_lead_id уже заполнен, повторно не создаёт
+    (так что эту функцию безопасно дёргать из фоновой задачи-ретрая)."""
     if lead.call_status != "deal" or lead.bitrix_lead_id:
         return False
     if not company or not company.bitrix_lead_export_enabled:
@@ -358,25 +361,50 @@ def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
     if not client:
         return False
 
+    responsible_id = None
+    if lead.assigned_to and getattr(lead.assigned_to, "bitrix_user_id", None):
+        responsible_id = lead.assigned_to.bitrix_user_id
+    elif company.bitrix_lead_responsible_id:
+        responsible_id = company.bitrix_lead_responsible_id
+
+    source_is_field = lead.source_file == "field_rep"
+    source_label = "TMS — Поле (торгпред)" if source_is_field else "TMS — Прозвон"
+
+    comments_parts = []
+    if lead.category:
+        comments_parts.append(f"Рубрика: {lead.category}")
+    if lead.notes:
+        comments_parts.append(lead.notes)
+    if lead.director:
+        who = lead.director + (f", {lead.director_post}" if lead.director_post else "")
+        comments_parts.append(f"ЛПР: {who}")
+    if getattr(company, "public_url", None):
+        path = f"/field/lead/{lead.id}" if source_is_field else f"/leads/?q={lead.name}"
+        comments_parts.append(f"Карточка в TMS: {company.public_url.rstrip('/')}{path}")
+
     address = ", ".join(p for p in (lead.city, lead.address) if p) or None
     fields = {
         "TITLE": lead.name,
-        "STATUS_ID": "NEW",
+        # Лид уже привёл к реальному договору в TMS — сразу «В работе», а не
+        # «Не обработан», чтобы не создавать у ответственного впечатление
+        # свежего холодного лида, который ещё никто не трогал.
+        "STATUS_ID": "IN_PROCESS",
         # OPENED=Y значит «лид доступен всем» — Bitrix кладёт такие лиды в общий
         # раздел «Неразобранные» ВНЕ ЗАВИСИМОСТИ от ASSIGNED_BY_ID. Явно ставим
         # 'N', чтобы лид сразу был закреплён за ответственным, а не висел в общей куче.
         "OPENED": "N",
         "SOURCE_ID": "OTHER",
-        "SOURCE_DESCRIPTION": "TMS — Прозвон/Поле",
+        "SOURCE_DESCRIPTION": source_label,
         "COMPANY_TITLE": lead.name,
+        "POST": lead.director_post or None,
         "PHONE": [{"VALUE": lead.phone, "VALUE_TYPE": "WORK"}] if lead.phone else None,
         "EMAIL": [{"VALUE": lead.email, "VALUE_TYPE": "WORK"}] if lead.email else None,
         "ADDRESS": address,
-        "COMMENTS": lead.notes or None,
+        "COMMENTS": "\n".join(comments_parts) or None,
     }
     fields = {k: v for k, v in fields.items() if v}
-    if company.bitrix_lead_responsible_id:
-        fields["ASSIGNED_BY_ID"] = company.bitrix_lead_responsible_id
+    if responsible_id:
+        fields["ASSIGNED_BY_ID"] = responsible_id
 
     try:
         with client:
@@ -390,3 +418,28 @@ def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
         logger.error("Bitrix24: не удалось создать CRM-лид из точки #%s (%s): %s",
                      lead.id, lead.name, e)
         return False
+
+
+def retry_unpushed_leads(db) -> dict:
+    """Самовосстановление: находит точки в статусе 'deal', для которых
+    push_lead_deal_to_bitrix ещё не сработал (bitrix_lead_id пуст — сеть
+    моргнула, вебхук был недоступен и т.п.), и пробует ещё раз.
+    Вызывается периодически из APScheduler (см. app/main.py)."""
+    from app.models import CompanySettings, SalesLead
+
+    company = db.query(CompanySettings).first()
+    if not company or not company.bitrix_lead_export_enabled:
+        return {"pushed": 0, "failed": 0}
+
+    pending = db.query(SalesLead).filter(
+        SalesLead.call_status == "deal",
+        SalesLead.bitrix_lead_id.is_(None),
+    ).all()
+
+    pushed = failed = 0
+    for lead in pending:
+        if push_lead_deal_to_bitrix(lead, company, db=db):
+            pushed += 1
+        else:
+            failed += 1
+    return {"pushed": pushed, "failed": failed}

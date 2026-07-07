@@ -20,6 +20,9 @@ class User(Base):
     birthday = Column(Date)  # день рождения — для поздравлений на табло цеха
     phone = Column(String(50))  # рабочий телефон менеджера — показывается клиенту в трекинге
     created_at = Column(DateTime, server_default=func.now())
+    # Bitrix24: если задано — авто-выгруженные лиды этого торгпреда/менеджера
+    # назначаются на этого сотрудника Bitrix, а не на глобального bitrix_lead_responsible_id
+    bitrix_user_id = Column(String(20))
 
 
 class Counterparty(Base):
@@ -425,7 +428,11 @@ class CompanySettings(Base):
     bitrix_notify_user_ids = Column(Text)           # ID пользователей TMS для уведомления о новом заказе (через запятую); пусто = все
     # Авто-выгрузка лидов «Прозвон»/«Поле» в Bitrix24 при статусе «Договор/продажа»
     bitrix_lead_export_enabled = Column(Boolean, default=False)
-    bitrix_lead_responsible_id = Column(String(20))  # ID пользователя Bitrix24 — ASSIGNED_BY_ID нового CRM-лида
+    bitrix_lead_responsible_id = Column(String(20))  # ID пользователя Bitrix24 — ASSIGNED_BY_ID нового CRM-лида, если у торгпреда нет своего User.bitrix_user_id
+    # Публичный URL TMS (напр. https://nuttshell.ru) — для обратной ссылки на карточку
+    # точки в комментарии Bitrix-лида. Строится не из request.base_url, т.к. авто-выгрузка
+    # может идти из фоновой задачи (APScheduler), где объекта Request нет.
+    public_url = Column(String(300))
 
 
 class BitrixPipeline(Base):

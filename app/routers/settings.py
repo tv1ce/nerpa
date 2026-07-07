@@ -225,6 +225,7 @@ async def create_user(
     full_name: str = Form(...),
     password: str = Form(...),
     role: str = Form(default="manager"),
+    bitrix_user_id: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     existing = db.query(User).filter(User.username == username).first()
@@ -234,10 +235,12 @@ async def create_user(
         existing.password_hash = hash_password(password)
         existing.role = role
         existing.is_active = True
+        existing.bitrix_user_id = bitrix_user_id.strip() or None
     else:
         db.add(User(
             username=username, full_name=full_name,
             password_hash=hash_password(password), role=role,
+            bitrix_user_id=bitrix_user_id.strip() or None,
         ))
     db.commit()
     return RedirectResponse(url="/settings/", status_code=302)
@@ -251,6 +254,7 @@ async def edit_user(
     full_name: str = Form(...),
     role: str = Form(default="manager"),
     password: str = Form(default=""),
+    bitrix_user_id: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     from app.auth import ROLE_LABELS
@@ -263,6 +267,7 @@ async def edit_user(
         if password.strip():
             user.password_hash = hash_password(password.strip())
             user.must_change_password = False
+        user.bitrix_user_id = bitrix_user_id.strip() or None
         db.commit()
     return RedirectResponse(url="/settings/", status_code=302)
 
@@ -452,6 +457,7 @@ async def save_bitrix(
     bitrix_notify_user_ids: list[str] = Form(default=[]),
     bitrix_lead_export_enabled: str = Form(default=""),
     bitrix_lead_responsible_id: str = Form(default=""),
+    public_url: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -464,6 +470,7 @@ async def save_bitrix(
     company.bitrix_stage_shipped = bitrix_stage_shipped.strip() or None
     company.bitrix_stage_delivered = bitrix_stage_delivered.strip() or None
     company.bitrix_alert_chat_ids = bitrix_alert_chat_ids.strip() or None
+    company.public_url = public_url.strip().rstrip("/") or None
     valid_ids = {str(uid) for uid, in db.query(User.id)}
     selected = [uid for uid in bitrix_notify_user_ids if uid in valid_ids]
     company.bitrix_notify_user_ids = ",".join(selected) or None

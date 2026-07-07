@@ -256,6 +256,7 @@
     <div class="modal-content">
       <div class="modal-header"><h6 class="modal-title" id="histTitle">История звонков</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body" id="histBody"><div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm"></span></div></div>
+      <div class="modal-footer py-2" id="histBitrixFooter" style="display:none"></div>
     </div>
   </div>
 </div>
@@ -314,10 +315,22 @@ document.querySelectorAll('[data-field]').forEach(el => {
 async function showHistory(id){
   const m = new bootstrap.Modal('#histModal'); m.show();
   const body = document.getElementById('histBody');
+  const footer = document.getElementById('histBitrixFooter');
+  footer.style.display = 'none';
   body.innerHTML = '<div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm"></span></div>';
   try {
     const r = await fetch(`/leads/${id}/history`); const d = await r.json();
     document.getElementById('histTitle').textContent = 'История: ' + d.name;
+    if (d.call_status === 'deal') {
+      footer.style.display = 'flex';
+      if (d.bitrix_lead_id) {
+        footer.innerHTML = '<span class="text-success small"><i class="bi bi-check-circle-fill me-1"></i>Выгружен в Bitrix24 (лид #' + d.bitrix_lead_id + ')</span>';
+      } else {
+        footer.innerHTML = '<span class="text-muted small me-auto">Ещё не выгружен в Bitrix24</span>' +
+          '<button type="button" class="btn btn-sm btn-outline-primary" onclick="retryBitrix(' + id + ', this)">' +
+          '<i class="bi bi-cloud-arrow-up me-1"></i>Выгрузить сейчас</button>';
+      }
+    }
     if (!d.calls.length){ body.innerHTML = '<div class="text-muted text-center py-4">Звонков ещё не было</div>'; return; }
     function esc(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     // Допустимые CSS-классы Bootstrap для цвета бейджа
@@ -335,6 +348,33 @@ async function showHistory(id){
     }).join('');
   } catch(e){ body.innerHTML = '<div class="text-danger text-center py-4">Ошибка загрузки</div>'; }
 }
+
+async function retryBitrix(id, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отправка…';
+  try {
+    const r = await fetch(`/leads/${id}/bitrix-retry`, { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      showHistory(id);
+    } else {
+      const reasons = {
+        export_disabled: 'Авто-выгрузка выключена в Настройках → Bitrix24.',
+        not_configured: 'Bitrix24 не подключён в Настройках.',
+        status_not_deal: 'Статус лида уже не «Договор/продажа».',
+        bitrix_error: 'Bitrix24 не ответил — попробуйте позже.',
+      };
+      alert(reasons[d.reason] || 'Не удалось выгрузить.');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-arrow-up me-1"></i>Выгрузить сейчас';
+    }
+  } catch (e) {
+    alert('Ошибка запроса.');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-cloud-arrow-up me-1"></i>Выгрузить сейчас';
+  }
+}
+
 function submitTo(formId, action){ const f=document.getElementById(formId); f.action=action; f.submit(); }
 function delLead(id){ if(confirm('Удалить точку?')) submitTo('delform', `/leads/${id}/delete`); }
 function toCp(id){ if(confirm('Создать контрагента из этой точки?')) submitTo('cpform', `/leads/${id}/to-counterparty`); }

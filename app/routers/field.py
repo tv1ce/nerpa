@@ -830,7 +830,7 @@ def _report_rows(db: Session, d_from: date, d_to: date, rep_id: str = "") -> lis
         visits = db.query(FieldVisit).filter(
             FieldVisit.rep_id == r.id,
             FieldVisit.planned_date >= d_from, FieldVisit.planned_date <= d_to,
-        ).all()
+        ).options(joinedload(FieldVisit.lead)).order_by(FieldVisit.checkin_at.desc()).all()
         done = [v for v in visits if v.status == "done"]
         planned = len(visits)
         done_n = len(done)
@@ -838,6 +838,19 @@ def _report_rows(db: Session, d_from: date, d_to: date, rep_id: str = "") -> lis
         refused = sum(1 for v in done if v.result == "refused")
         interested = sum(1 for v in done if v.result in ("interested", "thinking"))
         no_answer = sum(1 for v in done if v.result == "no_answer")
+        # Полная запись по каждому визиту — не только счётчики, а всё, что торгпред
+        # реально написал (результат, комментарий, следующий шаг) — по запросу
+        # руководителя видеть содержание работы, а не только «сколько отходил».
+        details = [{
+            "lead_name": v.lead.name if v.lead else "—",
+            "address": ", ".join(p for p in ((v.lead.city if v.lead else None), (v.lead.address if v.lead else None)) if p),
+            "result_label": LEAD_STATUSES.get(v.result, v.result or "—"),
+            "color": STATUS_COLORS.get(v.result, "secondary"),
+            "comment": v.comment or "",
+            "next_step": v.next_step or "",
+            "when": v.checkin_at,
+            "lead_id": v.lead_id,
+        } for v in done]
         rows.append({
             "rep": r,
             "planned": planned,
@@ -848,6 +861,7 @@ def _report_rows(db: Session, d_from: date, d_to: date, rep_id: str = "") -> lis
             "refused": refused,
             "no_answer": no_answer,
             "conv": round(deals / done_n * 100) if done_n else 0,
+            "details": details,
         })
     rows.sort(key=lambda x: x["deals"], reverse=True)
     return rows
