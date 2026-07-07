@@ -97,6 +97,12 @@
             </label>
           </div>
           {% endfor %}
+          <div class="mt-3">
+            <label class="form-label form-label-sm">Вопросы личностного профиля <span class="text-muted">(по одному на строку)</span></label>
+            <textarea name="personal_questions" class="form-control form-control-sm" rows="4"
+                      placeholder="Пусто — общие вопросы по умолчанию"></textarea>
+            <div class="form-text">Вопросы подбираются под роль: РОПу — про влияние и ресурсы, кондитеру — про процессы и т.п.</div>
+          </div>
         </div>
         <div class="modal-footer py-2 px-3">
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
@@ -132,6 +138,11 @@
             </label>
           </div>
           {% endfor %}
+          <div class="mt-3">
+            <label class="form-label form-label-sm">Вопросы личностного профиля <span class="text-muted">(по одному на строку)</span></label>
+            <textarea name="personal_questions" class="form-control form-control-sm" rows="4"
+                      placeholder="Пусто — общие вопросы по умолчанию">{{ p.personal_questions or '' }}</textarea>
+          </div>
           <div class="form-check mt-3 border-top pt-2">
             <input type="checkbox" name="is_active" value="1" class="form-check-input" id="p{{ p.id }}_active" {% if p.is_active %}checked{% endif %}>
             <label class="form-check-label" for="p{{ p.id }}_active">Должность активна</label>

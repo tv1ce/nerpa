@@ -1,12 +1,13 @@
-{# Поля одного раздела HR-учёта. Ожидает: code, records (dict), questions.
+{# Поля одного раздела HR-учёта. Ожидает: code, records (dict), questions,
+   для personal — personal_qa (список {"q","a"} по вопросам должности).
    Имена полей совпадают с тем, что читает _save_from_form в routers/hr.py. #}
 {% set rec = records.get(code) %}
 
 {% if code == 'personal' %}
-  <label class="form-label form-label-sm text-muted">{{ questions.personal_1 }}</label>
-  <textarea name="personal_1" class="form-control mb-3" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
-  <label class="form-label form-label-sm text-muted">{{ questions.personal_2 }}</label>
-  <textarea name="personal_2" class="form-control" rows="3">{{ rec.text_2 if rec else '' }}</textarea>
+  {% for qa in personal_qa %}
+  <label class="form-label form-label-sm text-muted">{{ qa.q }}</label>
+  <textarea name="personal_q{{ loop.index0 }}" class="form-control {% if not loop.last %}mb-3{% endif %}" rows="3">{{ qa.a }}</textarea>
+  {% endfor %}
 
 {% elif code == 'complaints' %}
   <textarea name="complaints_1" class="form-control" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
@@ -37,7 +38,17 @@
   <textarea name="enps_managers_comment" class="form-control" rows="2">{{ rec.text_1 if rec else '' }}</textarea>
 
 {% elif code == 'metrics' %}
-  <textarea name="metrics_1" class="form-control" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
+  {# метрика собирается дважды в месяц — два полумесяца в одной форме #}
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label form-label-sm text-muted"><b>1–15</b> числа</label>
+      <textarea name="metrics_h1" class="form-control" rows="3">{{ records.metrics_h1.text_1 if records.get('metrics_h1') else '' }}</textarea>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label form-label-sm text-muted"><b>16 — конец</b> месяца</label>
+      <textarea name="metrics_h2" class="form-control" rows="3">{{ records.metrics_h2.text_1 if records.get('metrics_h2') else '' }}</textarea>
+    </div>
+  </div>
 
 {% elif code == 'gravity' %}
   <textarea name="gravity_1" class="form-control" rows="3">{{ rec.text_1 if rec else '' }}</textarea>

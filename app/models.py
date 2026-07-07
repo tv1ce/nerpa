@@ -917,6 +917,10 @@ class HrPosition(Base):
     title = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True)
     disabled_sections = Column(Text)  # CSV кодов разделов, выключенных для должности
+    # Вопросы «Личностного профиля» именно для этой должности — по одному на строку
+    # (в Teamly вопросы подбираются под чувствительности роли: РОПу — про влияние
+    # и ресурсы, кондитеру — про процессы). Пусто = общие вопросы по умолчанию.
+    personal_questions = Column(Text)
     created_at = Column(DateTime, server_default=func.now())
 
     employees = relationship("HrEmployee", back_populates="position_ref")
@@ -929,6 +933,10 @@ class HrPosition(Base):
     def enabled_sections(self) -> list[str]:
         off = self.disabled_set
         return [s for s in HR_SECTIONS if s not in off]
+
+    @property
+    def personal_question_list(self) -> list[str]:
+        return [q.strip() for q in (self.personal_questions or "").splitlines() if q.strip()]
 
 
 class HrEmployee(Base):
@@ -1042,6 +1050,21 @@ class HrVacancy(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class HrEmployeeInsight(Base):
+    """ИИ-анализ динамики сотрудника (OpenRouter) по накопленным ежемесячным
+    ответам — хранится историей, чтобы видеть, как менялись выводы."""
+    __tablename__ = "hr_employee_insights"
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("hr_employees.id"), nullable=False)
+    text = Column(Text, nullable=False)
+    model = Column(String(100))     # какая модель сгенерировала
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+    employee = relationship("HrEmployee")
+
+
+Index("ix_hr_employee_insights_employee_id", HrEmployeeInsight.employee_id)
 Index("ix_hr_records_employee_id", HrRecord.employee_id)
 Index("ix_hr_records_section",     HrRecord.section)
 Index("ix_hr_records_period",      HrRecord.period)

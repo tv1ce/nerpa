@@ -1,3 +1,6 @@
+import asyncio
+import json
+import logging
 import secrets
 import time
 from collections import defaultdict
@@ -12,9 +15,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required
 from app.models import (
-    HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken, Notification, User,
+    HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
+    HrEmployeeInsight, Notification, User,
     HR_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 templates = Jinja2Templates(directory="app/templates")
@@ -29,10 +35,16 @@ SECTION_META = {
     "gravity":       {"icon": "🧲", "label": "Гравитация и антигравитация"},
 }
 
-# Вопросы разделов — используются и в HR-форме, и в публичном опросе.
+# Вопросы «Личностного профиля» по умолчанию — для сотрудников без должности
+# или с должностью без собственного списка вопросов. Для остальных вопросы
+# берутся из должности (HrPosition.personal_questions, по одному на строку).
+DEFAULT_PERSONAL_QUESTIONS = [
+    "За прошедший месяц: что из сделанного вами здесь дало ощущение реального результата и ценности для компании?",
+    "Был ли в этом месяце момент, когда вам не хватило коммуникации, обратной связи или решений со стороны руководства?",
+]
+
+# Вопросы остальных разделов — используются и в HR-форме, и в публичном опросе.
 QUESTIONS = {
-    "personal_1": "За прошедший месяц: что из сделанного вами здесь дало ощущение реального результата и ценности для компании?",
-    "personal_2": "Был ли в этом месяце момент, когда вам не хватило коммуникации, обратной связи или решений со стороны руководства?",
     "complaints": "С какой дичью вам приходится сталкиваться каждый день?",
     "achievements": "Достижения за период (по одному на строку).",
     "enps_1": "По шкале от 0 до 10, с какой вероятностью вы порекомендуете компанию как отличное место работы?",
@@ -75,6 +87,39 @@ def _shift_period(d: date, delta: int) -> date:
     return date(year, month, 1)
 
 
+# ── Личностный профиль: вопросы должности и разбор ответов ───────────────────
+
+def _personal_questions(employee: HrEmployee) -> list[str]:
+    """Вопросы личностного профиля для сотрудника — из его должности или общие."""
+    if employee.position_ref and employee.position_ref.personal_question_list:
+        return employee.position_ref.personal_question_list
+    return list(DEFAULT_PERSONAL_QUESTIONS)
+
+
+def _parse_personal_answers(rec: HrRecord | None) -> dict[str, str]:
+    """Ответы личностного профиля из записи: JSON-пары [{"q","a"}] в text_1.
+    Старые записи (до вопросов-по-должностям) хранили два ответа в text_1/text_2 —
+    маппим их на дефолтные вопросы, чтобы история не потерялась."""
+    if rec is None or not rec.text_1:
+        return {}
+    try:
+        pairs = json.loads(rec.text_1)
+        if isinstance(pairs, list):
+            return {p.get("q", ""): p.get("a", "") for p in pairs if isinstance(p, dict)}
+    except (ValueError, TypeError):
+        pass
+    legacy = {DEFAULT_PERSONAL_QUESTIONS[0]: rec.text_1}
+    if rec.text_2:
+        legacy[DEFAULT_PERSONAL_QUESTIONS[1]] = rec.text_2
+    return legacy
+
+
+def _personal_qa(employee: HrEmployee, rec: HrRecord | None) -> list[dict]:
+    """[{"q": вопрос, "a": ответ}] для рендера формы — вопросы должности + ответы записи."""
+    answers = _parse_personal_answers(rec)
+    return [{"q": q, "a": answers.get(q, "")} for q in _personal_questions(employee)]
+
+
 # ── Сохранение ответов (общее для HR-формы и публичного опроса) ──────────────
 
 def _score(raw) -> int | None:
@@ -106,17 +151,22 @@ def _upsert_record(db: Session, employee_id: int, section: str, period_date: dat
     record.score = score
 
 
-def _save_from_form(db: Session, employee_id: int, period_date: date, period_kind: str, form,
+def _save_from_form(db: Session, employee: HrEmployee, period_date: date, form,
                     allowed: set[str], user_id: int | None) -> None:
-    """Сохраняет только разрешённые (allowed) разделы из тела формы."""
+    """Сохраняет только разрешённые (allowed) разделы из тела формы.
+    Личностный профиль хранится JSON-парами «вопрос-ответ» (вопросы зависят от
+    должности); метрика — двумя записями за полумесяцы (h1/h2), остальное — за месяц."""
     def g(name):
         return form.get(name, "")
 
-    def up(section, t1, t2=None, sc=None):
-        _upsert_record(db, employee_id, section, period_date, period_kind, t1, t2, sc, user_id)
+    def up(section, t1, t2=None, sc=None, kind="month"):
+        _upsert_record(db, employee.id, section, period_date, kind, t1, t2, sc, user_id)
 
     if "personal" in allowed:
-        up("personal", g("personal_1"), g("personal_2"))
+        pairs = [{"q": q, "a": (g(f"personal_q{i}") or "").strip()}
+                 for i, q in enumerate(_personal_questions(employee))]
+        if any(p["a"] for p in pairs):
+            up("personal", json.dumps(pairs, ensure_ascii=False))
     if "complaints" in allowed:
         up("complaints", g("complaints_1"))
     if "achievements" in allowed:
@@ -126,9 +176,27 @@ def _save_from_form(db: Session, employee_id: int, period_date: date, period_kin
     if "enps_managers" in allowed:
         up("enps_managers", g("enps_managers_comment"), sc=_score(g("enps_managers_score")))
     if "metrics" in allowed:
-        up("metrics", g("metrics_1"))
+        up("metrics", g("metrics_h1"), kind="h1")
+        up("metrics", g("metrics_h2"), kind="h2")
     if "gravity" in allowed:
         up("gravity", g("gravity_1"))
+
+
+def _records_map(db: Session, employee_id: int, period_date: date) -> dict:
+    """Записи сотрудника за месяц для формы: {'personal': rec, ..., 'metrics_h1': rec,
+    'metrics_h2': rec}. Метрика раскладывается по полумесяцам; для остальных разделов
+    приоритет у месячной записи (полумесячные могли остаться от старых раундов)."""
+    out: dict[str, HrRecord] = {}
+    rows = db.query(HrRecord).filter(
+        HrRecord.employee_id == employee_id, HrRecord.period == period_date
+    ).all()
+    for r in rows:
+        if r.section == "metrics":
+            if r.period_kind in ("h1", "h2"):
+                out[f"metrics_{r.period_kind}"] = r
+        elif r.period_kind == "month" or r.section not in out:
+            out[r.section] = r
+    return out
 
 
 def _section_ctx() -> dict:
@@ -226,6 +294,139 @@ async def edit_employee(
     return RedirectResponse(url="/hr/", status_code=302)
 
 
+# ── Профайл сотрудника: история ответов + ИИ-анализ динамики ─────────────────
+
+def _profile_months(employee: HrEmployee, rows: list[HrRecord]) -> list[dict]:
+    """Группирует записи по месяцам (свежие сверху) в готовую для шаблона структуру:
+    [{"label", "sections": [{"icon", "label", "rows": [{"q","a"} | {"text","score","half"}]}]}]"""
+    by_period: dict[date, list[HrRecord]] = {}
+    for r in rows:
+        by_period.setdefault(r.period, []).append(r)
+
+    months = []
+    for period in sorted(by_period, reverse=True):
+        sections = []
+        recs = {(r.section, r.period_kind or "month"): r for r in by_period[period]}
+        for code in HR_SECTIONS:
+            entries = []
+            if code == "personal":
+                rec = recs.get(("personal", "month"))
+                if rec:
+                    for q, a in _parse_personal_answers(rec).items():
+                        if a:
+                            entries.append({"q": q, "a": a})
+            elif code == "metrics":
+                for kind, half in (("h1", "1–15"), ("h2", "16–конец"), ("month", "")):
+                    rec = recs.get(("metrics", kind))
+                    if rec and rec.text_1:
+                        entries.append({"text": rec.text_1, "half": half})
+            else:
+                rec = recs.get((code, "month")) or next(
+                    (r for (s, _k), r in recs.items() if s == code), None)
+                if rec and (rec.text_1 or rec.score is not None):
+                    entries.append({"text": rec.text_1 or "", "score": rec.score})
+            if entries:
+                sections.append({"code": code, "icon": SECTION_META[code]["icon"],
+                                 "label": SECTION_META[code]["label"], "rows": entries})
+        if sections:
+            months.append({"label": _period_label(period), "sections": sections})
+    return months
+
+
+def _history_text_for_ai(employee: HrEmployee, months: list[dict]) -> str:
+    """История ответов в хронологическом порядке — вход для ИИ-анализа динамики."""
+    parts = [f"Сотрудник: {employee.full_name}, должность: {employee.position_title or 'не указана'}."]
+    for m in reversed(months):  # от старых к новым — так модели проще увидеть динамику
+        parts.append(f"\n=== {m['label']} ===")
+        for sec in m["sections"]:
+            parts.append(f"[{sec['label']}]")
+            for row in sec["rows"]:
+                if "q" in row:
+                    parts.append(f"Вопрос: {row['q']}\nОтвет: {row['a']}")
+                else:
+                    prefix = f"({row['half']}) " if row.get("half") else ""
+                    score = f" Оценка: {row['score']}/10." if row.get("score") is not None else ""
+                    parts.append(f"{prefix}{row['text']}{score}")
+    return "\n".join(parts)
+
+
+AI_PROFILE_PROMPT = """\
+Ты — HR-аналитик компании. Тебе дана история ежемесячных ответов одного сотрудника
+(личностный профиль, раздражители, достижения, eNPS, метрики, гравитация).
+
+Составь краткий анализ динамики сотрудника:
+1. Общий вектор: растёт / стабилен / выгорает — с обоснованием из ответов.
+2. Что изменилось между месяцами (мотивация, проблемы, вовлечённость, оценки eNPS).
+3. Красные флаги, если есть (потеря смысла, накапливающееся раздражение, падение оценок).
+4. Рекомендации HR: на что обратить внимание в разговоре с сотрудником.
+
+Пиши по-русски, по делу, без воды, без markdown-заголовков — обычные абзацы и списки
+с дефисами. Не выдумывай ничего, чего нет в ответах. Если данных мало (один месяц) —
+так и скажи и дай выводы по тому, что есть."""
+
+
+@router.get("/employees/{employee_id}/profile", response_class=HTMLResponse)
+@login_required
+async def employee_profile(request: Request, employee_id: int, db: Session = Depends(get_db)):
+    employee = db.query(HrEmployee).filter(HrEmployee.id == employee_id).first()
+    if not employee:
+        return RedirectResponse(url="/hr/", status_code=302)
+
+    rows = db.query(HrRecord).filter(HrRecord.employee_id == employee_id).all()
+    months = _profile_months(employee, rows)
+    insights = (db.query(HrEmployeeInsight)
+                .filter(HrEmployeeInsight.employee_id == employee_id)
+                .order_by(HrEmployeeInsight.created_at.desc()).limit(5).all())
+
+    # средний eNPS по месяцам — маленький тренд в шапке профиля
+    enps_trend = [
+        {"label": _period_label(r.period), "score": r.score}
+        for r in sorted((r for r in rows if r.section == "enps" and r.score is not None),
+                        key=lambda r: r.period)
+    ]
+
+    return templates.TemplateResponse(request, "hr/profile.html", {
+        "employee": employee,
+        "months": months,
+        "insights": insights,
+        "enps_trend": enps_trend,
+        "today_period": _period_str(date.today()),
+        "error": request.query_params.get("error"),
+        "analyzed": request.query_params.get("analyzed"),
+    })
+
+
+@router.post("/employees/{employee_id}/analyze")
+@login_required
+async def employee_analyze(request: Request, employee_id: int, db: Session = Depends(get_db)):
+    """Запускает ИИ-анализ динамики сотрудника (OpenRouter) и сохраняет результат."""
+    employee = db.query(HrEmployee).filter(HrEmployee.id == employee_id).first()
+    if not employee:
+        return RedirectResponse(url="/hr/", status_code=302)
+
+    rows = db.query(HrRecord).filter(HrRecord.employee_id == employee_id).all()
+    months = _profile_months(employee, rows)
+    if not months:
+        return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?error=no_data", status_code=302)
+
+    from app.services import openrouter_client
+    history = _history_text_for_ai(employee, months)
+    try:
+        text = await asyncio.to_thread(openrouter_client.chat, AI_PROFILE_PROMPT, history)
+    except Exception as e:
+        logger.exception("ИИ-анализ профайла не удался: %s", e)
+        return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?error=ai", status_code=302)
+
+    db.add(HrEmployeeInsight(
+        employee_id=employee_id,
+        text=text.strip(),
+        model=openrouter_client.MODEL,
+        created_by=request.session.get("user_id"),
+    ))
+    db.commit()
+    return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?analyzed=1", status_code=302)
+
+
 # ── Должности (справочник) ────────────────────────────────────────────────────
 
 @router.get("/positions", response_class=HTMLResponse)
@@ -250,7 +451,11 @@ async def create_position(request: Request, db: Session = Depends(get_db)):
     title = (form.get("title") or "").strip()
     if title:
         disabled = [s for s in HR_SECTIONS if not form.get(f"sec_{s}")]
-        db.add(HrPosition(title=title, disabled_sections=",".join(disabled)))
+        db.add(HrPosition(
+            title=title,
+            disabled_sections=",".join(disabled),
+            personal_questions=(form.get("personal_questions") or "").strip() or None,
+        ))
         db.commit()
     return RedirectResponse(url="/hr/positions", status_code=302)
 
@@ -265,6 +470,7 @@ async def edit_position(request: Request, position_id: int, db: Session = Depend
         pos.is_active = bool(form.get("is_active"))
         disabled = [s for s in HR_SECTIONS if not form.get(f"sec_{s}")]
         pos.disabled_sections = ",".join(disabled)
+        pos.personal_questions = (form.get("personal_questions") or "").strip() or None
         db.commit()
     return RedirectResponse(url="/hr/positions", status_code=302)
 
@@ -330,37 +536,22 @@ async def reopen_vacancy(request: Request, vacancy_id: int, db: Session = Depend
 
 @router.get("/entry/{employee_id}", response_class=HTMLResponse)
 @login_required
-async def hr_entry_form(request: Request, employee_id: int, period: str = "", kind: str = "month",
+async def hr_entry_form(request: Request, employee_id: int, period: str = "",
                         db: Session = Depends(get_db)):
     employee = db.query(HrEmployee).filter(HrEmployee.id == employee_id).first()
     if not employee:
         return RedirectResponse(url="/hr/", status_code=302)
 
     period_date = _period_from_str(period)
-    kind = _norm_kind(kind)
-    records = {
-        r.section: r
-        for r in db.query(HrRecord).filter(
-            HrRecord.employee_id == employee_id,
-            HrRecord.period == period_date,
-            HrRecord.period_kind == kind,
-        ).all()
-    }
-    # какие полумесяцы уже имеют данные (для подсветки вкладок)
-    kinds_with_data = {
-        row[0] for row in db.query(HrRecord.period_kind).filter(
-            HrRecord.employee_id == employee_id, HrRecord.period == period_date
-        ).distinct().all()
-    }
+    records = _records_map(db, employee_id, period_date)
 
     return templates.TemplateResponse(request, "hr/entry.html", {
         "employee": employee,
         "records": records,
         "sections": employee.enabled_sections,
+        "personal_qa": _personal_qa(employee, records.get("personal")),
         "period": _period_str(period_date),
         "period_label": _period_label(period_date),
-        "kind": kind,
-        "kinds_with_data": kinds_with_data,
         "prev_period": _period_str(_shift_period(period_date, -1)),
         "next_period": _period_str(_shift_period(period_date, 1)),
         "saved": request.query_params.get("saved"),
@@ -378,11 +569,10 @@ async def hr_entry_save(request: Request, employee_id: int, db: Session = Depend
 
     period = form.get("period", "")
     period_date = _period_from_str(period)
-    kind = _norm_kind(form.get("kind"))
     user_id = request.session.get("user_id")
-    _save_from_form(db, employee_id, period_date, kind, form, set(employee.enabled_sections), user_id)
+    _save_from_form(db, employee, period_date, form, set(employee.enabled_sections), user_id)
     db.commit()
-    return RedirectResponse(url=f"/hr/entry/{employee_id}?period={period}&kind={kind}&saved=1", status_code=302)
+    return RedirectResponse(url=f"/hr/entry/{employee_id}?period={period}&saved=1", status_code=302)
 
 
 # ── Опросы (раунды-рассылки) ──────────────────────────────────────────────────
@@ -415,7 +605,6 @@ async def create_survey(request: Request, db: Session = Depends(get_db)):
     survey = HrSurvey(
         title=title,
         period=period_date,
-        period_kind=_norm_kind(form.get("period_kind")),
         sections=",".join(sections),
         created_by=request.session.get("user_id"),
     )
@@ -520,16 +709,8 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
         return templates.TemplateResponse(request, "hr/survey_public.html", {"invalid": True}, status_code=404)
 
     survey = tok.survey
-    kind = survey.period_kind or "month"
     sections = tok.effective_sections
-    records = {
-        r.section: r
-        for r in db.query(HrRecord).filter(
-            HrRecord.employee_id == tok.employee_id,
-            HrRecord.period == survey.period,
-            HrRecord.period_kind == kind,
-        ).all()
-    }
+    records = _records_map(db, tok.employee_id, survey.period)
     return templates.TemplateResponse(request, "hr/survey_public.html", {
         "invalid": False,
         "token": token,
@@ -537,7 +718,8 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
         "survey": survey,
         "sections": sections,
         "records": records,
-        "period_label": _period_full_label(survey.period, kind),
+        "personal_qa": _personal_qa(tok.employee, records.get("personal")),
+        "period_label": _period_label(survey.period),
         "closed": not survey.is_open,
         "submitted": tok.submitted_at is not None,
         "done": request.query_params.get("done"),
@@ -556,9 +738,8 @@ async def public_survey_submit(request: Request, token: str, db: Session = Depen
         return RedirectResponse(url=f"/hr/s/{token}", status_code=302)
 
     form = await request.form()
-    kind = tok.survey.period_kind or "month"
     is_first_submit = tok.submitted_at is None
-    _save_from_form(db, tok.employee_id, tok.survey.period, kind, form, set(tok.effective_sections), None)
+    _save_from_form(db, tok.employee, tok.survey.period, form, set(tok.effective_sections), None)
     tok.submitted_at = datetime.utcnow()
     if is_first_submit:
         _notify_survey_answered(db, tok)

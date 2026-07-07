@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ employee.full_name }} — профайл{% endblock %}
+{% block page_title %}{{ employee.full_name }}{% endblock %}
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2">
+  <a href="/hr/entry/{{ employee.id }}?period={{ today_period }}" class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-pencil-square me-1"></i>Заполнить текущий месяц
+  </a>
+  <a href="/hr/" class="btn btn-sm btn-link">← Ко всем сотрудникам</a>
+</div>
+{% endblock %}
+
+{% block content %}
+{% if analyzed %}
+<div class="alert alert-success py-2">Анализ готов — свежий вывод ниже в блоке «ИИ-анализ динамики».</div>
+{% elif error == 'no_data' %}
+<div class="alert alert-warning py-2">Пока нет ни одного ответа — анализировать нечего.</div>
+{% elif error == 'ai' %}
+<div class="alert alert-danger py-2">Не удалось получить ответ от ИИ. Попробуйте ещё раз или проверьте ключ OpenRouter.</div>
+{% endif %}
+
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <span class="text-muted">{{ employee.position_title or 'Должность не указана' }}</span>
+    {% if not employee.is_active %}<span class="badge bg-secondary ms-2">неактивен</span>{% endif %}
+    {% if enps_trend %}
+    <span class="ms-3 text-muted" style="font-size:.85rem">eNPS:</span>
+    {% for p in enps_trend %}
+    <span class="badge {% if p.score >= 9 %}bg-success{% elif p.score >= 7 %}bg-warning text-dark{% else %}bg-danger{% endif %}"
+          title="{{ p.label }}">{{ p.score }}</span>
+    {% endfor %}
+    {% endif %}
+  </div>
+  <form method="post" action="/hr/employees/{{ employee.id }}/analyze"
+        onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').innerHTML = 'Анализирую…';">
+    <button class="btn btn-sm btn-accent"><i class="bi bi-stars me-1"></i>ИИ-анализ динамики</button>
+  </form>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="fw-semibold mb-2">История по месяцам</div>
+    {% for m in months %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <div class="fw-semibold mb-2">{{ m.label }}</div>
+        {% for sec in m.sections %}
+        <div class="mb-3">
+          <div class="text-muted mb-1" style="font-size:.82rem">{{ sec.icon }} {{ sec.label }}</div>
+          {% for row in sec.rows %}
+            {% if row.q %}
+            <div class="mb-2 ps-2 border-start border-2">
+              <div class="text-muted" style="font-size:.78rem">{{ row.q }}</div>
+              <div style="font-size:.9rem; white-space:pre-wrap">{{ row.a }}</div>
+            </div>
+            {% else %}
+            <div class="mb-1 ps-2 border-start border-2" style="font-size:.9rem; white-space:pre-wrap">
+              {%- if row.half %}<span class="badge bg-light text-dark border me-1">{{ row.half }}</span>{% endif -%}
+              {%- if row.score is defined and row.score is not none %}<span class="badge {% if row.score >= 9 %}bg-success{% elif row.score >= 7 %}bg-warning text-dark{% else %}bg-danger{% endif %} me-1">{{ row.score }}/10</span>{% endif -%}
+              {{ row.text }}
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center text-muted py-4">
+        Ответов пока нет — заполните форму или отправьте сотруднику ссылку опроса.
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="col-lg-5">
+    <div class="fw-semibold mb-2"><i class="bi bi-stars me-1"></i>ИИ-анализ динамики</div>
+    {% for ins in insights %}
+    <div class="card border-0 shadow-sm mb-3 {% if loop.first %}border-start border-3 border-success{% endif %}">
+      <div class="card-body">
+        <div class="text-muted mb-2" style="font-size:.75rem">
+          {{ ins.created_at.strftime('%d.%m.%Y %H:%M') }} · {{ ins.model or 'ИИ' }}
+        </div>
+        <div style="font-size:.88rem; white-space:pre-wrap">{{ ins.text }}</div>
+      </div>
+    </div>
+    {% else %}
+    <div class="card border-0 shadow-sm">
+      <div class="card-body text-center text-muted py-4">
+        Анализов ещё не было. Нажмите «ИИ-анализ динамики» — модель просмотрит
+        все ответы сотрудника по месяцам и опишет, как меняется его состояние.
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
