@@ -208,13 +208,16 @@ async def plan_data(request: Request, date_str: str = "", db: Session = Depends(
     rows = db.query(SalesLead).filter(
         SalesLead.is_active == True,
         SalesLead.lat.isnot(None), SalesLead.lng.isnot(None),
-    ).all()
+    ).options(joinedload(SalesLead.assigned_to)).all()
     return [{
         "id": l.id, "name": l.name, "lat": l.lat, "lng": l.lng,
         "status": l.call_status, "phone": l.phone or "",
         "category": l.category or "", "address": l.address or "",
         "city": l.city or "", "district": l.district or "",
         "mine": l.assigned_to_id == uid,
+        # Точка уже закреплена за другим торгпредом — не должна попадать в план
+        # молча при выделении зоны (см. bug: «чужие точки попали в план»).
+        "other_rep": l.assigned_to.full_name if (l.assigned_to_id and l.assigned_to_id != uid and l.assigned_to) else None,
         "planned": l.id in planned_ids,
     } for l in rows]
 
@@ -222,7 +225,11 @@ async def plan_data(request: Request, date_str: str = "", db: Session = Depends(
 @router.post("/plan/bulk_add", response_class=JSONResponse)
 @login_required
 async def plan_bulk_add(request: Request, db: Session = Depends(get_db)):
-    """Добавляет в план на день все переданные точки (выделение зоны на карте)."""
+    """Добавляет в план на день все переданные точки (выделение зоны на карте).
+    Точки, уже закреплённые за ДРУГИМ торгпредом, в зону не попадают — иначе при
+    выделении области на карте чужие точки молча оказываются в чужом плане
+    (баг: «чужие точки попали в план нового торгпреда»). Чтобы добавить такую
+    точку намеренно, нужно открыть её карточку и нажать «В план» отдельно."""
     uid = _uid(request)
     form = await request.form()
     try:
@@ -237,15 +244,19 @@ async def plan_bulk_add(request: Request, db: Session = Depends(get_db)):
         FieldVisit.lead_id.in_(ids)).all()}
     leads = db.query(SalesLead).filter(SalesLead.id.in_(ids), SalesLead.is_active == True).all()
     added = 0
+    skipped_other_rep = 0
     for l in leads:
         if l.id in existing:
+            continue
+        if l.assigned_to_id is not None and l.assigned_to_id != uid:
+            skipped_other_rep += 1
             continue
         db.add(FieldVisit(lead_id=l.id, rep_id=uid, planned_date=day, status="planned"))
         if l.assigned_to_id is None:
             l.assigned_to_id = uid
         added += 1
     db.commit()
-    return JSONResponse({"ok": True, "added": added})
+    return JSONResponse({"ok": True, "added": added, "skipped_other_rep": skipped_other_rep})
 
 
 @router.post("/plan/add", response_class=JSONResponse)

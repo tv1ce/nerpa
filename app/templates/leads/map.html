@@ -79,6 +79,10 @@
   <p class="text-success mb-0" style="font-size:.8rem"><i class="bi bi-check-circle-fill me-1"></i>Все точки геокодированы</p>
   {% endif %}
   <div id="geo-status" class="text-muted mt-1" style="font-size:.75rem; display:none"></div>
+  <div id="geo-error" class="text-danger mt-1" style="font-size:.72rem; display:none"></div>
+  <button id="geo-retry-btn" class="btn btn-sm btn-outline-secondary w-100 mt-1" style="display:none" onclick="retryFailedGeocode()">
+    <i class="bi bi-arrow-clockwise me-1"></i>Повторить адреса, которые не удалось найти
+  </button>
 </div>
 
 <!-- Панель выбранной зоны -->
@@ -173,9 +177,9 @@ const STATUS_LABEL = {
 const map = L.map('map', { zoomControl: true }).setView([59.95, 30.32], 11);
 map.attributionControl.setPrefix(false);  // убрать префикс «Leaflet» с флагом
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a>',
-  maxZoom: 19,
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: 'abcd', maxZoom: 19,
 }).addTo(map);
 
 // ── Кластер маркеров ──────────────────────────────────────────────────────
@@ -374,6 +378,17 @@ async function pollGeoStatus() {
   document.getElementById('geo-status').textContent =
     s.running ? `Геокодировано ${s.done} из ${s.total}…` : `Готово: ${s.done} из ${s.total}`;
 
+  const errBox = document.getElementById('geo-error');
+  if (s.blocked) {
+    errBox.style.display = 'block';
+    errBox.textContent = `Nominatim не отвечает (похоже на блокировку/троттлинг): ${s.last_error || ''}. Остановились, попробуйте позже.`;
+  } else {
+    errBox.style.display = 'none';
+  }
+
+  const retryBtn = document.getElementById('geo-retry-btn');
+  if (retryBtn) retryBtn.style.display = (!s.running && s.errors > 0) ? 'block' : 'none';
+
   if (!s.running) {
     clearInterval(geoPolling);
     geoPolling = null;
@@ -392,9 +407,22 @@ async function pollGeoStatus() {
   }
 }
 
+async function retryFailedGeocode() {
+  const btn = document.getElementById('geo-retry-btn');
+  btn.disabled = true;
+  await fetch('/leads/geocode/retry-failed', { method: 'POST' });
+  btn.disabled = false;
+  btn.style.display = 'none';
+  location.reload();
+}
+
 // Если геокодирование уже идёт — подключаемся к статусу
 {% if geo_state.running %}
 geoPolling = setInterval(pollGeoStatus, 2000);
+{% endif %}
+{% if geo_state.blocked %}
+document.getElementById('geo-error').style.display = 'block';
+document.getElementById('geo-error').textContent = 'Nominatim не отвечает (похоже на блокировку/троттлинг): {{ geo_state.last_error or "" }}. Остановились, попробуйте позже.';
 {% endif %}
 </script>
 {% endblock %}
