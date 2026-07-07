@@ -136,12 +136,16 @@ async function togglePlan(id){
   if (!e.data.planned && e.data.other_rep) {
     if (!confirm('Эта точка закреплена за '+e.data.other_rep+'. Всё равно добавить в свой план на день?')) return;
   }
+  if (e.data.planned && e.data.visit_done) {
+    if (!confirm('Визит по этой точке уже отмечен как пройденный. Убрать из плана — результат визита тоже будет удалён. Продолжить?')) return;
+  }
   const url = e.data.planned ? '/field/plan/remove' : '/field/plan/add';
   try {
     const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
       body:new URLSearchParams({ lead_id:id, date_str:planDate() }) });
     if(!r.ok) throw new Error();
     e.data.planned = !e.data.planned;
+    if (!e.data.planned) e.data.visit_done = false;
     styleMarker(id);
     e.marker.setPopupContent(popupHtml(e.data));
     const cnt = document.getElementById('plan-count');

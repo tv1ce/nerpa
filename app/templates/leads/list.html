@@ -376,11 +376,11 @@ function doDistribute(){
 }
 
 async function syncFromOrders(){
-  if (!confirm('Найти лидов с адресами из заказов и выставить им статус «Продажа / договор»?')) return;
+  if (!confirm('Найти лидов с адресами из уже оформленных заказов, отметить как «Продажа / договор» и убрать из списка?')) return;
   try {
     const r = await fetch('/leads/admin/sync-orders', { method: 'POST' });
     const d = await r.json();
-    if (d.ok) { alert(`Готово: обновлено ${d.updated} лид(а/ов).`); if (d.updated > 0) location.reload(); }
+    if (d.ok) { alert(`Готово: убрано из списка ${d.updated} лид(а/ов) — совпали с адресом доставки заказа.`); if (d.updated > 0) location.reload(); }
     else alert('Ошибка: ' + (d.msg || 'неизвестная'));
   } catch(e){ alert('Ошибка запроса'); }
 }
