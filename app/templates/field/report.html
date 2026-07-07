@@ -51,6 +51,7 @@
     <table class="table table-hover align-middle mb-0">
       <thead class="table-light">
         <tr>
+          <th></th>
           <th>Торгпред</th>
           <th class="text-center">План</th>
           <th class="text-center">Пройдено</th>
@@ -64,7 +65,9 @@
       </thead>
       <tbody>
         {% for r in rows %}
-        <tr>
+        <tr class="{% if r.details %}cursor-pointer{% endif %}"
+            {% if r.details %}data-bs-toggle="collapse" data-bs-target="#repDetails{{ r.rep.id }}" style="cursor:pointer"{% endif %}>
+          <td class="text-muted">{% if r.details %}<i class="bi bi-chevron-down"></i>{% endif %}</td>
           <td class="fw-semibold">{{ r.rep.full_name }}</td>
           <td class="text-center">{{ r.planned }}</td>
           <td class="text-center"><span class="badge text-bg-success">{{ r.done }}</span></td>
@@ -75,8 +78,38 @@
           <td class="text-center">{{ r.no_answer }}</td>
           <td class="text-center fw-semibold">{{ r.conv }}%</td>
         </tr>
+        {% if r.details %}
+        {# Bootstrap collapse официально не поддерживается на <tr> (конфликт display:none
+           с display:table-row) — оборачиваем содержимое в <div class="collapse"> внутри
+           <td>, сама строка всегда в DOM. #}
+        <tr>
+          <td colspan="10" class="p-0">
+            <div class="collapse" id="repDetails{{ r.rep.id }}">
+              <div class="p-3 bg-light">
+                <div class="text-muted small mb-2">Что записал {{ r.rep.full_name }} по каждой точке за период — не только счётчики:</div>
+                {% for d in r.details %}
+                <div class="d-flex gap-2 pb-2 mb-2 border-bottom">
+                  <span class="badge text-bg-{{ d.color }} align-self-start">{{ d.result_label }}</span>
+                  <div class="flex-grow-1" style="min-width:0">
+                    <div class="fw-semibold">{{ d.lead_name }}
+                      <a href="/field/lead/{{ d.lead_id }}" class="text-decoration-none ms-1" title="Открыть карточку"><i class="bi bi-box-arrow-up-right" style="font-size:.75rem"></i></a>
+                    </div>
+                    {% if d.address %}<div class="text-muted" style="font-size:.78rem"><i class="bi bi-geo-alt"></i> {{ d.address }}</div>{% endif %}
+                    {% if d.comment %}<div class="small mt-1">{{ d.comment }}</div>{% endif %}
+                    {% if d.next_step %}<div class="small text-primary mt-1"><i class="bi bi-arrow-right-short"></i>{{ d.next_step }}</div>{% endif %}
+                    <div class="text-muted" style="font-size:.72rem">{{ d.when.strftime("%d.%m.%Y %H:%M") if d.when else "" }}</div>
+                  </div>
+                </div>
+                {% else %}
+                <div class="text-muted text-center py-2">Пройденных визитов нет.</div>
+                {% endfor %}
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
         {% else %}
-        <tr><td colspan="9" class="text-center text-muted py-4">
+        <tr><td colspan="10" class="text-center text-muted py-4">
           Нет данных за выбранный период.
         </td></tr>
         {% endfor %}

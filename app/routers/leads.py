@@ -505,6 +505,8 @@ async def lead_history(request: Request, lead_id: int, db: Session = Depends(get
     return JSONResponse({
         "name": lead.name,
         "converted_cp_id": lead.converted_cp_id,
+        "call_status": lead.call_status,
+        "bitrix_lead_id": lead.bitrix_lead_id,
         "calls": [{
             "status": c.status,
             "label": LEAD_STATUSES.get(c.status, c.status or "—"),
@@ -514,6 +516,28 @@ async def lead_history(request: Request, lead_id: int, db: Session = Depends(get
             "time": c.created_at.strftime("%d.%m.%Y %H:%M") if c.created_at else "",
         } for c in lead.calls],
     })
+
+
+@router.post("/{lead_id}/bitrix-retry", response_class=JSONResponse)
+@login_required
+async def lead_bitrix_retry(request: Request, lead_id: int, db: Session = Depends(get_db)):
+    """Ручной повтор авто-выгрузки в Bitrix24 — на случай, если она не сработала
+    сама (обычно это делает фоновая задача раз в 15 мин, эта кнопка — для «прямо сейчас»)."""
+    from app.models import CompanySettings
+    from app.services.bitrix_client import push_lead_deal_to_bitrix
+    lead = db.query(SalesLead).filter(SalesLead.id == lead_id).first()
+    if not lead:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if lead.bitrix_lead_id:
+        return JSONResponse({"ok": True, "already_synced": True, "bitrix_lead_id": lead.bitrix_lead_id})
+    company = db.query(CompanySettings).first()
+    ok = push_lead_deal_to_bitrix(lead, company, db=db)
+    if ok:
+        return JSONResponse({"ok": True, "bitrix_lead_id": lead.bitrix_lead_id})
+    reason = "status_not_deal" if lead.call_status != "deal" else \
+        "export_disabled" if not (company and company.bitrix_lead_export_enabled) else \
+        "not_configured" if not (company and company.bitrix_webhook_url) else "bitrix_error"
+    return JSONResponse({"ok": False, "reason": reason}, status_code=400)
 
 
 @router.post("/{lead_id}/to-counterparty")

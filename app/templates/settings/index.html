@@ -642,7 +642,17 @@
               </button>
             </div>
             <div class="form-text" style="font-size:.72rem">
-              Один и тот же человек назначается ответственным на все лиды, выгруженные автоматически.
+              Используется, если у конкретного торгпреда/менеджера (вкладка «Пользователи») не задан свой ID в Bitrix24 —
+              тогда лид уходит персонально на него.
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Публичный адрес TMS</label>
+            <input type="url" name="public_url" class="form-control form-control-sm font-monospace"
+                   placeholder="https://nuttshell.ru"
+                   value="{{ company.public_url if company and company.public_url else '' }}">
+            <div class="form-text" style="font-size:.72rem">
+              Для ссылки на карточку точки в комментарии Bitrix-лида. Без домена ссылка просто не добавляется.
             </div>
           </div>
           <div class="col-12 d-flex gap-2 flex-wrap mt-1">
@@ -850,11 +860,19 @@
               <option value="admin">Администратор</option>
             </select>
           </div>
-          <div class="col-md-7 d-flex align-items-end">
+          <div class="col-md-4">
+            <input type="text" name="bitrix_user_id" class="form-control form-control-sm"
+                   placeholder="ID в Bitrix24 (необязательно)">
+          </div>
+          <div class="col-md-3 d-flex align-items-end">
             <button type="submit" class="btn btn-sm btn-accent">
               <i class="bi bi-person-plus me-1"></i>Добавить
             </button>
           </div>
+        </div>
+        <div class="form-text mt-1" style="font-size:.72rem">
+          ID в Bitrix24 — если задан, авто-выгруженные лиды этого сотрудника пойдут на него
+          в Bitrix, а не на общего ответственного из вкладки «Bitrix24».
         </div>
       </form>
     </div>
@@ -891,9 +909,13 @@
               <option value="admin"     {% if u.role=='admin'     %}selected{% endif %}>Администратор</option>
             </select>
           </div>
-          <div class="mb-1">
+          <div class="mb-2">
             <label class="form-label form-label-sm">Новый пароль <span class="text-muted">(пусто — не менять)</span></label>
             <input type="password" name="password" class="form-control form-control-sm" autocomplete="new-password" placeholder="••••••">
+          </div>
+          <div class="mb-1">
+            <label class="form-label form-label-sm">ID в Bitrix24 <span class="text-muted">(для авто-выгрузки лидов)</span></label>
+            <input type="text" name="bitrix_user_id" class="form-control form-control-sm" value="{{ u.bitrix_user_id or '' }}">
           </div>
         </div>
         <div class="modal-footer py-2 px-3">

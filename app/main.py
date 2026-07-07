@@ -336,6 +336,23 @@ def _run_1c_sync_job():
         db.close()
 
 
+def _run_bitrix_lead_retry_job():
+    """Фоновая задача APScheduler: повторно пробует выгрузить в Bitrix24 точки
+    в статусе 'deal', для которых авто-выгрузка не сработала с первого раза
+    (сбой сети/вебхука в момент смены статуса)."""
+    from app.database import SessionLocal
+    from app.services.bitrix_client import retry_unpushed_leads
+    db = SessionLocal()
+    try:
+        r = retry_unpushed_leads(db)
+        if r["pushed"] or r["failed"]:
+            logger.info("bitrix lead retry: pushed=%s failed=%s", r["pushed"], r["failed"])
+    except Exception as e:
+        logger.error("bitrix lead retry job error: %s", e)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
@@ -355,8 +372,10 @@ async def lifespan(_app: FastAPI):
         _scheduler = BackgroundScheduler(timezone="Europe/Moscow")
         _scheduler.add_job(_run_1c_sync_job, "interval", minutes=15, id="1c_sync",
                            misfire_grace_time=60)
+        _scheduler.add_job(_run_bitrix_lead_retry_job, "interval", minutes=15, id="bitrix_lead_retry",
+                           misfire_grace_time=60)
         _scheduler.start()
-        logger.info("APScheduler: задача 1c_sync запущена (каждые 15 мин)")
+        logger.info("APScheduler: задачи 1c_sync, bitrix_lead_retry запущены (каждые 15 мин)")
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
 

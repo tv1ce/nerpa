@@ -292,6 +292,8 @@ def _migrate_db():
         ("company_settings", "bitrix_lead_export_enabled", "INTEGER DEFAULT 0"),
         ("sales_leads", "bitrix_lead_id", "TEXT"),
         ("sales_leads", "bitrix_lead_synced_at", "TIMESTAMP"),
+        ("users", "bitrix_user_id", "TEXT"),
+        ("company_settings", "public_url", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
