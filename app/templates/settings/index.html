@@ -616,6 +616,35 @@
             </div>
           </div>
           {% endif %}
+          <hr class="my-2">
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox"
+                     name="bitrix_lead_export_enabled" value="1" id="bitrixLeadExportEnabled"
+                     {% if company and company.bitrix_lead_export_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="bitrixLeadExportEnabled" style="font-size:.88rem">
+                Авто-выгрузка точек «Прозвон»/«Поле» в CRM-лиды Bitrix24 при статусе «Договор/продажа»
+              </label>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Ответственный за авто-выгруженные лиды</label>
+            <div class="d-flex gap-2">
+              <select name="bitrix_lead_responsible_id" id="bitrixLeadResponsible" class="form-select form-select-sm">
+                {% if company and company.bitrix_lead_responsible_id %}
+                <option value="{{ company.bitrix_lead_responsible_id }}" selected>ID {{ company.bitrix_lead_responsible_id }} (загрузите список, чтобы увидеть имя)</option>
+                {% else %}
+                <option value="">— не выбран —</option>
+                {% endif %}
+              </select>
+              <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" onclick="loadBitrixUsers()">
+                <i class="bi bi-arrow-repeat me-1"></i>Загрузить список
+              </button>
+            </div>
+            <div class="form-text" style="font-size:.72rem">
+              Один и тот же человек назначается ответственным на все лиды, выгруженные автоматически.
+            </div>
+          </div>
           <div class="col-12 d-flex gap-2 flex-wrap mt-1">
             <button type="submit" class="btn btn-accent btn-sm">
               <i class="bi bi-check-lg me-1"></i>Сохранить
@@ -1074,6 +1103,24 @@ async function ensureBitrixFields() {
 
 if ({{ 'true' if company and company.bitrix_webhook_url else 'false' }} && document.getElementById('bitrixStagePaid')) {
   loadBitrixStages();
+}
+
+async function loadBitrixUsers() {
+  const sel = document.getElementById('bitrixLeadResponsible');
+  const current = sel.value;
+  sel.disabled = true;
+  try {
+    const r = await fetch('/settings/bitrix/users');
+    const users = await r.json();
+    if (!Array.isArray(users)) throw new Error(users.error || 'ошибка');
+    sel.innerHTML = '<option value="">— не выбран —</option>' +
+      users.map(u => `<option value="${u.id}">${u.name} (ID ${u.id})</option>`).join('');
+    if (current) sel.value = current;
+  } catch (e) {
+    alert('Не удалось загрузить список пользователей Bitrix24: ' + e.message);
+  } finally {
+    sel.disabled = false;
+  }
 }
 
 // ── Направления с отдельными стадиями (BitrixPipeline) ──────────────────────

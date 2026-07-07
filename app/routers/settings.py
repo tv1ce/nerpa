@@ -1,6 +1,6 @@
 import os
 from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db, hash_password
@@ -450,6 +450,8 @@ async def save_bitrix(
     bitrix_stage_delivered: str = Form(default=""),
     bitrix_alert_chat_ids: str = Form(default=""),
     bitrix_notify_user_ids: list[str] = Form(default=[]),
+    bitrix_lead_export_enabled: str = Form(default=""),
+    bitrix_lead_responsible_id: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -465,8 +467,27 @@ async def save_bitrix(
     valid_ids = {str(uid) for uid, in db.query(User.id)}
     selected = [uid for uid in bitrix_notify_user_ids if uid in valid_ids]
     company.bitrix_notify_user_ids = ",".join(selected) or None
+    company.bitrix_lead_export_enabled = (bitrix_lead_export_enabled == "1")
+    company.bitrix_lead_responsible_id = bitrix_lead_responsible_id.strip() or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1&tab=integrations#bitrix", status_code=302)
+
+
+@router.get("/bitrix/users", response_class=JSONResponse)
+@role_required("admin")
+async def bitrix_users(request: Request, db: Session = Depends(get_db)):
+    """Список активных пользователей Bitrix24 — для выбора ответственного по умолчанию
+    за авто-выгруженные лиды «Прозвон»/«Поле»."""
+    from app.services.bitrix_client import get_bitrix_client, BitrixError
+    company = db.query(CompanySettings).first()
+    client = get_bitrix_client(company)
+    if not client:
+        return JSONResponse({"error": "not_configured"}, status_code=400)
+    try:
+        with client:
+            return client.list_users()
+    except BitrixError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @router.post("/profile/password")

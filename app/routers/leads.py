@@ -443,6 +443,10 @@ async def set_status(request: Request, lead_id: int, status: str = Form(...),
     db.add(LeadCall(lead_id=lead.id, user_id=request.session.get("user_id"),
                     status=status, comment=comment or None))
     db.commit()
+    if status == "deal":
+        from app.models import CompanySettings
+        from app.services.bitrix_client import push_lead_deal_to_bitrix
+        push_lead_deal_to_bitrix(lead, db.query(CompanySettings).first(), db=db)
     return JSONResponse({
         "ok": True, "status": status, "label": LEAD_STATUSES[status],
         "color": STATUS_COLORS[status],
@@ -575,6 +579,12 @@ async def bulk_action(request: Request, db: Session = Depends(get_db)):
             for i, l in enumerate(leads):
                 l.assigned_to_id = mgr_ids[i % len(mgr_ids)]
     db.commit()
+    if action == "status" and form.get("value", "") == "deal":
+        from app.models import CompanySettings
+        from app.services.bitrix_client import push_lead_deal_to_bitrix
+        company = db.query(CompanySettings).first()
+        for l in leads:
+            push_lead_deal_to_bitrix(l, company, db=db)
     back = request.headers.get("referer", "/leads/")
     return RedirectResponse(url=back, status_code=302)
 
@@ -816,6 +826,7 @@ async def sync_from_orders(request: Request, db: Session = Depends(get_db)):
     ).all()
 
     updated = 0
+    matched_leads = []
     for lead in leads:
         lead_addr = lead.address.lower().strip()
         if len(lead_addr) < 5:
@@ -830,9 +841,16 @@ async def sync_from_orders(request: Request, db: Session = Depends(get_db)):
                     comment="Авто: адрес совпадает с адресом доставки в заказе",
                 ))
                 updated += 1
+                matched_leads.append(lead)
                 break
 
     db.commit()
+    if matched_leads:
+        from app.models import CompanySettings
+        from app.services.bitrix_client import push_lead_deal_to_bitrix
+        company = db.query(CompanySettings).first()
+        for lead in matched_leads:
+            push_lead_deal_to_bitrix(lead, company, db=db)
     return JSONResponse({"ok": True, "updated": updated})
 
 
