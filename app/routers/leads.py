@@ -105,6 +105,48 @@ def _extract_district(address: str) -> str:
     return raw[:150] if raw else ""
 
 
+# ── Сверка адресов (лиды прозвона ↔ адрес доставки заказа) ───────────────────
+
+# Служебные слова адреса, не несущие идентифицирующей информации для сравнения:
+# «ул. Ленина, д. 5» и «улица Ленина дом 5» должны совпасть.
+_ADDR_NOISE_RE = re.compile(
+    r'\b(г|город|респ|республика|обл|область|р-?н|район|ул|улица|пр-?кт|проспект|'
+    r'пер|переулок|б-?р|бульвар|пл|площадь|мкр|микрорайон|д|дом|к|корпус|корп|'
+    r'стр|строение|пом|помещение|оф|офис|кв|квартира|литер|влд|владение)\.?\b',
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def _normalize_address(addr: str) -> str:
+    """Убирает пунктуацию, ё→е и служебные слова (ул./дом/корп. и т.п.), чтобы
+    разные форматы записи одного адреса совпадали при сравнении."""
+    if not addr:
+        return ""
+    s = addr.lower().replace("ё", "е")
+    s = re.sub(r"[.,;/\\]", " ", s)
+    # «к2», «д5», «стр1» без пробела — тоже корпус/дом/строение, не просто «слово+цифра»
+    s = re.sub(r"\b(к|корп|стр|д|литер|лит)(\d+[а-я]?)\b", r" \2", s)
+    s = _ADDR_NOISE_RE.sub(" ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _addresses_match(a: str, b: str) -> bool:
+    """True, если два адреса (в разных форматах записи) похоже указывают на одно место.
+    Сначала — подстрока после нормализации, затем — доля общих слов/номеров дома
+    (на случай другого порядка слов), а не только суффикс/префикс строки."""
+    na, nb = _normalize_address(a), _normalize_address(b)
+    if len(na) < 5 or len(nb) < 5:
+        return False
+    if na in nb or nb in na:
+        return True
+    ta, tb = set(na.split()), set(nb.split())
+    if not ta or not tb:
+        return False
+    shorter, longer = (ta, tb) if len(ta) <= len(tb) else (tb, ta)
+    return (len(shorter & longer) / len(shorter)) >= 0.8
+
+
 def _match_columns(headers: list[str]) -> dict:
     """Сопоставляет индексы колонок с полями по подсказкам."""
     mapping = {}
@@ -804,11 +846,16 @@ async def map_data(request: Request, db: Session = Depends(get_db)):
 @router.post("/admin/sync-orders", response_class=JSONResponse)
 @role_required("manager")
 async def sync_from_orders(request: Request, db: Session = Depends(get_db)):
-    """Находит лидов с адресами из заказов и ставит им статус 'deal'."""
+    """Сверяет адреса лидов «Прозвона»/«Поля» с адресами доставки уже оформленных
+    заказов. При совпадении лид уже стал реальным клиентом — ставим call_status
+    = 'deal' и деактивируем (is_active=False), чтобы точка вообще не мешалась
+    в списке лидов/на карте/в отчётах (is_active=True — общий фильтр везде).
+    Сравнение через _addresses_match — нормализует адрес (без «ул.»/«дом» и т.п.
+    и без учёта порядка слов), а не тупую подстроку, как раньше."""
     from app.models import Order
 
     order_addresses = [
-        row[0].lower().strip()
+        row[0].strip()
         for row in db.query(Order.delivery_address)
             .filter(Order.delivery_address.isnot(None), Order.delivery_address != "")
             .distinct().all()
@@ -828,17 +875,15 @@ async def sync_from_orders(request: Request, db: Session = Depends(get_db)):
     updated = 0
     matched_leads = []
     for lead in leads:
-        lead_addr = lead.address.lower().strip()
-        if len(lead_addr) < 5:
-            continue
         for order_addr in order_addresses:
-            if lead_addr in order_addr or order_addr in lead_addr:
+            if _addresses_match(lead.address, order_addr):
                 lead.call_status = "deal"
                 lead.last_call_at = datetime.now()
+                lead.is_active = False
                 db.add(LeadCall(
                     lead_id=lead.id,
                     status="deal",
-                    comment="Авто: адрес совпадает с адресом доставки в заказе",
+                    comment=f"Авто: адрес совпадает с адресом доставки в заказе ({order_addr})",
                 ))
                 updated += 1
                 matched_leads.append(lead)

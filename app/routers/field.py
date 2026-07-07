@@ -206,6 +206,9 @@ async def plan_data(request: Request, date_str: str = "", db: Session = Depends(
         day = date.today()
     planned_ids = {r[0] for r in db.query(FieldVisit.lead_id).filter(
         FieldVisit.rep_id == uid, FieldVisit.planned_date == day).all()}
+    done_ids = {r[0] for r in db.query(FieldVisit.lead_id).filter(
+        FieldVisit.rep_id == uid, FieldVisit.planned_date == day,
+        FieldVisit.status == "done").all()}
     rows = db.query(SalesLead).filter(
         SalesLead.is_active == True,
         SalesLead.lat.isnot(None), SalesLead.lng.isnot(None),
@@ -220,6 +223,7 @@ async def plan_data(request: Request, date_str: str = "", db: Session = Depends(
         # молча при выделении зоны (см. bug: «чужие точки попали в план»).
         "other_rep": l.assigned_to.full_name if (l.assigned_to_id and l.assigned_to_id != uid and l.assigned_to) else None,
         "planned": l.id in planned_ids,
+        "visit_done": l.id in done_ids,
     } for l in rows]
 
 
@@ -290,17 +294,24 @@ async def plan_add(request: Request, lead_id: int = Form(...),
 @login_required
 async def plan_remove(request: Request, lead_id: int = Form(...),
                       date_str: str = Form(default=""), db: Session = Depends(get_db)):
+    """Убирает точку из плана торгпреда на день — независимо от того, отмечен ли
+    уже визит как пройденный (status == 'done'). Раньше фильтр по
+    status == 'planned' тихо не давал убрать уже отработанную точку (запрос
+    возвращал ok:true, ничего не удаляя) — например, если торгпред по ошибке
+    отметил чужую/не ту точку и хочет откатить это. Удаление визита не трогает
+    call_status самого лида — если статус тоже нужно поправить, это делается
+    отдельно через карточку точки."""
     uid = _uid(request)
     try:
         day = date.fromisoformat(date_str) if date_str else date.today()
     except ValueError:
         day = date.today()
-    db.query(FieldVisit).filter(
+    removed = db.query(FieldVisit).filter(
         FieldVisit.rep_id == uid, FieldVisit.lead_id == lead_id,
-        FieldVisit.planned_date == day, FieldVisit.status == "planned",
+        FieldVisit.planned_date == day,
     ).delete()
     db.commit()
-    return JSONResponse({"ok": True, "lead_id": lead_id})
+    return JSONResponse({"ok": True, "lead_id": lead_id, "removed": removed})
 
 
 # ── Создание новой точки торгпредом ─────────────────────────────────────────
