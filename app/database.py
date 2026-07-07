@@ -287,6 +287,7 @@ def _migrate_db():
         ("hr_records", "period_kind", "TEXT DEFAULT 'month'"),
         ("hr_surveys", "period_kind", "TEXT DEFAULT 'month'"),
         ("hr_employees", "deactivated_at", "DATE"),
+        ("hr_positions", "personal_questions", "TEXT"),
         # ── Bitrix24: авто-выгрузка лидов «Прозвон»/«Поле» при статусе «Договор/продажа» ──
         ("company_settings", "bitrix_lead_responsible_id", "TEXT"),
         ("company_settings", "bitrix_lead_export_enabled", "INTEGER DEFAULT 0"),

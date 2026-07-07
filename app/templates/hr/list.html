@@ -45,7 +45,7 @@
             {% for e in employees %}
             <tr class="{% if not e.is_active %}text-muted{% endif %}">
               <td class="ps-3 fw-semibold">
-                {{ e.full_name }}
+                <a href="/hr/employees/{{ e.id }}/profile" class="text-decoration-none text-reset" title="Профайл сотрудника">{{ e.full_name }}</a>
                 {% if not e.is_active %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">неактивен</span>{% endif %}
               </td>
               <td class="text-muted" style="font-size:.85rem">{{ e.position_title or '—' }}</td>

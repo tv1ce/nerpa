@@ -87,18 +87,8 @@
             <div class="col-md-5">
               <label class="form-label form-label-sm">Период (месяц)</label>
               <input type="month" name="period" class="form-control form-control-sm" value="{{ today_period }}" required>
+              <div class="form-text">Метрика внутри формы сама делится на 1–15 и 16–конец.</div>
             </div>
-          </div>
-
-          <div class="mt-3">
-            <label class="form-label form-label-sm text-muted">Периодичность сбора:</label>
-            <div class="btn-group w-100" role="group">
-              {% for k in period_kinds %}
-              <input type="radio" class="btn-check" name="period_kind" id="pk_{{ k }}" value="{{ k }}" {% if k == 'month' %}checked{% endif %}>
-              <label class="btn btn-outline-secondary btn-sm" for="pk_{{ k }}">{{ period_kind_labels[k] }}</label>
-              {% endfor %}
-            </div>
-            <div class="form-text">Для двухнедельного сбора (напр. метрики) создайте отдельные раунды на 1–15 и 16–конец.</div>
           </div>
 
           <div class="row g-3 mt-1">

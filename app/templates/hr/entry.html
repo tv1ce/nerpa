@@ -3,9 +3,10 @@
 {% block page_title %}{{ employee.full_name }}{% endblock %}
 {% block topbar_actions %}
 <div class="d-flex align-items-center gap-2">
-  <a href="/hr/entry/{{ employee.id }}?period={{ prev_period }}&kind={{ kind }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a>
+  <a href="/hr/entry/{{ employee.id }}?period={{ prev_period }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-left"></i></a>
   <span class="fw-semibold px-2" style="min-width:110px;text-align:center">{{ period_label }}</span>
-  <a href="/hr/entry/{{ employee.id }}?period={{ next_period }}&kind={{ kind }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a>
+  <a href="/hr/entry/{{ employee.id }}?period={{ next_period }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-chevron-right"></i></a>
+  <a href="/hr/employees/{{ employee.id }}/profile" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-lines-fill me-1"></i>Профайл</a>
   <a href="/hr/" class="btn btn-sm btn-link">← Ко всем сотрудникам</a>
 </div>
 {% endblock %}
@@ -14,22 +15,10 @@
 {% if saved %}
 <div class="alert alert-success py-2">Сохранено.</div>
 {% endif %}
-
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <p class="text-muted mb-0">{{ employee.position_title }}</p>
-  <div class="btn-group" role="group" aria-label="Период">
-    {% for k in period_kinds %}
-    <a href="/hr/entry/{{ employee.id }}?period={{ period }}&kind={{ k }}"
-       class="btn btn-sm {% if k == kind %}btn-accent{% else %}btn-outline-secondary{% endif %}">
-      {{ period_kind_labels[k] }}{% if k != 'month' and k in kinds_with_data %} •{% endif %}
-    </a>
-    {% endfor %}
-  </div>
-</div>
+<p class="text-muted mb-3">{{ employee.position_title }}</p>
 
 <form method="post" action="/hr/entry/{{ employee.id }}">
 <input type="hidden" name="period" value="{{ period }}">
-<input type="hidden" name="kind" value="{{ kind }}">
 
 <div class="accordion" id="hrAccordion">
   {% for code in sections %}
