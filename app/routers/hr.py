@@ -329,7 +329,8 @@ def _profile_months(employee: HrEmployee, rows: list[HrRecord]) -> list[dict]:
                 sections.append({"code": code, "icon": SECTION_META[code]["icon"],
                                  "label": SECTION_META[code]["label"], "rows": entries})
         if sections:
-            months.append({"label": _period_label(period), "sections": sections})
+            months.append({"label": _period_label(period), "period": _period_str(period),
+                           "sections": sections})
     return months
 
 
@@ -393,6 +394,7 @@ async def employee_profile(request: Request, employee_id: int, db: Session = Dep
         "today_period": _period_str(date.today()),
         "error": request.query_params.get("error"),
         "analyzed": request.query_params.get("analyzed"),
+        "deleted": request.query_params.get("deleted"),
     })
 
 
@@ -425,6 +427,46 @@ async def employee_analyze(request: Request, employee_id: int, db: Session = Dep
     ))
     db.commit()
     return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?analyzed=1", status_code=302)
+
+
+@router.post("/employees/{employee_id}/records/delete")
+@login_required
+async def delete_employee_records(
+    request: Request,
+    employee_id: int,
+    period: str = Form(...),
+    section: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    """Удаляет записи одного раздела за месяц (все полумесяцы) у сотрудника —
+    так HR может убрать ошибочный ответ из опроса, не трогая остальные."""
+    if section in HR_SECTIONS:
+        period_date = _period_from_str(period)
+        db.query(HrRecord).filter(
+            HrRecord.employee_id == employee_id,
+            HrRecord.section == section,
+            HrRecord.period == period_date,
+        ).delete(synchronize_session=False)
+        db.commit()
+    return RedirectResponse(
+        url=f"/hr/employees/{employee_id}/profile?deleted=records", status_code=302)
+
+
+@router.post("/employees/{employee_id}/insights/{insight_id}/delete")
+@login_required
+async def delete_employee_insight(
+    request: Request, employee_id: int, insight_id: int, db: Session = Depends(get_db),
+):
+    """Удаляет один ИИ-отчёт из истории анализа сотрудника."""
+    ins = db.query(HrEmployeeInsight).filter(
+        HrEmployeeInsight.id == insight_id,
+        HrEmployeeInsight.employee_id == employee_id,
+    ).first()
+    if ins:
+        db.delete(ins)
+        db.commit()
+    return RedirectResponse(
+        url=f"/hr/employees/{employee_id}/profile?deleted=insight", status_code=302)
 
 
 # ── Должности (справочник) ────────────────────────────────────────────────────

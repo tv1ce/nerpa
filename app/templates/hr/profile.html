@@ -17,6 +17,10 @@
 <div class="alert alert-warning py-2">Пока нет ни одного ответа — анализировать нечего.</div>
 {% elif error == 'ai' %}
 <div class="alert alert-danger py-2">Не удалось получить ответ от ИИ. Попробуйте ещё раз или проверьте ключ OpenRouter.</div>
+{% elif deleted == 'records' %}
+<div class="alert alert-success py-2">Ответы раздела удалены.</div>
+{% elif deleted == 'insight' %}
+<div class="alert alert-success py-2">ИИ-отчёт удалён.</div>
 {% endif %}
 
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
@@ -46,7 +50,17 @@
         <div class="fw-semibold mb-2">{{ m.label }}</div>
         {% for sec in m.sections %}
         <div class="mb-3">
-          <div class="text-muted mb-1" style="font-size:.82rem">{{ sec.icon }} {{ sec.label }}</div>
+          <div class="d-flex justify-content-between align-items-start mb-1">
+            <div class="text-muted" style="font-size:.82rem">{{ sec.icon }} {{ sec.label }}</div>
+            <form method="post" action="/hr/employees/{{ employee.id }}/records/delete" class="d-inline ms-2"
+                  data-confirm="Удалить ответы раздела «{{ sec.label }}» за {{ m.label }}? Действие необратимо.">
+              <input type="hidden" name="period" value="{{ m.period }}">
+              <input type="hidden" name="section" value="{{ sec.code }}">
+              <button class="btn btn-link text-danger p-0" title="Удалить эти записи" style="font-size:.8rem; line-height:1">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </div>
           {% for row in sec.rows %}
             {% if row.q %}
             <div class="mb-2 ps-2 border-start border-2">
@@ -79,8 +93,14 @@
     {% for ins in insights %}
     <div class="card border-0 shadow-sm mb-3 {% if loop.first %}border-start border-3 border-success{% endif %}">
       <div class="card-body">
-        <div class="text-muted mb-2" style="font-size:.75rem">
-          {{ ins.created_at.strftime('%d.%m.%Y %H:%M') }} · {{ ins.model or 'ИИ' }}
+        <div class="text-muted mb-2 d-flex justify-content-between align-items-center" style="font-size:.75rem">
+          <span>{{ ins.created_at.strftime('%d.%m.%Y %H:%M') }} · {{ ins.model or 'ИИ' }}</span>
+          <form method="post" action="/hr/employees/{{ employee.id }}/insights/{{ ins.id }}/delete"
+                class="d-inline ms-2" data-confirm="Удалить этот ИИ-отчёт? Действие необратимо.">
+            <button class="btn btn-link text-danger p-0" title="Удалить отчёт" style="line-height:1">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
         </div>
         <div style="font-size:.88rem; white-space:pre-wrap">{{ ins.text }}</div>
       </div>
