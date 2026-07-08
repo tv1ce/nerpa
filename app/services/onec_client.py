@@ -855,7 +855,9 @@ def sync_invoices_from_1c(db: Session) -> dict:
         if contract:
             inv.contract_id = contract.id
         inv.total_amount = total
-        inv.due_date = compute_invoice_due_date(inv.date, contract, cp)
+        # «Оплатить до» берём из 1С — поле «Оплата» (ОплатаДо), менеджер ставит его
+        # вручную на счёте. Если в 1С не заполнено — вычисляем по условиям договора.
+        inv.due_date = _parse_1c_dt(d.get("ОплатаДо")) or compute_invoice_due_date(inv.date, contract, cp)
         if inv.status not in ("paid", "cancelled"):
             inv.status = "issued"
         # Привязка к заказу (только если ещё не привязан).
