@@ -203,6 +203,18 @@ def extract_counterparty_data(client: BitrixClient, deal: dict) -> Optional[dict
     inn = (requisite.get("RQ_INN") or "").strip()
     kpp = (requisite.get("RQ_KPP") or "").strip()
     ogrn = (requisite.get("RQ_OGRN") or requisite.get("RQ_OGRNIP") or "").strip()
+
+    # Компанию/контакт в Bitrix могли завести «заглушкой»: вбить ИНН прямо в
+    # название, а реквизиты (RQ_INN и пр.) заполнить позже. Если робот стадии
+    # «Заказ согласован» успел дёрнуть вебхук ДО заполнения, RQ_INN приходит
+    # пустым, а name — это ИНН (10 цифр у юрлица, 12 у ИП). Распознаём его как
+    # ИНН, чтобы сматчить существующего контрагента по ИНН и дополнить из DaData,
+    # а не плодить дубль с числовым именем.
+    if not inn and name.isdigit() and len(name) in (10, 12):
+        inn = name
+        entity_type = "ip" if len(inn) == 12 else "ooo"
+        name = ""
+
     full_name = (requisite.get("RQ_COMPANY_FULL_NAME") or requisite.get("RQ_COMPANY_NAME")
                  or name or "").strip()
 
