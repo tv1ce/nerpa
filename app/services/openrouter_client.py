@@ -14,9 +14,9 @@ MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
 API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # OpenRouter отдаёт 403 «Access denied by security policy» на прямые запросы с
-# российского IP сервера, поэтому ходим через тот же socks5-прокси, что и Telegram.
-# Пусто = прямое соединение. Пример: socks5://127.0.0.1:1080
-PROXY = (os.getenv("OPENROUTER_PROXY") or os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080")).strip() or None
+# российского IP сервера, поэтому ходим через локальный прокси-обход (v2rayA HTTP,
+# он же резолвит DNS удалённо — обходит отсутствие IPv6). Пусто = прямое соединение.
+PROXY = os.getenv("OPENROUTER_PROXY", "http://127.0.0.1:20171").strip() or None
 
 
 def chat(system: str, user: str, *, model: str | None = None, temperature: float = 0.2) -> str:
