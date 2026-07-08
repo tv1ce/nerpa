@@ -790,7 +790,7 @@ def sync_invoices_from_1c(db: Session) -> dict:
         return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
 
     from datetime import date as _date
-    from app.models import Invoice, InvoiceItem, Counterparty, Contract, Product
+    from app.models import Invoice, InvoiceItem, Counterparty, Contract, Product, Order
     from app.utils import compute_invoice_due_date
 
     errors: list[str] = []
@@ -858,9 +858,18 @@ def sync_invoices_from_1c(db: Session) -> dict:
         inv.due_date = compute_invoice_due_date(inv.date, contract, cp)
         if inv.status not in ("paid", "cancelled"):
             inv.status = "issued"
-        # Привязка к заказу (эвристика; только если ещё не привязан)
+        # Привязка к заказу (только если ещё не привязан).
         if not inv.order_id:
-            order = _guess_order_for_invoice(db, cp, contract, total)
+            order = None
+            # 1) Прямая ссылка из 1С: ДокументОснование → ЗаказПокупателя.
+            #    Надёжнее суммы: у контрагента может быть несколько заказов с
+            #    одинаковой суммой по одному договору (эвристика тогда пасует).
+            osn = d.get("ДокументОснование")
+            if osn and "Document_ЗаказПокупателя" in (d.get("ДокументОснование_Type") or ""):
+                order = db.query(Order).filter(Order.external_id_1c == osn).first()
+            # 2) Фолбэк — эвристика по сумме, если прямой ссылки нет/заказ не найден.
+            if not order:
+                order = _guess_order_for_invoice(db, cp, contract, total)
             if order:
                 inv.order_id = order.id
         # Если счёт уже оплачен и появилась привязка к заказу — подтянуть статус заказа
