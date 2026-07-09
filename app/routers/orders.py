@@ -284,6 +284,9 @@ async def create_order(
     driver_name: str = Form(default=""),
     vehicle_plate: str = Form(default=""),
     vehicle_type: str = Form(default=""),
+    cargo_places: str = Form(default=""),
+    cargo_pallets: str = Form(default=""),
+    cargo_name: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -309,6 +312,9 @@ async def create_order(
         driver_name=driver_name.strip() or None,
         vehicle_plate=vehicle_plate.strip() or None,
         vehicle_type=vehicle_type.strip() or None,
+        cargo_places=int(cargo_places) if cargo_places.strip().isdigit() else None,
+        cargo_pallets=int(cargo_pallets) if cargo_pallets.strip().isdigit() else None,
+        cargo_name=cargo_name.strip() or None,
         created_by_id=request.session.get("user_id"),
         sales_manager_id=sales_manager_id or request.session.get("user_id"),
     )
@@ -454,6 +460,9 @@ async def update_order(
     driver_name: str = Form(default=""),
     vehicle_plate: str = Form(default=""),
     vehicle_type: str = Form(default=""),
+    cargo_places: str = Form(default=""),
+    cargo_pallets: str = Form(default=""),
+    cargo_name: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -479,6 +488,9 @@ async def update_order(
     order.driver_name   = driver_name.strip() or None
     order.vehicle_plate = vehicle_plate.strip() or None
     order.vehicle_type  = vehicle_type.strip() or None
+    order.cargo_places  = int(cargo_places) if cargo_places.strip().isdigit() else None
+    order.cargo_pallets = int(cargo_pallets) if cargo_pallets.strip().isdigit() else None
+    order.cargo_name    = cargo_name.strip() or None
     if sales_manager_id:
         order.sales_manager_id = sales_manager_id
     for item in order.items:

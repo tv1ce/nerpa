@@ -500,6 +500,13 @@
                    value="{{ company.sbis_account_id if company and company.sbis_account_id else '' }}">
             <div class="form-text" style="font-size:.72rem">Если у вас несколько компаний в СБИС, укажите идентификатор нужной.</div>
           </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm">Наименование груза по умолчанию <span class="text-muted">(заявки / ЭТрН)</span></label>
+            <input type="text" name="saby_cargo_name" class="form-control form-control-sm"
+                   placeholder="Орешки кондитерские"
+                   value="{{ company.saby_cargo_name if company and company.saby_cargo_name else '' }}">
+            <div class="form-text" style="font-size:.72rem">Консолидированный груз в заявке перевозчику вместо списка товаров. В заказе можно переопределить.</div>
+          </div>
           {% if company and company.sbis_login %}
           <div class="col-12">
             <div class="text-success" style="font-size:.8rem"><i class="bi bi-check-circle me-1"></i>СБИС настроен — кнопка «Создать ЭТРН» появится в карточке заказа</div>

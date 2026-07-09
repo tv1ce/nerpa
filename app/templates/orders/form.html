@@ -134,6 +134,22 @@
             <input type="text" name="vehicle_type" id="vehicle_type" class="form-control" placeholder="ГАЗель Next"
                    value="{{ order.vehicle_type if order and order.vehicle_type else '' }}">
           </div>
+          {# ── Консолидация груза для заказа-заявки перевозчику / ЭТрН ── #}
+          <div class="col-md-3">
+            <label class="form-label">Грузомест <span class="text-muted" style="font-size:.8rem">(коробок)</span></label>
+            <input type="number" min="0" name="cargo_places" class="form-control" placeholder="авто из позиций"
+                   value="{{ order.cargo_places if order and order.cargo_places else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Паллет</label>
+            <input type="number" min="0" name="cargo_pallets" class="form-control" placeholder="не указывать"
+                   value="{{ order.cargo_pallets if order and order.cargo_pallets else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Наименование груза <span class="text-muted" style="font-size:.8rem">(для заявки/ЭТрН)</span></label>
+            <input type="text" name="cargo_name" class="form-control" placeholder="Орешки кондитерские (по умолчанию)"
+                   value="{{ order.cargo_name if order and order.cargo_name else '' }}">
+          </div>
           <div class="col-md-6">
             <label class="form-label">Менеджер по продажам</label>
             <select name="sales_manager_id" class="form-select">

@@ -299,6 +299,11 @@ def _migrate_db():
         ("orders", "transport_order_id",     "TEXT"),
         ("orders", "transport_order_status", "TEXT"),
         ("orders", "transport_order_url",    "TEXT"),
+        # ── Консолидация груза для заявки/ЭТрН ──
+        ("orders", "cargo_places",  "INTEGER"),
+        ("orders", "cargo_pallets", "INTEGER"),
+        ("orders", "cargo_name",    "TEXT"),
+        ("company_settings", "saby_cargo_name", "TEXT DEFAULT 'Орешки кондитерские'"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

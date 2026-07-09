@@ -13,7 +13,20 @@ build_transport_order_substitution — ЭЗЗ (заказ-заявка пере�
   Заказчик груза / грузополучатель — order.counterparty (клиент);
   Маршрут: пункт погрузки (наш склад) → пункт выгрузки (адрес клиента).
 """
+import math
 from datetime import date, datetime
+
+
+def compute_cargo_places(order) -> int:
+    """Оценка числа грузомест (коробок) из позиций заказа: по каждой позиции —
+    округление вверх quantity / units_per_box. Служит авто-подсказкой, когда
+    менеджер не указал фактическое число мест вручную."""
+    total = 0
+    for i in order.items:
+        per_box = (getattr(i.product, "units_per_box", None) or 1) if i.product else 1
+        per_box = per_box if per_box > 0 else 1
+        total += math.ceil((i.quantity or 0) / per_box)
+    return int(total) or (1 if order.items else 0)
 
 
 def _d(d) -> str:
@@ -61,18 +74,18 @@ def build_transport_order_substitution(order, company) -> dict:
     delivery_addr = order.delivery_address or (cp.actual_address if cp else "") or (cp.legal_address if cp else "") or ""
     подача_dt     = _dt(order.delivery_date or order.date)
 
-    # Позиции груза
-    positions = []
-    for i in order.items:
-        if not i.product:
-            continue
-        positions.append({
-            "Наименование": i.product.name,
-            "Параметры": {
-                "КоличествоМест": str(int(i.quantity)),
-                "Масса": {"Брутто": "0"},
-            },
-        })
+    # Консолидированный груз: одна позиция — общее наименование + фактические
+    # места/паллеты (ручной ввод в заказе; иначе места считаем из коробок).
+    cargo_name = (order.cargo_name or "").strip() \
+        or (company.saby_cargo_name or "").strip() or "Груз"
+    places = order.cargo_places if order.cargo_places else compute_cargo_places(order)
+    params = {
+        "КоличествоМест": str(int(places or 0)),
+        "Масса": {"Брутто": "0"},
+    }
+    if order.cargo_pallets:
+        params["КоличествоПаллет"] = str(int(order.cargo_pallets))
+    positions = [{"Наименование": cargo_name, "Параметры": params}]
 
     # Пункт выгрузки — адрес клиента + организация-грузополучатель (если известна)
     пункт_выгрузки = {

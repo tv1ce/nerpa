@@ -165,6 +165,10 @@ class Order(Base):
     driver_name    = Column(String(200))        # ФИО водителя
     vehicle_plate  = Column(String(20))         # Гос. номер ТС, напр. «А001АА77»
     vehicle_type   = Column(String(100))        # Марка/модель ТС, напр. «ГАЗель Next»
+    # ── Консолидация груза (для заказа-заявки/ЭТрН): один груз вместо списка позиций ──
+    cargo_places   = Column(Integer)            # кол-во грузомест (коробок); пусто = авто из позиций
+    cargo_pallets  = Column(Integer)            # кол-во паллет; пусто = не указывать
+    cargo_name     = Column(String(200))        # наименование груза; пусто = дефолт из настроек
     # ── СБИС ЭПД / ЭТРН ──
     etran_id     = Column(String(100))          # ID документа в СБИС
     etran_status = Column(String(50))           # черновик / отправлен / подписан / завершён / ошибка
@@ -389,6 +393,8 @@ class CompanySettings(Base):
     tg_callback_enabled = Column(Boolean, default=True)  # вкл/выкл авторассылку напоминаний о прозвонах
     # ── KPI-фильтр продукта (дашборд и отчёты) ──
     kpi_product_filter = Column(String(100), default="орешк")  # ilike-подстрока для фильтра KPI
+    # ── Saby «Управление транспортом»: наименование груза по умолчанию для заявок/ЭТрН ──
+    saby_cargo_name = Column(String(200), default="Орешки кондитерские")
     # ── Пороги напоминаний (за сколько дней предупреждать), 0 = выключено ──
     notify_contract_days = Column(Integer, default=14)  # до истечения договора
     notify_invoice_days  = Column(Integer, default=3)   # до дедлайна оплаты счёта

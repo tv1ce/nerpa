@@ -430,6 +430,7 @@ async def save_sbis(
     sbis_login: str = Form(default=""),
     sbis_password: str = Form(default=""),
     sbis_account_id: str = Form(default=""),
+    saby_cargo_name: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -440,6 +441,7 @@ async def save_sbis(
     if sbis_password.strip():
         company.sbis_password = sbis_password.strip()
     company.sbis_account_id = sbis_account_id.strip() or None
+    company.saby_cargo_name = saby_cargo_name.strip() or "Орешки кондитерские"
     db.commit()
     return RedirectResponse(url="/settings/?saved=1&tab=integrations", status_code=302)
 
