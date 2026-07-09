@@ -15,10 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.auth import role_required
 from app.database import get_db
-from app.models import CompanySettings
+from app.models import CompanySettings, Order
 from app.services.saby_tms_client import (
-    SabyTmsError, get_saby_tms_client, DOC_TRANSPORT_ORDER,
+    SabyTmsError, get_saby_tms_client, our_org_from_company, state_label,
+    DOC_TRANSPORT_ORDER, VLOZH_TYPE_ORDER, VLOZH_SUBTYPE_ORDER,
 )
+from app.services.saby_docs import build_transport_order_substitution
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/saby-tms", tags=["saby_tms"])
@@ -26,6 +28,15 @@ router = APIRouter(prefix="/api/saby-tms", tags=["saby_tms"])
 
 def _json(ok: bool, **kw):
     return JSONResponse({"ok": ok, **kw})
+
+
+def _doc_link(result: dict, doc_id: str) -> str:
+    """Ссылка на документ в кабинете Saby: приоритет — «СсылкаДляНашаОрганизация»."""
+    return (
+        result.get("СсылкаДляНашаОрганизация")
+        or result.get("СсылкаВКабинет")
+        or (f"https://online.sbis.ru/opendoc.html?guid={doc_id}" if doc_id else "")
+    )
 
 
 @router.get("/test")
@@ -52,3 +63,91 @@ async def test_connection(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.exception("Saby TMS test error")
         return _json(False, message=f"Ошибка: {e}")
+
+
+# ── Заказ-заявка перевозчику (ЭЗЗ) ──────────────────────────────────────────
+
+@router.post("/transport-order/{order_id}")
+@role_required("manager")
+async def create_transport_order(request: Request, order_id: int, db: Session = Depends(get_db)):
+    """Создаёт ЧЕРНОВИК заказа-заявки на перевозку в Saby из заказа TMS.
+
+    Флоу: СгенерироватьВложение → ЗаписатьДокумент. Документ остаётся черновиком
+    в состоянии «редактируется» — подписание и отправку менеджер делает вручную
+    в кабинете Saby (физический сертификат, подпись с сервера невозможна)."""
+    company = db.query(CompanySettings).first()
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        return _json(False, error="Заказ не найден")
+    if not company or not company.inn:
+        return _json(False, error="Не заполнены реквизиты организации (ИНН) в Настройках")
+
+    client = get_saby_tms_client(company)
+    if not client:
+        return _json(False, error="СБИС не настроен — укажите логин и пароль в Настройках → Интеграции")
+
+    substitution = build_transport_order_substitution(order, company)
+    try:
+        with client:
+            attachment = client.generate_attachment(VLOZH_TYPE_ORDER, VLOZH_SUBTYPE_ORDER, substitution)
+            result = client.write_document(
+                DOC_TRANSPORT_ORDER, "Заказ на перевозку",
+                our_org_from_company(company), attachment,
+            )
+        doc_id = result.get("Идентификатор")
+        if not doc_id:
+            return _json(False, error="Saby не вернул идентификатор документа", raw=result)
+
+        order.transport_order_id = doc_id
+        order.transport_order_status = state_label((result.get("Состояние") or {}).get("Код", "0"))
+        order.transport_order_url = _doc_link(result, doc_id)
+        db.commit()
+        return _json(
+            True,
+            id=doc_id,
+            url=order.transport_order_url,
+            status=order.transport_order_status,
+            message="Черновик заказа-заявки создан в Saby. Подпишите и отправьте перевозчику в кабинете Saby по ссылке.",
+        )
+    except SabyTmsError as e:
+        logger.error("Saby ЭЗЗ ошибка для заказа #%s: %s", order.number, e)
+        order.transport_order_status = "ошибка"
+        db.commit()
+        return _json(False, error=str(e))
+    except Exception as e:
+        logger.exception("Saby ЭЗЗ unexpected error order_id=%s", order_id)
+        return _json(False, error=f"Непредвиденная ошибка: {e}")
+
+
+@router.get("/transport-order/{order_id}/status")
+@role_required("manager")
+async def transport_order_status(request: Request, order_id: int, db: Session = Depends(get_db)):
+    """Опрашивает статус заказа-заявки через СБИС.СписокИзменений (за последний месяц)."""
+    company = db.query(CompanySettings).first()
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        return _json(False, error="Заказ не найден")
+    if not order.transport_order_id:
+        return _json(False, error="Заказ-заявка ещё не создан")
+
+    client = get_saby_tms_client(company)
+    if not client:
+        return _json(False, error="СБИС не настроен")
+
+    try:
+        with client:
+            result = client.list_changes(DOC_TRANSPORT_ORDER, page_size=50)
+    except SabyTmsError as e:
+        return _json(False, error=str(e))
+
+    match = next(
+        (d for d in (result or {}).get("Документ", [])
+         if d.get("Идентификатор") == order.transport_order_id),
+        None,
+    )
+    if not match:
+        return _json(True, status=order.transport_order_status, note="документ не найден в списке за период")
+    code = (match.get("Состояние") or {}).get("Код", "")
+    order.transport_order_status = state_label(code)
+    db.commit()
+    return _json(True, status=order.transport_order_status, code=code, url=order.transport_order_url)

@@ -419,6 +419,46 @@
         {% endif %}
         <div id="etran-result" class="mt-1" style="font-size:.8rem"></div>
       </div>
+
+      {# ── Заказ-заявка перевозчику (Saby ЭЗЗ) — черновик; подпись и отправка в кабинете Saby ── #}
+      <div class="mb-2">
+        {% if order.transport_order_id %}
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="badge
+            {% if order.transport_order_status == 'утверждён' %}bg-success
+            {% elif order.transport_order_status == 'отправлен' %}bg-info text-dark
+            {% elif order.transport_order_status == 'отклонён' %}bg-danger
+            {% elif order.transport_order_status == 'ошибка' %}bg-danger
+            {% else %}bg-secondary{% endif %}"
+            style="font-size:.72rem">
+            Заявка: {{ order.transport_order_status or 'черновик' }}
+          </span>
+          <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 ms-auto"
+                  style="font-size:.72rem" onclick="refreshTransportOrderStatus({{ order.id }})" id="btn-torder-refresh"
+                  title="Обновить статус из Saby">
+            <i class="bi bi-arrow-repeat"></i>
+          </button>
+        </div>
+        {% if order.transport_order_url %}
+        <a href="{{ order.transport_order_url }}" target="_blank" class="btn btn-success btn-sm w-100 mb-1">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Открыть в Saby — подписать и отправить перевозчику
+        </a>
+        {% endif %}
+        <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="btn-torder"
+                onclick="createTransportOrder({{ order.id }})">
+          <i class="bi bi-arrow-repeat me-1"></i>Пересоздать черновик
+        </button>
+        {% else %}
+        <button type="button" class="btn btn-primary btn-sm w-100" id="btn-torder"
+                onclick="createTransportOrder({{ order.id }})">
+          <i class="bi bi-truck me-1"></i>Создать заказ-заявку перевозчику
+        </button>
+        <div class="text-muted mt-1" style="font-size:.72rem">
+          TMS создаёт черновик заявки в Saby из данных заказа. Подпись и отправка перевозчику — в кабинете Saby.
+        </div>
+        {% endif %}
+        <div id="torder-result" class="mt-1" style="font-size:.8rem"></div>
+      </div>
       {% endif %}
       {% endif %}
 
@@ -679,6 +719,51 @@ async function refreshEtranStatus(orderId) {
     const data = await resp.json();
     if (data.ok) {
       result.innerHTML = `<span class="text-success"><i class="bi bi-arrow-repeat me-1"></i>Статус обновлён: ${data.status}</span>`;
+      setTimeout(() => location.reload(), 800);
+    } else {
+      result.innerHTML = `<span class="text-danger">${data.error}</span>`;
+    }
+  } catch(e) {
+    result.innerHTML = `<span class="text-danger">Ошибка: ${e}</span>`;
+  } finally {
+    btn.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
+  }
+}
+
+async function createTransportOrder(orderId) {
+  const btn    = document.getElementById('btn-torder');
+  const result = document.getElementById('torder-result');
+  const label  = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Создаём заявку…';
+  result.innerHTML = '';
+  try {
+    const resp = await fetch(`/api/saby-tms/transport-order/${orderId}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      btn.disabled = false;
+      btn.innerHTML = label;
+      result.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error || 'Ошибка'}</span>`;
+    }
+  } catch(e) {
+    btn.disabled = false;
+    btn.innerHTML = label;
+    result.innerHTML = `<span class="text-danger">Сетевая ошибка: ${e}</span>`;
+  }
+}
+
+async function refreshTransportOrderStatus(orderId) {
+  const btn    = document.getElementById('btn-torder-refresh');
+  const result = document.getElementById('torder-result');
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+  try {
+    const resp = await fetch(`/api/saby-tms/transport-order/${orderId}/status`);
+    const data = await resp.json();
+    if (data.ok) {
+      result.innerHTML = `<span class="text-success"><i class="bi bi-arrow-repeat me-1"></i>Статус: ${data.status}</span>`;
       setTimeout(() => location.reload(), 800);
     } else {
       result.innerHTML = `<span class="text-danger">${data.error}</span>`;
