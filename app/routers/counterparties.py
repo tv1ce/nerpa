@@ -52,6 +52,21 @@ def _push_cp_bg(cp_id: int) -> None:
     finally:
         db.close()
 templates = Jinja2Templates(directory="app/templates")
+# Jinja по умолчанию рендерит None как текст «None». В формах это попадало в
+# value=… и при сохранении записывалось в БД строкой «None». Заставляем None
+# выводиться пустой строкой во всех шаблонах контрагентов.
+templates.env.finalize = lambda v: "" if v is None else v
+
+
+def _clean(v):
+    """Нормализует значение текстового поля: пустая строка и мусорные заглушки
+    «None»/«null» → None (чистим легаси-строки, пришедшие из формы/интеграций)."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s or s.lower() in ("none", "null"):
+        return None
+    return s
 
 
 def _generate_signatory(full_name: str) -> str:
@@ -248,15 +263,15 @@ async def create_counterparty(
         signatory = _generate_signatory(contact_person or name)
     effective_tg = (tg_chat_id.strip() or tg_chat_id_hidden.strip()) or None
     cp = Counterparty(
-        name=name, trade_name=trade_name or None, short_name=short_name,
-        inn=_validate_inn(inn), kpp=_validate_kpp(kpp), ogrn=_validate_ogrn(ogrn),
-        legal_address=legal_address, actual_address=actual_address,
-        phone=phone, email=email, contact_person=contact_person,
-        signatory=signatory or None,
+        name=name, trade_name=_clean(trade_name), short_name=_clean(short_name),
+        inn=_validate_inn(inn) or None, kpp=_validate_kpp(kpp) or None, ogrn=_validate_ogrn(ogrn) or None,
+        legal_address=_clean(legal_address), actual_address=_clean(actual_address),
+        phone=_clean(phone), email=_clean(email), contact_person=_clean(contact_person),
+        signatory=_clean(signatory),
         type=type,
         entity_type=resolved_entity,
-        bank_name=bank_name, bank_account=bank_account, bank_bik=bank_bik,
-        bank_corr_account=bank_corr_account, notes=notes,
+        bank_name=_clean(bank_name), bank_account=_clean(bank_account), bank_bik=_clean(bank_bik),
+        bank_corr_account=_clean(bank_corr_account), notes=_clean(notes),
         payment_delay_days=max(0, payment_delay_days),
         payment_delay_type=payment_delay_type if payment_delay_type in ("banking", "calendar") else "banking",
         default_discount_pct=min(max(default_discount_pct, 0.0), 100.0),
@@ -614,15 +629,16 @@ async def update_counterparty(
         if resolved_entity == "ip" and not signatory.strip():
             signatory = _generate_signatory(contact_person or name)
         effective_tg = (tg_chat_id.strip() or tg_chat_id_hidden.strip()) or None
-        cp.name = name; cp.trade_name = trade_name or None; cp.short_name = short_name
-        cp.inn = _validate_inn(inn); cp.kpp = _validate_kpp(kpp)
-        cp.ogrn = _validate_ogrn(ogrn); cp.legal_address = legal_address; cp.actual_address = actual_address
-        cp.phone = phone; cp.email = email; cp.contact_person = contact_person
-        cp.signatory = signatory or None
+        cp.name = name; cp.trade_name = _clean(trade_name); cp.short_name = _clean(short_name)
+        cp.inn = _validate_inn(inn) or None; cp.kpp = _validate_kpp(kpp) or None
+        cp.ogrn = _validate_ogrn(ogrn) or None
+        cp.legal_address = _clean(legal_address); cp.actual_address = _clean(actual_address)
+        cp.phone = _clean(phone); cp.email = _clean(email); cp.contact_person = _clean(contact_person)
+        cp.signatory = _clean(signatory)
         cp.type = type
         cp.entity_type = resolved_entity
-        cp.bank_name = bank_name; cp.bank_account = bank_account; cp.bank_bik = bank_bik
-        cp.bank_corr_account = bank_corr_account; cp.notes = notes
+        cp.bank_name = _clean(bank_name); cp.bank_account = _clean(bank_account); cp.bank_bik = _clean(bank_bik)
+        cp.bank_corr_account = _clean(bank_corr_account); cp.notes = _clean(notes)
         cp.payment_delay_days = max(0, payment_delay_days)
         cp.payment_delay_type = payment_delay_type if payment_delay_type in ("banking", "calendar") else "banking"
         cp.default_discount_pct = min(max(default_discount_pct, 0.0), 100.0)

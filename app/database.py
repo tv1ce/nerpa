@@ -295,6 +295,10 @@ def _migrate_db():
         ("sales_leads", "bitrix_lead_synced_at", "TIMESTAMP"),
         ("users", "bitrix_user_id", "TEXT"),
         ("company_settings", "public_url", "TEXT"),
+        # ── Saby «Управление транспортом»: заказ-заявка перевозчику (ЭЗЗ) ──
+        ("orders", "transport_order_id",     "TEXT"),
+        ("orders", "transport_order_status", "TEXT"),
+        ("orders", "transport_order_url",    "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
@@ -317,6 +321,22 @@ def _migrate_db():
     # Перевод орешков с «Коробки» на «шт»
     cur.execute("UPDATE products SET unit='шт', sale_unit=NULL, units_per_box=1 WHERE unit='Коробки'")
     cur.execute("UPDATE invoice_items SET unit='шт' WHERE unit='Коробки'")
+
+    # Чистка легаси-заглушек «None» в реквизитах контрагентов: Jinja раньше выводил
+    # Python None как текст «None» в value=… формы, и при сохранении он записывался
+    # в БД строкой. Обнуляем такие поля (и пустые строки заодно) — единоразово.
+    _cp_text_cols = [
+        "trade_name", "short_name", "kpp", "ogrn", "legal_address", "actual_address",
+        "phone", "email", "contact_person", "signatory",
+        "bank_name", "bank_account", "bank_bik", "bank_corr_account", "notes",
+    ]
+    _existing_cp_cols = {row[1] for row in cur.execute("PRAGMA table_info(counterparties)").fetchall()}
+    for _c in _cp_text_cols:
+        if _c in _existing_cp_cols:
+            cur.execute(
+                f"UPDATE counterparties SET {_c}=NULL "
+                f"WHERE {_c}='None' OR {_c}='none' OR {_c}='null' OR {_c}=''"
+            )
 
     # Водитель/ТС перевозчика: переход с одиночных полей на список carrier_vehicles.
     # Старые колонки удаляем (SQLite 3.35+ поддерживает DROP COLUMN); если версия

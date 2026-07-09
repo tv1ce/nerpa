@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_bitrix, api_tochka, hr
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, hr
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -562,6 +562,7 @@ app.include_router(sync_1c.router)
 app.include_router(sourcing.router)
 app.include_router(api_1c.router)     # приём документов из 1С (push, вариант A)
 app.include_router(api_sbis.router)   # СБИС ЭПД/ЭТРН (вариант C)
+app.include_router(api_saby_tms.router)  # Saby «Управление транспортом» — заказы на перевозку (ЭЗЗ) + ЭТрН
 app.include_router(api_bitrix.router) # Bitrix24 CRM — приём сделок + настройка маппинга
 app.include_router(api_tochka.router) # Банк «Точка» — вебхук/сверка входящих оплат
 app.include_router(hr.router)         # HR-отчётность (Teamly)

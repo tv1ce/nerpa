@@ -169,6 +169,10 @@ class Order(Base):
     etran_id     = Column(String(100))          # ID документа в СБИС
     etran_status = Column(String(50))           # черновик / отправлен / подписан / завершён / ошибка
     etran_url    = Column(String(500))          # ссылка на документ в СБИС Online
+    # ── Saby «Управление транспортом»: заказ-заявка перевозчику (ЭЗЗ) ──
+    transport_order_id     = Column(String(100))   # Идентификатор документа TransportOrder в Saby
+    transport_order_status = Column(String(50))    # черновик / отправлен / утверждён / отклонён / ошибка
+    transport_order_url    = Column(String(500))   # ссылка на документ в кабинете Saby
     # ── Bitrix24 CRM ──
     bitrix_deal_id      = Column(String(20), index=True)  # ID сделки, из которой создан заказ
     bitrix_category_id  = Column(Integer)                 # CATEGORY_ID направления (воронки) сделки
