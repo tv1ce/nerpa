@@ -421,6 +421,51 @@ async def check_egrul(request: Request, cp_id: int, db: Session = Depends(get_db
     })
 
 
+@router.post("/{cp_id}/refresh-bitrix", response_class=JSONResponse)
+@login_required
+async def refresh_bitrix_requisites(request: Request, cp_id: int, db: Session = Depends(get_db)):
+    """AJAX: вручную дозаливает пустые реквизиты контрагента из Bitrix24 + DaData
+    (та же логика, что и фоновый поллинг, но по кнопке — не дожидаясь цикла)."""
+    from datetime import datetime as _dt
+    from app.models import CompanySettings
+    from app.services.bitrix_client import (
+        BitrixError, get_bitrix_client, refresh_counterparty_requisites,
+    )
+    cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
+    if not cp:
+        return JSONResponse({"error": "КА не найден"}, status_code=404)
+    if not cp.external_id_bitrix:
+        return JSONResponse({"error": "КА не связан со сделкой Bitrix24"}, status_code=400)
+
+    company = db.query(CompanySettings).first()
+    client = get_bitrix_client(company)
+    if not client:
+        return JSONResponse({"error": "Bitrix24 не настроен или выключен в Настройках"}, status_code=503)
+
+    try:
+        with client:
+            updated = refresh_counterparty_requisites(client, cp)
+    except BitrixError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+    if updated:
+        cp.synced_to_bitrix_at = _dt.now()
+        db.commit()
+
+    return JSONResponse({
+        "updated": updated,
+        "message": "Реквизиты обновлены из Bitrix24" if updated
+                   else "Новых данных в Bitrix24 нет — все поля уже заполнены",
+        "inn": cp.inn or "",
+        "kpp": cp.kpp or "",
+        "ogrn": cp.ogrn or "",
+        "bank_name": cp.bank_name or "",
+        "bank_bik": cp.bank_bik or "",
+        "bank_account": cp.bank_account or "",
+        "bank_corr_account": cp.bank_corr_account or "",
+    })
+
+
 @router.get("/{cp_id}", response_class=HTMLResponse)
 @login_required
 async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(get_db)):

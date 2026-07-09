@@ -31,6 +31,25 @@ class BitrixError(Exception):
     pass
 
 
+def _entity_ref_from_external(external_id_bitrix: str):
+    """external_id_bitrix контрагента → (ENTITY_TYPE_ID, entity_id) для CRM.
+
+    Формат кода задаётся в extract_counterparty_data: 'C{company_id}' для
+    компании, 'P{contact_id}' для контакта. Возвращает (None, None), если код
+    пустой или не распознан (например, контрагент заведён не из Bitrix24)."""
+    s = (external_id_bitrix or "").strip()
+    if len(s) < 2:
+        return None, None
+    kind, ident = s[0], s[1:]
+    if not ident.isdigit():
+        return None, None
+    if kind == "C":
+        return ENTITY_TYPE_COMPANY, ident
+    if kind == "P":
+        return ENTITY_TYPE_CONTACT, ident
+    return None, None
+
+
 class BitrixClient:
     """Клиент REST API Bitrix24 через входящий вебхук. Один экземпляр = одна база."""
 
@@ -275,13 +294,111 @@ def enrich_from_dadata(data: dict) -> dict:
         "short_name": name_block.get("short_with_opf"),
         "kpp": s.get("kpp"),
         "ogrn": s.get("ogrn"),
-        "legal_address": (addr.get("value") or {}) if isinstance(addr.get("value"), dict) else addr.get("value"),
+        "legal_address": addr.get("value") or None,
         "signatory": mgmt.get("name"),
     }
     for k, v in fill.items():
         if v and not data.get(k):
             data[k] = v
     return data
+
+
+# ── Дозаливка реквизитов контрагента из Bitrix24 (отложенная) ────────────────
+
+# Поля контрагента, которые дозаполняем из CRM/DaData. Заполняем ТОЛЬКО пустые —
+# уже введённые в TMS значения не затираем.
+_REFRESHABLE_FIELDS = (
+    "inn", "kpp", "ogrn", "bank_name", "bank_bik", "bank_account",
+    "bank_corr_account", "short_name", "legal_address", "signatory",
+)
+
+
+def refresh_counterparty_requisites(client: BitrixClient, cp) -> bool:
+    """Дозаполняет ПУСТЫЕ реквизиты контрагента, созданного из Bitrix24, свежими
+    данными из CRM (ИНН/КПП/ОГРН/банк) + DaData по ИНН.
+
+    Робот стадии «Заказ согласован» дёргает вебхук раньше, чем менеджер успевает
+    вписать реквизиты в карточку CRM, поэтому при создании контрагента они бывают
+    пустыми. Эта функция возвращается к контрагенту позже и добирает их.
+
+    Никогда не затирает уже заполненные поля. Возвращает True, если что-то
+    реально заполнил."""
+    entity_type_id, entity_id = _entity_ref_from_external(getattr(cp, "external_id_bitrix", None))
+    if not entity_id:
+        return False
+
+    requisite = client.get_requisite(entity_type_id, entity_id)
+    if not requisite:
+        return False
+
+    vals = {
+        "inn":  (requisite.get("RQ_INN") or "").strip() or None,
+        "kpp":  (requisite.get("RQ_KPP") or "").strip() or None,
+        "ogrn": (requisite.get("RQ_OGRN") or requisite.get("RQ_OGRNIP") or "").strip() or None,
+    }
+    if requisite.get("ID"):
+        bank = client.get_bank_detail(requisite["ID"])
+        if bank:
+            vals["bank_name"]         = (bank.get("RQ_BANK_NAME") or "").strip() or None
+            vals["bank_bik"]          = (bank.get("RQ_BIK") or "").strip() or None
+            vals["bank_account"]      = (bank.get("RQ_ACC_NUM") or "").strip() or None
+            vals["bank_corr_account"] = (bank.get("RQ_COR_ACC_NUM") or "").strip() or None
+
+    # По ИНН добираем юр.адрес/подписанта/короткое имя из DaData (только пустые).
+    inn_for_enrich = vals.get("inn") or (cp.inn or None)
+    if inn_for_enrich:
+        enriched = enrich_from_dadata({"inn": inn_for_enrich})
+        for k in ("short_name", "kpp", "ogrn", "legal_address", "signatory"):
+            if enriched.get(k) and not vals.get(k):
+                vals[k] = enriched[k]
+
+    updated = False
+    for attr in _REFRESHABLE_FIELDS:
+        value = vals.get(attr)
+        if value and not getattr(cp, attr, None):
+            setattr(cp, attr, value)
+            updated = True
+    return updated
+
+
+def retry_bitrix_counterparty_requisites(db) -> dict:
+    """Фоновая (поллинг) дозаливка реквизитов контрагентов из Bitrix24.
+
+    Берёт недавно созданных из Bitrix24 контрагентов, у которых до сих пор пуст
+    ИНН или расчётный счёт, и добирает данные из CRM + DaData. Вызывается
+    периодически из APScheduler (см. app/main.py)."""
+    from datetime import timedelta
+    from sqlalchemy import or_
+    from app.models import CompanySettings, Counterparty
+
+    company = db.query(CompanySettings).first()
+    client = get_bitrix_client(company)
+    if not client:
+        return {"checked": 0, "updated": 0}
+
+    cutoff = datetime.now() - timedelta(days=3)
+    pending = db.query(Counterparty).filter(
+        Counterparty.external_id_bitrix.isnot(None),
+        Counterparty.created_at >= cutoff,
+        or_(
+            Counterparty.inn.is_(None),
+            Counterparty.bank_account.is_(None),
+        ),
+    ).all()
+
+    checked = updated = 0
+    with client:
+        for cp in pending:
+            checked += 1
+            try:
+                if refresh_counterparty_requisites(client, cp):
+                    cp.synced_to_bitrix_at = datetime.now()
+                    updated += 1
+            except BitrixError as e:
+                logger.warning("Bitrix24: дозаливка реквизитов КА #%s не удалась: %s", cp.id, e)
+    if updated:
+        db.commit()
+    return {"checked": checked, "updated": updated}
 
 
 # ── TMS → Bitrix24: push статуса заказа в сделку ─────────────────────────────

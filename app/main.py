@@ -353,6 +353,24 @@ def _run_bitrix_lead_retry_job():
         db.close()
 
 
+def _run_bitrix_cp_requisites_job():
+    """Фоновая задача APScheduler: дозаливает ИНН/банковские реквизиты контрагентов,
+    созданных из Bitrix24. Робот стадии «Заказ согласован» дёргает вебхук раньше,
+    чем менеджер успевает вписать реквизиты в карточку CRM, — поэтому периодически
+    возвращаемся и добираем пустые поля из свежих данных Bitrix + DaData."""
+    from app.database import SessionLocal
+    from app.services.bitrix_client import retry_bitrix_counterparty_requisites
+    db = SessionLocal()
+    try:
+        r = retry_bitrix_counterparty_requisites(db)
+        if r["updated"]:
+            logger.info("bitrix cp requisites: checked=%s updated=%s", r["checked"], r["updated"])
+    except Exception as e:
+        logger.error("bitrix cp requisites job error: %s", e)
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
@@ -374,8 +392,10 @@ async def lifespan(_app: FastAPI):
                            misfire_grace_time=60)
         _scheduler.add_job(_run_bitrix_lead_retry_job, "interval", minutes=15, id="bitrix_lead_retry",
                            misfire_grace_time=60)
+        _scheduler.add_job(_run_bitrix_cp_requisites_job, "interval", minutes=10, id="bitrix_cp_requisites",
+                           misfire_grace_time=60)
         _scheduler.start()
-        logger.info("APScheduler: задачи 1c_sync, bitrix_lead_retry запущены (каждые 15 мин)")
+        logger.info("APScheduler: задачи 1c_sync, bitrix_lead_retry, bitrix_cp_requisites запущены")
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
 

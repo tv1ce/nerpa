@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.services.bitrix_client import (
     BitrixError, get_bitrix_client, extract_counterparty_data, enrich_from_dadata,
+    refresh_counterparty_requisites,
 )
 from app.utils import log_action
 
@@ -87,9 +88,22 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         return JSONResponse({"ok": False, "error": "Bitrix24 не настроен или выключен в Настройках"},
                             status_code=503)
 
-    # Идемпотентность: сделка уже приводила к созданию заказа — не дублируем
+    # Идемпотентность: сделка уже приводила к созданию заказа — не дублируем.
+    # Но реквизиты контрагента могли заполниться в CRM уже ПОСЛЕ первого вебхука
+    # (менеджер вписал ИНН/банк позже) — при повторном пуше робота на ту же
+    # стадию дозаливаем пустые поля из свежих данных Bitrix + DaData.
     existing_order = db.query(Order).filter(Order.bitrix_deal_id == deal_id).first()
     if existing_order:
+        cp = existing_order.counterparty
+        if cp and cp.external_id_bitrix:
+            try:
+                from datetime import datetime as _dt
+                with client:
+                    if refresh_counterparty_requisites(client, cp):
+                        cp.synced_to_bitrix_at = _dt.now()
+                        db.commit()
+            except BitrixError as e:
+                logger.warning("Bitrix24: дозаливка реквизитов при повторном пуше сделки %s: %s", deal_id, e)
         return _json(True, order_id=existing_order.id, order_number=existing_order.number,
                      message="Заказ по этой сделке уже создан ранее")
 
@@ -128,6 +142,13 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
     else:
         if not cp.external_id_bitrix:
             cp.external_id_bitrix = cp_data["external_id_bitrix"]
+        # Дозаполняем ПУСТЫЕ реквизиты свежими данными из сделки. Bitrix24 —
+        # источник истины там, где данные есть; введённое в TMS не затираем.
+        for field in ("inn", "kpp", "ogrn", "phone", "email",
+                      "bank_name", "bank_bik", "bank_account", "bank_corr_account"):
+            val = cp_data.get(field)
+            if val and not getattr(cp, field, None):
+                setattr(cp, field, val)
         if not cp.is_active:
             # Найденный по ИНН/привязке контрагент был деактивирован (архивирован
             # вручную) — новая сделка из Bitrix24 означает, что он снова активен.

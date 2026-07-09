@@ -191,6 +191,14 @@
             <div class="col-md-3"><span class="text-muted">БИК:</span> {{ cp.bank_bik or '—' }}</div>
             <div class="col-md-3"><span class="text-muted">К/с:</span> {{ cp.bank_corr_account or '—' }}</div>
           </div>
+          {% if cp.external_id_bitrix %}
+          <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+            <button class="btn btn-xs btn-outline-secondary" id="btn-refresh-bitrix" onclick="refreshBitrix({{ cp.id }})">
+              <i class="bi bi-arrow-repeat me-1"></i>Обновить реквизиты из Bitrix24
+            </button>
+            <span id="refresh-bitrix-msg" class="text-muted" style="font-size:.8rem"></span>
+          </div>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -670,6 +678,35 @@ async function checkEgrul(cpId) {
   }
   btn.disabled = false;
   btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Проверить';
+}
+
+async function refreshBitrix(cpId) {
+  const btn = document.getElementById('btn-refresh-bitrix');
+  const msg = document.getElementById('refresh-bitrix-msg');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Обновление…';
+  msg.className = 'text-muted';
+  msg.textContent = '';
+  try {
+    const r = await fetch(`/counterparties/${cpId}/refresh-bitrix`, {method: 'POST'});
+    const d = await r.json();
+    if (d.error) {
+      msg.className = 'text-danger';
+      msg.textContent = d.error;
+    } else if (d.updated) {
+      msg.className = 'text-success';
+      msg.textContent = d.message + ' — обновляю…';
+      setTimeout(() => window.location.reload(), 700);
+    } else {
+      msg.className = 'text-muted';
+      msg.textContent = d.message;
+    }
+  } catch(e) {
+    msg.className = 'text-danger';
+    msg.textContent = 'Ошибка запроса';
+  }
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Обновить реквизиты из Bitrix24';
 }
 </script>
 {% endblock %}
