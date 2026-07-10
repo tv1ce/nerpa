@@ -155,10 +155,14 @@ class SbisClient:
     # ── ЭДО: счёт / УПД ──────────────────────────────────────────────────────
 
     def write_edo_document(self, doc_type: str, vlozh_type: str,
-                           attachment_b64: str, filename: str) -> dict:
+                           attachment_b64: str, filename: str,
+                           doc_fields: dict | None = None) -> dict:
         """СБИС.ЗаписатьДокумент для ЭДО-документа (счёт «СчетИсх»/«ЭДОСч» или
         УПД «ДокОтгрИсх»/«УпдСчфДоп»). Вложение — готовый файл в base64
-        (счёт — PDF, УПД — формализованный XML). Возвращает объект документа."""
+        (счёт — PDF, УПД — формализованный XML).
+
+        doc_fields — поля уровня документа (Контрагент, Номер, Дата, Сумма и т.п.),
+        чтобы карточка в СБИС была заполнена, а не пустая. Возвращает объект документа."""
         doc = {
             "Тип": doc_type,
             "Вложение": [{
@@ -166,8 +170,22 @@ class SbisClient:
                 "Файл": {"ДвоичныеДанные": attachment_b64, "Имя": filename},
             }],
         }
+        if doc_fields:
+            doc.update(doc_fields)
         result = self._call("СБИС.ЗаписатьДокумент", {"Документ": doc})
         return result if isinstance(result, dict) else {}
+
+    @staticmethod
+    def kontragent_block(cp) -> dict:
+        """Блок «Контрагент» (получатель) для ЭДО-документа. СБИС сматчит его по ИНН."""
+        if cp is None:
+            return {}
+        if getattr(cp, "entity_type", "ooo") == "ip":
+            return {"СвФЛ": {"ИНН": cp.inn or "", "Наименование": cp.name or ""}}
+        return {"СвЮЛ": {
+            "ИННЮЛ": cp.inn or "", "КПП": cp.kpp or "",
+            "Название": cp.trade_name or cp.name or "", "НазваниеПолное": cp.name or "",
+        }}
 
     @staticmethod
     def doc_link(doc_id: str) -> str:

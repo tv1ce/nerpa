@@ -154,8 +154,16 @@ async def create_invoice_edo(request: Request, invoice_id: int, db: Session = De
         pdf_bytes = generate_invoice_pdf(invoice, company)
         b64 = base64.b64encode(pdf_bytes).decode("ascii")
         filename = f"Счет № {invoice.number} от {invoice.date.strftime('%d.%m.%Y')}.pdf"
+        doc_fields = {
+            "Номер": invoice.number or "",
+            "Дата": invoice.date.strftime("%d.%m.%Y") if invoice.date else "",
+            "Сумма": f"{invoice.total_amount:.2f}",
+            "СуммаБезНДС": f"{invoice.subtotal:.2f}",
+            "Примечание": f"Счёт № {invoice.number}",
+            "Контрагент": client.kontragent_block(invoice.counterparty),
+        }
         with client:
-            result = client.write_edo_document("СчетИсх", "ЭДОСч", b64, filename)
+            result = client.write_edo_document("СчетИсх", "ЭДОСч", b64, filename, doc_fields)
         doc_id = _doc_id(result)
         if not doc_id:
             return _json(False, error="СБИС не вернул идентификатор документа", raw=result)
