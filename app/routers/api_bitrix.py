@@ -192,19 +192,24 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         pname = (row.get("PRODUCT_NAME") or "").strip()
         if not pname:
             continue
-        product = db.query(Product).filter(Product.name.ilike(pname)).first()
-        if not product:
-            unmatched.append(pname)
-            continue
         qty = float(row.get("QUANTITY") or 0)
         price = float(row.get("PRICE") or 0)
+        product = db.query(Product).filter(Product.name.ilike(pname)).first()
+        if not product:
+            # Сохраняем QTY/PRICE прямо в тексте — иначе при ручном добавлении
+            # позиции менеджер вынужден гадать количество (товар мог появиться
+            # в каталоге TMS уже ПОСЛЕ пуша сделки, минуты решают).
+            qty_s = f"{qty:g}"
+            price_s = f"{price:g}"
+            unmatched.append(f"{pname} — {qty_s} шт. по {price_s} ₽")
+            continue
         db.add(OrderItem(
             order_id=order.id, product_id=product.id, quantity=qty, price=price,
             vat_rate=product.vat_rate, amount=round(qty * price, 2),
         ))
         matched.append(pname)
     if unmatched:
-        order.notes += "\n\nНе удалось сопоставить товарные позиции (добавьте вручную): " + ", ".join(unmatched)
+        order.notes += "\n\nНе удалось сопоставить товарные позиции (добавьте вручную): " + "; ".join(unmatched)
 
     contract = None
     if is_primary_sale:
