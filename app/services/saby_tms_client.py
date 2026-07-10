@@ -266,3 +266,70 @@ def our_org_from_company(company) -> dict:
 def state_label(code: str) -> str:
     """Человекочитаемый статус по коду состояния СБИС."""
     return STATE_LABELS.get(str(code), f"код {code}")
+
+
+# ── Поллинг статусов заказов-заявок и ЭТрН (Фаза 3) ──────────────────────────
+
+def poll_saby_tms_statuses(db) -> dict:
+    """Опрашивает СБИС.СписокИзменений по обоим типам документов и обновляет
+    статусы заказов, у которых есть привязанный документ Saby. При переходе в
+    «утверждён»/«отклонён» уведомляет ответственного менеджера.
+
+    Вызывается периодически из APScheduler (см. app/main.py)."""
+    from datetime import datetime, timedelta
+    from app.models import CompanySettings, Order, Notification
+
+    company = db.query(CompanySettings).first()
+    client = get_saby_tms_client(company)
+    if not client:
+        return {"checked": 0, "updated": 0}
+
+    to_orders = db.query(Order).filter(Order.transport_order_id.isnot(None)).all()
+    etran_orders = db.query(Order).filter(Order.etran_id.isnot(None)).all()
+    if not to_orders and not etran_orders:
+        return {"checked": 0, "updated": 0}
+
+    date_from = (datetime.now() - timedelta(days=45)).strftime("%d.%m.%Y %H.%M.%S")
+    updated = 0
+
+    def _apply(doc_type, orders, id_attr, status_attr, label):
+        nonlocal updated
+        if not orders:
+            return
+        try:
+            result = client.list_changes(doc_type, date_from=date_from, page_size=50)
+        except SabyTmsError as e:
+            logger.warning("Saby TMS поллинг [%s]: %s", doc_type, e)
+            return
+        docs = (result or {}).get("Документ") or []
+        if isinstance(docs, dict):
+            docs = [docs]
+        by_id = {d.get("Идентификатор"): (d.get("Состояние") or {}).get("Код", "")
+                 for d in docs if d.get("Идентификатор")}
+        for o in orders:
+            code = by_id.get(getattr(o, id_attr))
+            if not code:
+                continue
+            new_status = state_label(code)
+            if getattr(o, status_attr) == new_status:
+                continue
+            setattr(o, status_attr, new_status)
+            updated += 1
+            if str(code) in (STATE_APPROVED, STATE_REJECTED):
+                verb = "утверждён" if str(code) == STATE_APPROVED else "отклонён"
+                uid = o.sales_manager_id or o.created_by_id
+                db.add(Notification(
+                    type="saby_status",
+                    title=f"{label} по заказу №{o.number}: {verb}",
+                    body=f"Контрагент: {o.counterparty.name if o.counterparty else '—'}. Статус в Saby: {new_status}.",
+                    link=f"/orders/{o.id}",
+                    user_id=uid,
+                ))
+
+    with client:
+        _apply(DOC_TRANSPORT_ORDER, to_orders, "transport_order_id", "transport_order_status", "Заказ-заявка")
+        _apply(DOC_CONSIGNMENT_NOTE, etran_orders, "etran_id", "etran_status", "ЭТрН")
+
+    if updated:
+        db.commit()
+    return {"checked": len(to_orders) + len(etran_orders), "updated": updated}

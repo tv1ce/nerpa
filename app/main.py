@@ -353,6 +353,23 @@ def _run_bitrix_lead_retry_job():
         db.close()
 
 
+def _run_saby_status_job():
+    """Фоновая задача APScheduler: опрашивает статусы заказов-заявок и ЭТрН в Saby
+    (СБИС.СписокИзменений) и обновляет их в TMS, уведомляя менеджера при
+    утверждении/отклонении перевозчиком."""
+    from app.database import SessionLocal
+    from app.services.saby_tms_client import poll_saby_tms_statuses
+    db = SessionLocal()
+    try:
+        r = poll_saby_tms_statuses(db)
+        if r["updated"]:
+            logger.info("saby tms статусы: checked=%s updated=%s", r["checked"], r["updated"])
+    except Exception as e:
+        logger.error("saby tms status job error: %s", e)
+    finally:
+        db.close()
+
+
 def _run_bitrix_cp_requisites_job():
     """Фоновая задача APScheduler: дозаливает ИНН/банковские реквизиты контрагентов,
     созданных из Bitrix24. Робот стадии «Заказ согласован» дёргает вебхук раньше,
@@ -394,8 +411,10 @@ async def lifespan(_app: FastAPI):
                            misfire_grace_time=60)
         _scheduler.add_job(_run_bitrix_cp_requisites_job, "interval", minutes=10, id="bitrix_cp_requisites",
                            misfire_grace_time=60)
+        _scheduler.add_job(_run_saby_status_job, "interval", minutes=20, id="saby_tms_status",
+                           misfire_grace_time=60)
         _scheduler.start()
-        logger.info("APScheduler: задачи 1c_sync, bitrix_lead_retry, bitrix_cp_requisites запущены")
+        logger.info("APScheduler: задачи 1c_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status запущены")
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
 
