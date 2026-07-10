@@ -89,8 +89,18 @@ def _fmt(amount: float) -> str:
     return f"{amount:,.0f}".replace(",", " ")
 
 
-# Статусы, считающиеся «отгружено» (передано поставщику или доставлено; «собрано» не считается)
+# Статусы, считающиеся «отгружено» — передано поставщику / доставлено.
 _SHIPPED = ["handed", "delivered"]
+
+
+def _ship_date():
+    """Дата отгрузки = дата перехода в «Передан поставщику» (handed_at). Для старых
+    заказов без отметки (до появления поля / без записи в аудите) — дата заказа.
+
+    Раньше отчёт датировал по Order.date (дате СОЗДАНИЯ заказа) — из-за этого
+    заказ, переданный поставщику сегодня, но созданный раньше, не попадал в
+    «отгружено за сегодня», и отчёт стоял по нулям."""
+    return func.coalesce(func.date(Order.handed_at), func.date(Order.date))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -103,16 +113,16 @@ def get_daily_metrics(db: Session, day: date | None = None) -> dict:
 
     orders_today = db.query(Order).filter(Order.date == today).count()
     orders_shipped = db.query(Order).filter(
-        Order.date == today,
+        _ship_date() == today,
         Order.status.in_(_SHIPPED),
     ).count()
 
-    # Сумма отгрузок = итоги строк заказов, отгруженных сегодня
+    # Сумма отгрузок = итоги строк заказов, отгруженных сегодня (по дате сборки)
     shipped_amount_today = (
         db.query(func.sum(OrderItem.amount))
         .join(Order, OrderItem.order_id == Order.id)
         .filter(
-            Order.date == today,
+            _ship_date() == today,
             Order.status.in_(_SHIPPED),
         )
         .scalar() or 0.0
@@ -130,7 +140,7 @@ def get_daily_metrics(db: Session, day: date | None = None) -> dict:
         db.query(func.sum(OrderItem.quantity))
         .join(Order)
         .filter(
-            Order.date == today,
+            _ship_date() == today,
             Order.status.in_(_SHIPPED),
         )
         .scalar() or 0.0
@@ -177,13 +187,13 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
             Invoice.status == "paid",
         ).scalar() or 0.0
 
-    # Отгрузки: сумма позиций отгруженных заказов по дате заказа
+    # Отгрузки: сумма позиций отгруженных заказов по дате сборки
     def _shipped_amt(d_from, d_to):
         return (
             db.query(func.sum(OrderItem.amount))
             .join(Order, OrderItem.order_id == Order.id)
             .filter(
-                Order.date >= d_from, Order.date <= d_to,
+                _ship_date() >= d_from, _ship_date() <= d_to,
                 Order.status.in_(_SHIPPED),
             )
             .scalar() or 0.0
@@ -194,8 +204,8 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
             db.query(func.sum(OrderItem.quantity))
             .join(Order)
             .filter(
-                Order.date >= d_from,
-                Order.date <= d_to,
+                _ship_date() >= d_from,
+                _ship_date() <= d_to,
                 Order.status.in_(_SHIPPED),
             )
             .scalar() or 0.0
@@ -237,7 +247,7 @@ def get_weekly_metrics(db: Session, ref_date: date | None = None) -> dict:
         .join(Order, Order.counterparty_id == Counterparty.id)
         .join(OrderItem, OrderItem.order_id == Order.id)
         .filter(
-            Order.date >= ws, Order.date <= we,
+            _ship_date() >= ws, _ship_date() <= we,
             Order.status.in_(_SHIPPED),
         )
         .group_by(Counterparty.id)
@@ -334,13 +344,13 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
             Invoice.status == "paid",
         ).scalar() or 0.0
 
-    # Отгрузки: сумма позиций отгруженных заказов по дате заказа
+    # Отгрузки: сумма позиций отгруженных заказов по дате сборки
     def _shipped_amt(d_from, d_to):
         return (
             db.query(func.sum(OrderItem.amount))
             .join(Order, OrderItem.order_id == Order.id)
             .filter(
-                Order.date >= d_from, Order.date <= d_to,
+                _ship_date() >= d_from, _ship_date() <= d_to,
                 Order.status.in_(_SHIPPED),
             )
             .scalar() or 0.0
@@ -365,7 +375,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
             db.query(func.sum(OrderItem.quantity))
             .join(Order)
             .filter(
-                Order.date >= d_from, Order.date <= d_to,
+                _ship_date() >= d_from, _ship_date() <= d_to,
                 Order.status.in_(_SHIPPED),
             )
             .scalar() or 0.0
@@ -429,7 +439,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
         .join(Order, Order.counterparty_id == Counterparty.id)
         .join(OrderItem, OrderItem.order_id == Order.id)
         .filter(
-            Order.date >= ms, Order.date <= me,
+            _ship_date() >= ms, _ship_date() <= me,
             Order.status.in_(_SHIPPED),
         )
         .group_by(Counterparty.id)
@@ -444,7 +454,7 @@ def get_monthly_metrics(db: Session, ref_date: date | None = None) -> dict:
         .join(OrderItem, OrderItem.product_id == Product.id)
         .join(Order, OrderItem.order_id == Order.id)
         .filter(
-            Order.date >= ms, Order.date <= me,
+            _ship_date() >= ms, _ship_date() <= me,
             Order.status.in_(_SHIPPED),
         )
         .group_by(Product.id)

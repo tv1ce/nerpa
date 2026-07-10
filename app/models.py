@@ -153,6 +153,8 @@ class Order(Base):
     # Момент, когда кладовщик нажал «Собрано» — именно с этого момента заказ
     # считается отгруженным и попадает в табло цеха (орешки + выручка).
     assembled_at = Column(DateTime, nullable=True)
+    # Момент перехода в «Передан поставщику» — дата отгрузки для отчётов.
+    handed_at = Column(DateTime, nullable=True)
     # Доставка — детали для отправки перевозчику
     pickup_city = Column(String(100))        # город отправки
     pickup_address = Column(String(500))     # адрес забора (откуда)

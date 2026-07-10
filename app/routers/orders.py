@@ -555,6 +555,9 @@ async def change_status(request: Request, order_id: int,
         # считает заказ отгруженным именно с этого времени.
         if status == "assembled" and order.assembled_at is None:
             order.assembled_at = datetime.now()
+        # Момент передачи поставщику — дата отгрузки в отчётах.
+        if status == "handed" and order.handed_at is None:
+            order.handed_at = datetime.now()
         log_action(db, "order", order_id, "status_changed",
                    request.session.get("user_id"),
                    f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → {ORDER_STATUSES.get(status, status)}",

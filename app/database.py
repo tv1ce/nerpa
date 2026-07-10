@@ -318,6 +318,7 @@ def _migrate_db():
         ("orders", "upd_sbis_id",     "TEXT"),
         ("orders", "upd_sbis_status", "TEXT"),
         ("orders", "upd_sbis_url",    "TEXT"),
+        ("orders", "handed_at",       "TIMESTAMP"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
@@ -340,6 +341,24 @@ def _migrate_db():
     # Перевод орешков с «Коробки» на «шт»
     cur.execute("UPDATE products SET unit='шт', sale_unit=NULL, units_per_box=1 WHERE unit='Коробки'")
     cur.execute("UPDATE invoice_items SET unit='шт' WHERE unit='Коробки'")
+
+    # Бэкфилл handed_at (дата передачи поставщику) для уже отгруженных заказов —
+    # из журнала аудита (первый переход статуса в 'handed'). Отчёты датируют
+    # отгрузку по этому полю, историю восстанавливаем однократно.
+    _order_cols = {row[1] for row in cur.execute("PRAGMA table_info(orders)").fetchall()}
+    if "handed_at" in _order_cols:
+        cur.execute(
+            "UPDATE orders SET handed_at = ("
+            "  SELECT MIN(al.created_at) FROM audit_logs al"
+            "  WHERE al.entity_type='order' AND al.entity_id=orders.id"
+            "    AND al.field='status' AND al.new_value='handed'"
+            ") "
+            "WHERE handed_at IS NULL AND status IN ('handed','delivered') "
+            "  AND EXISTS ("
+            "    SELECT 1 FROM audit_logs al2 WHERE al2.entity_type='order'"
+            "      AND al2.entity_id=orders.id AND al2.field='status' AND al2.new_value='handed'"
+            "  )"
+        )
 
     # Чистка легаси-заглушек «None» в реквизитах контрагентов: Jinja раньше выводил
     # Python None как текст «None» в value=… формы, и при сохранении он записывался
