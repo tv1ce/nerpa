@@ -199,39 +199,35 @@ async def create_invoice_edo(request: Request, invoice_id: int, db: Session = De
         return _json(False, error=f"Непредвиденная ошибка: {e}")
 
 
-# ── ЭДО: УПД (формализованный XML из 1С) ─────────────────────────────────────
+# ── ЭДО: УПД (формализованный XML, собирается из заказа в TMS) ────────────────
 
 @router.post("/upd/{order_id}")
 @role_required("manager")
 async def create_upd_edo(request: Request, order_id: int, db: Session = Depends(get_db)):
-    """Создаёт документ-УПД в СБИС ЭДО из формализованного XML, полученного из 1С
-    (файл заказа типа upd_xml). Черновик — подписание/отправка в кабинете СБИС."""
-    import base64, os
+    """Создаёт документ-УПД в СБИС ЭДО. Формализованный XML (СЧФДОП, КНД 1115131)
+    собирается из данных заказа прямо в TMS — без 1С. Черновик: подписание и
+    отправка контрагенту — в кабинете СБИС."""
+    import base64
     company = db.query(CompanySettings).first()
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         return _json(False, error="Заказ не найден")
-
-    xml_file = (
-        db.query(AttachedFile)
-        .filter(AttachedFile.entity_type == "order",
-                AttachedFile.entity_id == order.id,
-                AttachedFile.file_type == "upd_xml")
-        .order_by(AttachedFile.uploaded_at.desc())
-        .first()
-    )
-    if not xml_file or not os.path.exists(xml_file.stored_path):
-        return _json(False, error="Нет файла УПД (XML) — он приходит из 1С. Сначала получите УПД из 1С.")
+    if not order.counterparty or not order.counterparty.inn:
+        return _json(False, error="У контрагента заказа не заполнен ИНН — УПД собрать нельзя")
+    if not company or not company.inn:
+        return _json(False, error="Не заполнены реквизиты организации (ИНН) в Настройках")
+    if not any(i.product for i in order.items):
+        return _json(False, error="В заказе нет товарных позиций для УПД")
 
     client = get_sbis_client(company)
     if not client:
         return _json(False, error="СБИС не настроен — укажите логин и пароль в Настройках → Интеграции")
 
     try:
-        with open(xml_file.stored_path, "rb") as f:
-            xml_bytes = f.read()
+        from app.utils.upd_xml import build_upd_xml, upd_filename
+        xml_bytes = build_upd_xml(order, company)
         b64 = base64.b64encode(xml_bytes).decode("ascii")
-        filename = xml_file.original_name or f"УПД {order.number}.xml"
+        filename = upd_filename(order, company)
         doc_fields = {
             "Номер": order.number or "",
             "Дата": order.date.strftime("%d.%m.%Y") if order.date else "",
