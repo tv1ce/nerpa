@@ -23,11 +23,21 @@ def _sync_carrier_vehicles(db: Session, cp: Counterparty, vehicles_json: str) ->
         rows = json.loads(vehicles_json)
     except (ValueError, TypeError):
         rows = []
+    from datetime import date as _date
     db.query(CarrierVehicle).filter(CarrierVehicle.counterparty_id == cp.id).delete()
     for row in rows:
         driver = (row.get("driver_name") or "").strip()
         plate = (row.get("vehicle_plate") or "").strip()
         vtype = (row.get("vehicle_type") or "").strip()
+        d_inn = (row.get("driver_inn") or "").strip()
+        d_phone = (row.get("driver_phone") or "").strip()
+        d_ls = (row.get("driver_license_series") or "").strip()
+        d_ln = (row.get("driver_license_number") or "").strip()
+        d_ld_raw = (row.get("driver_license_date") or "").strip()
+        try:
+            d_ld = _date.fromisoformat(d_ld_raw) if d_ld_raw else None
+        except ValueError:
+            d_ld = None
         if not (driver or plate or vtype):
             continue
         db.add(CarrierVehicle(
@@ -35,6 +45,11 @@ def _sync_carrier_vehicles(db: Session, cp: Counterparty, vehicles_json: str) ->
             driver_name=driver or None,
             vehicle_plate=plate or None,
             vehicle_type=vtype or None,
+            driver_inn=d_inn or None,
+            driver_phone=d_phone or None,
+            driver_license_series=d_ls or None,
+            driver_license_number=d_ln or None,
+            driver_license_date=d_ld,
         ))
 
 
@@ -582,7 +597,10 @@ async def edit_counterparty(request: Request, cp_id: int, db: Session = Depends(
     if not cp:
         return RedirectResponse(url="/counterparties", status_code=302)
     vehicles_initial = [
-        {"driver_name": v.driver_name or "", "vehicle_plate": v.vehicle_plate or "", "vehicle_type": v.vehicle_type or ""}
+        {"driver_name": v.driver_name or "", "vehicle_plate": v.vehicle_plate or "", "vehicle_type": v.vehicle_type or "",
+         "driver_inn": v.driver_inn or "", "driver_phone": v.driver_phone or "",
+         "driver_license_series": v.driver_license_series or "", "driver_license_number": v.driver_license_number or "",
+         "driver_license_date": v.driver_license_date.isoformat() if v.driver_license_date else ""}
         for v in cp.vehicles
     ]
     return templates.TemplateResponse(request, "counterparties/form.html", {

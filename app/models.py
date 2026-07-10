@@ -88,6 +88,12 @@ class CarrierVehicle(Base):
     driver_name   = Column(String(200))
     vehicle_plate = Column(String(20))
     vehicle_type  = Column(String(100))
+    # Реквизиты водителя (для ЭТрН)
+    driver_inn            = Column(String(12))   # ИНН водителя
+    driver_phone          = Column(String(50))   # телефон водителя
+    driver_license_series = Column(String(20))   # серия вод. удостоверения
+    driver_license_number = Column(String(20))   # номер вод. удостоверения
+    driver_license_date   = Column(Date)         # дата выдачи вод. удостоверения
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
 
@@ -138,7 +144,8 @@ class Order(Base):
     status = Column(String(20), default="draft")
     # draft / confirmed / paid / assembled / handed / delivered / cancelled
     payment_type = Column(String(10), default="prepay")  # prepay / deferred
-    delivery_date = Column(Date)
+    delivery_date = Column(Date)          # «доставить до» — крайний срок доставки
+    dispatch_date = Column(Date)          # дата отправления (подача ТС / погрузка)
     delivery_address = Column(String(500))
     notes = Column(Text)
     created_by_id = Column(Integer, ForeignKey("users.id"))

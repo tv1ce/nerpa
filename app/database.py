@@ -305,6 +305,12 @@ def _migrate_db():
         ("orders", "cargo_name",    "TEXT"),
         ("company_settings", "saby_cargo_name", "TEXT DEFAULT 'Орешки кондитерские'"),
         ("company_settings", "saby_unit_weight_g", "REAL DEFAULT 20"),
+        ("orders", "dispatch_date", "DATE"),
+        ("carrier_vehicles", "driver_inn", "TEXT"),
+        ("carrier_vehicles", "driver_phone", "TEXT"),
+        ("carrier_vehicles", "driver_license_series", "TEXT"),
+        ("carrier_vehicles", "driver_license_number", "TEXT"),
+        ("carrier_vehicles", "driver_license_date", "DATE"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

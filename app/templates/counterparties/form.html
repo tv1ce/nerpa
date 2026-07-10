@@ -426,12 +426,21 @@ function renderVehicles() {
     box.innerHTML = '';
     _vehiclesData.forEach((v, idx) => {
       const row = document.createElement('div');
-      row.className = 'row g-2 align-items-center mb-2';
+      row.className = 'border rounded p-2 mb-2';
       row.innerHTML = `
-        <div class="col-md-5"><input type="text" class="form-control form-control-sm" placeholder="ФИО водителя" value="${_escapeHtml(v.driver_name || '')}" data-idx="${idx}" data-field="driver_name" oninput="updateVehicleField(this)"></div>
-        <div class="col-md-3"><input type="text" class="form-control form-control-sm font-monospace" placeholder="А001АА77" value="${_escapeHtml(v.vehicle_plate || '')}" data-idx="${idx}" data-field="vehicle_plate" oninput="updateVehicleField(this)"></div>
-        <div class="col-md-3"><input type="text" class="form-control form-control-sm" placeholder="Марка/модель ТС" value="${_escapeHtml(v.vehicle_type || '')}" data-idx="${idx}" data-field="vehicle_type" oninput="updateVehicleField(this)"></div>
-        <div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVehicleRow(${idx})" title="Удалить"><i class="bi bi-trash"></i></button></div>
+        <div class="row g-2 align-items-center">
+          <div class="col-md-5"><input type="text" class="form-control form-control-sm" placeholder="ФИО водителя" value="${_escapeHtml(v.driver_name || '')}" data-idx="${idx}" data-field="driver_name" oninput="updateVehicleField(this)"></div>
+          <div class="col-md-3"><input type="text" class="form-control form-control-sm font-monospace" placeholder="А001АА77" value="${_escapeHtml(v.vehicle_plate || '')}" data-idx="${idx}" data-field="vehicle_plate" oninput="updateVehicleField(this)"></div>
+          <div class="col-md-3"><input type="text" class="form-control form-control-sm" placeholder="Марка/модель ТС" value="${_escapeHtml(v.vehicle_type || '')}" data-idx="${idx}" data-field="vehicle_type" oninput="updateVehicleField(this)"></div>
+          <div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeVehicleRow(${idx})" title="Удалить"><i class="bi bi-trash"></i></button></div>
+        </div>
+        <div class="row g-2 mt-1">
+          <div class="col-md-3"><input type="text" class="form-control form-control-sm" placeholder="ИНН водителя" value="${_escapeHtml(v.driver_inn || '')}" data-idx="${idx}" data-field="driver_inn" oninput="updateVehicleField(this)"></div>
+          <div class="col-md-3"><input type="text" class="form-control form-control-sm" placeholder="Телефон водителя" value="${_escapeHtml(v.driver_phone || '')}" data-idx="${idx}" data-field="driver_phone" oninput="updateVehicleField(this)"></div>
+          <div class="col-md-2"><input type="text" class="form-control form-control-sm" placeholder="ВУ серия" value="${_escapeHtml(v.driver_license_series || '')}" data-idx="${idx}" data-field="driver_license_series" oninput="updateVehicleField(this)"></div>
+          <div class="col-md-2"><input type="text" class="form-control form-control-sm" placeholder="ВУ номер" value="${_escapeHtml(v.driver_license_number || '')}" data-idx="${idx}" data-field="driver_license_number" oninput="updateVehicleField(this)"></div>
+          <div class="col-md-2"><input type="date" class="form-control form-control-sm" title="Дата выдачи ВУ" value="${_escapeHtml(v.driver_license_date || '')}" data-idx="${idx}" data-field="driver_license_date" oninput="updateVehicleField(this)"></div>
+        </div>
       `;
       box.appendChild(row);
     });
@@ -440,7 +449,7 @@ function renderVehicles() {
 }
 
 function addVehicleRow() {
-  _vehiclesData.push({driver_name: '', vehicle_plate: '', vehicle_type: ''});
+  _vehiclesData.push({driver_name: '', vehicle_plate: '', vehicle_type: '', driver_inn: '', driver_phone: '', driver_license_series: '', driver_license_number: '', driver_license_date: ''});
   renderVehicles();
 }
 

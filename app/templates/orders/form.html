@@ -94,8 +94,13 @@
                    value="{{ order.delivery_cost if order and order.delivery_cost else '' }}">
             <div class="form-text">Платный забор за день вносится отдельно в разделе «Логистика»</div>
           </div>
-          <div class="col-md-6">
-            <label class="form-label">Дата доставки</label>
+          <div class="col-md-3">
+            <label class="form-label">Дата отправления</label>
+            <input type="date" name="dispatch_date" class="form-control"
+                   value="{{ order.dispatch_date.isoformat() if order and order.dispatch_date else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Доставить до</label>
             <input type="date" name="delivery_date" class="form-control"
                    value="{{ order.delivery_date.isoformat() if order and order.delivery_date else '' }}">
           </div>

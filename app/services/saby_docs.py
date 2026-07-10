@@ -173,6 +173,32 @@ def _tlf(phone: str | None) -> dict:
     return {"Тлф": [{"value": str(phone)}]} if phone else {}
 
 
+def _phone_from_contact(text: str | None) -> str:
+    """Из строки контакта («79119244416 Ольга») вытаскивает телефон (первая
+    последовательность цифр/+/скобок/дефисов)."""
+    import re
+    if not text:
+        return ""
+    m = re.search(r"[+\d][\d\-\s()]{5,}", str(text))
+    return m.group(0).strip() if m else ""
+
+
+def _find_vehicle(order):
+    """Ищет запись водителя/ТС перевозчика по госномеру (или по ФИО) заказа —
+    источник ИНН/телефона/удостоверения водителя для ЭТрН."""
+    carrier = order.carrier
+    if not carrier or not getattr(carrier, "vehicles", None):
+        return None
+    plate = (order.vehicle_plate or "").replace(" ", "").lower()
+    name = (order.driver_name or "").strip().lower()
+    for v in carrier.vehicles:
+        if plate and (v.vehicle_plate or "").replace(" ", "").lower() == plate:
+            return v
+        if name and (v.driver_name or "").strip().lower() == name:
+            return v
+    return None
+
+
 def _id_sv(party) -> dict:
     """Идентификационные сведения контрагента: ЮЛ (СвЮЛУч) или ИП (СвИП).
     Через getattr — работает и для Counterparty, и для CompanySettings."""
@@ -245,18 +271,52 @@ def build_etran_shipper_title(order, company) -> dict:
             }],
         },
     }
-    # РекИдентГО у нас (грузоотправитель) — юрлицо: НаимОрг обязателен, КПП тоже.
+    # РекИдентГО у нас (грузоотправитель) — юрлицо: НаимОрг/КПП обязательны,
+    # контакт-телефон отправителя берём из реквизитов компании.
     сод_инф["СвГО"]["РекИдентГО"]["ИдСв"] = {"СвЮЛУч": {
         "ИННЮЛ": company.inn or "", "КПП": company.kpp or "", "НаимОрг": company.name or "",
     }}
+    if company.phone:
+        сод_инф["СвГО"]["РекИдентГО"]["Контакт"] = _tlf(company.phone)
+
+    # Номер получателя — из контакта доставки заказа (иначе телефон клиента)
+    receiver_phone = _phone_from_contact(getattr(order, "delivery_contact", None)) \
+        or (cp.phone if cp else "")
+    if receiver_phone:
+        сод_инф["СвГП"]["РекИдентГП"]["Контакт"] = _tlf(receiver_phone)
+
+    # Сведения о погрузке: место погрузки + подача ТС (дата отправления, время 11:00)
+    подача = _dt(order.dispatch_date or order.delivery_date or order.date, "11:00:00")
+    погруз = {
+        "КолМестПрием": str(int(places or 0)),
+        "МасБрутОтгр": str(mass_kg),
+        "МетОпрМасс": "01",
+        "ФАдресПогр": {"АдресИнф": {
+            "АдрТекст": order.pickup_address or company.actual_address or company.legal_address or "",
+            "КодСтр": "643",
+        }},
+        # Лицо, ответственное за погрузку, и владелец инфраструктуры — грузоотправитель (мы)
+        "СвЛицПогрГр": {"СовпГОП": "1", "ИдентРекГО": {"ИННЮЛ": company.inn or ""}},
+        "ВладИнфр": {"СовпГОВ": "1", "ИдентРекГО": {"ИННЮЛ": company.inn or ""}},
+    }
+    if подача:
+        погруз["ЗаявПогр"] = подача
+    сод_инф["СвПогруз"] = погруз
 
     # Перевозчик
     if carrier:
         сод_инф["СвПер"] = _rek_ident(carrier, carrier.legal_address or carrier.actual_address or "")
 
-    # Водитель
-    if order.driver_name:
-        driver = {"ФИО": _fio(order.driver_name)}
+    # Водитель — ФИО из заказа + ИНН/телефон из карточки водителя перевозчика
+    vehicle = _find_vehicle(order)
+    if order.driver_name or vehicle:
+        driver = {"ФИО": _fio(order.driver_name or (vehicle.driver_name if vehicle else ""))}
+        d_inn = (vehicle.driver_inn if vehicle else None)
+        d_tel = (vehicle.driver_phone if vehicle else None)
+        if d_inn:
+            driver["ИННФЛ"] = d_inn
+        if d_tel:
+            driver.update(_tlf(d_tel))
         сод_инф["СвВодит"] = driver
 
     # ТС

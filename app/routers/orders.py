@@ -273,6 +273,7 @@ async def create_order(
     payment_type: str = Form(default="prepay"),
     status: str = Form(default="draft"),
     delivery_date: str = Form(default=""),
+    dispatch_date: str = Form(default=""),
     delivery_address: str = Form(default=""),
     notes: str = Form(default=""),
     pickup_city: str = Form(default=""),
@@ -303,6 +304,7 @@ async def create_order(
         payment_type=payment_type,
         status=status,
         delivery_date=date.fromisoformat(delivery_date) if delivery_date else None,
+        dispatch_date=date.fromisoformat(dispatch_date) if dispatch_date else None,
         delivery_address=delivery_address,
         notes=notes,
         pickup_city=pickup_city or None,
@@ -449,6 +451,7 @@ async def update_order(
     payment_type: str = Form(default="prepay"),
     status: str = Form(default="draft"),
     delivery_date: str = Form(default=""),
+    dispatch_date: str = Form(default=""),
     delivery_address: str = Form(default=""),
     notes: str = Form(default=""),
     pickup_city: str = Form(default=""),
@@ -479,6 +482,7 @@ async def update_order(
     if status in ORDER_STATUSES:
         order.status = status
     order.delivery_date = date.fromisoformat(delivery_date) if delivery_date else None
+    order.dispatch_date = date.fromisoformat(dispatch_date) if dispatch_date else None
     order.delivery_address = delivery_address
     order.notes = notes
     order.pickup_city = pickup_city or None
