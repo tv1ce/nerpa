@@ -266,3 +266,64 @@ def get_sbis_client(company) -> Optional[SbisClient]:
         return None
     return SbisClient(login=company.sbis_login, password=company.sbis_password,
                        account_id=company.sbis_account_id)
+
+
+# ── Поллинг статусов ЭДО-документов (счёт / УПД) ─────────────────────────────
+
+# Ключевые слова статуса, при появлении которых уведомляем менеджера
+# (контрагент подписал/завершил/отклонил/аннулировал документооборот).
+_EDO_NOTIFY_KEYS = ("подпис", "заверш", "отклон", "аннул", "revoked")
+
+
+def poll_sbis_edo_statuses(db) -> dict:
+    """Опрашивает статусы счетов и УПД, отправленных в СБИС ЭДО, через
+    СБИС.ПрочитатьДокумент и обновляет их в TMS. При переходе в терминальный
+    статус (подписан/завершён/отклонён) уведомляет ответственного менеджера.
+
+    Вызывается периодически из APScheduler (см. app/main.py)."""
+    from app.models import CompanySettings, Order, Invoice, Notification
+
+    company = db.query(CompanySettings).first()
+    client = get_sbis_client(company)
+    if not client:
+        return {"checked": 0, "updated": 0}
+
+    invoices = db.query(Invoice).filter(Invoice.sbis_doc_id.isnot(None)).all()
+    orders = db.query(Order).filter(Order.upd_sbis_id.isnot(None)).all()
+    if not invoices and not orders:
+        return {"checked": 0, "updated": 0}
+
+    updated = 0
+
+    def _notify(status, title, link, uid):
+        if any(k in (status or "").lower() for k in _EDO_NOTIFY_KEYS):
+            db.add(Notification(type="sbis_edo", title=title,
+                                body=f"Статус в СБИС: {status}.", link=link, user_id=uid))
+
+    with client:
+        for inv in invoices:
+            try:
+                status = client.get_status(inv.sbis_doc_id)
+            except SbisError as e:
+                logger.warning("СБИС статус счёта #%s: %s", inv.number, e)
+                continue
+            if status and status != inv.sbis_status:
+                inv.sbis_status = status
+                updated += 1
+                uid = inv.order.sales_manager_id if inv.order else None
+                _notify(status, f"Счёт №{inv.number} в СБИС: {status}", f"/invoices/{inv.id}", uid)
+        for o in orders:
+            try:
+                status = client.get_status(o.upd_sbis_id)
+            except SbisError as e:
+                logger.warning("СБИС статус УПД заказа #%s: %s", o.number, e)
+                continue
+            if status and status != o.upd_sbis_status:
+                o.upd_sbis_status = status
+                updated += 1
+                _notify(status, f"УПД по заказу №{o.number} в СБИС: {status}",
+                        f"/orders/{o.id}", o.sales_manager_id or o.created_by_id)
+
+    if updated:
+        db.commit()
+    return {"checked": len(invoices) + len(orders), "updated": updated}
