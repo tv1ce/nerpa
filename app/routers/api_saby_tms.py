@@ -181,7 +181,7 @@ async def create_etran(request: Request, order_id: int, db: Session = Depends(ge
         with client:
             attachment = client.generate_attachment(VLOZH_TYPE_ETRAN, ETRAN_TITLE_SHIPPER, substitution)
             result = client.write_document(
-                DOC_CONSIGNMENT_NOTE, "Электронная транспортная накладная",
+                DOC_CONSIGNMENT_NOTE, "Транспортная накладная",
                 our_org_from_company(company), attachment,
             )
         doc_id = result.get("Идентификатор")
