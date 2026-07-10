@@ -507,6 +507,13 @@
                    value="{{ company.saby_cargo_name if company and company.saby_cargo_name else '' }}">
             <div class="form-text" style="font-size:.72rem">Консолидированный груз в заявке перевозчику вместо списка товаров. В заказе можно переопределить.</div>
           </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Вес единицы (шт), граммы <span class="text-muted">(для массы брутто)</span></label>
+            <input type="number" step="0.1" min="0" name="saby_unit_weight_g" class="form-control form-control-sm"
+                   placeholder="20"
+                   value="{{ company.saby_unit_weight_g if company and company.saby_unit_weight_g else 20 }}">
+            <div class="form-text" style="font-size:.72rem">Масса брутто = сумма количеств × вес единицы. Напр. 20 г/шт для орешков.</div>
+          </div>
           {% if company and company.sbis_login %}
           <div class="col-12">
             <div class="text-success" style="font-size:.8rem"><i class="bi bi-check-circle me-1"></i>СБИС настроен — кнопка «Создать ЭТРН» появится в карточке заказа</div>

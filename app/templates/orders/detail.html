@@ -693,7 +693,7 @@ async function createEtran(orderId) {
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Создаём черновик…';
   result.innerHTML = '';
   try {
-    const resp = await fetch(`/api/sbis/etran/${orderId}`, { method: 'POST' });
+    const resp = await fetch(`/api/saby-tms/etran/${orderId}`, { method: 'POST' });
     const data = await resp.json();
     if (data.ok) {
       result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
@@ -715,7 +715,7 @@ async function refreshEtranStatus(orderId) {
   const result = document.getElementById('etran-result');
   btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
   try {
-    const resp = await fetch(`/api/sbis/etran/${orderId}/status`);
+    const resp = await fetch(`/api/saby-tms/etran/${orderId}/status`);
     const data = await resp.json();
     if (data.ok) {
       result.innerHTML = `<span class="text-success"><i class="bi bi-arrow-repeat me-1"></i>Статус обновлён: ${data.status}</span>`;

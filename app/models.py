@@ -395,6 +395,7 @@ class CompanySettings(Base):
     kpi_product_filter = Column(String(100), default="орешк")  # ilike-подстрока для фильтра KPI
     # ── Saby «Управление транспортом»: наименование груза по умолчанию для заявок/ЭТрН ──
     saby_cargo_name = Column(String(200), default="Орешки кондитерские")
+    saby_unit_weight_g = Column(Float, default=20.0)  # вес единицы (шт) в граммах — для массы брутто
     # ── Пороги напоминаний (за сколько дней предупреждать), 0 = выключено ──
     notify_contract_days = Column(Integer, default=14)  # до истечения договора
     notify_invoice_days  = Column(Integer, default=3)   # до дедлайна оплаты счёта

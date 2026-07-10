@@ -17,6 +17,13 @@ import math
 from datetime import date, datetime
 
 
+def compute_gross_mass_kg(order, unit_weight_g: float) -> float:
+    """Масса брутто груза, кг: сумма количеств по позициям × вес единицы (граммы).
+    Вес единицы задаётся в настройках (для орешков ~20 г/шт)."""
+    total_qty = sum((i.quantity or 0) for i in order.items)
+    return round(total_qty * (unit_weight_g or 0) / 1000.0, 3)
+
+
 def compute_cargo_places(order) -> int:
     """Оценка числа грузомест (коробок) из позиций заказа: по каждой позиции —
     округление вверх quantity / units_per_box. Служит авто-подсказкой, когда
@@ -79,9 +86,10 @@ def build_transport_order_substitution(order, company) -> dict:
     cargo_name = (order.cargo_name or "").strip() \
         or (company.saby_cargo_name or "").strip() or "Груз"
     places = order.cargo_places if order.cargo_places else compute_cargo_places(order)
+    mass_kg = compute_gross_mass_kg(order, getattr(company, "saby_unit_weight_g", None) or 20.0)
     params = {
         "КоличествоМест": str(int(places or 0)),
-        "Масса": {"Брутто": "0"},
+        "Масса": {"Брутто": str(mass_kg)},
     }
     if order.cargo_pallets:
         params["КоличествоПаллет"] = str(int(order.cargo_pallets))
@@ -139,3 +147,134 @@ def build_transport_order_substitution(order, company) -> dict:
         sub["ПараметрыТС"] = ts
 
     return sub
+
+
+# ── ЭТрН: титул грузоотправителя (КНД 1110339) ───────────────────────────────
+
+def _fio(full_name: str | None) -> dict:
+    """«Фамилия Имя Отчество» → {Фамилия, Имя, Отчество}. Отчество опционально."""
+    parts = (full_name or "").split()
+    fio = {}
+    if len(parts) >= 1:
+        fio["Фамилия"] = parts[0]
+    if len(parts) >= 2:
+        fio["Имя"] = parts[1]
+    if len(parts) >= 3:
+        fio["Отчество"] = parts[2]
+    return fio
+
+
+def _adr(text: str | None) -> dict:
+    """Адрес в свободной форме (АдрИнф) — без разбора на город/дом/индекс."""
+    return {"АдрИнф": {"АдрТекст": text or "", "КодСтр": "643"}}
+
+
+def _tlf(phone: str | None) -> dict:
+    return {"Тлф": [{"value": str(phone)}]} if phone else {}
+
+
+def _id_sv(party) -> dict:
+    """Идентификационные сведения контрагента: ЮЛ (СвЮЛУч) или ИП (СвИП).
+    Через getattr — работает и для Counterparty, и для CompanySettings."""
+    inn  = getattr(party, "inn", "") or ""
+    kpp  = getattr(party, "kpp", "") or ""
+    ogrn = getattr(party, "ogrn", "") or ""
+    name = getattr(party, "trade_name", None) or getattr(party, "name", "") or ""
+    if getattr(party, "entity_type", "ooo") == "ip":
+        sv = {"ИННФЛ": inn}
+        if ogrn:
+            sv["ОГРНИП"] = ogrn
+        fio = _fio(getattr(party, "signatory", None) or getattr(party, "name", ""))
+        if fio:
+            sv["ФИО"] = fio
+        return {"СвИП": sv}
+    return {"СвЮЛУч": {"ИННЮЛ": inn, "КПП": kpp, "НаимОрг": name}}
+
+
+def _rek_ident(party, address: str) -> dict:
+    """Блок «РекИдент…» — идентификация + адрес + контакт участника перевозки."""
+    block = {"ИдСв": _id_sv(party), "Адрес": _adr(address)}
+    contact = _tlf(getattr(party, "phone", None))
+    if contact:
+        block["Контакт"] = contact
+    return block
+
+
+def build_etran_shipper_title(order, company) -> dict:
+    """Заказ TMS → подстановка титула грузоотправителя ЭТрН (КНД 1110339).
+
+    Формат ФНС: заполняем то, что достоверно есть в заказе. Часть обязательных
+    полей (ИНН/ВИН/грузоподъёмность ТС, ИНН водителя) в TMS отсутствует —
+    Saby укажет их в ошибке валидации, добираем итеративно.
+    """
+    carrier = order.carrier
+    cp      = order.counterparty
+
+    delivery_addr = order.delivery_address or (cp.actual_address if cp else "") \
+        or (cp.legal_address if cp else "") or ""
+    our_addr = company.actual_address or company.legal_address or ""
+
+    cargo_name = (order.cargo_name or "").strip() \
+        or (company.saby_cargo_name or "").strip() or "Груз"
+    places = order.cargo_places if order.cargo_places else compute_cargo_places(order)
+    mass_kg = compute_gross_mass_kg(order, getattr(company, "saby_unit_weight_g", None) or 20.0)
+
+    сод_инф = {
+        "ДатаЗак": _d(order.date),
+        "ДатаТрН": _d(order.date),
+        "НомЗак": order.number or "",
+        "НомерТрН": order.number or "",
+        # Грузоотправитель — мы
+        "СвГО": {
+            "ГОЭксп": "0",
+            "РекИдентГО": _rek_ident(company, our_addr),
+        },
+        # Грузополучатель — клиент
+        "СвГП": {
+            "РекИдентГП": _rek_ident(cp, delivery_addr),
+            "АдресДостГр": {"АдресИнф": {"АдрТекст": delivery_addr, "КодСтр": "643"}},
+        },
+        # Груз — консолидированный
+        "СвГруз": {
+            "ОпГруз": [{
+                "НаимГруз": cargo_name,
+                "КолМестГр": str(int(places or 0)),
+                "СостГруз": "Новый",
+                "СпУпак": "Отсутствует",
+                "ПлМасГруз": {"МасБрутЗнач": str(mass_kg)},
+            }],
+        },
+    }
+    # РекИдентГО у нас (грузоотправитель) — юрлицо: НаимОрг обязателен, КПП тоже.
+    сод_инф["СвГО"]["РекИдентГО"]["ИдСв"] = {"СвЮЛУч": {
+        "ИННЮЛ": company.inn or "", "КПП": company.kpp or "", "НаимОрг": company.name or "",
+    }}
+
+    # Перевозчик
+    if carrier:
+        сод_инф["СвПер"] = _rek_ident(carrier, carrier.legal_address or carrier.actual_address or "")
+
+    # Водитель
+    if order.driver_name:
+        driver = {"ФИО": _fio(order.driver_name)}
+        сод_инф["СвВодит"] = driver
+
+    # ТС
+    if order.vehicle_plate or order.vehicle_type:
+        ts = {}
+        if order.vehicle_plate:
+            ts["РегНомер"] = order.vehicle_plate
+        if order.vehicle_type:
+            ts["ПарТС"] = {"Марка": order.vehicle_type}
+        сод_инф["СвТС"] = {"ТС": ts}
+
+    return {
+        "1110339": {
+            "Файл": {
+                "Документ": {
+                    "НаимЭкСубСост": company.name or "",
+                    "СодИнфГО": сод_инф,
+                }
+            }
+        }
+    }
