@@ -152,6 +152,27 @@ class SbisClient:
         logger.info("СБИС: создан ЭТРН id=%s для заказа #%s", doc_id, order.number)
         return {"id": doc_id, "url": url, "raw": result}
 
+    # ── ЭДО: счёт / УПД ──────────────────────────────────────────────────────
+
+    def write_edo_document(self, doc_type: str, vlozh_type: str,
+                           attachment_b64: str, filename: str) -> dict:
+        """СБИС.ЗаписатьДокумент для ЭДО-документа (счёт «СчетИсх»/«ЭДОСч» или
+        УПД «ДокОтгрИсх»/«УпдСчфДоп»). Вложение — готовый файл в base64
+        (счёт — PDF, УПД — формализованный XML). Возвращает объект документа."""
+        doc = {
+            "Тип": doc_type,
+            "Вложение": [{
+                "Тип": vlozh_type,
+                "Файл": {"ДвоичныеДанные": attachment_b64, "Имя": filename},
+            }],
+        }
+        result = self._call("СБИС.ЗаписатьДокумент", {"Документ": doc})
+        return result if isinstance(result, dict) else {}
+
+    @staticmethod
+    def doc_link(doc_id: str) -> str:
+        return f"https://online.sbis.ru/opendoc.html?guid={doc_id}" if doc_id else ""
+
     def get_status(self, etran_id: str) -> str:
         """Возвращает текстовый статус ЭТРН из СБИС."""
         result = self._call("СБИС.ПрочитатьДокумент", {"Идентификатор": etran_id})

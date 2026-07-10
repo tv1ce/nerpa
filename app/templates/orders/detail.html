@@ -459,6 +459,34 @@
         {% endif %}
         <div id="torder-result" class="mt-1" style="font-size:.8rem"></div>
       </div>
+
+      {# ── УПД в СБИС ЭДО (формализованный XML из 1С) ── #}
+      <div class="mb-2">
+        {% if order.upd_sbis_id %}
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="badge {% if order.upd_sbis_status == 'ошибка' %}bg-danger{% else %}bg-secondary{% endif %}"
+                style="font-size:.72rem">УПД в СБИС: {{ order.upd_sbis_status or 'черновик' }}</span>
+        </div>
+        {% if order.upd_sbis_url %}
+        <a href="{{ order.upd_sbis_url }}" target="_blank" class="btn btn-success btn-sm w-100 mb-1">
+          <i class="bi bi-box-arrow-up-right me-1"></i>Открыть УПД в СБИС — подписать и отправить
+        </a>
+        {% endif %}
+        <button type="button" class="btn btn-outline-secondary btn-sm w-100" id="btn-upd-sbis"
+                onclick="sendUpdToSbis({{ order.id }})">
+          <i class="bi bi-arrow-repeat me-1"></i>Пересоздать УПД в СБИС
+        </button>
+        {% else %}
+        <button type="button" class="btn btn-outline-primary btn-sm w-100" id="btn-upd-sbis"
+                onclick="sendUpdToSbis({{ order.id }})">
+          <i class="bi bi-cloud-upload me-1"></i>Отправить УПД в СБИС
+        </button>
+        <div class="text-muted mt-1" style="font-size:.72rem">
+          Берётся формализованный XML УПД, полученный из 1С. Подпись и отправка — в кабинете СБИС.
+        </div>
+        {% endif %}
+        <div id="upd-sbis-result" class="mt-1" style="font-size:.8rem"></div>
+      </div>
       {% endif %}
       {% endif %}
 
@@ -751,6 +779,29 @@ async function createTransportOrder(orderId) {
   } catch(e) {
     btn.disabled = false;
     btn.innerHTML = label;
+    result.innerHTML = `<span class="text-danger">Сетевая ошибка: ${e}</span>`;
+  }
+}
+
+async function sendUpdToSbis(orderId) {
+  const btn    = document.getElementById('btn-upd-sbis');
+  const result = document.getElementById('upd-sbis-result');
+  const label  = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отправляем…';
+  result.innerHTML = '';
+  try {
+    const resp = await fetch(`/api/sbis/upd/${orderId}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      btn.disabled = false; btn.innerHTML = label;
+      result.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error || 'Ошибка'}</span>`;
+    }
+  } catch(e) {
+    btn.disabled = false; btn.innerHTML = label;
     result.innerHTML = `<span class="text-danger">Сетевая ошибка: ${e}</span>`;
   }
 }

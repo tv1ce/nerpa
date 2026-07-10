@@ -184,6 +184,10 @@ class Order(Base):
     transport_order_id     = Column(String(100))   # Идентификатор документа TransportOrder в Saby
     transport_order_status = Column(String(50))    # черновик / отправлен / утверждён / отклонён / ошибка
     transport_order_url    = Column(String(500))   # ссылка на документ в кабинете Saby
+    # ── СБИС ЭДО — УПД (формализованный XML из 1С), отправленный в документооборот ──
+    upd_sbis_id     = Column(String(100))          # ID документа-УПД в СБИС
+    upd_sbis_status = Column(String(50))           # черновик / отправлен / подписан / ошибка
+    upd_sbis_url    = Column(String(500))          # ссылка на документ в СБИС Online
     # ── Bitrix24 CRM ──
     bitrix_deal_id      = Column(String(20), index=True)  # ID сделки, из которой создан заказ
     bitrix_category_id  = Column(Integer)                 # CATEGORY_ID направления (воронки) сделки
@@ -267,6 +271,10 @@ class Invoice(Base):
     # 1С:УНФ
     external_id_1c  = Column(String(36))        # Ref_Key (GUID) Document_СчётНаОплатуПокупателю в 1С
     synced_to_1c_at = Column(DateTime)          # datetime последнего успешного push в 1С
+    # СБИС ЭДО — счёт, отправленный в документооборот
+    sbis_doc_id  = Column(String(100))          # ID документа-счёта в СБИС
+    sbis_status  = Column(String(50))           # черновик / отправлен / подписан / ошибка
+    sbis_url     = Column(String(500))          # ссылка на документ в СБИС Online
 
     counterparty = relationship("Counterparty", back_populates="invoices")
     order = relationship("Order", back_populates="invoices")

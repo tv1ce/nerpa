@@ -237,9 +237,12 @@ async def view_invoice(request: Request, invoice_id: int, db: Session = Depends(
     activity = db.query(AuditLog).filter(
         AuditLog.entity_type == "invoice", AuditLog.entity_id == invoice_id
     ).order_by(AuditLog.created_at.desc()).limit(30).all()
+    company = db.query(CompanySettings).first()
+    sbis_configured = bool(company and company.sbis_login and company.sbis_password)
     return templates.TemplateResponse(request, "invoices/detail.html", {
         "invoice": invoice, "statuses": INVOICE_STATUSES,
         "comments": comments, "activity": activity,
+        "sbis_configured": sbis_configured,
     })
 
 

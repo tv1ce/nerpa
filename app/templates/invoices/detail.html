@@ -175,6 +175,28 @@
           </a></li>
         </ul>
       </div>
+
+      {% if sbis_configured %}
+      <hr class="my-2">
+      {% if invoice.sbis_doc_id %}
+      <div class="d-flex align-items-center gap-2 mb-1" style="font-size:.8rem">
+        <span class="badge {% if invoice.sbis_status == 'ошибка' %}bg-danger{% else %}bg-secondary{% endif %}">
+          СБИС: {{ invoice.sbis_status or 'черновик' }}
+        </span>
+      </div>
+      {% if invoice.sbis_url %}
+      <a href="{{ invoice.sbis_url }}" target="_blank" class="btn btn-success btn-sm w-100 mb-2">
+        <i class="bi bi-box-arrow-up-right me-1"></i>Открыть в СБИС — подписать и отправить
+      </a>
+      {% endif %}
+      {% else %}
+      <button type="button" class="btn btn-outline-primary btn-sm w-100" id="btn-sbis-invoice"
+              onclick="sendInvoiceToSbis({{ invoice.id }})">
+        <i class="bi bi-cloud-upload me-1"></i>Отправить счёт в СБИС
+      </button>
+      {% endif %}
+      <div id="sbis-invoice-result" class="mt-1" style="font-size:.8rem"></div>
+      {% endif %}
     </div>
 
     <div class="card border-0 shadow-sm p-3">
@@ -227,4 +249,29 @@
     {% endif %}
   </div>
 </div>
+
+<script>
+async function sendInvoiceToSbis(invoiceId) {
+  const btn = document.getElementById('btn-sbis-invoice');
+  const result = document.getElementById('sbis-invoice-result');
+  const label = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отправляем…';
+  result.innerHTML = '';
+  try {
+    const resp = await fetch(`/api/sbis/invoice/${invoiceId}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.ok) {
+      result.innerHTML = `<span class="text-success"><i class="bi bi-check-circle me-1"></i>${data.message}</span>`;
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      btn.disabled = false; btn.innerHTML = label;
+      result.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${data.error || 'Ошибка'}</span>`;
+    }
+  } catch(e) {
+    btn.disabled = false; btn.innerHTML = label;
+    result.innerHTML = `<span class="text-danger">Сетевая ошибка: ${e}</span>`;
+  }
+}
+</script>
 {% endblock %}

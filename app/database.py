@@ -311,6 +311,13 @@ def _migrate_db():
         ("carrier_vehicles", "driver_license_series", "TEXT"),
         ("carrier_vehicles", "driver_license_number", "TEXT"),
         ("carrier_vehicles", "driver_license_date", "DATE"),
+        # ── СБИС ЭДО: счёт и УПД ──
+        ("invoices", "sbis_doc_id", "TEXT"),
+        ("invoices", "sbis_status", "TEXT"),
+        ("invoices", "sbis_url",    "TEXT"),
+        ("orders", "upd_sbis_id",     "TEXT"),
+        ("orders", "upd_sbis_status", "TEXT"),
+        ("orders", "upd_sbis_url",    "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

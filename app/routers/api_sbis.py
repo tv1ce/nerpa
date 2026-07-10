@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import login_required, role_required
 from app.database import get_db
-from app.models import CompanySettings, Order
+from app.models import CompanySettings, Order, Invoice, AttachedFile
 from app.services.sbis_client import SbisError, get_sbis_client
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,11 @@ router = APIRouter(prefix="/api/sbis", tags=["sbis"])
 
 def _json(ok: bool, **kw):
     return JSONResponse({"ok": ok, **kw})
+
+
+def _doc_id(result: dict) -> str:
+    return (result.get("Идентификатор") or result.get("id")
+            or (result.get("Документ") or {}).get("Идентификатор") or "")
 
 
 # ── Проверка подключения ────────────────────────────────────────────────────
@@ -125,6 +130,103 @@ async def etran_status(
         return _json(True, status=status, etran_id=order.etran_id, url=order.etran_url)
     except SbisError as e:
         return _json(False, error=str(e))
+
+
+# ── ЭДО: счёт на оплату ──────────────────────────────────────────────────────
+
+@router.post("/invoice/{invoice_id}")
+@role_required("manager")
+async def create_invoice_edo(request: Request, invoice_id: int, db: Session = Depends(get_db)):
+    """Создаёт документ-счёт в СБИС ЭДО (неформализованный, вложение — наш PDF).
+    Черновик: подписание и отправку контрагенту менеджер делает в кабинете СБИС."""
+    import base64
+    company = db.query(CompanySettings).first()
+    invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
+    if not invoice:
+        return _json(False, error="Счёт не найден")
+
+    client = get_sbis_client(company)
+    if not client:
+        return _json(False, error="СБИС не настроен — укажите логин и пароль в Настройках → Интеграции")
+
+    try:
+        from app.utils.pdf_invoice import generate_invoice_pdf
+        pdf_bytes = generate_invoice_pdf(invoice, company)
+        b64 = base64.b64encode(pdf_bytes).decode("ascii")
+        filename = f"Счет № {invoice.number} от {invoice.date.strftime('%d.%m.%Y')}.pdf"
+        with client:
+            result = client.write_edo_document("СчетИсх", "ЭДОСч", b64, filename)
+        doc_id = _doc_id(result)
+        if not doc_id:
+            return _json(False, error="СБИС не вернул идентификатор документа", raw=result)
+        invoice.sbis_doc_id = doc_id
+        invoice.sbis_status = "черновик"
+        invoice.sbis_url = client.doc_link(doc_id)
+        db.commit()
+        return _json(True, id=doc_id, url=invoice.sbis_url,
+                     message="Счёт создан в СБИС. Подпишите и отправьте контрагенту в кабинете СБИС.")
+    except SbisError as e:
+        logger.error("СБИС счёт #%s: %s", invoice.number, e)
+        invoice.sbis_status = "ошибка"
+        db.commit()
+        return _json(False, error=str(e))
+    except Exception as e:
+        logger.exception("СБИС счёт unexpected error invoice_id=%s", invoice_id)
+        return _json(False, error=f"Непредвиденная ошибка: {e}")
+
+
+# ── ЭДО: УПД (формализованный XML из 1С) ─────────────────────────────────────
+
+@router.post("/upd/{order_id}")
+@role_required("manager")
+async def create_upd_edo(request: Request, order_id: int, db: Session = Depends(get_db)):
+    """Создаёт документ-УПД в СБИС ЭДО из формализованного XML, полученного из 1С
+    (файл заказа типа upd_xml). Черновик — подписание/отправка в кабинете СБИС."""
+    import base64, os
+    company = db.query(CompanySettings).first()
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if not order:
+        return _json(False, error="Заказ не найден")
+
+    xml_file = (
+        db.query(AttachedFile)
+        .filter(AttachedFile.entity_type == "order",
+                AttachedFile.entity_id == order.id,
+                AttachedFile.file_type == "upd_xml")
+        .order_by(AttachedFile.uploaded_at.desc())
+        .first()
+    )
+    if not xml_file or not os.path.exists(xml_file.stored_path):
+        return _json(False, error="Нет файла УПД (XML) — он приходит из 1С. Сначала получите УПД из 1С.")
+
+    client = get_sbis_client(company)
+    if not client:
+        return _json(False, error="СБИС не настроен — укажите логин и пароль в Настройках → Интеграции")
+
+    try:
+        with open(xml_file.stored_path, "rb") as f:
+            xml_bytes = f.read()
+        b64 = base64.b64encode(xml_bytes).decode("ascii")
+        filename = xml_file.original_name or f"УПД {order.number}.xml"
+        with client:
+            result = client.write_edo_document("ДокОтгрИсх", "УпдСчфДоп", b64, filename)
+        doc_id = _doc_id(result)
+        if not doc_id:
+            return _json(False, error="СБИС не вернул идентификатор документа", raw=result)
+        order.upd_sbis_id = doc_id
+        order.upd_sbis_status = "черновик"
+        order.upd_sbis_url = client.doc_link(doc_id)
+        db.commit()
+        return _json(True, id=doc_id, url=order.upd_sbis_url,
+                     message="УПД создан в СБИС. Подпишите и отправьте контрагенту в кабинете СБИС.")
+    except SbisError as e:
+        logger.error("СБИС УПД заказ #%s: %s", order.number, e)
+        order.upd_sbis_status = "ошибка"
+        db.commit()
+        return _json(False, error=str(e))
+    except Exception as e:
+        logger.exception("СБИС УПД unexpected error order_id=%s", order_id)
+        return _json(False, error=f"Непредвиденная ошибка: {e}")
 
 
 # ── Вебхук от СБИС ─────────────────────────────────────────────────────────
