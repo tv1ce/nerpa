@@ -137,23 +137,38 @@ async def etran_status(
 @router.post("/invoice/{invoice_id}")
 @role_required("manager")
 async def create_invoice_edo(request: Request, invoice_id: int, db: Session = Depends(get_db)):
-    """Создаёт документ-счёт в СБИС ЭДО (неформализованный, вложение — наш PDF).
-    Черновик: подписание и отправку контрагенту менеджер делает в кабинете СБИС."""
-    import base64
+    """Создаёт документ-счёт в СБИС ЭДО. Вложение — файл счёта, ПРИКРЕПЛЁННЫЙ к
+    заказу (из 1С), а не сгенерированный в TMS. Данные (контрагент, номер, сумма)
+    передаются на уровне документа. Черновик — подпись и отправка в кабинете СБИС."""
+    import base64, os
     company = db.query(CompanySettings).first()
     invoice = db.query(Invoice).filter(Invoice.id == invoice_id).first()
     if not invoice:
         return _json(False, error="Счёт не найден")
+    if not invoice.order_id:
+        return _json(False, error="Счёт не привязан к заказу — нет прикреплённого файла счёта")
+
+    # Файл счёта, прикреплённый к заказу (из 1С), берём самый свежий
+    inv_file = (
+        db.query(AttachedFile)
+        .filter(AttachedFile.entity_type == "order",
+                AttachedFile.entity_id == invoice.order_id,
+                AttachedFile.file_type == "invoice")
+        .order_by(AttachedFile.uploaded_at.desc())
+        .first()
+    )
+    if not inv_file or not os.path.exists(inv_file.stored_path):
+        return _json(False, error="Нет прикреплённого к заказу файла счёта (из 1С). Сначала получите счёт из 1С.")
 
     client = get_sbis_client(company)
     if not client:
         return _json(False, error="СБИС не настроен — укажите логин и пароль в Настройках → Интеграции")
 
     try:
-        from app.utils.pdf_invoice import generate_invoice_pdf
-        pdf_bytes = generate_invoice_pdf(invoice, company)
-        b64 = base64.b64encode(pdf_bytes).decode("ascii")
-        filename = f"Счет № {invoice.number} от {invoice.date.strftime('%d.%m.%Y')}.pdf"
+        with open(inv_file.stored_path, "rb") as f:
+            file_bytes = f.read()
+        b64 = base64.b64encode(file_bytes).decode("ascii")
+        filename = inv_file.original_name or f"Счет № {invoice.number}.pdf"
         doc_fields = {
             "Номер": invoice.number or "",
             "Дата": invoice.date.strftime("%d.%m.%Y") if invoice.date else "",
@@ -161,6 +176,7 @@ async def create_invoice_edo(request: Request, invoice_id: int, db: Session = De
             "СуммаБезНДС": f"{invoice.subtotal:.2f}",
             "Примечание": f"Счёт № {invoice.number}",
             "Контрагент": client.kontragent_block(invoice.counterparty),
+            "НашаОрганизация": client.nasha_org_block(company),
         }
         with client:
             result = client.write_edo_document("СчетИсх", "ЭДОСч", b64, filename, doc_fields)
@@ -216,8 +232,15 @@ async def create_upd_edo(request: Request, order_id: int, db: Session = Depends(
             xml_bytes = f.read()
         b64 = base64.b64encode(xml_bytes).decode("ascii")
         filename = xml_file.original_name or f"УПД {order.number}.xml"
+        doc_fields = {
+            "Номер": order.number or "",
+            "Дата": order.date.strftime("%d.%m.%Y") if order.date else "",
+            "Примечание": f"УПД по заказу № {order.number}",
+            "Контрагент": client.kontragent_block(order.counterparty),
+            "НашаОрганизация": client.nasha_org_block(company),
+        }
         with client:
-            result = client.write_edo_document("ДокОтгрИсх", "УпдСчфДоп", b64, filename)
+            result = client.write_edo_document("ДокОтгрИсх", "УпдСчфДоп", b64, filename, doc_fields)
         doc_id = _doc_id(result)
         if not doc_id:
             return _json(False, error="СБИС не вернул идентификатор документа", raw=result)

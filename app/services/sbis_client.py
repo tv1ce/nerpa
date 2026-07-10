@@ -177,14 +177,28 @@ class SbisClient:
 
     @staticmethod
     def kontragent_block(cp) -> dict:
-        """Блок «Контрагент» (получатель) для ЭДО-документа. СБИС сматчит его по ИНН."""
+        """Блок «Контрагент» (получатель) для ЭДО-документа. СБИС сматчит его по ИНН.
+        Ключ реквизита именно «ИНН» (не «ИННЮЛ») — см. пример СБИС.ЗаписатьДокумент."""
         if cp is None:
             return {}
+        inn = getattr(cp, "inn", "") or ""
+        name = getattr(cp, "trade_name", None) or getattr(cp, "name", "") or ""
         if getattr(cp, "entity_type", "ooo") == "ip":
-            return {"СвФЛ": {"ИНН": cp.inn or "", "Наименование": cp.name or ""}}
+            return {"СвИП": {"ИННФЛ": inn, "Наименование": name}}
         return {"СвЮЛ": {
-            "ИННЮЛ": cp.inn or "", "КПП": cp.kpp or "",
-            "Название": cp.trade_name or cp.name or "", "НазваниеПолное": cp.name or "",
+            "ИНН": inn, "КПП": getattr(cp, "kpp", "") or "",
+            "КодСтраны": "643", "Название": name,
+        }}
+
+    @staticmethod
+    def nasha_org_block(company) -> dict:
+        """Блок «НашаОрганизация» (отправитель) для ЭДО-документа."""
+        if company is None:
+            return {}
+        return {"СвЮЛ": {
+            "ИНН": getattr(company, "inn", "") or "",
+            "КПП": getattr(company, "kpp", "") or "",
+            "КодСтраны": "643", "Название": getattr(company, "name", "") or "",
         }}
 
     @staticmethod
