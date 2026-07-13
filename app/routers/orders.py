@@ -32,6 +32,28 @@ def _carrier_vehicles_map(carriers) -> dict:
 router = APIRouter(prefix="/orders", tags=["orders"])
 
 
+@router.get("/dadata/address", response_class=JSONResponse)
+@login_required
+async def dadata_address(request: Request, q: str = ""):
+    """Подсказки адреса из DaData (для автокомплита в форме заказа). Возвращает
+    список готовых строк-адресов, чтобы в документы уходил чистый адрес."""
+    token = os.getenv("DADATA_TOKEN", "")
+    if not token or len((q or "").strip()) < 3:
+        return JSONResponse({"suggestions": []})
+    try:
+        async with httpx.AsyncClient(timeout=8.0, trust_env=False) as client:
+            r = await client.post(
+                "https://suggestions.dadata.ru/suggestions/api/4_1/rs/suggest/address",
+                headers={"Authorization": f"Token {token}", "Content-Type": "application/json"},
+                json={"query": q, "count": 7},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return JSONResponse({"suggestions": []})
+    return JSONResponse({"suggestions": [s.get("value", "") for s in data.get("suggestions", []) if s.get("value")]})
+
+
 def _push_order_bg(order_id: int) -> None:
     """Push заказа в 1С в фоновом потоке."""
     from app.database import SessionLocal

@@ -494,11 +494,11 @@ def push_order(order, db: Session) -> str | None:
         ext = getattr(prod, "external_id_1c", None) if prod else None
         if ext:
             qty = item.quantity or 0
-            price = item.price or 0
-            disc_pct = max(0.0, min(item.discount_pct or 0, 100.0))
-            gross = round(qty * price, 2)               # Сумма (до скидки)
-            disc_amt = round(gross * disc_pct / 100, 2) # Ручная скидка
-            net = round(gross - disc_amt, 2)            # Всего (после скидки)
+            net = round(float(item.amount or 0), 2)     # итог строки со скидкой (= Всего)
+            # Скидку «вкладываем» в цену: Цена = чистая цена за единицу, Сумма = Всего = net,
+            # скидочные поля = 0. Иначе 1С хранит «Сумма» = полная цена (до скидки), и счёт,
+            # суммируя эту колонку, задваивает итог (промо с ценой попадает в сумму счёта).
+            eff_price = round(net / qty, 2) if qty else 0.0
             zapasy.append({
                 "LineNumber": str(i),
                 "КлючСвязи": str(i),
@@ -508,13 +508,10 @@ def push_order(order, db: Session) -> str | None:
                 "ЕдиницаИзмерения": _ORDER_UNIT_KEY,
                 "ЕдиницаИзмерения_Type": "StandardODATA.Catalog_КлассификаторЕдиницИзмерения",
                 "Количество": qty,
-                "Цена": price,
-                "Сумма": gross,
-                # Ручная скидка из TMS → ручная скидка в строке 1С.
-                # Поля задаём явно (в т.ч. ноль), иначе 1С может авто-применить
-                # скидку к позициям без цены в прайсе (промо-материалы).
-                "ПроцентСкидкиНаценки": disc_pct,
-                "СуммаСкидкиНаценки": disc_amt,
+                "Цена": eff_price,
+                "Сумма": net,
+                "ПроцентСкидкиНаценки": 0,
+                "СуммаСкидкиНаценки": 0,
                 "ПроцентАвтоматическойСкидки": 0,
                 "СуммаАвтоматическойСкидки": 0,
                 "Всего": net,

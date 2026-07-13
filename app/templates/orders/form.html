@@ -106,13 +106,17 @@
           </div>
           <div class="col-md-6">
             <label class="form-label">Адрес доставки <span class="text-muted" style="font-size:.8rem">(куда)</span></label>
-            <input type="text" name="delivery_address" class="form-control"
-                   value="{{ order.delivery_address if order else '' }}">
+            <div class="position-relative">
+              <input type="text" name="delivery_address" class="form-control addr-suggest" autocomplete="off"
+                     value="{{ order.delivery_address if order and order.delivery_address else '' }}">
+            </div>
           </div>
           <div class="col-md-12">
             <label class="form-label">Адрес забора <span class="text-muted" style="font-size:.8rem">(откуда)</span></label>
-            <input type="text" name="pickup_address" class="form-control" placeholder="Введите адрес"
-                   value="{{ order.pickup_address if order and order.pickup_address else (company.actual_address if company and company.actual_address else '') }}">
+            <div class="position-relative">
+              <input type="text" name="pickup_address" class="form-control addr-suggest" autocomplete="off" placeholder="Введите адрес"
+                     value="{{ order.pickup_address if order and order.pickup_address else (company.actual_address if company and company.actual_address else '') }}">
+            </div>
           </div>
           <div class="col-md-8">
             <label class="form-label">Контакт получателя <span class="text-muted" style="font-size:.8rem">(телефон + имя)</span></label>
@@ -382,5 +386,46 @@ document.getElementById('order-form').addEventListener('submit', function(e) {
     alert('Выберите товар для всех позиций заказа (строк без товара: ' + emptyProducts.length + ')');
   }
 });
+
+// ── DaData-автокомплит адреса (поля .addr-suggest) ──────────────────────────
+(function initAddrSuggest(){
+  document.querySelectorAll('input.addr-suggest').forEach(function(inp){
+    const box = document.createElement('div');
+    box.className = 'list-group position-absolute w-100 shadow-sm';
+    box.style.cssText = 'z-index:1050;max-height:240px;overflow:auto;display:none;';
+    inp.parentNode.appendChild(box);
+    let timer = null, items = [], active = -1;
+
+    function hide(){ box.style.display='none'; box.innerHTML=''; items=[]; active=-1; }
+    function render(){
+      box.innerHTML = items.map((v,i)=>
+        `<button type="button" class="list-group-item list-group-item-action py-1 px-2${i===active?' active':''}" style="font-size:.85rem">${v.replace(/</g,'&lt;')}</button>`
+      ).join('');
+      box.style.display = items.length ? 'block' : 'none';
+      Array.from(box.children).forEach((el,i)=> el.onclick=()=>{ inp.value=items[i]; hide(); });
+    }
+    async function query(q){
+      try {
+        const r = await fetch('/orders/dadata/address?q='+encodeURIComponent(q));
+        const d = await r.json();
+        items = d.suggestions || []; active=-1; render();
+      } catch(e){ hide(); }
+    }
+    inp.addEventListener('input', function(){
+      const q = inp.value.trim();
+      clearTimeout(timer);
+      if (q.length < 3){ hide(); return; }
+      timer = setTimeout(()=>query(q), 250);
+    });
+    inp.addEventListener('keydown', function(e){
+      if (box.style.display==='none') return;
+      if (e.key==='ArrowDown'){ active=Math.min(active+1,items.length-1); render(); e.preventDefault(); }
+      else if (e.key==='ArrowUp'){ active=Math.max(active-1,0); render(); e.preventDefault(); }
+      else if (e.key==='Enter' && active>=0){ inp.value=items[active]; hide(); e.preventDefault(); }
+      else if (e.key==='Escape'){ hide(); }
+    });
+    inp.addEventListener('blur', ()=> setTimeout(hide, 200));
+  });
+})();
 </script>
 {% endblock %}
