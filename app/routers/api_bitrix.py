@@ -39,7 +39,7 @@ router = APIRouter(prefix="/api/bitrix", tags=["api_bitrix"])
 _CP_FIELDS = {
     "name", "trade_name", "inn", "kpp", "ogrn", "phone", "email", "entity_type",
     "external_id_bitrix", "bank_name", "bank_bik", "bank_account", "bank_corr_account",
-    "legal_address", "short_name", "signatory",
+    "legal_address", "actual_address", "short_name", "signatory",
 }
 
 
@@ -144,7 +144,7 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
             cp.external_id_bitrix = cp_data["external_id_bitrix"]
         # Дозаполняем ПУСТЫЕ реквизиты свежими данными из сделки. Bitrix24 —
         # источник истины там, где данные есть; введённое в TMS не затираем.
-        for field in ("inn", "kpp", "ogrn", "phone", "email",
+        for field in ("inn", "kpp", "ogrn", "phone", "email", "actual_address", "legal_address",
                       "bank_name", "bank_bik", "bank_account", "bank_corr_account"):
             val = cp_data.get(field)
             if val and not getattr(cp, field, None):
@@ -183,6 +183,8 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         notes=notes,
         bitrix_deal_id=deal_id,
         bitrix_category_id=category_id,
+        # Адрес доставки — из Bitrix (точка контрагента), иначе факт.адрес КА
+        delivery_address=(cp_data.get("actual_address") or cp.actual_address or None),
     )
     db.add(order)
     db.flush()

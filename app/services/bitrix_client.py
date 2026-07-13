@@ -98,12 +98,14 @@ class BitrixClient:
 
     def get_company(self, company_id) -> dict:
         rows = self.call("crm.company.list", filter={"ID": company_id},
-                          select=["ID", "TITLE", "PHONE", "EMAIL"]) or []
+                          select=["ID", "TITLE", "PHONE", "EMAIL",
+                                  "ADDRESS", "ADDRESS_LEGAL", "REG_ADDRESS"]) or []
         return rows[0] if rows else {}
 
     def get_contact(self, contact_id) -> dict:
         rows = self.call("crm.contact.list", filter={"ID": contact_id},
-                          select=["ID", "NAME", "LAST_NAME", "SECOND_NAME", "PHONE", "EMAIL"]) or []
+                          select=["ID", "NAME", "LAST_NAME", "SECOND_NAME", "PHONE", "EMAIL",
+                                  "ADDRESS", "ADDRESS_LEGAL"]) or []
         return rows[0] if rows else {}
 
     def get_requisite(self, entity_type_id: int, entity_id) -> dict:
@@ -218,6 +220,13 @@ def extract_counterparty_data(client: BitrixClient, deal: dict) -> Optional[dict
     phone = _first_multifield(entity, "PHONE")
     email = _first_multifield(entity, "EMAIL")
 
+    # Адрес доставки (фактический) — поле ADDRESS компании/контакта; в Bitrix оно
+    # хранится с хвостом «|;|<id локации>», отрезаем. Юр.адрес — ADDRESS_LEGAL/REG.
+    def _clean_addr(v):
+        return (str(v).split("|;|")[0].strip()) if v else ""
+    actual_address = _clean_addr(entity.get("ADDRESS"))
+    legal_from_bx = _clean_addr(entity.get("ADDRESS_LEGAL") or entity.get("REG_ADDRESS"))
+
     requisite = client.get_requisite(entity_type_id, entity_id)
     inn = (requisite.get("RQ_INN") or "").strip()
     kpp = (requisite.get("RQ_KPP") or "").strip()
@@ -247,6 +256,8 @@ def extract_counterparty_data(client: BitrixClient, deal: dict) -> Optional[dict
         "email": email or None,
         "entity_type": entity_type,
         "external_id_bitrix": external_id,
+        "actual_address": actual_address or None,   # адрес доставки (точка)
+        "legal_address": legal_from_bx or None,     # юр.адрес (DaData уточнит, если пусто)
     }
 
     if requisite.get("ID"):
