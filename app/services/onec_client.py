@@ -496,9 +496,9 @@ def push_order(order, db: Session) -> str | None:
             qty = item.quantity or 0
             price = item.price or 0
             disc_pct = max(0.0, min(item.discount_pct or 0, 100.0))
-            gross = round(qty * price, 2)               # Цена×Количество (до скидки)
+            gross = round(qty * price, 2)               # Сумма = Цена×Количество (до скидки)
             net = round(float(item.amount or 0), 2)     # итог строки со скидкой (amount)
-            disc_amt = round(gross - net, 2)            # сумма скидки = gross − net
+            disc_amt = round(gross - net, 2)            # СуммаСкидкиНаценки = gross − net
             zapasy.append({
                 "LineNumber": str(i),
                 "КлючСвязи": str(i),
@@ -509,9 +509,9 @@ def push_order(order, db: Session) -> str | None:
                 "ЕдиницаИзмерения_Type": "StandardODATA.Catalog_КлассификаторЕдиницИзмерения",
                 "Количество": qty,
                 "Цена": price,
-                # «Сумма» в УНФ — ИТОГ строки ПОСЛЕ скидки (последняя денежная колонка).
-                # Раньше слали gross → счёт задваивал промо; теперь шлём net.
-                "Сумма": net,
+                # УНФ-инвариант строки: Сумма = Цена×Кол (до скидки), Всего = Сумма − Скидка.
+                # Только так 1С не пересчитывает Цену. Итог со скидкой = «Всего».
+                "Сумма": gross,
                 "ПроцентСкидкиНаценки": disc_pct,
                 "СуммаСкидкиНаценки": disc_amt,
                 "ПроцентАвтоматическойСкидки": 0,
