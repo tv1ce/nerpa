@@ -70,6 +70,9 @@ class Counterparty(Base):
     # Bitrix24 — ID компании/контакта CRM, из которых создан этот контрагент
     external_id_bitrix  = Column(String(20))
     synced_to_bitrix_at = Column(DateTime)
+    # Versta24 — если True, при выборе этого контрагента перевозчиком в заказе
+    # появляются поля привязки к заказу Versta (курьерская экспедиция: СДЭК, КСЭ и т.д.)
+    is_versta_expeditor = Column(Boolean, default=False)
 
     orders = relationship("Order", back_populates="counterparty", foreign_keys="Order.counterparty_id")
     invoices = relationship("Invoice", back_populates="counterparty")
@@ -194,6 +197,14 @@ class Order(Base):
     bitrix_deal_id      = Column(String(20), index=True)  # ID сделки, из которой создан заказ
     bitrix_category_id  = Column(Integer)                 # CATEGORY_ID направления (воронки) сделки
     synced_to_bitrix_at = Column(DateTime)                # datetime последнего push статуса в Bitrix24
+    # ── Versta24 (экспедитор курьерских служб: СДЭК, КСЭ и т.д.) ──
+    versta_courier_company = Column(String(100))    # название курьерской службы, напр. «СДЭК», «КСЭ»
+    versta_order_number    = Column(String(50))      # номер заказа Versta (V24X-...) — основной ключ трекинга
+    versta_tracking_number = Column(String(100))     # номер накладной у самой курьерской службы (опционально)
+    versta_status_code     = Column(Integer)          # числовой код статуса из ответа Versta
+    versta_status_name     = Column(String(200))      # человекочитаемое имя статуса
+    versta_last_event      = Column(String(500))      # текст последнего события трекинга
+    versta_synced_at       = Column(DateTime)          # когда последний раз опрашивали статус
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])
     supplier = relationship("Counterparty", foreign_keys=[supplier_id])
@@ -214,6 +225,14 @@ class Order(Base):
         for c in self.logistics_costs:
             if c.cost_type == "delivery":
                 return c.amount or 0.0
+        return 0.0
+
+    @property
+    def delivery_tax_rate(self) -> float:
+        """Налог на доставку этого заказа, % (вносится вручную в карточке заказа)."""
+        for c in self.logistics_costs:
+            if c.cost_type == "delivery":
+                return c.tax_rate or 0.0
         return 0.0
 
     @property
@@ -461,6 +480,9 @@ class CompanySettings(Base):
     # точки в комментарии Bitrix-лида. Строится не из request.base_url, т.к. авто-выгрузка
     # может идти из фоновой задачи (APScheduler), где объекта Request нет.
     public_url = Column(String(300))
+    # ── Versta24 (api.versta24.ru) — экспедитор курьерских служб (СДЭК, КСЭ и т.д.) ──
+    versta_api_key = Column(EncryptedText)          # ключ клиента, выдаётся support@versta24.ru (зашифровано)
+    versta_enabled = Column(Boolean, default=False)
 
 
 class BitrixPipeline(Base):
@@ -784,6 +806,9 @@ class LogisticsCost(Base):
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
     cost_type = Column(String(20), default="other")  # delivery / pickup / other
     created_at = Column(DateTime, server_default=func.now())
+    # Налог, % — вносится вручную по каждой строке (и для перевоза, и для платного забора).
+    # NULL/0 = без налога. Раньше был жёстко зашит блок +6% на все суммы разом.
+    tax_rate = Column(Float, default=6.0)
 
     order = relationship("Order", backref="logistics_costs")
 

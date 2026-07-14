@@ -270,6 +270,7 @@ async def create_counterparty(
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
+    is_versta_expeditor: str = Form(default=""),
     vehicles_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -292,6 +293,7 @@ async def create_counterparty(
         default_discount_pct=min(max(default_discount_pct, 0.0), 100.0),
         tg_chat_id=effective_tg,
         tg_notify_enabled=bool(tg_notify_enabled),
+        is_versta_expeditor=bool(is_versta_expeditor),
     )
     db.add(cp)
     db.flush()
@@ -638,6 +640,7 @@ async def update_counterparty(
     tg_chat_id: str = Form(default=""),
     tg_chat_id_hidden: str = Form(default=""),
     tg_notify_enabled: str = Form(default=""),
+    is_versta_expeditor: str = Form(default=""),
     vehicles_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -662,6 +665,7 @@ async def update_counterparty(
         cp.default_discount_pct = min(max(default_discount_pct, 0.0), 100.0)
         cp.tg_chat_id = effective_tg
         cp.tg_notify_enabled = bool(tg_notify_enabled)
+        cp.is_versta_expeditor = bool(is_versta_expeditor)
         _sync_carrier_vehicles(db, cp, vehicles_json)
         db.commit()
         threading.Thread(target=_push_cp_bg, args=(cp_id,), daemon=True).start()

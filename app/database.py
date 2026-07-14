@@ -319,6 +319,27 @@ def _migrate_db():
         ("orders", "upd_sbis_status", "TEXT"),
         ("orders", "upd_sbis_url",    "TEXT"),
         ("orders", "handed_at",       "TIMESTAMP"),
+        # ── Versta24 — экспедитор курьерских служб (СДЭК, КСЭ и т.д.) ──
+        ("counterparties", "is_versta_expeditor", "INTEGER DEFAULT 0"),
+        ("orders", "versta_courier_company", "TEXT"),
+        ("orders", "versta_order_number",    "TEXT"),
+        ("orders", "versta_tracking_number", "TEXT"),
+        ("orders", "versta_status_code",     "INTEGER"),
+        ("orders", "versta_status_name",     "TEXT"),
+        ("orders", "versta_last_event",      "TEXT"),
+        ("orders", "versta_synced_at",       "TIMESTAMP"),
+        ("company_settings", "versta_api_key", "TEXT"),
+        ("company_settings", "versta_enabled", "INTEGER DEFAULT 0"),
+        # Налог на логистику — раньше был жёстко зашит блок +6% на все суммы разом (см.
+        # git-историю app/routers/logistics.py). Теперь вносится вручную по каждой строке.
+        # DEFAULT 6.0 в самом ALTER TABLE — SQLite проставит его существующим строкам,
+        # сохраняя прежние итоги «задним числом»; для новых строк форма даёт менять/обнулять.
+        ("logistics_costs", "tax_rate", "REAL DEFAULT 6.0"),
+        # order_id/cost_type исторически отсутствовали в списке миграций (на проде колонка
+        # уже была — добавлена вручную при переносе модели); чиним для локальных БД, где
+        # таблица logistics_costs создана до появления этих полей в модели.
+        ("logistics_costs", "order_id",  "INTEGER REFERENCES orders(id)"),
+        ("logistics_costs", "cost_type", "TEXT DEFAULT 'other'"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

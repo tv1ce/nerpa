@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.auth import login_required
 from app.database import get_db
 from app.models import LogisticsCost, CompanySettings, Order
+from app.utils.logistics_tax import taxed_amount, taxed_amount_expr, sum_taxed
 
 router = APIRouter(prefix="/reports/logistics", tags=["logistics"])
 templates = Jinja2Templates(directory="app/templates")
@@ -22,11 +23,13 @@ templates = Jinja2Templates(directory="app/templates")
 METAFORA_URL = "https://app2024.damasevich.ru/dl/6471c6"
 
 
-def upsert_order_delivery_cost(db: Session, order, amount: float):
+def upsert_order_delivery_cost(db: Session, order, amount: float, tax_rate: float | None = None):
     """Создаёт/обновляет единственную строку логистики типа 'delivery' для заказа.
 
     Единый источник правды для довоза: и карточка заказа, и раздел «Логистика»
     пишут в одну и ту же запись. amount<=0 — строка удаляется.
+    tax_rate — налог, % (вносится вручную в карточке заказа); None — не менять
+    у существующей записи, при создании новой — 0 (без налога по умолчанию).
     """
     row = db.query(LogisticsCost).filter(
         LogisticsCost.order_id == order.id,
@@ -37,12 +40,15 @@ def upsert_order_delivery_cost(db: Session, order, amount: float):
         if row:
             row.amount = amount
             row.date = cost_date
+            if tax_rate is not None:
+                row.tax_rate = tax_rate
         else:
             db.add(LogisticsCost(
                 date=cost_date,
                 description=f"Доставка заказа №{order.number}",
                 amount=amount, source="order",
                 cost_type="delivery", order_id=order.id,
+                tax_rate=tax_rate if tax_rate is not None else 0.0,
             ))
     elif row:
         db.delete(row)
@@ -344,7 +350,6 @@ async def logistics_index(
         LogisticsCost.date <= tbl_to,
     ).order_by(LogisticsCost.date.desc()).all()
 
-    TAX = 1.06  # +6% налог (применяется ко всем отображаемым суммам)
     rows = [
         {
             "id":          r.id,
@@ -352,20 +357,19 @@ async def logistics_index(
             "description": r.description,
             "notes":       r.notes,
             "source":      r.source,
-            "amount":      round(r.amount * TAX, 2),
+            "amount":      round(r.amount or 0.0, 2),
+            "tax_rate":    r.tax_rate or 0.0,
+            "amount_taxed": taxed_amount(r),
             "cost_type":   r.cost_type or "other",
             "order_id":    r.order_id,
             "order_number": r.order.number if r.order else None,
         }
         for r in raw_rows
     ]
-    total = round(sum(r["amount"] for r in rows), 2)
+    total = round(sum(r["amount_taxed"] for r in rows), 2)
 
     def _logi_sum(d_from, d_to):
-        return db.query(func.sum(LogisticsCost.amount)).filter(
-            LogisticsCost.date >= d_from,
-            LogisticsCost.date <= d_to,
-        ).scalar() or 0.0
+        return sum_taxed(db, d_from, d_to)
 
     # ID перевозчика «логистики 1 заказа» берём из таблицы контрагентов.
     # Имя задаётся через env LOGI_CARRIER_NAME (по умолчанию — текущий перевозчик).
@@ -379,10 +383,14 @@ async def logistics_index(
     def _orders_count(d_from, d_to):
         if not _carrier_id:
             return 0
-        # Считаем только реально отправленные заказы (не черновики и не просто подтверждённые)
+        # Считаем реально отправленные заказы (не черновики и не просто подтверждённые) по дате
+        # ФАКТИЧЕСКОЙ отправки (dispatch_date), а не по дате оформления заказа (date) — заказ
+        # мог быть оформлен раньше и уехать только на этой неделе. Если dispatch_date не заполнена
+        # (старые заказы), используем date как fallback.
+        ship_date = func.coalesce(Order.dispatch_date, Order.date)
         return db.query(func.count(Order.id)).filter(
-            Order.date >= d_from,
-            Order.date <= d_to,
+            ship_date >= d_from,
+            ship_date <= d_to,
             Order.carrier_id == _carrier_id,
             Order.status.in_(["handed", "delivered", "paid", "assembled"]),
         ).scalar() or 0
@@ -390,18 +398,19 @@ async def logistics_index(
     def _per_order(logi, orders):
         return round(logi / orders, 2) if orders > 0 else None
 
-    total_week       = round(_logi_sum(week_start, week_end)       * TAX, 2)
-    total_month      = round(_logi_sum(month_start, month_end)     * TAX, 2)
-    total_prev_month = round(_logi_sum(prev_month_start, prev_month_end) * TAX, 2)
-    total_year       = round(_logi_sum(year_start, today)          * TAX, 2)
+    total_week       = round(_logi_sum(week_start, week_end), 2)
+    total_month      = round(_logi_sum(month_start, month_end), 2)
+    total_prev_month = round(_logi_sum(prev_month_start, prev_month_end), 2)
+    total_year       = round(_logi_sum(year_start, today), 2)
 
     # Доля логистики = затраты / выручка ВСЕХ отгруженных заказов за период
     # (все перевозчики — бывает доставка за счёт клиента)
     # total_amount — @property, не колонка, суммируем в Python
     def _all_shipped_sum(d_from, d_to):
+        ship_date = func.coalesce(Order.dispatch_date, Order.date)
         orders = db.query(Order).filter(
-            Order.date >= d_from,
-            Order.date <= d_to,
+            ship_date >= d_from,
+            ship_date <= d_to,
             Order.status.in_(["handed", "delivered", "paid", "assembled"]),
         ).all()
         return sum(o.total_amount for o in orders)
@@ -434,7 +443,7 @@ async def logistics_index(
             m_year -= 1
         m_start = date(m_year, m_month, 1)
         m_end = date(m_year, m_month, calendar.monthrange(m_year, m_month)[1])
-        m_sum = round((_logi_sum(m_start, m_end) or 0.0) * TAX, 2)
+        m_sum = round(_logi_sum(m_start, m_end) or 0.0, 2)
         chart_months.append({
             "label": m_start.strftime("%b"),
             "year_month": m_start.strftime("%Y-%m"),
@@ -497,15 +506,17 @@ async def add_cost(
     notes: str = Form(default=""),
     cost_type: str = Form(default="other"),
     order_id: int = Form(default=0),
+    tax_rate: float = Form(default=0.0),
     db: Session = Depends(get_db),
 ):
     if cost_type not in ("delivery", "pickup", "other"):
         cost_type = "other"
+    tax_rate = max(0.0, tax_rate)
     # Довоз конкретного заказа — пишем через единый хелпер (синхронно с карточкой)
     if cost_type == "delivery" and order_id:
         order = db.query(Order).filter(Order.id == order_id).first()
         if order:
-            upsert_order_delivery_cost(db, order, amount)
+            upsert_order_delivery_cost(db, order, amount, tax_rate=tax_rate)
             db.commit()
             return RedirectResponse(url="/reports/logistics", status_code=302)
     db.add(LogisticsCost(
@@ -513,6 +524,7 @@ async def add_cost(
         description=description, amount=amount,
         source="manual", notes=notes or None,
         cost_type=cost_type, order_id=order_id or None,
+        tax_rate=tax_rate,
     ))
     db.commit()
     return RedirectResponse(url="/reports/logistics", status_code=302)
@@ -546,7 +558,6 @@ async def export_logistics(
     else:
         tbl_from, tbl_to = month_start, today
 
-    TAX = 1.06
     raw = db.query(LogisticsCost).filter(
         LogisticsCost.date >= tbl_from, LogisticsCost.date <= tbl_to,
     ).order_by(LogisticsCost.date.desc()).all()
@@ -554,14 +565,16 @@ async def export_logistics(
     rows = [[
         r.date.strftime("%d.%m.%Y") if r.date else "",
         r.description or "",
-        round((r.amount or 0) * TAX, 2),
+        round(r.amount or 0, 2),
+        r.tax_rate or 0.0,
+        taxed_amount(r),
         src_label.get(r.source, "Файл"),
         r.notes or "",
     ] for r in raw]
     fn = f"Логистика {tbl_from.strftime('%d.%m.%Y')}-{tbl_to.strftime('%d.%m.%Y')}.xlsx"
     return _xlsx_response(
-        ["Дата", "Описание", "Сумма ₽ (с налогом)", "Источник", "Заметки"],
-        rows, fn, widths=[14, 44, 20, 14, 30],
+        ["Дата", "Описание", "Сумма ₽", "Налог %", "Сумма ₽ (с налогом)", "Источник", "Заметки"],
+        rows, fn, widths=[14, 44, 16, 10, 20, 14, 30],
     )
 
 
@@ -579,6 +592,7 @@ async def edit_cost_get(request: Request, cost_id: int, db: Session = Depends(ge
         "description": row.description or "",
         "amount": row.amount,
         "notes": row.notes or "",
+        "tax_rate": row.tax_rate or 0.0,
     })
 
 
@@ -590,6 +604,7 @@ async def edit_cost_post(
     description: str = Form(default=""),
     amount: float = Form(...),
     notes: str = Form(default=""),
+    tax_rate: float = Form(default=0.0),
     db: Session = Depends(get_db),
 ):
     row = db.query(LogisticsCost).filter(LogisticsCost.id == cost_id).first()
@@ -598,6 +613,7 @@ async def edit_cost_post(
         row.description = description
         row.amount = amount
         row.notes = notes or None
+        row.tax_rate = max(0.0, tax_rate)
         db.commit()
     return RedirectResponse(url="/reports/logistics", status_code=302)
 

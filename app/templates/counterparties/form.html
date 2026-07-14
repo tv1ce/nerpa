@@ -175,6 +175,16 @@
               или добавив <a href="https://t.me/getidsbot" target="_blank">@getidsbot</a> в группу.
             </div>
           </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="is_versta_expeditor" id="is_versta_expeditor"
+                     value="1" {% if cp and cp.is_versta_expeditor %}checked{% endif %}>
+              <label class="form-check-label" for="is_versta_expeditor">
+                Экспедитор Versta24
+              </label>
+            </div>
+            <div class="form-text">При включении в карточке заказа для этого перевозчика появятся поля привязки к заказу Versta (курьер, номер заказа, статус)</div>
+          </div>
         </div>
       </div>
       <!-- Скрытый инпут — гарантирует передачу tg_chat_id даже когда карточка скрыта -->

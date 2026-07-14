@@ -279,6 +279,7 @@ async def new_order(request: Request, counterparty_id: int = 0, db: Session = De
         "current_user_id": request.session.get("user_id"),
         "selected_counterparty_id": counterparty_id,
         "carrier_vehicles_json": json.dumps(_carrier_vehicles_map(carriers), ensure_ascii=False),
+        "versta_carrier_ids_json": json.dumps([c.id for c in carriers if c.is_versta_expeditor]),
     })
 
 
@@ -303,6 +304,7 @@ async def create_order(
     delivery_contact: str = Form(default=""),
     delivery_time: str = Form(default=""),
     delivery_cost: float = Form(default=0),
+    delivery_tax_rate: float = Form(default=0),
     sales_manager_id: int = Form(default=0),
     driver_name: str = Form(default=""),
     vehicle_plate: str = Form(default=""),
@@ -310,6 +312,8 @@ async def create_order(
     cargo_places: str = Form(default=""),
     cargo_pallets: str = Form(default=""),
     cargo_name: str = Form(default=""),
+    versta_order_number: str = Form(default=""),
+    versta_tracking_number: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -339,6 +343,8 @@ async def create_order(
         cargo_places=int(cargo_places) if cargo_places.strip().isdigit() else None,
         cargo_pallets=int(cargo_pallets) if cargo_pallets.strip().isdigit() else None,
         cargo_name=cargo_name.strip() or None,
+        versta_order_number=versta_order_number.strip() or None,
+        versta_tracking_number=versta_tracking_number.strip() or None,
         created_by_id=request.session.get("user_id"),
         sales_manager_id=sales_manager_id or request.session.get("user_id"),
     )
@@ -373,7 +379,7 @@ async def create_order(
             amount=round(qty * price * (1 - disc / 100), 2),
         ))
     from app.routers.logistics import upsert_order_delivery_cost
-    upsert_order_delivery_cost(db, order, delivery_cost)
+    upsert_order_delivery_cost(db, order, delivery_cost, tax_rate=delivery_tax_rate)
     db.commit()
     log_action(db, "order", order.id, "created",
                request.session.get("user_id"), f"Заказ {order.number} создан")
@@ -457,6 +463,7 @@ async def edit_order(request: Request, order_id: int, db: Session = Depends(get_
         "current_user_id": request.session.get("user_id"),
         "selected_counterparty_id": order.counterparty_id,
         "carrier_vehicles_json": json.dumps(_carrier_vehicles_map(carriers), ensure_ascii=False),
+        "versta_carrier_ids_json": json.dumps([c.id for c in carriers if c.is_versta_expeditor]),
     })
 
 
@@ -481,6 +488,7 @@ async def update_order(
     delivery_contact: str = Form(default=""),
     delivery_time: str = Form(default=""),
     delivery_cost: float = Form(default=0),
+    delivery_tax_rate: float = Form(default=0),
     sales_manager_id: int = Form(default=0),
     driver_name: str = Form(default=""),
     vehicle_plate: str = Form(default=""),
@@ -488,6 +496,8 @@ async def update_order(
     cargo_places: str = Form(default=""),
     cargo_pallets: str = Form(default=""),
     cargo_name: str = Form(default=""),
+    versta_order_number: str = Form(default=""),
+    versta_tracking_number: str = Form(default=""),
     items_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -517,6 +527,15 @@ async def update_order(
     order.cargo_places  = int(cargo_places) if cargo_places.strip().isdigit() else None
     order.cargo_pallets = int(cargo_pallets) if cargo_pallets.strip().isdigit() else None
     order.cargo_name    = cargo_name.strip() or None
+    new_versta_number = versta_order_number.strip() or None
+    if new_versta_number != order.versta_order_number:
+        # Номер заказа Versta изменился — сбрасываем старый статус, поллер подтянет заново
+        order.versta_status_code = None
+        order.versta_status_name = None
+        order.versta_last_event = None
+        order.versta_synced_at = None
+    order.versta_order_number = new_versta_number
+    order.versta_tracking_number = versta_tracking_number.strip() or None
     if sales_manager_id:
         order.sales_manager_id = sales_manager_id
     for item in order.items:
@@ -543,7 +562,7 @@ async def update_order(
             amount=round(qty * price * (1 - disc / 100), 2),
         ))
     from app.routers.logistics import upsert_order_delivery_cost
-    upsert_order_delivery_cost(db, order, delivery_cost)
+    upsert_order_delivery_cost(db, order, delivery_cost, tax_rate=delivery_tax_rate)
     db.commit()
     log_action(db, "order", order_id, "updated",
                request.session.get("user_id"), "Заказ отредактирован")

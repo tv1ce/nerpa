@@ -88,11 +88,54 @@
             </select>
             <div class="form-text">Список из карточки перевозчика — подставит ФИО/номер/тип ниже</div>
           </div>
-          <div class="col-md-6">
+
+          <!-- Versta24 (экспедитор курьерских служб) — видно только когда выбран перевозчик с галочкой «Экспедитор Versta24» -->
+          <div class="col-12" id="versta-card" style="display:none">
+            <div class="card border-0 bg-light-subtle p-3 mb-0">
+              <div class="form-section-title mb-2" style="font-size:.9rem">
+                <i class="bi bi-truck me-1 text-warning"></i>Versta24 — трекинг доставки
+              </div>
+              <div class="row g-2">
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm">Номер заказа Versta *</label>
+                  <input type="text" name="versta_order_number" class="form-control form-control-sm font-monospace"
+                         placeholder="V24X-XXX-XXX-XXX"
+                         value="{{ order.versta_order_number if order and order.versta_order_number else '' }}">
+                  <div class="form-text" style="font-size:.72rem">Из кабинета my.versta24.ru — по нему подтягивается статус</div>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm">Курьерская служба</label>
+                  <input type="text" class="form-control form-control-sm" readonly
+                         value="{{ order.versta_courier_company if order and order.versta_courier_company else '' }}"
+                         placeholder="определится автоматически (СДЭК, КСЭ…)">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm">Трек-номер у курьера <span class="text-muted">(опц.)</span></label>
+                  <input type="text" name="versta_tracking_number" class="form-control form-control-sm"
+                         value="{{ order.versta_tracking_number if order and order.versta_tracking_number else '' }}">
+                </div>
+                {% if order and order.versta_status_name or order and order.versta_last_event %}
+                <div class="col-12">
+                  <div class="text-muted" style="font-size:.78rem">
+                    <i class="bi bi-clock-history me-1"></i>Статус: {{ order.versta_last_event or order.versta_status_name }}
+                    {% if order.versta_synced_at %}<span class="ms-1">(обновлено {{ order.versta_synced_at.strftime('%d.%m.%Y %H:%M') }})</span>{% endif %}
+                  </div>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
             <label class="form-label">Стоимость доставки <span class="text-muted" style="font-size:.8rem">(довоз этого заказа, ₽)</span></label>
             <input type="number" name="delivery_cost" class="form-control" min="0" step="0.01" placeholder="0"
                    value="{{ order.delivery_cost if order and order.delivery_cost else '' }}">
             <div class="form-text">Платный забор за день вносится отдельно в разделе «Логистика»</div>
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Налог <span class="text-muted" style="font-size:.8rem">(%)</span></label>
+            <input type="number" name="delivery_tax_rate" class="form-control" min="0" step="0.1" placeholder="0"
+                   value="{{ order.delivery_tax_rate if order and order.delivery_tax_rate else '' }}">
+            <div class="form-text">Вносится вручную, если перевозчик накинул налог</div>
           </div>
           <div class="col-md-3">
             <label class="form-label">Дата отправления</label>
@@ -254,6 +297,8 @@ const SELECTED_CONTRACT = {{ order.contract_id if order and order.contract_id el
 
 // Водители/ТС перевозчиков: {carrier_id: [{driver_name, vehicle_plate, vehicle_type}, ...]}
 const CARRIER_VEHICLES = {{ carrier_vehicles_json | safe }};
+// ID перевозчиков с галочкой «Экспедитор Versta24» — показываем блок трекинга Versta
+const VERSTA_CARRIER_IDS = {{ versta_carrier_ids_json | safe }};
 
 function rebuildContracts() {
   const cpSel = document.getElementById('counterparty_id');
@@ -299,11 +344,21 @@ function onContractChange(sel) {
 document.addEventListener('DOMContentLoaded', function() {
   rebuildContracts();
   rebuildCarrierVehicles();
+  updateVerstaCardVisibility();
 });
 
 // Перевозчик выбран — перестраиваем список его водителей/ТС
 function onCarrierChange(sel) {
   rebuildCarrierVehicles();
+  updateVerstaCardVisibility();
+}
+
+function updateVerstaCardVisibility() {
+  const carrierSel = document.getElementById('carrier_id');
+  const card = document.getElementById('versta-card');
+  if (!carrierSel || !card) return;
+  const carrierId = parseInt(carrierSel.value || '0');
+  card.style.display = VERSTA_CARRIER_IDS.includes(carrierId) ? 'block' : 'none';
 }
 
 function rebuildCarrierVehicles() {

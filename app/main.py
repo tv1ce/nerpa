@@ -386,6 +386,23 @@ def _run_sbis_edo_status_job():
         db.close()
 
 
+def _run_versta_status_job():
+    """Фоновая задача APScheduler: опрашивает статус доставки заказов, оформленных
+    через экспедитора Versta24 (POST /Track по номеру заказа Versta), и обновляет
+    статус/курьера в TMS."""
+    from app.database import SessionLocal
+    from app.services.versta_client import poll_versta_statuses
+    db = SessionLocal()
+    try:
+        r = poll_versta_statuses(db)
+        if r["updated"]:
+            logger.info("versta статусы: checked=%s updated=%s", r["checked"], r["updated"])
+    except Exception as e:
+        logger.error("versta status job error: %s", e)
+    finally:
+        db.close()
+
+
 def _run_bitrix_cp_requisites_job():
     """Фоновая задача APScheduler: дозаливает ИНН/банковские реквизиты контрагентов,
     созданных из Bitrix24. Робот стадии «Заказ согласован» дёргает вебхук раньше,
@@ -431,8 +448,10 @@ async def lifespan(_app: FastAPI):
                            misfire_grace_time=60)
         _scheduler.add_job(_run_sbis_edo_status_job, "interval", minutes=20, id="sbis_edo_status",
                            misfire_grace_time=60)
+        _scheduler.add_job(_run_versta_status_job, "interval", minutes=30, id="versta_status",
+                           misfire_grace_time=60)
         _scheduler.start()
-        logger.info("APScheduler: задачи 1c_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status, sbis_edo_status запущены")
+        logger.info("APScheduler: задачи 1c_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status, sbis_edo_status, versta_status запущены")
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
 

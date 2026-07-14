@@ -533,6 +533,54 @@
     </div>
   </div>
 
+  {# Versta24 #}
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mt-0" id="versta">
+      <div class="form-section-title mb-3">
+        <i class="bi bi-truck me-1 text-warning"></i>Versta24 — трекинг курьерских служб
+      </div>
+      <form method="post" action="/settings/versta">
+        <div class="row g-2">
+          <div class="col-12">
+            <div class="alert alert-info py-2 px-3 mb-1" style="font-size:.82rem">
+              <i class="bi bi-info-circle me-1"></i>
+              Оформление заказов (СДЭК, КСЭ и др.) по-прежнему делается в кабинете
+              <a href="https://my.versta24.ru" target="_blank" rel="noopener">my.versta24.ru</a>.
+              TMS только подтягивает статус доставки по номеру заказа Versta, который
+              указывается в карточке заказа при выборе перевозчика «ООО Верста»
+              (см. галочку «Экспедитор Versta24» в карточке контрагента).
+              Ключ API выдаёт поддержка Versta — <a href="mailto:support@versta24.ru">support@versta24.ru</a>.
+            </div>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label form-label-sm">API-ключ Versta24</label>
+            <input type="password" name="versta_api_key" class="form-control form-control-sm"
+                   autocomplete="new-password"
+                   placeholder="{% if company and company.versta_api_key %}(задан){% else %}Ключ клиента (apiKey){% endif %}">
+            <div class="form-text" style="font-size:.72rem">Пустое — не менять</div>
+          </div>
+          <div class="col-md-4 d-flex align-items-end">
+            <div class="form-check">
+              <input type="checkbox" class="form-check-input" name="versta_enabled" value="1" id="versta_enabled"
+                     {% if company and company.versta_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="versta_enabled" style="font-size:.85rem">Синхронизировать статусы</label>
+            </div>
+          </div>
+          {% if company and company.versta_api_key %}
+          <div class="col-12">
+            <div class="text-success" style="font-size:.8rem"><i class="bi bi-check-circle me-1"></i>Ключ задан — статусы будут опрашиваться по расписанию</div>
+          </div>
+          {% endif %}
+          <div class="col-12 d-flex gap-2 flex-wrap mt-1">
+            <button type="submit" class="btn btn-accent btn-sm">
+              <i class="bi bi-check-lg me-1"></i>Сохранить
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   {# Bitrix24 #}
   <div class="col-lg-8">
     <div class="card border-0 shadow-sm p-4 mt-0" id="bitrix">

@@ -280,14 +280,11 @@ async def revenue_report(
     else:
         yoy_delta_pct = None
 
-    # Затраты на логистику за месяц и год (+6% налог — как в разделе «Логистика»)
-    _LOGISTICS_TAX = 1.06
-    logistics_month = (db.query(func.sum(LogisticsCost.amount)).filter(
-        LogisticsCost.date >= month_start,
-    ).scalar() or 0.0) * _LOGISTICS_TAX
-    logistics_year = (db.query(func.sum(LogisticsCost.amount)).filter(
-        LogisticsCost.date >= year_start,
-    ).scalar() or 0.0) * _LOGISTICS_TAX
+    # Затраты на логистику за месяц и год (налог — как в разделе «Логистика»,
+    # вносится вручную по каждой строке через LogisticsCost.tax_rate)
+    from app.utils.logistics_tax import sum_taxed
+    logistics_month = sum_taxed(db, month_start, today)
+    logistics_year = sum_taxed(db, year_start, today)
 
     # Итого по таблице (за выбранный период)
     total_amount       = sum(r["amount"]       for r in shipments)

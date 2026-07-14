@@ -79,7 +79,10 @@
                 {{ row.description or '—' }}
                 {% if row.notes %}<div class="text-muted" style="font-size:.75rem">{{ row.notes }}</div>{% endif %}
               </td>
-              <td class="text-end fw-semibold text-danger">{{ row.amount | money }}</td>
+              <td class="text-end fw-semibold text-danger">
+                {{ row.amount_taxed | money }}
+                {% if row.tax_rate %}<div class="text-muted" style="font-size:.68rem;font-weight:400">вкл. налог {{ row.tax_rate }}%</div>{% endif %}
+              </td>
               <td>
                 {% if row.source == 'metafora' %}
                   <span class="badge bg-info text-dark" style="font-size:.68rem">Метафора</span>
@@ -92,7 +95,7 @@
               <td class="text-end pe-3">
                 <div class="d-flex gap-1 justify-content-end">
                   <button class="btn btn-xs btn-outline-secondary py-0 px-1"
-                          onclick="openEditModal({{ row.id }}, '{{ row.date.isoformat() }}', {{ row.amount }}, '{{ (row.description or '') | replace("'", "\\'") }}', '{{ (row.notes or '') | replace("'", "\\'") }}')">
+                          onclick="openEditModal({{ row.id }}, '{{ row.date.isoformat() }}', {{ row.amount }}, '{{ (row.description or '') | replace("'", "\\'") }}', '{{ (row.notes or '') | replace("'", "\\'") }}', {{ row.tax_rate }})">
                     <i class="bi bi-pencil"></i>
                   </button>
                   <form method="post" action="/reports/logistics/{{ row.id }}/delete"
@@ -283,6 +286,11 @@
           <input type="number" name="amount" class="form-control form-control-sm"
                  step="0.01" min="0" required>
         </div>
+        <div class="mb-2">
+          <label class="form-label" style="font-size:.82rem">Налог, % <span class="text-muted">(если перевозчик накинул сверху)</span></label>
+          <input type="number" name="tax_rate" class="form-control form-control-sm"
+                 step="0.1" min="0" placeholder="0" value="0">
+        </div>
         <div class="mb-3">
           <label class="form-label" style="font-size:.82rem">Примечание</label>
           <textarea name="notes" class="form-control form-control-sm" rows="2"></textarea>
@@ -443,12 +451,13 @@ async function uploadFile() {
   }
 }
 
-function openEditModal(id, dt, amount, description, notes) {
+function openEditModal(id, dt, amount, description, notes, taxRate) {
   document.getElementById('edit-cost-id').value = id;
   document.getElementById('edit-cost-date').value = dt;
   document.getElementById('edit-cost-amount').value = amount;
   document.getElementById('edit-cost-description').value = description;
   document.getElementById('edit-cost-notes').value = notes;
+  document.getElementById('edit-cost-tax-rate').value = taxRate || 0;
   document.getElementById('edit-cost-form').action = `/reports/logistics/${id}/edit`;
   bootstrap.Modal.getOrCreateInstance(document.getElementById('editCostModal')).show();
 }
@@ -473,6 +482,10 @@ function openEditModal(id, dt, amount, description, notes) {
             <div class="col-md-6">
               <label class="form-label">Сумма, ₽</label>
               <input type="number" name="amount" id="edit-cost-amount" class="form-control" step="0.01" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Налог, %</label>
+              <input type="number" name="tax_rate" id="edit-cost-tax-rate" class="form-control" step="0.1" min="0" placeholder="0">
             </div>
             <div class="col-12">
               <label class="form-label">Описание</label>

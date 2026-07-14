@@ -448,6 +448,25 @@ async def save_sbis(
     return RedirectResponse(url="/settings/?saved=1&tab=integrations", status_code=302)
 
 
+@router.post("/versta")
+@role_required("admin")
+async def save_versta(
+    request: Request,
+    versta_api_key: str = Form(default=""),
+    versta_enabled: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    if versta_api_key.strip():
+        company.versta_api_key = versta_api_key.strip()
+    company.versta_enabled = (versta_enabled == "1")
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1&tab=integrations#versta", status_code=302)
+
+
 @router.post("/bitrix")
 @role_required("admin")
 async def save_bitrix(
