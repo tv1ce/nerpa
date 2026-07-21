@@ -9,6 +9,12 @@
         </div>
         <span class="badge badge-{{ o.status }}" style="flex-shrink:0;margin-top:2px">{{ statuses[o.status] }}</span>
       </div>
+      {% set _addr = o.delivery_address or o.counterparty.actual_address or o.counterparty.legal_address %}
+      {% if _addr %}
+      <div style="display:flex;align-items:flex-start;gap:5px;margin-top:6px;font-size:.83rem;color:var(--wm-text)">
+        <i class="bi bi-geo-alt-fill" style="color:var(--wm-brand);flex-shrink:0;margin-top:1px"></i><span>{{ _addr }}</span>
+      </div>
+      {% endif %}
     </div>
     <div style="padding:0 14px 10px;display:flex;gap:8px;flex-wrap:wrap">
       {% if o.delivery_date %}
