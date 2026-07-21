@@ -138,10 +138,17 @@ def match_invoice_for_payment(db: Session, payer_inn: str, amount: float,
                   .all())
     if not candidates:
         return None
-    # (а) по номеру счёта из назначения платежа
+    # (а) по номеру счёта из назначения платежа — сначала точная строка, затем по
+    # цифровому хвосту (в ТМС номера часто с префиксом: «НФНФ-000056» в назначении
+    # платежа указывают как просто «56»).
     for num in _extract_invoice_numbers(purpose):
         for inv in candidates:
             if str(inv.number).strip() == num:
+                return inv
+        num_digits = num.lstrip("0") or "0"
+        for inv in candidates:
+            inv_digits = _re.sub(r"\D", "", str(inv.number or "")).lstrip("0") or "0"
+            if inv_digits == num_digits:
                 return inv
     # (б) по сумме — полная сумма счёта либо непокрытый остаток; только при однозначности
     amt = round(float(amount or 0), 2)
