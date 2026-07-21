@@ -26,6 +26,22 @@ logger = logging.getLogger(__name__)
 ENTITY_TYPE_COMPANY = 4
 ENTITY_TYPE_CONTACT = 3
 
+# Пользовательские поля сделки, которые заполняет менеджер в карточке Bitrix24.
+# Ключ TMS -> (подпись поля в карточке, известный код на текущем портале).
+#
+# Ищем поля по подписи (BitrixClient.deal_uf_codes): код вида
+# UF_CRM_1783407291516 содержит таймстамп создания поля и меняется, если поле
+# пересоздать, поэтому жёсткая привязка к коду ломается молча. Код держим
+# запасным вариантом на случай переименования подписи.
+DEAL_UF_FIELDS = {
+    "delivery_address": ("Адрес доставки",           "UF_CRM_1783407291516"),
+    "delivery_phone":   ("Телефон для доставки",      "UF_CRM_1783407392328"),
+    "delivery_date":    ("Планируемая дата доставки", "UF_CRM_1784195630695"),
+    "inn":              ("ИНН",                       "UF_CRM_1783406375670"),
+    "bank_bik":         ("БИК",                       "UF_CRM_1784195656617"),
+    "bank_account":     ("Расчетный счет",            "UF_CRM_1784195664176"),
+}
+
 
 class BitrixError(Exception):
     pass
@@ -56,6 +72,7 @@ class BitrixClient:
     def __init__(self, webhook_url: str):
         self.base = webhook_url.rstrip("/") + "/"
         self._http = httpx.Client(timeout=30)
+        self._uf_codes = None      # кэш карты UF-полей сделки (см. deal_uf_codes)
 
     def __enter__(self):
         return self
@@ -93,6 +110,35 @@ class BitrixClient:
 
     def get_deal_products(self, deal_id) -> list:
         return self.call("crm.deal.productrows.get", id=deal_id) or []
+
+    def deal_uf_codes(self) -> dict:
+        """Карта {ключ TMS: код UF-поля сделки}, найденная по подписям полей.
+
+        См. DEAL_UF_FIELDS. Кэшируется на время жизни клиента, поэтому на один
+        вебхук приходится ровно один лишний вызов crm.deal.fields. Поле, которое
+        найти не удалось, получает None — вызывающий код просто его не заполнит.
+        """
+        if self._uf_codes is not None:
+            return self._uf_codes
+        try:
+            fields = self.call("crm.deal.fields") or {}
+        except BitrixError as e:
+            logger.warning("Bitrix24: не удалось получить поля сделки: %s", e)
+            fields = {}
+        by_label = {}
+        for code, meta in fields.items():
+            meta = meta or {}
+            label = (meta.get("formLabel") or meta.get("title") or "").strip().lower()
+            if label:
+                by_label.setdefault(label, code)
+        codes = {}
+        for key, (label, fallback) in DEAL_UF_FIELDS.items():
+            code = by_label.get(label.lower()) or (fallback if fallback in fields else None)
+            if not code:
+                logger.warning("Bitrix24: поле сделки [%s] не найдено на портале", label)
+            codes[key] = code
+        self._uf_codes = codes
+        return codes
 
     # ── Компания / контакт ──────────────────────────────────────────────────
 
@@ -191,6 +237,33 @@ def _first_multifield(entity: dict, code: str) -> str:
     return items[0].get("VALUE", "") if items else ""
 
 
+def _clean_addr(v) -> str:
+    """Отрезает технический хвост адреса Bitrix24.
+
+    У поля компании это «|;|<id локации>», у UF-поля типа address —
+    «|<координаты>|<id>»: «Средний проспект ВО 19|0;0|629». Режем по первому
+    «|» — в человекочитаемой части этого символа не бывает."""
+    return str(v).split("|")[0].strip() if v else ""
+
+
+def _parse_bx_date(v):
+    """Дата из Bitrix24 → date. Принимает и ISO с таймзоной, и «25.07.2026»."""
+    s = str(v or "").strip()
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s).date()
+    except ValueError:
+        pass
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s[:10], fmt).date()
+        except ValueError:
+            continue
+    logger.warning("Bitrix24: не удалось разобрать дату %r", s)
+    return None
+
+
 def extract_counterparty_data(client: BitrixClient, deal: dict) -> Optional[dict]:
     """Собирает данные контрагента (компания или контакт) из сделки Bitrix24.
 
@@ -220,10 +293,9 @@ def extract_counterparty_data(client: BitrixClient, deal: dict) -> Optional[dict
     phone = _first_multifield(entity, "PHONE")
     email = _first_multifield(entity, "EMAIL")
 
-    # Адрес доставки (фактический) — поле ADDRESS компании/контакта; в Bitrix оно
-    # хранится с хвостом «|;|<id локации>», отрезаем. Юр.адрес — ADDRESS_LEGAL/REG.
-    def _clean_addr(v):
-        return (str(v).split("|;|")[0].strip()) if v else ""
+    # Фактический адрес самой компании/контакта. Это НЕ адрес доставки заказа:
+    # тот живёт на сделке (см. extract_delivery_from_deal), потому что у одного
+    # клиента бывает несколько точек. Юр.адрес — ADDRESS_LEGAL/REG_ADDRESS.
     actual_address = _clean_addr(entity.get("ADDRESS"))
     legal_from_bx = _clean_addr(entity.get("ADDRESS_LEGAL") or entity.get("REG_ADDRESS"))
 
@@ -269,6 +341,56 @@ def extract_counterparty_data(client: BitrixClient, deal: dict) -> Optional[dict
             data["bank_corr_account"] = bank.get("RQ_COR_ACC_NUM") or None
 
     return data
+
+
+def extract_delivery_from_deal(client: BitrixClient, deal: dict) -> dict:
+    """Данные доставки из карточки сделки: куда везти, кому звонить, когда.
+
+    Адрес доставки берём именно со сделки, а не с компании: у клиента бывает
+    несколько торговых точек, и адрес у каждой сделки свой — у компании же поле
+    ADDRESS одно на всех, а заполнено обычно юридическим адресом.
+
+    Контакт для доставки — телефон из UF-поля «Телефон для доставки», если
+    менеджер его вписал, иначе телефон привязанного к сделке контакта; имя —
+    всегда из контакта сделки.
+
+    Заодно снимаем ИНН/БИК/р-счёт со сделки: робот стадии часто срабатывает
+    раньше, чем менеджер заполнит реквизиты в карточке компании, и тогда это
+    единственное место, где реквизиты уже есть.
+    """
+    uf = client.deal_uf_codes()
+
+    def _uf(key) -> str:
+        code = uf.get(key)
+        return (deal.get(code) or "") if code else ""
+
+    address = _clean_addr(_uf("delivery_address"))
+    phone = str(_uf("delivery_phone")).strip()
+
+    name = ""
+    contact_id = deal.get("CONTACT_ID")
+    if contact_id and str(contact_id) != "0":
+        try:
+            contact = client.get_contact(contact_id)
+        except BitrixError as e:
+            logger.warning("Bitrix24: не удалось получить контакт %s сделки %s: %s",
+                           contact_id, deal.get("ID"), e)
+            contact = {}
+        name = _contact_full_name(contact)
+        if not phone:
+            phone = _first_multifield(contact, "PHONE").strip()
+
+    # Формат Order.delivery_contact — «<телефон> <имя>», как его читает логист.
+    contact_line = " ".join(part for part in (phone, name) if part)
+
+    return {
+        "delivery_address": address or None,
+        "delivery_contact": contact_line or None,
+        "delivery_date": _parse_bx_date(_uf("delivery_date")),
+        "inn": str(_uf("inn")).strip() or None,
+        "bank_bik": str(_uf("bank_bik")).strip() or None,
+        "bank_account": str(_uf("bank_account")).strip() or None,
+    }
 
 
 def enrich_from_dadata(data: dict) -> dict:

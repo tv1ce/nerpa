@@ -28,7 +28,7 @@ from app.models import (
 )
 from app.services.bitrix_client import (
     BitrixError, get_bitrix_client, extract_counterparty_data, enrich_from_dadata,
-    refresh_counterparty_requisites,
+    refresh_counterparty_requisites, extract_delivery_from_deal,
 )
 from app.utils import log_action
 
@@ -114,6 +114,7 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
                 return _json(False, error=f"Сделка {deal_id} не найдена в Bitrix24")
 
             cp_data = extract_counterparty_data(client, deal)
+            delivery = extract_delivery_from_deal(client, deal)
             products = []
             try:
                 products = client.get_deal_products(deal_id)
@@ -125,6 +126,13 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
 
     if not cp_data:
         return _json(False, error="У сделки не указана ни компания, ни контакт — контрагента создать не из чего")
+
+    # Реквизиты, заполненные на самой сделке, — запасной источник для тех полей,
+    # которые в карточке компании ещё пусты. Делаем это ДО поиска контрагента по
+    # ИНН: иначе сделка с ИНН только в своём поле заведёт дубль контрагента.
+    for _field in ("inn", "bank_bik", "bank_account"):
+        if delivery.get(_field) and not cp_data.get(_field):
+            cp_data[_field] = delivery[_field]
 
     # ── Контрагент: ищем по external_id_bitrix, затем по ИНН ────────────────
     cp = db.query(Counterparty).filter(
@@ -183,8 +191,17 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         notes=notes,
         bitrix_deal_id=deal_id,
         bitrix_category_id=category_id,
-        # Адрес доставки — из Bitrix (точка контрагента), иначе факт.адрес КА
-        delivery_address=(cp_data.get("actual_address") or cp.actual_address or None),
+        # Адрес доставки — поле «Адрес доставки» сделки (у клиента может быть
+        # несколько точек), иначе фактический адрес компании из CRM.
+        #
+        # Намеренно НЕ откатываемся на cp.actual_address: у контрагентов,
+        # заполненных кнопкой «по ИНН», он скопирован с юридического адреса, и
+        # заказ уезжал на юр.адрес фирмы вместо точки. Пустой адрес логист
+        # заметит и уточнит, подменённый — нет.
+        delivery_address=(delivery.get("delivery_address")
+                          or cp_data.get("actual_address") or None),
+        delivery_contact=delivery.get("delivery_contact"),
+        delivery_date=delivery.get("delivery_date"),
     )
     db.add(order)
     db.flush()
