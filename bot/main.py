@@ -602,7 +602,9 @@ def main() -> None:
 
     builder = Application.builder().token(BOT_TOKEN)
     if request:
-        builder = builder.request(request)
+        # get_updates_request — отдельный клиент специально для long-polling get_updates;
+        # без него PTB создаёт запрос без прокси, и polling зависает при блокировке Telegram.
+        builder = builder.request(request).get_updates_request(HTTPXRequest(proxy=proxy_url))
     app = builder.build()
 
     # Команды
@@ -619,13 +621,14 @@ def main() -> None:
     jq = app.job_queue
 
     # Напоминание о перезвонах — каждое утро в CALLBACK_TIME (будни)
-    jq.run_daily(cb_callbacks, time=CALLBACK_TIME, days=(0, 1, 2, 3, 4), name="callbacks")
+    # PTB run_daily: с версии 20.0 days использует нумерацию 0-6 = вс-сб (не пн-вс!)
+    jq.run_daily(cb_callbacks, time=CALLBACK_TIME, days=(1, 2, 3, 4, 5), name="callbacks")
 
     # Ежедневный отчёт — каждый день в DAILY_TIME
     jq.run_daily(cb_daily, time=DAILY_TIME, name="daily_report")
 
-    # Еженедельный отчёт — каждую пятницу (weekday=4) в WEEKLY_TIME
-    jq.run_daily(cb_weekly, time=WEEKLY_TIME, days=(4,), name="weekly_report")
+    # Еженедельный отчёт — каждую пятницу в WEEKLY_TIME (5 = пятница в нумерации PTB 0=вс)
+    jq.run_daily(cb_weekly, time=WEEKLY_TIME, days=(5,), name="weekly_report")
 
     # Ежемесячный: проверяем каждый день в MONTHLY_TIME, шлём только в последний день месяца
     jq.run_daily(cb_monthly_check, time=MONTHLY_TIME, name="monthly_check")
