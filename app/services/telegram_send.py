@@ -9,6 +9,11 @@ import httpx
 
 BOT_TOKEN = os.getenv("TMS_BOT_TOKEN", "")
 
+# api.telegram.org недоступен напрямую с российских серверов — ходим через тот же
+# локальный SOCKS-прокси, что и остальные Telegram-запросы приложения (bot/main.py,
+# routers/orders.py notify_carrier).
+PROXY = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080") or None
+
 _MDV2_RESERVED = r"\_*[]()~`>#+-=|{}.!"
 
 
@@ -64,5 +69,6 @@ def send_markdown(chat_ids: list[int], text: str, bot_token: str | None = None) 
                 f"https://api.telegram.org/bot{token}/sendMessage",
                 json={"chat_id": chat_id, "text": chunk, "parse_mode": "MarkdownV2"},
                 timeout=20,
+                proxy=PROXY,
             )
             r.raise_for_status()
