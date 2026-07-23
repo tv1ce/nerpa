@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required
 from app.models import Receipt, ReceiptLine, StockMovement, Notification
-from app.services.onec_client import confirm_receipt
+from app.services.onec_client import confirm_receipt, sync_receiving_tasks_from_1c
 from app.utils import log_action
 
 router = APIRouter(prefix="/warehouse/receiving", tags=["warehouse_receiving"])
@@ -35,6 +35,14 @@ templates = Jinja2Templates(directory="app/templates")
 
 def _receiving_queue_count(db: Session) -> int:
     return db.query(Receipt).filter(Receipt.status.in_(["pending", "discrepancy"])).count()
+
+
+@router.post("/sync")
+@login_required
+async def receiving_sync_now(request: Request, db: Session = Depends(get_db)):
+    """Кладовщик жмёт «Обновить» — не ждать фоновую задачу (раз в минуту)."""
+    sync_receiving_tasks_from_1c(db)
+    return RedirectResponse(url="/warehouse/receiving/", status_code=302)
 
 
 @router.get("/", response_class=HTMLResponse)

@@ -304,7 +304,10 @@ def _rotate_generated(max_age_days: int = 90) -> int:
 
 
 def _run_1c_sync_job():
-    """Фоновая задача APScheduler: сверка оплат (Точка → 1С) + импорт из 1С.
+    """Фоновая задача APScheduler (раз в 15 минут): сверка оплат (Точка → 1С) +
+    тяжёлые/нечастые импорты из 1С (каталоги, счета, документы). Задачи,
+    важные кладовщику «прямо сейчас» (приёмка/перемещение/остатки),
+    вынесены в отдельную частую задачу — см. _run_1c_fast_sync_job.
 
     Порядок сверки важен: СНАЧАЛА банк «Точка», ПОТОМ 1С. Так оплата, уже
     разнесённая по банковской выписке, при последующей сверке 1С не задваивается
@@ -314,8 +317,7 @@ def _run_1c_sync_job():
     from app.services.onec_client import (
         sync_products_from_1c, sync_payments_from_1c, sync_invoices_from_1c,
         sync_shipments_from_1c, sync_documents_from_1c, retry_unpushed_orders,
-        sync_warehouses_from_1c, sync_categories_from_1c, sync_receiving_tasks_from_1c,
-        sync_transfer_tasks_from_1c, sync_stock_balances_from_1c,
+        sync_warehouses_from_1c, sync_categories_from_1c,
     )
     db = SessionLocal()
     try:
@@ -328,22 +330,44 @@ def _run_1c_sync_job():
         sync_shipments_from_1c(db)
         rd = sync_documents_from_1c(db)
         r2 = sync_payments_from_1c(db)        # 2) 1С — добор того, чего не было в банке
-        rr = sync_receiving_tasks_from_1c(db)
-        rtr = sync_transfer_tasks_from_1c(db)
-        rb = sync_stock_balances_from_1c(db)
         logger.info(
             "auto-sync: tochka m=%s u=%s; orders_pushed=%s; warehouses c=%s u=%s; categories c=%s u=%s; "
-            "products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments_1c u=%s; receiving c=%s u=%s; "
-            "transfers c=%s u=%s; balances u=%s",
+            "products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments_1c u=%s",
             rt.get("matched"), rt.get("unmatched"), r0.get("pushed"),
             rw.get("created"), rw.get("updated"), rc.get("created"), rc.get("updated"),
             r1.get("created"), r1.get("updated"),
             r3.get("created"), r3.get("updated"), rd.get("attached"), r2.get("updated"),
-            rr.get("created"), rr.get("updated"), rtr.get("created"), rtr.get("updated"),
-            rb.get("updated"),
         )
     except Exception as e:
         logger.error("auto-sync job error: %s", e)
+    finally:
+        db.close()
+
+
+def _run_1c_fast_sync_job():
+    """Фоновая задача APScheduler (раз в минуту): только то, что кладовщик
+    ждёт «прямо сейчас» — задачи на приёмку/перемещение из 1С и остатки по
+    складам. Специально отделено от тяжёлого 15-минутного _run_1c_sync_job
+    (каталоги/счета/файлы), чтобы новая приходная накладная или перемещение,
+    созданные в 1С, попадали кладовщику в TMS быстро, а не раз в 15 минут."""
+    from app.database import SessionLocal
+    from app.services.onec_client import (
+        sync_receiving_tasks_from_1c, sync_transfer_tasks_from_1c, sync_stock_balances_from_1c,
+    )
+    db = SessionLocal()
+    try:
+        rr = sync_receiving_tasks_from_1c(db)
+        rtr = sync_transfer_tasks_from_1c(db)
+        rb = sync_stock_balances_from_1c(db)
+        if rr.get("created") or rtr.get("created") or rr.get("errors") or rtr.get("errors") or rb.get("errors"):
+            logger.info(
+                "fast-sync: receiving c=%s u=%s errs=%s; transfers c=%s u=%s errs=%s; balances u=%s errs=%s",
+                rr.get("created"), rr.get("updated"), rr.get("errors"),
+                rtr.get("created"), rtr.get("updated"), rtr.get("errors"),
+                rb.get("updated"), rb.get("errors"),
+            )
+    except Exception as e:
+        logger.error("fast-sync job error: %s", e)
     finally:
         db.close()
 
@@ -452,6 +476,8 @@ async def lifespan(_app: FastAPI):
         _scheduler = BackgroundScheduler(timezone="Europe/Moscow")
         _scheduler.add_job(_run_1c_sync_job, "interval", minutes=15, id="1c_sync",
                            misfire_grace_time=60)
+        _scheduler.add_job(_run_1c_fast_sync_job, "interval", minutes=1, id="1c_fast_sync",
+                           misfire_grace_time=20)
         _scheduler.add_job(_run_bitrix_lead_retry_job, "interval", minutes=15, id="bitrix_lead_retry",
                            misfire_grace_time=60)
         _scheduler.add_job(_run_bitrix_cp_requisites_job, "interval", minutes=10, id="bitrix_cp_requisites",
@@ -463,7 +489,7 @@ async def lifespan(_app: FastAPI):
         _scheduler.add_job(_run_versta_status_job, "interval", minutes=30, id="versta_status",
                            misfire_grace_time=60)
         _scheduler.start()
-        logger.info("APScheduler: задачи 1c_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status, sbis_edo_status, versta_status запущены")
+        logger.info("APScheduler: задачи 1c_sync, 1c_fast_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status, sbis_edo_status, versta_status запущены")
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
 

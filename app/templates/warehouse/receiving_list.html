@@ -3,6 +3,14 @@
 {% block title %}Поступление{% endblock %}
 {% block page_title %}Поступление товаров{% endblock %}
 
+{% block header_actions %}
+<form method="post" action="/warehouse/receiving/sync" style="display:contents">
+  <button type="submit" class="wm-icon-btn" title="Проверить новые накладные в 1С сейчас">
+    <i class="bi bi-arrow-clockwise"></i>
+  </button>
+</form>
+{% endblock %}
+
 {% block content %}
 <div class="wm-section-title">
   <span>

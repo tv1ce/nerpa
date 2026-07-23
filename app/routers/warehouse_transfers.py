@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required
 from app.models import StockTransfer, StockMovement, CompanySettings
-from app.services.onec_client import confirm_transfer
+from app.services.onec_client import confirm_transfer, sync_transfer_tasks_from_1c
 from app.utils import log_action
 
 router = APIRouter(prefix="/warehouse/transfers", tags=["warehouse_transfers"])
@@ -27,6 +27,14 @@ templates = Jinja2Templates(directory="app/templates")
 
 def _transfer_queue_count(db: Session) -> int:
     return db.query(StockTransfer).filter(StockTransfer.status == "pending").count()
+
+
+@router.post("/sync")
+@login_required
+async def transfers_sync_now(request: Request, db: Session = Depends(get_db)):
+    """Кладовщик жмёт «Обновить» — не ждать фоновую задачу (раз в минуту)."""
+    sync_transfer_tasks_from_1c(db)
+    return RedirectResponse(url="/warehouse/transfers/", status_code=302)
 
 
 @router.get("/", response_class=HTMLResponse)

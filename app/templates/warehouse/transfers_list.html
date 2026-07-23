@@ -3,6 +3,14 @@
 {% block title %}Перемещение{% endblock %}
 {% block page_title %}Складское перемещение{% endblock %}
 
+{% block header_actions %}
+<form method="post" action="/warehouse/transfers/sync" style="display:contents">
+  <button type="submit" class="wm-icon-btn" title="Проверить новые перемещения в 1С сейчас">
+    <i class="bi bi-arrow-clockwise"></i>
+  </button>
+</form>
+{% endblock %}
+
 {% block content %}
 <div class="wm-section-title">
   <span>
