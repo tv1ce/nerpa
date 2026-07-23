@@ -1454,9 +1454,13 @@ def sync_receiving_tasks_from_1c(db: Session) -> dict:
                 _RECEIPT_DOC,
                 params={
                     "$format": "json",
+                    # ВАЖНО: табличная часть «Запасы» — это Property типа Collection
+                    # (не NavigationProperty), она возвращается сразу вложенным
+                    # списком, если её включить в $select. $expand для неё эта
+                    # 1С не поддерживает — отдаёт 501 Not Implemented, и весь
+                    # запрос падал (задачи вообще не попадали кладовщику).
                     "$select": "Ref_Key,Date,Контрагент_Key,Комментарий,"
-                               "СтруктурнаяЕдиница_Key,Posted,DeletionMark",
-                    "$expand": "Запасы",
+                               "СтруктурнаяЕдиница_Key,Posted,DeletionMark,Запасы",
                     "$top": "200",
                 },
             )
@@ -1625,9 +1629,10 @@ def sync_transfer_tasks_from_1c(db: Session) -> dict:
                 _TRANSFER_DOC,
                 params={
                     "$format": "json",
+                    # $expand на «Запасы» здесь тоже не поддерживается (501) —
+                    # см. комментарий в sync_receiving_tasks_from_1c, тот же фикс.
                     "$select": "Ref_Key,Date,СтруктурнаяЕдиница_Key,СтруктурнаяЕдиницаПолучатель_Key,"
-                               "Комментарий,ДокументОснование,Posted,DeletionMark",
-                    "$expand": "Запасы",
+                               "Комментарий,ДокументОснование,Posted,DeletionMark,Запасы",
                     "$top": "200",
                 },
             )
