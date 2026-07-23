@@ -315,7 +315,7 @@ def _run_1c_sync_job():
         sync_products_from_1c, sync_payments_from_1c, sync_invoices_from_1c,
         sync_shipments_from_1c, sync_documents_from_1c, retry_unpushed_orders,
         sync_warehouses_from_1c, sync_categories_from_1c, sync_receiving_tasks_from_1c,
-        sync_transfer_tasks_from_1c,
+        sync_transfer_tasks_from_1c, sync_stock_balances_from_1c,
     )
     db = SessionLocal()
     try:
@@ -330,14 +330,17 @@ def _run_1c_sync_job():
         r2 = sync_payments_from_1c(db)        # 2) 1С — добор того, чего не было в банке
         rr = sync_receiving_tasks_from_1c(db)
         rtr = sync_transfer_tasks_from_1c(db)
+        rb = sync_stock_balances_from_1c(db)
         logger.info(
             "auto-sync: tochka m=%s u=%s; orders_pushed=%s; warehouses c=%s u=%s; categories c=%s u=%s; "
-            "products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments_1c u=%s; receiving c=%s u=%s; transfers c=%s u=%s",
+            "products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments_1c u=%s; receiving c=%s u=%s; "
+            "transfers c=%s u=%s; balances u=%s",
             rt.get("matched"), rt.get("unmatched"), r0.get("pushed"),
             rw.get("created"), rw.get("updated"), rc.get("created"), rc.get("updated"),
             r1.get("created"), r1.get("updated"),
             r3.get("created"), r3.get("updated"), rd.get("attached"), r2.get("updated"),
             rr.get("created"), rr.get("updated"), rtr.get("created"), rtr.get("updated"),
+            rb.get("updated"),
         )
     except Exception as e:
         logger.error("auto-sync job error: %s", e)

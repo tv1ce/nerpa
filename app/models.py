@@ -138,6 +138,30 @@ class Category(Base):
     parent = relationship("Category", remote_side=[id])
 
 
+class StockBalance1C(Base):
+    """Кэш реального остатка по складу из 1С (регистр накопления
+    AccumulationRegister_ЗапасыНаСкладах, виртуальная таблица Balance).
+
+    Это ЕДИНСТВЕННОЕ место в TMS, где остаток не выводится из собственного
+    журнала StockMovement, а тянется из 1С напрямую — 1С остаётся источником
+    истины по факту продаж (кладовщик своей кнопкой «Собрано» товар больше не
+    списывает, см. warehouse.py:mark_assembled), поступления/перемещения/
+    списания видит и без этого кэша (через свой же StockMovement), а вот
+    исходящие по УПД — только здесь.
+    Одна строка = (товар, склад); обновляется целиком при каждом sync
+    (старые записи с той же связкой перезаписываются, отсутствующие в свежей
+    выгрузке — не удаляются, только помечаются устаревшими по synced_at)."""
+    __tablename__ = "stock_balances_1c"
+    id = Column(Integer, primary_key=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=False)
+    quantity = Column(Float, default=0.0)
+    synced_at = Column(DateTime, server_default=func.now())
+
+    product = relationship("Product")
+    warehouse = relationship("Warehouse")
+
+
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)
@@ -1301,6 +1325,7 @@ Index("ix_stock_transfer_lines_transfer_id", StockTransferLine.transfer_id)
 Index("ix_writeoff_lines_writeoff_id", WriteOffLine.writeoff_id)
 Index("ix_stock_movements_warehouse_id", StockMovement.warehouse_id)
 Index("ix_products_category_id", Product.category_id)
+Index("ux_stock_balances_1c_product_warehouse", StockBalance1C.product_id, StockBalance1C.warehouse_id, unique=True)
 
 
 Index("ix_hr_employee_insights_employee_id", HrEmployeeInsight.employee_id)

@@ -265,10 +265,19 @@ def apply_payment(db: Session, *, invoice, amount, pay_date, source: str,
 
 
 def get_balance(db: Session, product_id: int) -> float:
-    from app.models import Product, StockMovement
+    from app.models import Product, StockMovement, StockBalance1C
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
         return 0.0
+    # Реальный остаток по факту продаж видит только 1С (кладовщик кнопкой
+    # «Собрано» товар больше не списывает) — если есть свежая выгрузка из 1С
+    # для этого товара, она заменяет локальный расчёт.
+    from sqlalchemy import func as _func
+    onec_bal = db.query(_func.sum(StockBalance1C.quantity)).filter(
+        StockBalance1C.product_id == product_id
+    ).scalar()
+    if onec_bal is not None:
+        return round(float(onec_bal), 3)
     in_qty = db.query(func.sum(StockMovement.quantity)).filter(
         StockMovement.product_id == product_id,
         StockMovement.movement_type == "in",
@@ -287,8 +296,11 @@ def get_balance(db: Session, product_id: int) -> float:
 
 def get_balances(db: Session) -> dict:
     """Остатки всех активных товаров одним запросом (без N+1).
-    Логика adjustment: со знаком (+ излишки, - недостача)."""
+    Логика adjustment: со знаком (+ излишки, - недостача).
+    Для товаров с выгруженным из 1С остатком (StockBalance1C) он ЗАМЕНЯЕТ
+    локальный расчёт — см. get_balance."""
     from app.models import Product, StockMovement
+    from app.services.onec_client import get_1c_balances
     # Агрегируем движения по товару и типу одним GROUP BY
     rows = db.query(
         StockMovement.product_id,
@@ -306,6 +318,7 @@ def get_balances(db: Session) -> dict:
         m = moves.get(p.id, {})
         bal = (p.initial_stock or 0) + m.get("in", 0.0) - m.get("out", 0.0) + m.get("adjustment", 0.0)
         result[p.id] = round(bal, 3)
+    result.update(get_1c_balances(db))
     return result
 
 

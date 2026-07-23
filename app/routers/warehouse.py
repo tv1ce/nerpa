@@ -88,6 +88,14 @@ def _get_balances(db: Session) -> dict:
         out_qty = float(r.out_qty or 0) if r else 0.0
         adj_qty = float(r.adj_qty or 0) if r else 0.0
         result[p.id] = round((p.initial_stock or 0) + in_qty - out_qty + adj_qty, 3)
+
+    # Реальный остаток по факту продаж видит только 1С (кладовщик кнопкой
+    # «Собрано» товар больше не списывает — см. mark_assembled). Для товаров,
+    # у которых есть свежая выгрузка остатка из 1С (StockBalance1C), она
+    # ЗАМЕНЯЕТ локальный расчёт — это теперь единственный точный источник.
+    # Для товаров вне 1С (или пока не засинкан остаток) остаётся локальный расчёт.
+    from app.services.onec_client import get_1c_balances
+    result.update(get_1c_balances(db))
     return result
 
 

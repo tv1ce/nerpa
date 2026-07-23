@@ -17,6 +17,7 @@ from app.services.onec_client import (
     sync_categories_from_1c,
     sync_receiving_tasks_from_1c,
     sync_transfer_tasks_from_1c,
+    sync_stock_balances_from_1c,
     push_counterparty,
     push_order,
     push_stock_movement,
@@ -117,6 +118,15 @@ async def sync_transfers(request: Request, db: Session = Depends(get_db)):
     return JSONResponse(result)
 
 
+@router.post("/balances")
+@role_required("admin")
+async def sync_balances(request: Request, db: Session = Depends(get_db)):
+    """Ручной запуск синхронизации остатков по складам из 1С."""
+    result = sync_stock_balances_from_1c(db)
+    _audit_sync(db, "sync_balances", result)
+    return JSONResponse(result)
+
+
 @router.post("/documents")
 @role_required("admin")
 async def sync_documents(request: Request, db: Session = Depends(get_db)):
@@ -179,6 +189,7 @@ async def run_all(request: Request, db: Session = Depends(get_db)):
     r2 = sync_payments_from_1c(db)
     rr = sync_receiving_tasks_from_1c(db)
     rtr = sync_transfer_tasks_from_1c(db)
+    rb = sync_stock_balances_from_1c(db)
     result = {
         "warehouses": rw,
         "categories": rc,
@@ -189,10 +200,11 @@ async def run_all(request: Request, db: Session = Depends(get_db)):
         "payments": r2,
         "receiving": rr,
         "transfers": rtr,
+        "balances": rb,
         "errors": (rw.get("errors", []) + rc.get("errors", []) + r1.get("errors", [])
                    + r3.get("errors", []) + rs.get("errors", [])
                    + rd.get("errors", []) + r2.get("errors", []) + rr.get("errors", [])
-                   + rtr.get("errors", [])),
+                   + rtr.get("errors", []) + rb.get("errors", [])),
     }
     _audit_sync(db, "run_all", result)
     return JSONResponse(result)

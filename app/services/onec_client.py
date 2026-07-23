@@ -1799,3 +1799,105 @@ def push_writeoff(writeoff, db: Session) -> str | None:
     except Exception as e:
         logger.error("push_writeoff %s: %s", writeoff.id, e)
         return None
+
+
+# ── Остатки: 1С → TMS (кэш реального остатка по складам) ───────────────────
+# Подтверждено на реальной базе: виртуальная таблица остатков регистра
+# накопления вызывается как AccumulationRegister_ЗапасыНаСкладах/Balance
+# (стандартный для 1С OData bound-function вызов, без параметров — Period по
+# умолчанию «сейчас»). Поле остатка — КоличествоBalance.
+def sync_stock_balances_from_1c(db: Session) -> dict:
+    """
+    Тянет текущий остаток по складам из 1С (AccumulationRegister_ЗапасыНаСкладах)
+    в кэш-таблицу StockBalance1C. Это единственное место в TMS, где остаток
+    не выводится из собственного журнала StockMovement, а берётся из 1С
+    напрямую — теперь, когда кладовщик кнопкой «Собрано» товар не списывает
+    (реальный расход по УПД видит только 1С), это единственный способ увидеть
+    актуальный остаток с учётом продаж.
+    Возвращает {"updated": N, "errors": [...]}.
+    """
+    from app.models import StockBalance1C, Product, Warehouse
+
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"updated": 0, "errors": ["Синхронизация отключена"]}
+
+    try:
+        with _client(s) as c:
+            r = c.get(
+                "AccumulationRegister_ЗапасыНаСкладах/Balance",
+                params={
+                    "$format": "json",
+                    "$select": "Номенклатура_Key,СтруктурнаяЕдиница_Key,КоличествоBalance",
+                    "$top": "10000",
+                },
+            )
+        r.raise_for_status()
+        rows = r.json().get("value", [])
+    except Exception as e:
+        logger.error("sync_stock_balances_from_1c: %s", e)
+        return {"updated": 0, "errors": [str(e)]}
+
+    errors: list[str] = []
+    # Суммируем по (товар, склад) — регистр может отдавать несколько строк на
+    # одну пару, если в базе включён учёт по партиям/характеристикам.
+    agg: dict[tuple[int, int], float] = {}
+    for row in rows:
+        prod_key = row.get("Номенклатура_Key")
+        wh_key = row.get("СтруктурнаяЕдиница_Key")
+        qty = row.get("КоличествоBalance") or 0
+        if not prod_key or not wh_key:
+            continue
+        try:
+            prod = db.query(Product).filter(Product.external_id_1c == prod_key).first()
+            wh = db.query(Warehouse).filter(Warehouse.external_id_1c == wh_key).first()
+            if not prod or not wh:
+                continue
+            key = (prod.id, wh.id)
+            agg[key] = agg.get(key, 0.0) + qty
+        except Exception as e:
+            errors.append(f"{prod_key}: {e}")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    updated = 0
+    existing = {(b.product_id, b.warehouse_id): b for b in db.query(StockBalance1C).all()}
+
+    for (pid, wid), qty in agg.items():
+        b = existing.pop((pid, wid), None)
+        if b:
+            b.quantity = qty
+            b.synced_at = now
+        else:
+            db.add(StockBalance1C(product_id=pid, warehouse_id=wid, quantity=qty, synced_at=now))
+        updated += 1
+
+    # Остатки, которых больше нет в выгрузке 1С (обнулились) — зануляем, не
+    # удаляем, чтобы не терять последнюю известную привязку товар↔склад.
+    for b in existing.values():
+        if b.quantity != 0.0:
+            b.quantity = 0.0
+            b.synced_at = now
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors.append(f"commit: {e}")
+        updated = 0
+
+    logger.info("sync_stock_balances_from_1c: обновлено %d, ошибок %d", updated, len(errors))
+    return {"updated": updated, "errors": errors}
+
+
+def get_1c_balances(db: Session) -> dict:
+    """{product_id: суммарный остаток по всем складам} — из кэша StockBalance1C.
+    Удобный агрегат для дашборда склада (общий остаток без разбивки по складам)."""
+    from sqlalchemy import func as _func
+    from app.models import StockBalance1C
+
+    rows = (
+        db.query(StockBalance1C.product_id, _func.sum(StockBalance1C.quantity))
+        .group_by(StockBalance1C.product_id)
+        .all()
+    )
+    return {pid: float(qty or 0) for pid, qty in rows}
