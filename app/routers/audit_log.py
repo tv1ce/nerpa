@@ -10,18 +10,24 @@ router = APIRouter(prefix="/audit-log", tags=["audit_log"])
 templates = Jinja2Templates(directory="app/templates")
 
 ACTION_LABELS = {
-    "created":        "Создан",
-    "updated":        "Изменён",
-    "status_changed": "Статус изменён",
-    "deleted":        "Удалён",
-    "category_set":   "Категория изменена",
+    "created":               "Создан",
+    "updated":               "Изменён",
+    "status_changed":        "Статус изменён",
+    "deleted":               "Удалён",
+    "category_set":          "Категория изменена",
+    "confirmed":             "Подтверждён",
+    "discrepancy":           "Расхождение",
+    "stock_settings_changed": "Настройки остатка изменены",
 }
 ACTION_ICONS = {
-    "created":        "bi-plus-circle-fill text-success",
-    "updated":        "bi-pencil-fill text-primary",
-    "status_changed": "bi-arrow-left-right text-warning",
-    "deleted":        "bi-trash-fill text-danger",
-    "category_set":   "bi-tag-fill text-info",
+    "created":               "bi-plus-circle-fill text-success",
+    "updated":               "bi-pencil-fill text-primary",
+    "status_changed":        "bi-arrow-left-right text-warning",
+    "deleted":               "bi-trash-fill text-danger",
+    "category_set":          "bi-tag-fill text-info",
+    "confirmed":             "bi-check-circle-fill text-success",
+    "discrepancy":           "bi-exclamation-triangle-fill text-warning",
+    "stock_settings_changed": "bi-sliders text-primary",
 }
 
 

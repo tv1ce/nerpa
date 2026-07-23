@@ -9,6 +9,14 @@
       <option value="counterparty" {% if filter_type=='counterparty' %}selected{% endif %}>Контрагенты</option>
       <option value="invoice"      {% if filter_type=='invoice'      %}selected{% endif %}>Счета</option>
       <option value="claim"        {% if filter_type=='claim'        %}selected{% endif %}>Рекламации</option>
+      <optgroup label="Склад">
+        <option value="stock_movement"    {% if filter_type=='stock_movement'    %}selected{% endif %}>Движения склада</option>
+        <option value="receipt"           {% if filter_type=='receipt'           %}selected{% endif %}>Поступление</option>
+        <option value="stock_transfer"    {% if filter_type=='stock_transfer'    %}selected{% endif %}>Перемещение</option>
+        <option value="writeoff"          {% if filter_type=='writeoff'          %}selected{% endif %}>Списание</option>
+        <option value="stock_adjustment"  {% if filter_type=='stock_adjustment'  %}selected{% endif %}>Инвентаризация</option>
+        <option value="product"           {% if filter_type=='product'           %}selected{% endif %}>Товары</option>
+      </optgroup>
     </select>
     <button class="btn btn-sm btn-outline-secondary">Фильтр</button>
   </form>
@@ -36,12 +44,7 @@
         {% for log in logs %}
         <tr>
           <td class="ps-4 text-center">
-            {% if log.action == 'created' %}<i class="bi bi-plus-circle-fill text-success"></i>
-            {% elif log.action == 'status_changed' %}<i class="bi bi-arrow-left-right text-warning"></i>
-            {% elif log.action == 'category_set' %}<i class="bi bi-tag-fill text-info"></i>
-            {% elif log.action == 'updated' %}<i class="bi bi-pencil-fill text-primary"></i>
-            {% elif log.action == 'deleted' %}<i class="bi bi-trash-fill text-danger"></i>
-            {% else %}<i class="bi bi-circle text-muted"></i>{% endif %}
+            <i class="bi {{ action_icons.get(log.action, 'bi-circle text-muted') }}"></i>
           </td>
           <td style="font-size:.88rem">{{ log.note or action_labels.get(log.action, log.action) }}</td>
           <td class="text-muted" style="font-size:.82rem">
@@ -53,12 +56,24 @@
               <a href="/invoices/{{ log.entity_id }}" class="text-muted">Счёт #{{ log.entity_id }}</a>
             {% elif log.entity_type == 'claim' %}
               <a href="/claims/{{ log.entity_id }}" class="text-muted">Рекламация #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'receipt' %}
+              <a href="/warehouse/receiving/{{ log.entity_id }}" class="text-muted">Приход #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'stock_transfer' %}
+              <a href="/warehouse/transfers/{{ log.entity_id }}" class="text-muted">Перемещение #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'writeoff' %}
+              <a href="/warehouse/writeoffs/{{ log.entity_id }}" class="text-muted">Списание #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'stock_adjustment' %}
+              <a href="/warehouse/inventory/{{ log.entity_id }}" class="text-muted">Инвентаризация #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'product' %}
+              <a href="/products/{{ log.entity_id }}/edit" class="text-muted">Товар #{{ log.entity_id }}</a>
+            {% elif log.entity_type == 'stock_movement' %}
+              <a href="/warehouse/journal" class="text-muted">Движение #{{ log.entity_id }}</a>
             {% else %}
               {{ log.entity_type }} #{{ log.entity_id }}
             {% endif %}
           </td>
           <td style="font-size:.82rem">{{ log.user.full_name if log.user else '—' }}</td>
-          <td class="text-end pe-4 text-muted" style="font-size:.78rem; white-space:nowrap">{{ log.created_at | date_fmt }}</td>
+          <td class="text-end pe-4 text-muted" style="font-size:.78rem; white-space:nowrap">{{ log.created_at | datetime_fmt }}</td>
         </tr>
         {% endfor %}
       </tbody>

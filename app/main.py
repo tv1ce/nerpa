@@ -683,6 +683,17 @@ def _fmt_date(value):
     return str(value)
 
 
+def _fmt_datetime(value):
+    """Дата + время с точностью до минуты — для журналов действий (кто/что/когда),
+    где важно отследить последовательность событий, а не только день."""
+    if not value:
+        return "—"
+    from datetime import date, datetime
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%d.%m.%Y %H:%M")
+    return str(value)
+
+
 # Регистрируем фильтры во всех шаблонах через Jinja2Templates
 from datetime import date as _date
 import secrets as _secrets
@@ -698,6 +709,7 @@ def _get_csrf_token(request) -> str:
 _templates = Jinja2Templates(directory="app/templates")
 _templates.env.filters["money"] = _fmt_money
 _templates.env.filters["date_fmt"] = _fmt_date
+_templates.env.filters["datetime_fmt"] = _fmt_datetime
 _templates.env.filters["format_number"] = lambda v: f"{int(v):,}".replace(",", " ")
 # today — прокси-объект, который всегда возвращает ТЕКУЩУЮ дату.
 # Шаблоны используют его без скобок: {{ today }}, today <= date, today.isoformat() —

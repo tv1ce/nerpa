@@ -334,7 +334,12 @@ async def create_movement(
         if order and order.status not in ("handed", "delivered", "cancelled"):
             order.status = "handed"
     maybe_notify_low_stock(db, product_id)  # добавляет Notification без commit
-    db.commit()  # единый коммит — движение + уведомление атомарно
+    db.flush()  # получаем mv.id для записи в журнал действий
+    prod = db.query(Product).filter(Product.id == product_id).first()
+    log_action(db, "stock_movement", mv.id, "created", user_id,
+               f"{MOVEMENT_TYPES.get(movement_type, movement_type)}: {prod.name if prod else product_id} "
+               f"— {quantity} {prod.unit if prod else ''}" + (f" ({reason})" if reason else ""))
+    db.commit()  # единый коммит — движение + уведомление + запись в журнал атомарно
     return RedirectResponse(url="/warehouse/", status_code=302)
 
 
@@ -345,6 +350,10 @@ async def create_movement(
 async def delete_movement(request: Request, movement_id: int, db: Session = Depends(get_db)):
     mv = db.query(StockMovement).filter(StockMovement.id == movement_id).first()
     if mv:
+        prod = mv.product
+        log_action(db, "stock_movement", mv.id, "deleted", request.session.get("user_id"),
+                   f"Удалено движение: {MOVEMENT_TYPES.get(mv.movement_type, mv.movement_type)} "
+                   f"{prod.name if prod else mv.product_id} — {mv.quantity} {prod.unit if prod else ''}")
         db.delete(mv)
         db.commit()
     return RedirectResponse(url="/warehouse/journal", status_code=302)
@@ -363,8 +372,13 @@ async def update_stock_settings(
 ):
     p = db.query(Product).filter(Product.id == product_id).first()
     if p:
+        old_min, old_init = p.min_stock, p.initial_stock
         p.min_stock = min_stock
         p.initial_stock = initial_stock
+        if old_min != min_stock or old_init != initial_stock:
+            log_action(db, "product", product_id, "stock_settings_changed",
+                       request.session.get("user_id"),
+                       f"{p.name}: мин. остаток {old_min}→{min_stock}, нач. остаток {old_init}→{initial_stock}")
         maybe_notify_low_stock(db, product_id)  # добавляет Notification без commit
         db.commit()  # единый коммит
     return RedirectResponse(url="/warehouse/", status_code=302)
@@ -464,7 +478,7 @@ async def inventory_create(request: Request, db: Session = Depends(get_db)):
         db.rollback()
         return RedirectResponse(url="/warehouse/inventory/new", status_code=302)
 
-    log_action(db, "product", 0, "updated", user_id,
+    log_action(db, "stock_adjustment", adj.id, "created", user_id,
                f"Инвентаризация #{adj.id} от {inv_date.strftime('%d.%m.%Y')}: "
                f"позиций {counted}, корректировок {applied}")
     db.commit()
