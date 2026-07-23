@@ -166,11 +166,12 @@ def sync_products_from_1c(db: Session) -> dict:
 
 
 # ── Склады: 1С → TMS ─────────────────────────────────────────────────────────
-# ПРИМЕЧАНИЕ: имя каталога подобрано по аналогии с уже используемым полем
-# «СтруктурнаяЕдиницаРезерв_Key» в push_order (см. _ORDER_WAREHOUSE_KEY) — в
-# 1С:УНФ склады и подразделения ведутся в одном каталоге Catalog_СтруктурныеЕдиницы.
-# ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по $metadata реальной базы при первом тестовом запуске.
+# Подтверждено по $metadata реальной базы: склады и подразделения ведутся в
+# одном каталоге Catalog_СтруктурныеЕдиницы, различаются полем
+# ТипСтруктурнойЕдиницы («Склад» / «Подразделение») — синхронизируем только
+# «Склад», иначе в TMS попадут и не-складские подразделения.
 _WAREHOUSE_CATALOG = "Catalog_СтруктурныеЕдиницы"
+_WAREHOUSE_UNIT_TYPE = "Склад"
 
 
 def sync_warehouses_from_1c(db: Session) -> dict:
@@ -197,12 +198,15 @@ def sync_warehouses_from_1c(db: Session) -> dict:
                 _WAREHOUSE_CATALOG,
                 params={
                     "$format": "json",
-                    "$select": "Ref_Key,Code,Description,DeletionMark",
+                    "$select": "Ref_Key,Code,Description,ТипСтруктурнойЕдиницы,DeletionMark",
                     "$top": "1000",
                 },
             )
         r.raise_for_status()
-        items = [i for i in r.json().get("value", []) if not i.get("DeletionMark", False)]
+        items = [
+            i for i in r.json().get("value", [])
+            if not i.get("DeletionMark", False) and i.get("ТипСтруктурнойЕдиницы") == _WAREHOUSE_UNIT_TYPE
+        ]
     except Exception as e:
         logger.error("sync_warehouses_from_1c: %s", e)
         return {"created": 0, "updated": 0, "errors": [str(e)]}
@@ -1312,9 +1316,16 @@ def sync_documents_from_1c(db: Session) -> dict:
 
 def push_stock_movement(movement, db: Session) -> str | None:
     """
-    Пушит движения типа 'in' (Document_ПоступлениеТоваров)
-    и 'adjustment' (Document_ИнвентаризацияТоваров).
+    Пушит движения типа 'in' (Document_ПриходнаяНакладная)
+    и 'adjustment' (Document_ИнвентаризацияЗапасов).
     Движения 'out' с order_id пропускаются — 1С создаёт их сама через заказ.
+
+    ИСПРАВЛЕНО: раньше здесь были документы Document_ПоступлениеТоваров и
+    Document_ИнвентаризацияТоваров с табличной частью «Товары» — таких типов
+    документов в этой базе 1С:УНФ НЕТ (проверено по $metadata реальной базы),
+    из-за чего каждый push молча падал (см. except ниже, ошибка только в логах).
+    Реальные имена: Document_ПриходнаяНакладная / Document_ИнвентаризацияЗапасов,
+    табличная часть — «Запасы».
     """
     if movement.movement_type == "out" and movement.order_id:
         return None
@@ -1327,15 +1338,15 @@ def push_stock_movement(movement, db: Session) -> str | None:
         return None
 
     doc_type = (
-        "Document_ПоступлениеТоваров"
+        "Document_ПриходнаяНакладная"
         if movement.movement_type == "in"
-        else "Document_ИнвентаризацияТоваров"
+        else "Document_ИнвентаризацияЗапасов"
     )
 
     payload = {
         "Date": movement.date.isoformat() if movement.date else None,
         "Комментарий": movement.notes or "",
-        "Товары": [{
+        "Запасы": [{
             "Номенклатура_Key": movement.product.external_id_1c,
             "Количество": movement.quantity,
         }],
@@ -1359,11 +1370,12 @@ def push_stock_movement(movement, db: Session) -> str | None:
 
 
 # ── Поступление товаров: 1С → TMS (задача) + TMS → 1С (подтверждение/проведение) ──
-# ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по $metadata реальной базы: предполагаем, что технолог
-# создаёт непроведённый Document_ПоступлениеТоваров (табличная часть «Товары» с
-# Номенклатура_Key/Количество — по аналогии с уже используемым push_stock_movement),
-# со ссылкой на исходный заказ поставщику в поле ДокументОснование.
-_RECEIPT_DOC = "Document_ПоступлениеТоваров"
+# Подтверждено по $metadata реальной базы: документ Document_ПриходнаяНакладная,
+# табличная часть «Запасы» (Номенклатура_Key/Количество). Ссылка на исходный
+# заказ поставщику — НЕ на шапке документа (там ДокументОснование общего вида),
+# а в поле «Заказ» каждой строки табличной части (полиморфная ссылка, Заказ_Type
+# = "StandardODATA.Document_ЗаказПоставщику" для обычной закупки).
+_RECEIPT_DOC = "Document_ПриходнаяНакладная"
 
 
 def sync_receiving_tasks_from_1c(db: Session) -> dict:
@@ -1388,9 +1400,9 @@ def sync_receiving_tasks_from_1c(db: Session) -> dict:
                 _RECEIPT_DOC,
                 params={
                     "$format": "json",
-                    "$select": "Ref_Key,Date,Контрагент_Key,Комментарий,ДокументОснование,"
+                    "$select": "Ref_Key,Date,Контрагент_Key,Комментарий,"
                                "СтруктурнаяЕдиница_Key,Posted,DeletionMark",
-                    "$expand": "Товары",
+                    "$expand": "Запасы",
                     "$top": "200",
                 },
             )
@@ -1434,7 +1446,6 @@ def sync_receiving_tasks_from_1c(db: Session) -> dict:
                     receipt.expected_date = datetime.fromisoformat(doc_date.replace("Z", "")).date()
                 except ValueError:
                     pass
-            receipt.source_order_id_1c = d.get("ДокументОснование") or receipt.source_order_id_1c
             receipt.notes = d.get("Комментарий") or receipt.notes
             receipt.synced_from_1c_at = now
             if receipt.status is None:
@@ -1442,14 +1453,18 @@ def sync_receiving_tasks_from_1c(db: Session) -> dict:
 
             db.flush()
 
-            # Строки: синхронизируем состав «Товары» (обычно не меняется после
-            # создания в 1С технологом, но безопаснее сверять полностью)
+            # Строки: синхронизируем состав «Запасы» (обычно не меняется после
+            # создания в 1С технологом, но безопаснее сверять полностью).
+            # Заказ поставщику — из первой строки, где он заполнен (это строчная,
+            # а не шапочная ссылка в этом документе).
             existing_lines = {ln.product_id: ln for ln in receipt.lines}
-            for row in (d.get("Товары") or []):
+            for row in (d.get("Запасы") or []):
                 prod_key = row.get("Номенклатура_Key")
                 qty = row.get("Количество") or 0
                 if not prod_key:
                     continue
+                if row.get("Заказ") and not receipt.source_order_id_1c:
+                    receipt.source_order_id_1c = row.get("Заказ")
                 prod = db.query(Product).filter(Product.external_id_1c == prod_key).first()
                 if not prod:
                     continue
@@ -1508,7 +1523,7 @@ def confirm_receipt(receipt, db: Session) -> dict:
 
     payload = {"Posted": True}
     if tovary:
-        payload["Товары"] = tovary
+        payload["Запасы"] = tovary
 
     try:
         with _client(s) as c:
@@ -1521,11 +1536,12 @@ def confirm_receipt(receipt, db: Session) -> dict:
 
 
 # ── Складское перемещение: 1С → TMS (задача) + TMS → 1С (проведение) ────────
-# ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по $metadata реальной базы: предполагаем документ
-# Document_ПеремещениеТоваров с полями СкладОтправитель_Key/СкладПолучатель_Key
-# и табличной частью «Товары» (Номенклатура_Key/Количество), созданный на
-# основании «Заказа на перемещение» (ДокументОснование).
-_TRANSFER_DOC = "Document_ПеремещениеТоваров"
+# Подтверждено по $metadata реальной базы: документ Document_ПеремещениеЗапасов,
+# склад-источник — СтруктурнаяЕдиница_Key, склад-назначение —
+# СтруктурнаяЕдиницаПолучатель_Key, табличная часть «Запасы»
+# (Номенклатура_Key/Количество). На этом документе (в отличие от приёмки)
+# ссылка на «Заказ на перемещение» — на уровне шапки, в ДокументОснование.
+_TRANSFER_DOC = "Document_ПеремещениеЗапасов"
 
 
 def sync_transfer_tasks_from_1c(db: Session) -> dict:
@@ -1549,9 +1565,9 @@ def sync_transfer_tasks_from_1c(db: Session) -> dict:
                 _TRANSFER_DOC,
                 params={
                     "$format": "json",
-                    "$select": "Ref_Key,Date,СкладОтправитель_Key,СкладПолучатель_Key,"
+                    "$select": "Ref_Key,Date,СтруктурнаяЕдиница_Key,СтруктурнаяЕдиницаПолучатель_Key,"
                                "Комментарий,ДокументОснование,Posted,DeletionMark",
-                    "$expand": "Товары",
+                    "$expand": "Запасы",
                     "$top": "200",
                 },
             )
@@ -1577,13 +1593,13 @@ def sync_transfer_tasks_from_1c(db: Session) -> dict:
                 transfer = StockTransfer(external_id_1c=ref_key, status="pending")
                 db.add(transfer)
 
-            from_key = d.get("СкладОтправитель_Key")
+            from_key = d.get("СтруктурнаяЕдиница_Key")
             if from_key:
                 wh = db.query(Warehouse).filter(Warehouse.external_id_1c == from_key).first()
                 if wh:
                     transfer.from_warehouse_id = wh.id
 
-            to_key = d.get("СкладПолучатель_Key")
+            to_key = d.get("СтруктурнаяЕдиницаПолучатель_Key")
             if to_key:
                 wh = db.query(Warehouse).filter(Warehouse.external_id_1c == to_key).first()
                 if wh:
@@ -1604,7 +1620,7 @@ def sync_transfer_tasks_from_1c(db: Session) -> dict:
             db.flush()
 
             existing_lines = {ln.product_id: ln for ln in transfer.lines}
-            for row in (d.get("Товары") or []):
+            for row in (d.get("Запасы") or []):
                 prod_key = row.get("Номенклатура_Key")
                 qty = row.get("Количество") or 0
                 if not prod_key:
@@ -1661,16 +1677,18 @@ def confirm_transfer(transfer, db: Session) -> dict:
 
 
 # ── Списание: TMS → 1С (создание + мгновенное проведение) ──────────────────
-# ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по $metadata реальной базы: имя документа и поле
-# корреспонденции/причины предположительные — причины списания в TMS пока
-# ведутся отдельным локальным справочником (WriteOffReason), сопоставление
-# с 1С появится, когда будет известен точный справочник причин в 1С:УНФ.
-_WRITEOFF_DOC = "Document_СписаниеТоваров"
+# Подтверждено по $metadata реальной базы: документ Document_СписаниеЗапасов,
+# табличная часть «Запасы» (Номенклатура_Key/Количество). Поле «корреспонденция»
+# (Корреспонденция_Key) — это счёт из плана счетов ChartOfAccounts_Управленческий
+# (напр. «94 — Недостачи и потери от порчи ценностей»), а НЕ отдельный
+# справочник причин. WriteOffReason.external_id_1c нужно проставить на GUID
+# соответствующего счёта — см. sync_correspondence_accounts_from_1c ниже.
+_WRITEOFF_DOC = "Document_СписаниеЗапасов"
 
 
 def push_writeoff(writeoff, db: Session) -> str | None:
     """
-    Создаёт Document_СписаниеТоваров в 1С и сразу проводит его (Posted: true
+    Создаёт Document_СписаниеЗапасов в 1С и сразу проводит его (Posted: true
     в том же запросе) — списание в TMS всегда мгновенное, черновика не бывает.
     """
     s = _get_settings(db)
@@ -1695,11 +1713,13 @@ def push_writeoff(writeoff, db: Session) -> str | None:
         "Date": writeoff.created_at.isoformat() if writeoff.created_at else None,
         "Комментарий": (writeoff.reason.name if writeoff.reason else "") +
                        (f" — {writeoff.notes}" if writeoff.notes else ""),
-        "Товары": tovary,
+        "Запасы": tovary,
         "Posted": True,
     }
     if writeoff.warehouse and writeoff.warehouse.external_id_1c:
         payload["СтруктурнаяЕдиница_Key"] = writeoff.warehouse.external_id_1c
+    if writeoff.reason and writeoff.reason.external_id_1c:
+        payload["Корреспонденция_Key"] = writeoff.reason.external_id_1c
 
     try:
         with _client(s) as c:
