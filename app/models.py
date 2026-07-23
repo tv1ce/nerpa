@@ -1001,8 +1001,9 @@ class HrEmployee(Base):
     position = Column(String(200))                                    # legacy: текст должности
     position_id = Column(Integer, ForeignKey("hr_positions.id"))      # ссылка на справочник должностей
     is_active = Column(Boolean, default=True)
-    # Месяц (1-е число), с которого сотрудник снят с учёта — сохраняется при деактивации,
-    # чтобы прошлые периоды по-прежнему его показывали, а новые — нет. NULL — не увольнялся.
+    # Последний месяц (1-е число), в котором сотрудник ещё виден — сохраняется при
+    # деактивации (обычно это предыдущий месяц, чтобы сотрудник пропадал из текущего
+    # сразу же), прошлые периоды при этом по-прежнему его показывают. NULL — не увольнялся.
     deactivated_at = Column(Date)
     created_at = Column(DateTime, server_default=func.now())
 

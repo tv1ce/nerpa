@@ -356,9 +356,10 @@ async def edit_employee(
         emp.full_name = full_name.strip()
         emp.position_id = int(position_id) if position_id else None
         if emp.is_active and not now_active:
-            # увольняем: запоминаем месяц, начиная с которого сотрудник больше не в учёте
+            # увольняем: сотрудник пропадает из текущего месяца сразу же — последний
+            # видимый период это предыдущий месяц (текущий и позже уже не показываем)
             today = date.today()
-            emp.deactivated_at = date(today.year, today.month, 1)
+            emp.deactivated_at = _shift_period(date(today.year, today.month, 1), -1)
         elif not emp.is_active and now_active:
             # восстанавливаем — снова виден во всех периодах
             emp.deactivated_at = None
