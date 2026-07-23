@@ -343,6 +343,7 @@ def _migrate_db():
         ("company_settings", "tg_hr_report_chat_ids", "TEXT"),
         # ── Кабинет кладовщика: склады, категории, приёмка/перемещение/списание ──
         ("products", "category_id", "INTEGER REFERENCES categories(id)"),
+        ("products", "unit_id_1c", "TEXT"),
         ("stock_movements", "warehouse_id",    "INTEGER REFERENCES warehouses(id)"),
         ("stock_movements", "to_warehouse_id", "INTEGER REFERENCES warehouses(id)"),
     ]

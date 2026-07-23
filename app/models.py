@@ -159,6 +159,9 @@ class Product(Base):
     # 1С:УНФ
     external_id_1c   = Column(String(36))       # Ref_Key (GUID) номенклатуры в 1С
     synced_from_1c_at = Column(DateTime)        # когда последний раз тянули из 1С
+    unit_id_1c = Column(String(36))             # Ref_Key базовой единицы измерения в 1С —
+    # нужен, чтобы при пуше документов (списание и т.п.) назад в 1С автоматически
+    # проставлялась «своя» единица товара, а не захардкоженная общая «шт»
 
     order_items = relationship("OrderItem", back_populates="product")
     stock_movements = relationship("StockMovement", back_populates="product")

@@ -16,6 +16,9 @@ from app.models import CompanySettings, Product
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 15
+# Полиморфный тип ссылки на единицу измерения в табличных частях документов —
+# используется везде, где строка документа передаёт Product.unit_id_1c обратно в 1С.
+_UNIT_TYPE = "StandardODATA.Catalog_КлассификаторЕдиницИзмерения"
 
 
 # ── Вспомогательные ──────────────────────────────────────────────────────────
@@ -77,13 +80,41 @@ def test_connection(db: Session) -> dict:
 
 # ── Номенклатура: 1С → TMS ───────────────────────────────────────────────────
 
+def _fetch_unit_names(s: CompanySettings) -> dict:
+    """Ref_Key → короткое имя ('шт', 'кг', ...) из Catalog_КлассификаторЕдиницИзмерения.
+    Каталог маленький (десяток строк) — тянем целиком при каждом синке номенклатуры."""
+    try:
+        with _client(s) as c:
+            r = c.get(
+                "Catalog_КлассификаторЕдиницИзмерения",
+                params={"$format": "json", "$select": "Ref_Key,Description,DeletionMark", "$top": "200"},
+            )
+        r.raise_for_status()
+        return {
+            i["Ref_Key"]: (i.get("Description") or "").strip()
+            for i in r.json().get("value", [])
+            if not i.get("DeletionMark") and i.get("Ref_Key")
+        }
+    except Exception as e:
+        logger.warning("_fetch_unit_names: %s", e)
+        return {}
+
+
 def sync_products_from_1c(db: Session) -> dict:
     """
-    Читает Catalog_Номенклатура из 1С, создаёт/обновляет Products в TMS.
-    Маппинг: Ref_Key→external_id_1c, Code→article, Description→name.
-    Пропускает записи с ПометкаУдаления=true.
+    Читает Catalog_Номенклатура из 1С — создаёт/обновляет Products в TMS.
+    Маппинг: Ref_Key→external_id_1c, Code→article, Description→name,
+    Parent_Key→category_id (см. Category, заводится sync_categories_from_1c),
+    ЕдиницаИзмерения_Key→unit_id_1c (нужен для проставления единицы при пуше
+    документов складских контуров в 1С — см. push_writeoff).
+    Пропускает группы (IsFolder=true) и записи с ПометкаУдаления=true.
+    В отличие от старого поведения — теперь заводит товары, которых ещё нет в
+    TMS, а не только линкует существующие: пользователю нужна ПОЛНАЯ синхронизация
+    номенклатуры с разбивкой по категориям, а не курируемое подмножество.
     Возвращает {"created": N, "updated": N, "errors": [...]}.
     """
+    from app.models import Category
+
     s = _get_settings(db)
     if not s or not s.onec_enabled:
         return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
@@ -97,56 +128,74 @@ def sync_products_from_1c(db: Session) -> dict:
                 "Catalog_Номенклатура",
                 params={
                     "$format": "json",
-                    "$select": "Ref_Key,Code,Description,DeletionMark",
-                    "$top": "5000",
+                    "$select": "Ref_Key,Code,Description,DeletionMark,IsFolder,"
+                               "Parent_Key,Артикул,ЕдиницаИзмерения_Key",
+                    "$top": "10000",
                 },
             )
         r.raise_for_status()
-        # Фильтруем помеченные на удаление в Python — булевые фильтры в OData УНФ нестабильны
-        items = [i for i in r.json().get("value", []) if not i.get("DeletionMark", False)]
+        # Фильтруем помеченные на удаление и группы (не товары) в Python —
+        # булевые фильтры в OData УНФ нестабильны
+        items = [
+            i for i in r.json().get("value", [])
+            if not i.get("DeletionMark", False) and not i.get("IsFolder", False)
+        ]
     except Exception as e:
         logger.error("sync_products_from_1c: %s", e)
         return {"created": 0, "updated": 0, "errors": [str(e)]}
 
+    unit_names = _fetch_unit_names(s)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     for item in items:
         ref_key = item.get("Ref_Key")
         name = (item.get("Description") or "").strip()
         code = (item.get("Code") or "").strip()
+        article = (item.get("Артикул") or "").strip() or code
+        unit_key = item.get("ЕдиницаИзмерения_Key")
+        unit_name = unit_names.get(unit_key) if unit_key else None
+        parent_key = item.get("Parent_Key")
 
         if not ref_key or not name:
             continue
 
         try:
+            category_id = None
+            if parent_key:
+                cat = db.query(Category).filter(Category.external_id_1c == parent_key).first()
+                if cat:
+                    category_id = cat.id
+
             # Ищем по GUID 1С
             p = db.query(Product).filter(Product.external_id_1c == ref_key).first()
-            if p:
-                p.name = name
-                if code:
-                    p.article = code
-                p.synced_from_1c_at = now
-                updated += 1
-            else:
+            is_new = False
+            if not p:
                 # Пытаемся связать по артикулу
                 p = db.query(Product).filter(Product.article == code).first() if code else None
-                if p:
-                    p.external_id_1c = ref_key
-                    p.synced_from_1c_at = now
-                    updated += 1
-                else:
-                    # Пытаемся связать по имени (для продуктов созданных до интеграции)
-                    p = db.query(Product).filter(Product.name == name, Product.external_id_1c == None).first()
-                    if p:
-                        p.external_id_1c = ref_key
-                        if code:
-                            p.article = code
-                        p.synced_from_1c_at = now
-                        updated += 1
-                    else:
-                        # Не создаём новые продукты автоматически —
-                        # только линкуем уже существующие в TMS
-                        logger.debug("sync_products_from_1c: нет в TMS, пропускаем %s (%s)", name, ref_key)
+            if not p:
+                # Пытаемся связать по имени (для товаров, созданных до интеграции)
+                p = db.query(Product).filter(Product.name == name, Product.external_id_1c.is_(None)).first()
+            if not p:
+                p = Product(name=name, is_active=True)
+                db.add(p)
+                is_new = True
+
+            p.name = name
+            if article:
+                p.article = article
+            if unit_key:
+                p.unit_id_1c = unit_key
+                if unit_name:
+                    p.unit = unit_name
+            if category_id:
+                p.category_id = category_id
+            p.external_id_1c = ref_key
+            p.synced_from_1c_at = now
+
+            if is_new:
+                created += 1
+            else:
+                updated += 1
         except Exception as e:
             errors.append(f"{name}: {e}")
             logger.warning("sync_products_from_1c item error: %s", e)
@@ -1343,13 +1392,18 @@ def push_stock_movement(movement, db: Session) -> str | None:
         else "Document_ИнвентаризацияЗапасов"
     )
 
+    row = {
+        "Номенклатура_Key": movement.product.external_id_1c,
+        "Количество": movement.quantity,
+    }
+    if movement.product.unit_id_1c:
+        row["ЕдиницаИзмерения"] = movement.product.unit_id_1c
+        row["ЕдиницаИзмерения_Type"] = _UNIT_TYPE
+
     payload = {
         "Date": movement.date.isoformat() if movement.date else None,
         "Комментарий": movement.notes or "",
-        "Запасы": [{
-            "Номенклатура_Key": movement.product.external_id_1c,
-            "Количество": movement.quantity,
-        }],
+        "Запасы": [row],
     }
 
     try:
@@ -1515,11 +1569,17 @@ def confirm_receipt(receipt, db: Session) -> dict:
         if not prod or not prod.external_id_1c:
             continue
         qty = ln.actual_qty if ln.actual_qty is not None else ln.expected_qty
-        tovary.append({
+        row = {
             "LineNumber": str(i),
             "Номенклатура_Key": prod.external_id_1c,
             "Количество": qty,
-        })
+        }
+        # PATCH табличной части заменяет её целиком — единицу измерения нужно
+        # передавать заново, иначе после подтверждения приёмки она обнулится.
+        if prod.unit_id_1c:
+            row["ЕдиницаИзмерения"] = prod.unit_id_1c
+            row["ЕдиницаИзмерения_Type"] = _UNIT_TYPE
+        tovary.append(row)
 
     payload = {"Posted": True}
     if tovary:
@@ -1681,8 +1741,8 @@ def confirm_transfer(transfer, db: Session) -> dict:
 # табличная часть «Запасы» (Номенклатура_Key/Количество). Поле «корреспонденция»
 # (Корреспонденция_Key) — это счёт из плана счетов ChartOfAccounts_Управленческий
 # (напр. «94 — Недостачи и потери от порчи ценностей»), а НЕ отдельный
-# справочник причин. WriteOffReason.external_id_1c нужно проставить на GUID
-# соответствующего счёта — см. sync_correspondence_accounts_from_1c ниже.
+# справочник причин — WriteOffReason.external_id_1c хранит GUID нужного счёта
+# (см. миграцию в database.py — сопоставление причин со счетами).
 _WRITEOFF_DOC = "Document_СписаниеЗапасов"
 
 
@@ -1690,6 +1750,9 @@ def push_writeoff(writeoff, db: Session) -> str | None:
     """
     Создаёт Document_СписаниеЗапасов в 1С и сразу проводит его (Posted: true
     в том же запросе) — списание в TMS всегда мгновенное, черновика не бывает.
+    Единица измерения берётся из свойств самого товара (Product.unit_id_1c,
+    проставляется при sync_products_from_1c), а не захардкожена — раньше поле
+    вообще не передавалось, и 1С не могла подставить его автоматически.
     """
     s = _get_settings(db)
     if not s or not s.onec_enabled:
@@ -1700,11 +1763,15 @@ def push_writeoff(writeoff, db: Session) -> str | None:
         prod = ln.product
         if not prod or not prod.external_id_1c:
             continue
-        tovary.append({
+        line = {
             "LineNumber": str(i),
             "Номенклатура_Key": prod.external_id_1c,
             "Количество": ln.quantity,
-        })
+        }
+        if prod.unit_id_1c:
+            line["ЕдиницаИзмерения"] = prod.unit_id_1c
+            line["ЕдиницаИзмерения_Type"] = _UNIT_TYPE
+        tovary.append(line)
     if not tovary:
         logger.info("push_writeoff %s: нет позиций, привязанных к 1С — пропуск", writeoff.id)
         return None
