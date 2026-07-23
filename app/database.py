@@ -429,6 +429,19 @@ def _migrate_db():
     # Договоры с заполненной отсрочкой считаем договорами с отсрочкой платежа
     cur.execute("UPDATE contracts SET payment_type='deferred' WHERE payment_days IS NOT NULL AND payment_days > 0 AND (payment_type IS NULL OR payment_type='prepay')")
 
+    # Причины списания → корреспондирующий счёт 1С:УНФ (ChartOfAccounts_Управленческий).
+    # GUID'ы взяты из реальной базы (сверено через $metadata + выгрузку плана счетов):
+    # 94 «Недостачи и потери от порчи ценностей», 91.02 «Прочие расходы».
+    # Обновляем только пока не проставлено вручную (external_id_1c IS NULL).
+    cur.execute(
+        "UPDATE writeoff_reasons SET external_id_1c='9ff0458b-3b08-11f1-a504-8aba90adaa03' "
+        "WHERE external_id_1c IS NULL AND name IN ('Порча', 'Брак', 'Недостача')"
+    )
+    cur.execute(
+        "UPDATE writeoff_reasons SET external_id_1c='9ff04589-3b08-11f1-a504-8aba90adaa03' "
+        "WHERE external_id_1c IS NULL AND name IN ('Собственное потребление', 'Прочее')"
+    )
+
     # Помечаем admin как требующего смены пароля, если пароль ещё не менялся.
     # Проверяем по bcrypt-хэшу: если хэш совпадает с «admin» — пароль дефолтный.
     row = cur.execute("SELECT password_hash FROM users WHERE username='admin' LIMIT 1").fetchone()
