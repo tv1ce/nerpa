@@ -1,4 +1,7 @@
-{% extends "base_warehouse.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
+{% extends _base %}
 
 {% block title %}Перемещение{% endblock %}
 {% block page_title %}Складское перемещение{% endblock %}
@@ -11,18 +14,26 @@
 </form>
 {% endblock %}
 
+{% block topbar_actions %}
+<form method="post" action="/warehouse/transfers/sync">
+  <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-clockwise me-1"></i>Обновить из 1С</button>
+</form>
+{% endblock %}
+
 {% block content %}
+{% if _role == 'warehouse' and _wview != 'desktop' %}
+{# ═══════════════════════════════════ МОБИЛЬНЫЙ ИНТЕРФЕЙС ═══════════════════════════════════ #}
 <div class="wm-section-title">
   <span>
     <i class="bi bi-arrow-left-right me-1" style="color:var(--wm-brand)"></i>
     Ждут перемещения
-    {% if transfers %}<span style="background:#EF4444;color:#fff;border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;margin-left:6px">{{ transfers|length }}</span>{% endif %}
+    {% if transfers %}<span class="wm-count-badge">{{ transfers|length }}</span>{% endif %}
   </span>
 </div>
 
 {% if transfers %}
 {% for t in transfers %}
-<a href="/warehouse/transfers/{{ t.id }}" class="wm-queue-card prepay" style="display:block;text-decoration:none;color:inherit">
+<a href="/warehouse/transfers/{{ t.id }}" class="wm-queue-card wm-card-link prepay">
   <div class="wm-queue-card-head">
     <div>
       <div class="wm-queue-num">Перемещение № {{ t.id }}</div>
@@ -33,7 +44,7 @@
       </div>
     </div>
     <div style="text-align:right">
-      <div style="font-size:.78rem;color:var(--wm-muted);font-weight:600">{{ t.planned_at.strftime('%d.%m.%Y %H:%M') if t.planned_at else '—' }}</div>
+      <div class="wm-text-sm wm-text-muted wm-fw-bold">{{ t.planned_at.strftime('%d.%m.%Y %H:%M') if t.planned_at else '—' }}</div>
     </div>
   </div>
   <div class="wm-queue-meta">
@@ -41,14 +52,55 @@
   </div>
 </a>
 {% endfor %}
-
 {% else %}
-<div class="wm-card" style="margin-bottom:14px">
+<div class="wm-card">
   <div class="wm-empty">
     <i class="bi bi-check2-all" style="color:var(--wm-success);opacity:1"></i>
     <p style="font-weight:700;color:var(--wm-success)">Нет перемещений</p>
     <p style="font-size:.8rem;color:var(--wm-muted);margin-top:4px">Задачи из 1С появятся здесь автоматически</p>
   </div>
+</div>
+{% endif %}
+
+{% else %}
+{# ═══════════════════════════════════ ДЕСКТОП-ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex align-items-center">
+    <span class="fw-semibold"><i class="bi bi-arrow-left-right me-1 text-primary"></i>Ждут перемещения</span>
+    {% if transfers %}<span class="badge bg-primary ms-2">{{ transfers|length }}</span>{% endif %}
+  </div>
+  {% if not transfers %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-check2-all fs-2 d-block mb-2 text-success"></i>Нет перемещений
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Перемещение</th>
+          <th>Откуда</th>
+          <th>Куда</th>
+          <th>Время</th>
+          <th>Позиций</th>
+          <th class="pe-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in transfers %}
+        <tr>
+          <td class="ps-4"><a href="/warehouse/transfers/{{ t.id }}" class="fw-semibold text-decoration-none">№ {{ t.id }}</a></td>
+          <td>{{ t.from_warehouse.name if t.from_warehouse else '—' }}</td>
+          <td>{{ t.to_warehouse.name if t.to_warehouse else '—' }}</td>
+          <td>{{ t.planned_at.strftime('%d.%m.%Y %H:%M') if t.planned_at else '—' }}</td>
+          <td>{{ t.lines | length }}</td>
+          <td class="pe-4 text-end"><a href="/warehouse/transfers/{{ t.id }}" class="btn btn-sm btn-outline-primary">Открыть</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}

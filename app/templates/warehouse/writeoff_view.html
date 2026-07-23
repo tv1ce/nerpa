@@ -1,21 +1,30 @@
-{% extends "base_warehouse.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
+{% extends _base %}
 
 {% block title %}Списание № {{ writeoff.id }}{% endblock %}
 {% block page_title %}Списание № {{ writeoff.id }}{% endblock %}
 
+{% block topbar_actions %}
+<a href="/warehouse/writeoffs/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К списку</a>
+{% endblock %}
+
 {% block content %}
-<div class="wm-card" style="margin-bottom:12px;padding:14px">
-  <div style="font-weight:700;margin-bottom:4px">{{ writeoff.reason.name if writeoff.reason else '—' }}</div>
-  <div style="font-size:.82rem;color:var(--wm-muted)">
-    {{ writeoff.created_at.strftime('%d.%m.%Y %H:%M') if writeoff.created_at else '—' }}
-    {% if writeoff.warehouse %} · Склад: {{ writeoff.warehouse.name }}{% endif %}
+{% if _role == 'warehouse' and _wview != 'desktop' %}
+{# ═══════════════════════════════════ МОБИЛЬНЫЙ ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="wm-detail-card">
+  <div class="wm-detail-title"><i class="bi bi-trash" style="color:var(--wm-danger)"></i>{{ writeoff.reason.name if writeoff.reason else '—' }}</div>
+  <div class="wm-detail-meta">
+    <i class="bi bi-clock"></i>{{ writeoff.created_at.strftime('%d.%m.%Y %H:%M') if writeoff.created_at else '—' }}
+    {% if writeoff.warehouse %}<span class="sep">·</span><i class="bi bi-building"></i>{{ writeoff.warehouse.name }}{% endif %}
   </div>
-  {% if writeoff.notes %}<div style="font-size:.82rem;color:var(--wm-muted);margin-top:4px">{{ writeoff.notes }}</div>{% endif %}
-  <div style="font-size:.82rem;margin-top:8px">
+  {% if writeoff.notes %}<div class="wm-detail-note">{{ writeoff.notes }}</div>{% endif %}
+  <div style="margin-top:8px">
     {% if writeoff.external_id_1c %}
-    <span style="color:var(--wm-success);font-weight:600"><i class="bi bi-check-circle-fill"></i> Проведено в 1С</span>
+    <span class="wm-status-tag success"><i class="bi bi-check-circle-fill"></i>Проведено в 1С</span>
     {% else %}
-    <span style="color:var(--wm-muted)"><i class="bi bi-dash-circle"></i> Не отправлено в 1С</span>
+    <span class="wm-text-sm wm-text-muted"><i class="bi bi-dash-circle"></i> Не отправлено в 1С</span>
     {% endif %}
   </div>
 </div>
@@ -34,4 +43,45 @@
   </div>
   {% endfor %}
 </div>
+
+{% else %}
+{# ═══════════════════════════════════ ДЕСКТОП-ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
+        <span class="fw-semibold"><i class="bi bi-list-ul me-1 text-danger"></i>Номенклатура</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm tms-table mb-0">
+          <thead><tr><th class="ps-4">Товар</th><th class="pe-4 text-end">Количество</th></tr></thead>
+          <tbody>
+            {% for ln in writeoff.lines %}
+            <tr>
+              <td class="ps-4">{{ ln.product.name if ln.product else '—' }}</td>
+              <td class="pe-4 text-end fw-semibold">{{ ln.quantity | int if ln.quantity == ln.quantity | int else ln.quantity }} {{ ln.product.unit if ln.product else '' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm p-3">
+      <div class="fw-semibold mb-2"><i class="bi bi-trash me-1 text-danger"></i>{{ writeoff.reason.name if writeoff.reason else '—' }}</div>
+      <div class="text-muted small mb-1"><i class="bi bi-clock me-1"></i>{{ writeoff.created_at.strftime('%d.%m.%Y %H:%M') if writeoff.created_at else '—' }}</div>
+      {% if writeoff.warehouse %}<div class="text-muted small mb-1"><i class="bi bi-building me-1"></i>{{ writeoff.warehouse.name }}</div>{% endif %}
+      {% if writeoff.notes %}<div class="text-muted small mt-2 pt-2 border-top">{{ writeoff.notes }}</div>{% endif %}
+      <div class="mt-2">
+        {% if writeoff.external_id_1c %}
+        <span class="badge bg-success"><i class="bi bi-check-circle-fill me-1"></i>Проведено в 1С</span>
+        {% else %}
+        <span class="badge bg-secondary"><i class="bi bi-dash-circle me-1"></i>Не отправлено в 1С</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

@@ -633,6 +633,174 @@ body {
   padding: .35em .85em;
 }
 
+/* ── Основная кнопка-ссылка бренд-цвета (напр. «Создать списание») ───────── */
+.wm-btn-primary-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 52px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: var(--wm-brand);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: background .15s, transform .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.wm-btn-primary-block:active { background: #1D4ED8; transform: scale(.98); color: #fff; }
+
+/* ── Count badge (число в заголовке секции — «Ждут приёмки 3») ───────────── */
+.wm-count-badge {
+  background: var(--wm-danger);
+  color: #fff;
+  border-radius: 99px;
+  padding: 1px 8px;
+  font-size: .7rem;
+  font-weight: 800;
+  margin-left: 6px;
+  display: inline-block;
+  line-height: 1.5;
+}
+
+/* ── Status tag (короткая цветная пометка внутри карточки, напр. «Расхождение») ── */
+.wm-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 6px;
+  padding: 1px 7px;
+  font-size: .68rem;
+  font-weight: 700;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.wm-status-tag.warn    { background: var(--wm-warning); color: #fff; }
+.wm-status-tag.danger  { background: var(--wm-danger);  color: #fff; }
+.wm-status-tag.success { background: var(--wm-success); color: #fff; }
+
+/* ── Detail card (шапка карточки-документа на странице приёмки/перемещения/списания) ── */
+.wm-detail-card {
+  background: var(--wm-surface);
+  border-radius: var(--wm-r);
+  box-shadow: 0 1px 3px rgba(15,23,42,.07), 0 1px 6px rgba(15,23,42,.04);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.wm-detail-title {
+  font-weight: 700;
+  font-size: 1.02rem;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wm-detail-meta {
+  font-size: .82rem;
+  color: var(--wm-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.wm-detail-meta .sep { opacity: .5; }
+.wm-detail-note {
+  font-size: .82rem;
+  color: var(--wm-muted);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #F1F5F9;
+}
+
+/* ── Qty-строка (ввод фактического количества на приёмке/списании) ───────── */
+.wm-qty-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #F1F5F9;
+}
+.wm-qty-row:last-child { border-bottom: none; }
+.wm-qty-row-info { flex: 1; min-width: 0; }
+.wm-qty-row-name {
+  font-weight: 600;
+  font-size: .9rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wm-qty-row-hint { font-size: .74rem; color: var(--wm-muted); margin-top: 1px; }
+.wm-qty-input {
+  width: 88px;
+  height: 44px;
+  text-align: right;
+  border: 1.5px solid var(--wm-border);
+  border-radius: 10px;
+  padding: 0 12px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-family: inherit;
+  color: var(--wm-text);
+  background: var(--wm-surface);
+  outline: none;
+  transition: border-color .15s, background .15s;
+  flex-shrink: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.wm-qty-input:focus { border-color: var(--wm-brand); background: #F8FAFF; }
+.wm-qty-input.mismatch { border-color: var(--wm-warning); background: #FFFBEB; color: var(--wm-warning); }
+.wm-qty-remove {
+  border: none;
+  background: none;
+  color: var(--wm-danger);
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 8px;
+  transition: background .12s;
+}
+.wm-qty-remove:active { background: #FEF2F2; }
+
+/* ── Outline-кнопка (вторичное/предупреждающее действие рядом с основной) ── */
+.wm-btn-outline {
+  width: 100%;
+  height: 52px;
+  border-radius: 12px;
+  background: var(--wm-surface);
+  font-size: .96rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: background .15s, transform .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.wm-btn-outline:active { transform: scale(.97); }
+.wm-btn-outline.warn   { border: 1.5px solid var(--wm-warning); color: var(--wm-warning); }
+.wm-btn-outline.warn:active   { background: #FFFBEB; }
+.wm-btn-outline.danger { border: 1.5px solid var(--wm-danger);  color: var(--wm-danger); }
+.wm-btn-outline.danger:active { background: #FEF2F2; }
+.wm-btn-outline.dashed {
+  border: 1.5px dashed var(--wm-border);
+  color: var(--wm-brand);
+}
+.wm-btn-outline.dashed:active { background: #F8FAFF; border-color: var(--wm-brand); }
+
+/* ── Утилита: карточка-переход (весь список кликабелен целиком) ─────────── */
+.wm-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
 /* ── Utilities ────────────────────────────────────────────────────────────── */
 .wm-divider {
   height: 1px;

@@ -1,13 +1,24 @@
-{% extends "base_warehouse.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
+{% extends _base %}
 
 {% block title %}Новое списание{% endblock %}
 {% block page_title %}Новое списание{% endblock %}
 
+{% block topbar_actions %}
+<a href="/warehouse/writeoffs/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К списку</a>
+{% endblock %}
+
 {% block content %}
 {% if error %}
-<div class="wm-alert wm-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i><span>{{ error }}</span></div>
+<div class="{{ 'wm-alert wm-alert-warn' if _role == 'warehouse' and _wview != 'desktop' else 'alert alert-warning d-flex align-items-center gap-2' }}">
+  <i class="bi bi-exclamation-triangle-fill"></i><span>{{ error }}</span>
+</div>
 {% endif %}
 
+{% if _role == 'warehouse' and _wview != 'desktop' %}
+{# ═══════════════════════════════════ МОБИЛЬНЫЙ ИНТЕРФЕЙС ═══════════════════════════════════ #}
 <form method="post" action="/warehouse/writeoffs/new" id="writeoffForm">
   <div class="wm-form-group">
     <label class="wm-form-label">Склад</label>
@@ -30,8 +41,7 @@
   <div class="wm-section-title" style="margin-top:8px"><span>Номенклатура</span></div>
   <div id="woLines" class="wm-card" style="margin-bottom:10px"></div>
 
-  <button type="button" onclick="openWoPicker()"
-          style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px;margin-bottom:14px;border:1.5px dashed var(--wm-border);border-radius:10px;color:var(--wm-brand);background:#fff;font-weight:700">
+  <button type="button" onclick="openWoPicker()" class="wm-btn-outline dashed" style="margin-bottom:14px">
     <i class="bi bi-plus-lg"></i> Добавить товар
   </button>
 
@@ -43,49 +53,113 @@
   </div>
 
   <input type="hidden" name="products_json" id="productsJson" value="[]">
-  <button type="submit" class="wm-btn-assembled" style="background:#DC2626"
+  <button type="submit" class="wm-btn-assembled" style="background:var(--wm-danger)"
           onclick="return _woValidate()">
     <i class="bi bi-trash"></i> Создать списание
   </button>
 </form>
+
+{% else %}
+{# ═══════════════════════════════════ ДЕСКТОП-ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="row g-3 justify-content-center">
+  <div class="col-lg-7">
+    <form method="post" action="/warehouse/writeoffs/new" id="writeoffForm" class="card border-0 shadow-sm p-4">
+      <div class="row g-3 mb-2">
+        <div class="col-md-6">
+          <label class="form-label">Склад</label>
+          <select name="warehouse_id" class="form-select">
+            {% for w in warehouses %}
+            <option value="{{ w.id }}" {% if w.id == default_warehouse_id %}selected{% endif %}>{{ w.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Причина / корреспонденция</label>
+          <select name="reason_id" class="form-select">
+            {% for r in reasons %}
+            <option value="{{ r.id }}">{{ r.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <label class="form-label mt-2">Номенклатура</label>
+      <div class="table-responsive border rounded mb-2" id="woLines"></div>
+      <button type="button" class="btn btn-outline-secondary btn-sm mb-3" onclick="openWoPicker()" style="width:fit-content">
+        <i class="bi bi-plus-lg me-1"></i>Добавить товар
+      </button>
+
+      <div class="mb-3">
+        <label class="form-label">Примечание</label>
+        <textarea name="notes" class="form-control" rows="2" placeholder="Необязательно"></textarea>
+      </div>
+
+      <input type="hidden" name="products_json" id="productsJson" value="[]">
+      <button type="submit" class="btn btn-danger" onclick="return _woValidate()">
+        <i class="bi bi-trash me-1"></i>Создать списание
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 var _woLines = [];
-window._mpProducts = [
+var _woDesktop = {{ 'true' if not (_role == 'warehouse' and _wview != 'desktop') else 'false' }};
+var _wProducts = [
   {% for p in products %}
   { id: {{ p.id }}, name: {{ p.name|tojson }}, article: {{ (p.article or '')|tojson }},
     unit: {{ p.unit|tojson }}, category: {{ (p.category or '')|tojson }} },
   {% endfor %}
 ];
-window._mpBalances = {};
+
+function _woEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function _woRemove(i) { _woLines.splice(i, 1); _woRender(); }
 
 function _woRender() {
   var box = document.getElementById('woLines');
   if (!_woLines.length) {
-    box.innerHTML = '<div class="wm-empty" style="padding:24px"><i class="bi bi-box-seam"></i><p style="font-size:.85rem;color:var(--wm-muted)">Позиции ещё не добавлены</p></div>';
+    box.innerHTML = _woDesktop
+      ? '<div class="text-center text-muted py-4"><i class="bi bi-box-seam fs-3 d-block mb-1"></i>Позиции ещё не добавлены</div>'
+      : '<div class="wm-empty" style="padding:24px"><i class="bi bi-box-seam"></i><p style="font-size:.85rem;color:var(--wm-muted)">Позиции ещё не добавлены</p></div>';
+    return;
+  }
+  if (_woDesktop) {
+    box.innerHTML = '<table class="table table-sm mb-0"><tbody>' + _woLines.map(function(l, i) {
+      return '<tr><td class="ps-3 align-middle">' + _woEsc(l.name) + '</td>' +
+        '<td style="width:110px"><input type="number" step="any" min="0.001" value="' + l.quantity + '" ' +
+        'class="form-control form-control-sm text-end" oninput="_woLines[' + i + '].quantity = parseFloat(this.value)||0"></td>' +
+        '<td style="width:40px" class="pe-3 text-end"><button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="_woRemove(' + i + ')"><i class="bi bi-x-circle"></i></button></td></tr>';
+    }).join('') + '</tbody></table>';
   } else {
     box.innerHTML = _woLines.map(function(l, i) {
-      return '<div class="wm-stock-item">' +
-        '<div class="wm-stock-info"><div class="wm-stock-name">' + _woEsc(l.name) + '</div></div>' +
-        '<input type="number" step="any" min="0.001" value="' + l.quantity + '" ' +
-        'oninput="_woLines[' + i + '].quantity = parseFloat(this.value)||0" ' +
-        'style="width:74px;text-align:right;border:1.5px solid var(--wm-border);border-radius:8px;padding:6px 8px;font-weight:700;margin-right:8px">' +
-        '<button type="button" onclick="_woRemove(' + i + ')" style="border:none;background:none;color:#DC2626;font-size:1.2rem;line-height:1;padding:4px"><i class="bi bi-x-circle"></i></button>' +
+      return '<div class="wm-qty-row">' +
+        '<div class="wm-qty-row-info"><div class="wm-qty-row-name">' + _woEsc(l.name) + '</div></div>' +
+        '<input type="number" step="any" min="0.001" value="' + l.quantity + '" class="wm-qty-input" ' +
+        'oninput="_woLines[' + i + '].quantity = parseFloat(this.value)||0">' +
+        '<button type="button" class="wm-qty-remove" onclick="_woRemove(' + i + ')"><i class="bi bi-x-circle"></i></button>' +
         '</div>';
     }).join('');
   }
 }
-function _woEsc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-function _woRemove(i) { _woLines.splice(i, 1); _woRender(); }
-function openWoPicker() {
-  _mp.open(function(p) {
-    var existing = _woLines.find(function(l){ return l.product_id === p.id; });
-    if (existing) { existing.quantity += 1; } else { _woLines.push({ product_id: p.id, name: p.name, unit: p.unit, quantity: 1 }); }
-    _woRender();
-  });
+
+function _woPick(p) {
+  var existing = _woLines.find(function(l){ return l.product_id === p.id; });
+  if (existing) { existing.quantity += 1; } else { _woLines.push({ product_id: p.id, name: p.name, unit: p.unit, quantity: 1 }); }
+  _woRender();
 }
+
+{% if _role == 'warehouse' and _wview != 'desktop' %}
+window._mpProducts = _wProducts;
+window._mpBalances = {};
+function openWoPicker() { _mp.open(_woPick); }
+{% else %}
+ProductPicker.init(_wProducts, {});
+function openWoPicker() { ProductPicker.open(_woPick); }
+{% endif %}
+
 function _woValidate() {
   if (!_woLines.length) { alert('Добавьте хотя бы один товар'); return false; }
   document.getElementById('productsJson').value = JSON.stringify(_woLines.map(function(l){

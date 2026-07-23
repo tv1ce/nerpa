@@ -1,43 +1,53 @@
-{% extends "base_warehouse.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
+{% extends _base %}
 
 {% block title %}Приход № {{ receipt.id }}{% endblock %}
 {% block page_title %}Приход № {{ receipt.id }}{% endblock %}
 
+{% block topbar_actions %}
+<a href="/warehouse/receiving/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К списку</a>
+{% endblock %}
+
 {% block content %}
 {% if error %}
-<div class="wm-alert wm-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i><span>{{ error }}</span></div>
+<div class="{{ 'wm-alert wm-alert-warn' if _role == 'warehouse' and _wview != 'desktop' else 'alert alert-warning d-flex align-items-center gap-2' }}">
+  <i class="bi bi-exclamation-triangle-fill"></i><span>{{ error }}</span>
+</div>
 {% endif %}
 
 {% if receipt.status == 'discrepancy' %}
-<div class="wm-alert wm-alert-warn">
+<div class="{{ 'wm-alert wm-alert-warn' if _role == 'warehouse' and _wview != 'desktop' else 'alert alert-warning d-flex align-items-center gap-2' }}">
   <i class="bi bi-exclamation-triangle-fill"></i>
   <span>Зафиксировано расхождение — документ не проведён в 1С. Проверьте количество и нажмите «Принять» ещё раз, когда цифры совпадут с накладной.</span>
 </div>
 {% endif %}
 
-<div class="wm-card" style="margin-bottom:12px;padding:14px">
-  <div style="font-weight:700;margin-bottom:4px">{{ receipt.supplier.name if receipt.supplier else 'Поставщик не указан' }}</div>
-  <div style="font-size:.82rem;color:var(--wm-muted)">
-    Дата прихода: {{ receipt.expected_date | date_fmt if receipt.expected_date else '—' }}
-    {% if receipt.warehouse %} · Склад: {{ receipt.warehouse.name }}{% endif %}
+{% if _role == 'warehouse' and _wview != 'desktop' %}
+{# ═══════════════════════════════════ МОБИЛЬНЫЙ ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="wm-detail-card">
+  <div class="wm-detail-title"><i class="bi bi-truck" style="color:var(--wm-brand)"></i>{{ receipt.supplier.name if receipt.supplier else 'Поставщик не указан' }}</div>
+  <div class="wm-detail-meta">
+    <i class="bi bi-calendar3"></i>{{ receipt.expected_date | date_fmt if receipt.expected_date else '—' }}
+    {% if receipt.warehouse %}<span class="sep">·</span><i class="bi bi-building"></i>{{ receipt.warehouse.name }}{% endif %}
   </div>
-  {% if receipt.notes %}<div style="font-size:.82rem;color:var(--wm-muted);margin-top:4px">{{ receipt.notes }}</div>{% endif %}
+  {% if receipt.notes %}<div class="wm-detail-note">{{ receipt.notes }}</div>{% endif %}
 </div>
 
 <form method="post" id="receiptForm">
   <div class="wm-section-title"><span>Номенклатура — введите фактическое количество</span></div>
   <div class="wm-card" style="margin-bottom:14px">
     {% for ln in receipt.lines %}
-    <div class="wm-stock-item">
-      <div class="wm-stock-info">
-        <div class="wm-stock-name">{{ ln.product.name if ln.product else '—' }}</div>
-        <div class="wm-stock-article">По накладной: {{ ln.expected_qty | int if ln.expected_qty == ln.expected_qty | int else ln.expected_qty }} {{ ln.product.unit if ln.product else '' }}</div>
+    <div class="wm-qty-row">
+      <div class="wm-qty-row-info">
+        <div class="wm-qty-row-name">{{ ln.product.name if ln.product else '—' }}</div>
+        <div class="wm-qty-row-hint">По накладной: {{ ln.expected_qty | int if ln.expected_qty == ln.expected_qty | int else ln.expected_qty }} {{ ln.product.unit if ln.product else '' }}</div>
       </div>
-      <div class="wm-stock-qty">
-        <input type="number" step="any" inputmode="decimal" name="qty_{{ ln.id }}"
-               value="{{ ln.actual_qty if ln.actual_qty is not none else ln.expected_qty }}"
-               style="width:84px;text-align:right;border:1.5px solid var(--wm-border);border-radius:8px;padding:6px 8px;font-size:1rem;font-weight:700">
-      </div>
+      <input type="number" step="any" inputmode="decimal" class="wm-qty-input" name="qty_{{ ln.id }}"
+             data-expected="{{ ln.expected_qty }}"
+             value="{{ ln.actual_qty if ln.actual_qty is not none else ln.expected_qty }}"
+             oninput="_rcCheck(this)">
     </div>
     {% endfor %}
   </div>
@@ -46,10 +56,80 @@
           onclick="return confirm('Подтвердите: фактическое количество совпадает с накладной, документ будет проведён в 1С?')">
     <i class="bi bi-check2-square"></i> Принять
   </button>
-  <button type="submit" formaction="/warehouse/receiving/{{ receipt.id }}/discrepancy"
-          style="width:100%;margin-top:10px;padding:12px;border:1.5px solid #F59E0B;border-radius:10px;color:#F59E0B;background:#fff;font-weight:700"
+  <div style="height:10px"></div>
+  <button type="submit" formaction="/warehouse/receiving/{{ receipt.id }}/discrepancy" class="wm-btn-outline warn"
           onclick="return confirm('Зафиксировать расхождение? Документ НЕ будет проведён в 1С до проверки.')">
     <i class="bi bi-exclamation-triangle"></i> Расхождение
   </button>
 </form>
+<script>
+function _rcCheck(el){
+  var exp = parseFloat(el.dataset.expected);
+  var val = parseFloat(el.value);
+  el.classList.toggle('mismatch', !isNaN(exp) && !isNaN(val) && Math.abs(exp - val) > 1e-9);
+}
+document.querySelectorAll('.wm-qty-input').forEach(_rcCheck);
+</script>
+
+{% else %}
+{# ═══════════════════════════════════ ДЕСКТОП-ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
+        <span class="fw-semibold"><i class="bi bi-box-arrow-in-down me-1 text-primary"></i>Номенклатура — фактическое количество</span>
+      </div>
+      <form method="post" id="receiptForm">
+        <div class="table-responsive">
+          <table class="table table-sm tms-table mb-0">
+            <thead>
+              <tr><th class="ps-4">Товар</th><th>По накладной</th><th class="pe-4" style="width:140px">Факт</th></tr>
+            </thead>
+            <tbody>
+              {% for ln in receipt.lines %}
+              <tr>
+                <td class="ps-4">{{ ln.product.name if ln.product else '—' }}</td>
+                <td class="text-muted">{{ ln.expected_qty | int if ln.expected_qty == ln.expected_qty | int else ln.expected_qty }} {{ ln.product.unit if ln.product else '' }}</td>
+                <td class="pe-4">
+                  <input type="number" step="any" class="form-control form-control-sm text-end" name="qty_{{ ln.id }}"
+                         data-expected="{{ ln.expected_qty }}"
+                         value="{{ ln.actual_qty if ln.actual_qty is not none else ln.expected_qty }}"
+                         oninput="_rcCheckD(this)">
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="p-3 d-flex gap-2 border-top">
+          <button type="submit" formaction="/warehouse/receiving/{{ receipt.id }}/confirm" class="btn btn-success"
+                  onclick="return confirm('Подтвердите: фактическое количество совпадает с накладной, документ будет проведён в 1С?')">
+            <i class="bi bi-check2-square me-1"></i>Принять
+          </button>
+          <button type="submit" formaction="/warehouse/receiving/{{ receipt.id }}/discrepancy" class="btn btn-outline-warning"
+                  onclick="return confirm('Зафиксировать расхождение? Документ НЕ будет проведён в 1С до проверки.')">
+            <i class="bi bi-exclamation-triangle me-1"></i>Расхождение
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm p-3">
+      <div class="fw-semibold mb-2"><i class="bi bi-truck me-1 text-primary"></i>{{ receipt.supplier.name if receipt.supplier else 'Поставщик не указан' }}</div>
+      <div class="text-muted small mb-1"><i class="bi bi-calendar3 me-1"></i>{{ receipt.expected_date | date_fmt if receipt.expected_date else '—' }}</div>
+      {% if receipt.warehouse %}<div class="text-muted small mb-1"><i class="bi bi-building me-1"></i>{{ receipt.warehouse.name }}</div>{% endif %}
+      {% if receipt.notes %}<div class="text-muted small mt-2 pt-2 border-top">{{ receipt.notes }}</div>{% endif %}
+    </div>
+  </div>
+</div>
+<script>
+function _rcCheckD(el){
+  var exp = parseFloat(el.dataset.expected);
+  var val = parseFloat(el.value);
+  el.classList.toggle('border-warning', !isNaN(exp) && !isNaN(val) && Math.abs(exp - val) > 1e-9);
+}
+document.querySelectorAll('input[data-expected]').forEach(_rcCheckD);
+</script>
+{% endif %}
 {% endblock %}

@@ -120,8 +120,20 @@
     {% endif %}
 
     <div class="nav-section">Склад</div>
-    <a href="/warehouse/" class="nav-link {% if '/warehouse' in request.url.path and 'journal' not in request.url.path and 'inventory' not in request.url.path %}active{% endif %}">
+    <a href="/warehouse/" class="nav-link {% if request.url.path == '/warehouse/' %}active{% endif %}">
       <i class="bi bi-boxes"></i> <span>Остатки</span>
+    </a>
+    <a href="/warehouse/receiving/" class="nav-link {% if '/warehouse/receiving' in request.url.path %}active{% endif %}">
+      <i class="bi bi-box-arrow-in-down"></i> <span>Поступление</span>
+    </a>
+    <a href="/warehouse/shipping/" class="nav-link {% if '/warehouse/shipping' in request.url.path %}active{% endif %}">
+      <i class="bi bi-truck"></i> <span>Отгрузка</span>
+    </a>
+    <a href="/warehouse/transfers/" class="nav-link {% if '/warehouse/transfers' in request.url.path %}active{% endif %}">
+      <i class="bi bi-arrow-left-right"></i> <span>Перемещение</span>
+    </a>
+    <a href="/warehouse/writeoffs/" class="nav-link {% if '/warehouse/writeoffs' in request.url.path %}active{% endif %}">
+      <i class="bi bi-dash-square"></i> <span>Списание</span>
     </a>
     <a href="/warehouse/journal" class="nav-link {% if '/warehouse/journal' in request.url.path %}active{% endif %}">
       <i class="bi bi-journal-text"></i> <span>Журнал движений</span>

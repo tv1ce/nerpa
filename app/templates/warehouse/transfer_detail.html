@@ -1,23 +1,33 @@
-{% extends "base_warehouse.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
+{% extends _base %}
 
 {% block title %}Перемещение № {{ transfer.id }}{% endblock %}
 {% block page_title %}Перемещение № {{ transfer.id }}{% endblock %}
 
+{% block topbar_actions %}
+<a href="/warehouse/transfers/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К списку</a>
+{% endblock %}
+
 {% block content %}
 {% if error %}
-<div class="wm-alert wm-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i><span>{{ error }}</span></div>
+<div class="{{ 'wm-alert wm-alert-warn' if _role == 'warehouse' and _wview != 'desktop' else 'alert alert-warning d-flex align-items-center gap-2' }}">
+  <i class="bi bi-exclamation-triangle-fill"></i><span>{{ error }}</span>
+</div>
 {% endif %}
 
-<div class="wm-card" style="margin-bottom:12px;padding:14px">
-  <div style="font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px">
-    <span>{{ transfer.from_warehouse.name if transfer.from_warehouse else '—' }}</span>
+{% if _role == 'warehouse' and _wview != 'desktop' %}
+{# ═══════════════════════════════════ МОБИЛЬНЫЙ ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="wm-detail-card">
+  <div class="wm-detail-title">
+    <i class="bi bi-arrow-left-right" style="color:var(--wm-brand)"></i>
+    {{ transfer.from_warehouse.name if transfer.from_warehouse else '—' }}
     <i class="bi bi-arrow-right" style="opacity:.5"></i>
-    <span>{{ transfer.to_warehouse.name if transfer.to_warehouse else '—' }}</span>
+    {{ transfer.to_warehouse.name if transfer.to_warehouse else '—' }}
   </div>
-  <div style="font-size:.82rem;color:var(--wm-muted)">
-    Время: {{ transfer.planned_at.strftime('%d.%m.%Y %H:%M') if transfer.planned_at else '—' }}
-  </div>
-  {% if transfer.notes %}<div style="font-size:.82rem;color:var(--wm-muted);margin-top:4px">{{ transfer.notes }}</div>{% endif %}
+  <div class="wm-detail-meta"><i class="bi bi-clock"></i>{{ transfer.planned_at.strftime('%d.%m.%Y %H:%M') if transfer.planned_at else '—' }}</div>
+  {% if transfer.notes %}<div class="wm-detail-note">{{ transfer.notes }}</div>{% endif %}
 </div>
 
 <div class="wm-section-title"><span>Номенклатура для перемещения</span></div>
@@ -41,4 +51,45 @@
     <i class="bi bi-arrow-left-right"></i> Провести перемещение
   </button>
 </form>
+
+{% else %}
+{# ═══════════════════════════════════ ДЕСКТОП-ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
+        <span class="fw-semibold"><i class="bi bi-list-ul me-1 text-primary"></i>Номенклатура для перемещения</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm tms-table mb-0">
+          <thead><tr><th class="ps-4">Товар</th><th class="pe-4 text-end">Количество</th></tr></thead>
+          <tbody>
+            {% for ln in transfer.lines %}
+            <tr>
+              <td class="ps-4">{{ ln.product.name if ln.product else '—' }}</td>
+              <td class="pe-4 text-end fw-semibold">{{ ln.quantity | int if ln.quantity == ln.quantity | int else ln.quantity }} {{ ln.product.unit if ln.product else '' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <form method="post" action="/warehouse/transfers/{{ transfer.id }}/confirm" class="p-3 border-top"
+            onsubmit="return confirm('Подтвердите: товар физически перемещён на другой склад?')">
+        <button type="submit" class="btn btn-success"><i class="bi bi-arrow-left-right me-1"></i>Провести перемещение</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm p-3">
+      <div class="fw-semibold mb-2 d-flex align-items-center gap-2">
+        {{ transfer.from_warehouse.name if transfer.from_warehouse else '—' }}
+        <i class="bi bi-arrow-right text-muted"></i>
+        {{ transfer.to_warehouse.name if transfer.to_warehouse else '—' }}
+      </div>
+      <div class="text-muted small mb-1"><i class="bi bi-clock me-1"></i>{{ transfer.planned_at.strftime('%d.%m.%Y %H:%M') if transfer.planned_at else '—' }}</div>
+      {% if transfer.notes %}<div class="text-muted small mt-2 pt-2 border-top">{{ transfer.notes }}</div>{% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

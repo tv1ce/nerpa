@@ -1,4 +1,7 @@
-{% extends "base_warehouse.html" %}
+{% set _role = request.session.get('user_role') %}
+{% set _wview = request.session.get("warehouse_view", "mobile") %}
+{% set _base = "base_warehouse.html" if (_role == "warehouse" and _wview != "desktop") else "base.html" %}
+{% extends _base %}
 
 {% block title %}Списание{% endblock %}
 {% block page_title %}Списание{% endblock %}
@@ -9,35 +12,82 @@
 </a>
 {% endblock %}
 
+{% block topbar_actions %}
+<a href="/warehouse/writeoffs/new" class="btn btn-sm btn-accent"><i class="bi bi-plus-lg me-1"></i>Создать списание</a>
+{% endblock %}
+
 {% block content %}
-<a href="/warehouse/writeoffs/new" style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;margin-bottom:14px;border-radius:12px;background:var(--wm-brand);color:#fff;font-weight:700;text-decoration:none">
+{% if _role == 'warehouse' and _wview != 'desktop' %}
+{# ═══════════════════════════════════ МОБИЛЬНЫЙ ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<a href="/warehouse/writeoffs/new" class="wm-btn-primary-block">
   <i class="bi bi-plus-lg"></i> Создать списание
 </a>
 
 <div class="wm-section-title"><span>История списаний</span></div>
 
 {% if writeoffs %}
-<div class="wm-card" style="margin-bottom:12px">
+<div class="wm-card">
   {% for w in writeoffs %}
-  <a href="/warehouse/writeoffs/{{ w.id }}" class="wm-journal-item" style="text-decoration:none;color:inherit">
+  <a href="/warehouse/writeoffs/{{ w.id }}" class="wm-journal-item wm-card-link">
     <div class="wm-journal-icon out"><i class="bi bi-trash"></i></div>
     <div class="wm-journal-body">
       <div class="wm-journal-product">{{ w.reason.name if w.reason else 'Списание' }} — {{ w.lines | length }} поз.</div>
       <div class="wm-journal-meta">
         {{ w.created_at.strftime('%d.%m.%Y %H:%M') if w.created_at else '—' }}
-        {% if w.warehouse %} · {{ w.warehouse.name }}{% endif %}
-        {% if w.external_id_1c %} · <i class="bi bi-check-circle"></i> в 1С{% endif %}
+        {% if w.warehouse %}<span> · {{ w.warehouse.name }}</span>{% endif %}
+        {% if w.external_id_1c %}<span> · <i class="bi bi-check-circle"></i> в 1С</span>{% endif %}
       </div>
     </div>
   </a>
   {% endfor %}
 </div>
 {% else %}
-<div class="wm-card" style="margin-bottom:14px">
+<div class="wm-card">
   <div class="wm-empty">
     <i class="bi bi-inbox"></i>
     <p style="font-weight:700">Списаний ещё не было</p>
   </div>
+</div>
+{% endif %}
+
+{% else %}
+{# ═══════════════════════════════════ ДЕСКТОП-ИНТЕРФЕЙС ═══════════════════════════════════ #}
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-0 pt-3 pb-2 px-4">
+    <span class="fw-semibold"><i class="bi bi-trash me-1 text-danger"></i>История списаний</span>
+  </div>
+  {% if not writeoffs %}
+  <div class="text-center py-5 text-muted">
+    <i class="bi bi-inbox fs-2 d-block mb-2"></i>Списаний ещё не было
+  </div>
+  {% else %}
+  <div class="table-responsive">
+    <table class="table table-sm tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-4">Причина</th>
+          <th>Склад</th>
+          <th>Позиций</th>
+          <th>Дата/время</th>
+          <th>1С</th>
+          <th class="pe-4"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in writeoffs %}
+        <tr>
+          <td class="ps-4">{{ w.reason.name if w.reason else 'Списание' }}</td>
+          <td>{{ w.warehouse.name if w.warehouse else '—' }}</td>
+          <td>{{ w.lines | length }}</td>
+          <td>{{ w.created_at.strftime('%d.%m.%Y %H:%M') if w.created_at else '—' }}</td>
+          <td>{% if w.external_id_1c %}<i class="bi bi-check-circle-fill text-success"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+          <td class="pe-4 text-end"><a href="/warehouse/writeoffs/{{ w.id }}" class="btn btn-sm btn-outline-primary">Открыть</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 </div>
 {% endif %}
 {% endblock %}
