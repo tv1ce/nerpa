@@ -850,10 +850,19 @@ async def create_vacancy(
 
 @router.post("/vacancies/{vacancy_id}/close")
 @login_required
-async def close_vacancy(request: Request, vacancy_id: int, db: Session = Depends(get_db)):
+async def close_vacancy(
+    request: Request, vacancy_id: int,
+    closed_at: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    """Закрывает вакансию (или правит дату уже закрытой) — дата вводится вручную,
+    пустое/некорректное значение падает на сегодня."""
     vac = db.query(HrVacancy).filter(HrVacancy.id == vacancy_id).first()
-    if vac and not vac.closed_at:
-        vac.closed_at = date.today()
+    if vac:
+        try:
+            vac.closed_at = date.fromisoformat(closed_at) if closed_at else date.today()
+        except ValueError:
+            vac.closed_at = date.today()
         db.commit()
     return RedirectResponse(url="/hr/", status_code=302)
 
