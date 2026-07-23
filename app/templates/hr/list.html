@@ -3,6 +3,9 @@
 {% block page_title %}HR-учёт{% endblock %}
 {% block topbar_actions %}
 <div class="d-flex align-items-center gap-2">
+  <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#sendAiReport">
+    <i class="bi bi-stars me-1"></i>ИИ-отчёт в Telegram
+  </button>
   <a href="/hr/surveys" class="btn btn-sm btn-outline-secondary"><i class="bi bi-send me-1"></i>Опросы</a>
   <a href="/hr/positions" class="btn btn-sm btn-outline-secondary"><i class="bi bi-diagram-3 me-1"></i>Должности</a>
   <span class="vr mx-1"></span>
@@ -19,6 +22,15 @@
 
 {% if saved %}
 <div class="alert alert-success py-2">Сохранено.</div>
+{% endif %}
+{% if report == 'ok' %}
+<div class="alert alert-success py-2">ИИ-отчёт отправлен в Telegram.</div>
+{% elif report == 'nochat' %}
+<div class="alert alert-warning py-2">Не задан chat_id для отчёта — укажите его в форме отправки.</div>
+{% elif report == 'notoken' %}
+<div class="alert alert-danger py-2">Токен Telegram-бота не настроен. Укажите его в Настройки → Telegram-бот.</div>
+{% elif report == 'error' %}
+<div class="alert alert-danger py-2">Не удалось отправить отчёт. Проверьте ключ OpenRouter и токен Telegram-бота.</div>
 {% endif %}
 
 <div class="row g-3">
@@ -191,6 +203,39 @@
   </div>
 </div>
 {% endfor %}
+
+
+<!-- Модалка: ИИ-отчёт HR в Telegram -->
+<div class="modal fade" id="sendAiReport" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/hr/report/telegram"
+            onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').innerHTML = 'Формирую и отправляю…';">
+        <input type="hidden" name="period" value="{{ period }}">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title"><i class="bi bi-stars me-1"></i>ИИ-отчёт HR — {{ period_label }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <p class="text-muted" style="font-size:.85rem">
+            ИИ соберёт сводный отчёт по всем сотрудникам за выбранный период
+            (личностный файл, достижения, eNPS, метрики, вакансии) и отправит его в Telegram.
+          </p>
+          <div class="mb-1">
+            <label class="form-label form-label-sm">Chat ID <span class="text-muted">(через запятую)</span></label>
+            <input type="text" name="chat_ids" class="form-control form-control-sm font-monospace"
+                   placeholder="-1001234567890" value="{{ default_chat_ids }}">
+            <div class="form-text" style="font-size:.72rem">Можно изменить — новое значение запомнится для следующих отчётов</div>
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-send me-1"></i>Отправить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <!-- Модалка: добавить вакансию -->
 <div class="modal fade" id="addVacancy" tabindex="-1">

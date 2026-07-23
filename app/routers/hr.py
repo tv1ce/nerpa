@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import secrets
 import time
 from collections import defaultdict
@@ -16,7 +17,7 @@ from app.database import get_db
 from app.auth import login_required
 from app.models import (
     HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
-    HrEmployeeInsight, Notification, User,
+    HrEmployeeInsight, Notification, User, CompanySettings,
     HR_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
 )
 
@@ -54,6 +55,32 @@ QUESTIONS = {
     "metrics": "Метрика сотрудника за период.",
     "gravity": "Гравитация и антигравитация — что притягивает и что отталкивает в работе.",
 }
+
+# Структурированные вопросы антигравитации (раздел "gravity"): помимо общего
+# свободного текста (text_1), по каждому вопросу собираются оценка 0-10 и
+# комментарий — хранятся JSON-списком в text_2 (см. _gravity_pairs).
+GRAVITY_QUESTIONS = [
+    ("ot_1", "Антигравитация «ОТ»",
+     "Когда вы последний раз слышали конкретную обратную связь о качестве именно вашей работы "
+     "(не о процессе, а о вкладе)?"),
+    ("ot_2", "Антигравитация «ОТ»",
+     "Оцените баланс: сколько вы вкладываете в компанию (время, нервы, идеи) против того, "
+     "что компания вкладывает в вас (обучение, бонусы, забота)?"),
+    ("ot_3", "Антигравитация «ОТ»",
+     "Если вы предлагаете идею, какой процент ваших предложений получает развёрнутый ответ "
+     "с аргументацией «почему нет», вместо тишины или формального «мы подумаем»?"),
+    ("ot_4", "Антигравитация «ОТ»",
+     "Оцените свою загрузку: есть ли у вас регулярные «часы простоя», когда вы ищете, "
+     "чем бы заняться, вместо того чтобы решать боевые задачи?"),
+    ("k_1", "Антигравитация «К»",
+     "Как часто за последние полгода вы получали предложения о работе от рекрутеров, которые "
+     "звучали для вас действительно заманчиво, и насколько вы были близки к тому, чтобы пойти "
+     "на собеседование?"),
+    ("k_2", "Антигравитация «К»",
+     "Вызывают ли у вас рабочие посты или истории коллег из других компаний (командировки, "
+     "бонусы, офисы) чувство упущенных возможностей или раздражение от того, как «скучно» "
+     "выглядит ваша жизнь на их фоне?"),
+]
 
 
 # ── Период ────────────────────────────────────────────────────────────────────
@@ -120,6 +147,41 @@ def _personal_qa(employee: HrEmployee, rec: HrRecord | None) -> list[dict]:
     return [{"q": q, "a": answers.get(q, "")} for q in _personal_questions(employee)]
 
 
+# ── Гравитация/антигравитация: структурированные вопросы (оценка + комментарий) ──
+
+def _gravity_pairs(rec: HrRecord | None) -> list[dict]:
+    """Сырые ответы на вопросы антигравитации из text_2: [{"key","score","comment"}]."""
+    if rec is None or not rec.text_2:
+        return []
+    try:
+        data = json.loads(rec.text_2)
+        return data if isinstance(data, list) else []
+    except (ValueError, TypeError):
+        return []
+
+
+def _gravity_answers_map(rec: HrRecord | None) -> dict[str, dict]:
+    """{"ot_1": {"score":..,"comment":..}, ...} — для предзаполнения формы."""
+    return {a["key"]: a for a in _gravity_pairs(rec) if isinstance(a, dict) and a.get("key")}
+
+
+def _gravity_qa_for_profile(rec: HrRecord | None) -> list[dict]:
+    """[{"q","a"}] с оценкой и комментарием — для истории в профайле сотрудника."""
+    lookup = {key: (group, q) for key, group, q in GRAVITY_QUESTIONS}
+    out = []
+    for ans in _gravity_pairs(rec):
+        key = ans.get("key")
+        if key not in lookup:
+            continue
+        group, qtext = lookup[key]
+        score, comment = ans.get("score"), (ans.get("comment") or "").strip()
+        if score is None and not comment:
+            continue
+        score_str = f"Оценка: {score}/10. " if score is not None else ""
+        out.append({"q": f"{group} — {qtext}", "a": f"{score_str}{comment}".strip()})
+    return out
+
+
 # ── Сохранение ответов (общее для HR-формы и публичного опроса) ──────────────
 
 def _score(raw) -> int | None:
@@ -179,7 +241,13 @@ def _save_from_form(db: Session, employee: HrEmployee, period_date: date, form,
         up("metrics", g("metrics_h1"), kind="h1")
         up("metrics", g("metrics_h2"), kind="h2")
     if "gravity" in allowed:
-        up("gravity", g("gravity_1"))
+        pairs = []
+        for key, _group, _q in GRAVITY_QUESTIONS:
+            score = _score(g(f"gravity_{key}_score"))
+            comment = (g(f"gravity_{key}_comment") or "").strip()
+            if score is not None or comment:
+                pairs.append({"key": key, "score": score, "comment": comment})
+        up("gravity", g("gravity_1"), json.dumps(pairs, ensure_ascii=False) if pairs else None)
 
 
 def _records_map(db: Session, employee_id: int, period_date: date) -> dict:
@@ -203,6 +271,7 @@ def _section_ctx() -> dict:
     return {
         "section_meta": SECTION_META, "questions": QUESTIONS, "all_sections": list(HR_SECTIONS),
         "period_kinds": list(HR_PERIOD_KINDS), "period_kind_labels": HR_PERIOD_KIND_LABELS,
+        "gravity_questions": GRAVITY_QUESTIONS,
     }
 
 
@@ -234,6 +303,8 @@ async def hr_home(request: Request, period: str = "", db: Session = Depends(get_
 
     positions = db.query(HrPosition).filter(HrPosition.is_active == True).order_by(HrPosition.title).all()
     vacancies = db.query(HrVacancy).order_by(HrVacancy.closed_at.is_not(None), HrVacancy.opened_at.desc()).all()
+    company = db.query(CompanySettings).first()
+    default_chat_ids = (company.tg_hr_report_chat_ids or company.tg_report_chat_ids or "") if company else ""
 
     return templates.TemplateResponse(request, "hr/list.html", {
         "employees": employees,
@@ -246,6 +317,8 @@ async def hr_home(request: Request, period: str = "", db: Session = Depends(get_
         "next_period": _period_str(_shift_period(period_date, 1)),
         "today_period": _period_str(date.today()),
         "saved": request.query_params.get("saved"),
+        "default_chat_ids": default_chat_ids,
+        "report": request.query_params.get("report"),
     })
 
 
@@ -320,6 +393,12 @@ def _profile_months(employee: HrEmployee, rows: list[HrRecord]) -> list[dict]:
                     rec = recs.get(("metrics", kind))
                     if rec and rec.text_1:
                         entries.append({"text": rec.text_1, "half": half})
+            elif code == "gravity":
+                rec = recs.get(("gravity", "month"))
+                if rec:
+                    if rec.text_1:
+                        entries.append({"q": "Общее", "a": rec.text_1})
+                    entries.extend(_gravity_qa_for_profile(rec))
             else:
                 rec = recs.get((code, "month")) or next(
                     (r for (s, _k), r in recs.items() if s == code), None)
@@ -364,6 +443,221 @@ AI_PROFILE_PROMPT = """\
 Пиши по-русски, по делу, без воды, без markdown-заголовков — обычные абзацы и списки
 с дефисами. Не выдумывай ничего, чего нет в ответах. Если данных мало (один месяц) —
 так и скажи и дай выводы по тому, что есть."""
+
+
+# ── Сводный ИИ-отчёт HR за период → Telegram ──────────────────────────────────
+# Числа (средний eNPS, даты вакансий) и достижения считаются/копируются кодом —
+# ИИ отвечает только за краткую сводку «Личностного файла» по каждому сотруднику,
+# чтобы модель не путала и не выдумывала цифры.
+
+AI_HR_SUMMARY_PROMPT = """\
+Ты — HR-аналитик компании. Тебе дан список сотрудников с их ответами за период:
+личностный профиль (вопрос-ответ) и текущие раздражители/проблемы в работе.
+
+Для КАЖДОГО сотрудника из списка напиши очень короткую (1 предложение, максимум два)
+сводку по-русски: если есть реальная проблема — опиши её кратко и по делу, без воды,
+не выдумывая ничего, чего нет в ответах. Если ответы пустые, нейтральные или без
+проблем — выведи ровно "без существенных проблем."
+
+Верни ТОЛЬКО JSON-массив объектов [{"id": <id сотрудника>, "summary": "..."}], без
+markdown-обёртки и пояснений — по одному объекту на каждого сотрудника из списка."""
+
+
+def _gather_ai_report_context(db: Session, period_date: date) -> dict:
+    """Собирает данные всех видимых в периоде сотрудников + вакансий — вход для
+    сборки ИИ-отчёта HR (см. _format_hr_report)."""
+    employees = [e for e in db.query(HrEmployee)
+                 .order_by(HrEmployee.is_active.desc(), HrEmployee.full_name).all()
+                 if e.visible_in_period(period_date)]
+    emp_data = []
+    for e in employees:
+        recs = _records_map(db, e.id, period_date)
+        enabled = set(e.enabled_sections)
+        personal_answers = _parse_personal_answers(recs.get("personal")) if "personal" in enabled else {}
+        complaints_rec = recs.get("complaints") if "complaints" in enabled else None
+        achievements_rec = recs.get("achievements")
+        enps_rec = recs.get("enps")
+        enps_mgr_rec = recs.get("enps_managers")
+        metrics_h1 = recs.get("metrics_h1")
+        metrics_h2 = recs.get("metrics_h2")
+        emp_data.append({
+            "id": e.id, "name": e.full_name, "position": e.position_title or "—",
+            "enabled": enabled,
+            "personal_answers": personal_answers,
+            "complaints": (complaints_rec.text_1 or "").strip() if complaints_rec else "",
+            "achievements": (achievements_rec.text_1 or "").strip() if achievements_rec else "",
+            "enps_score": enps_rec.score if enps_rec else None,
+            "enps_comment": (enps_rec.text_1 or "").strip() if enps_rec else "",
+            "enps_mgr_score": enps_mgr_rec.score if enps_mgr_rec else None,
+            "enps_mgr_comment": (enps_mgr_rec.text_1 or "").strip() if enps_mgr_rec else "",
+            "metrics": "\n".join(t.strip() for t in (
+                metrics_h1.text_1 if metrics_h1 else "",
+                metrics_h2.text_1 if metrics_h2 else "",
+            ) if t and t.strip()),
+        })
+    vacancies = db.query(HrVacancy).order_by(
+        HrVacancy.closed_at.is_not(None), HrVacancy.opened_at.desc()).all()
+    return {
+        "period_label": _period_label(period_date),
+        "employees": emp_data,
+        "vacancies": [{"title": v.title, "opened_at": v.opened_at, "closed_at": v.closed_at}
+                      for v in vacancies],
+    }
+
+
+async def _ai_personal_summaries(ctx: dict) -> dict[int, str]:
+    """Сводки «Личностного файла» по сотрудникам — один запрос к ИИ на все сразу."""
+    candidates = [e for e in ctx["employees"]
+                  if "personal" in e["enabled"] or "complaints" in e["enabled"]]
+    if not candidates:
+        return {}
+
+    lines = []
+    for e in candidates:
+        lines.append(f"### id={e['id']}: {e['name']} ({e['position']})")
+        for q, a in e["personal_answers"].items():
+            if a:
+                lines.append(f"Вопрос: {q}\nОтвет: {a}")
+        if e["complaints"]:
+            lines.append(f"Раздражители: {e['complaints']}")
+        lines.append("")
+
+    from app.services import openrouter_client
+    try:
+        result = await asyncio.to_thread(
+            openrouter_client.chat_json, AI_HR_SUMMARY_PROMPT, "\n".join(lines))
+    except Exception:
+        logger.exception("Не удалось получить сводки «Личностного файла» для ИИ-отчёта HR")
+        return {}
+
+    out: dict[int, str] = {}
+    if isinstance(result, list):
+        for item in result:
+            if not isinstance(item, dict):
+                continue
+            try:
+                out[int(item.get("id"))] = str(item.get("summary", "")).strip()
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def _format_hr_report(ctx: dict, summaries: dict[int, str]) -> str:
+    """Собирает итоговый текст отчёта (с **bold** для Telegram) из данных периода
+    и ИИ-сводок личностного файла."""
+    lines = [f"📋 **Отчёт HR — {ctx['period_label']}**", ""]
+
+    personal = [e for e in ctx["employees"] if "personal" in e["enabled"] or "complaints" in e["enabled"]]
+    if personal:
+        lines.append("👨 **Личностный файл**")
+        lines.append("")
+        for e in personal:
+            summary = summaries.get(e["id"]) or "без существенных проблем."
+            lines.append(f"**{e['name']}** — {summary}")
+            lines.append("")
+
+    achievers = [e for e in ctx["employees"] if "achievements" in e["enabled"]]
+    if achievers:
+        lines.append("🏅 **Достижения**")
+        lines.append("")
+        for e in achievers:
+            lines.append(f"{e['name']} - {e['position']}")
+            lines.append("")
+            for row in e["achievements"].splitlines():
+                row = row.strip()
+                if row:
+                    lines.append(row)
+            lines.append("")
+
+    def _enps_block(title: str, score_key: str, comment_key: str, section: str):
+        lines.append(f"📣 **{title}**")
+        scored = [e for e in ctx["employees"] if section in e["enabled"] and e[score_key] is not None]
+        if not scored:
+            lines.append("Данных нет")
+            lines.append("")
+            return
+        avg = sum(e[score_key] for e in scored) / len(scored)
+        lines.append(f"Средний балл: {avg:.1f}")
+        low = [e for e in scored if e[score_key] <= 6]
+        if low:
+            for e in low:
+                comment = f" — {e[comment_key]}" if e[comment_key] else ""
+                lines.append(f"⚠️ {e['name']}: {e[score_key]}/10{comment}")
+        else:
+            lines.append("Проблемных мест не выявлено ✅")
+        lines.append("")
+
+    _enps_block("eNPS (сотрудники)", "enps_score", "enps_comment", "enps")
+    _enps_block("eNPS (руководители)", "enps_mgr_score", "enps_mgr_comment", "enps_managers")
+
+    metrics_emps = [e for e in ctx["employees"] if "metrics" in e["enabled"]]
+    if metrics_emps:
+        lines.append("📈 **Метрики**")
+        lines.append("")
+        for e in metrics_emps:
+            lines.append(f"{e['name']} - {e['position']}")
+            if e["metrics"]:
+                lines.append(e["metrics"])
+            lines.append("")
+
+    if ctx["vacancies"]:
+        lines.append("📆 **Сроки закрытия вакансий**")
+        lines.append("")
+        for v in ctx["vacancies"]:
+            lines.append(v["title"])
+            lines.append("")
+            opened = v["opened_at"].strftime("%d.%m.%Y") if v["opened_at"] else "—"
+            lines.append(f"Открытие {opened}")
+            lines.append(f"Закрытие {v['closed_at'].strftime('%d.%m.%Y')}" if v["closed_at"] else "Закрытие.")
+            lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+@router.post("/report/telegram")
+@login_required
+async def send_ai_report(
+    request: Request,
+    period: str = Form(...),
+    chat_ids: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    """Формирует сводный ИИ-отчёт HR за период и отправляет его в Telegram.
+    chat_id можно менять прямо из формы — новое значение сохраняется в настройках."""
+    from app.routers.settings import _normalize_chat_ids
+    from app.services import telegram_send
+
+    period_date = _period_from_str(period)
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+
+    normalized = _normalize_chat_ids(chat_ids)
+    if normalized:
+        company.tg_hr_report_chat_ids = normalized
+    db.commit()
+
+    target_raw = company.tg_hr_report_chat_ids or company.tg_report_chat_ids or ""
+    ids = telegram_send.parse_chat_ids(target_raw)
+    if not ids:
+        return RedirectResponse(url=f"/hr/?period={period}&report=nochat", status_code=302)
+
+    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    if not bot_token:
+        return RedirectResponse(url=f"/hr/?period={period}&report=notoken", status_code=302)
+
+    try:
+        ctx = _gather_ai_report_context(db, period_date)
+        summaries = await _ai_personal_summaries(ctx)
+        text = _format_hr_report(ctx, summaries)
+        mdv2 = telegram_send.ai_text_to_mdv2(text)
+        await asyncio.to_thread(telegram_send.send_markdown, ids, mdv2, bot_token)
+    except Exception:
+        logger.exception("Не удалось отправить ИИ-отчёт HR в Telegram")
+        return RedirectResponse(url=f"/hr/?period={period}&report=error", status_code=302)
+
+    return RedirectResponse(url=f"/hr/?period={period}&report=ok", status_code=302)
 
 
 @router.get("/employees/{employee_id}/profile", response_class=HTMLResponse)
@@ -592,6 +886,7 @@ async def hr_entry_form(request: Request, employee_id: int, period: str = "",
         "records": records,
         "sections": employee.enabled_sections,
         "personal_qa": _personal_qa(employee, records.get("personal")),
+        "gravity_answers": _gravity_answers_map(records.get("gravity")),
         "period": _period_str(period_date),
         "period_label": _period_label(period_date),
         "prev_period": _period_str(_shift_period(period_date, -1)),
@@ -761,6 +1056,7 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
         "sections": sections,
         "records": records,
         "personal_qa": _personal_qa(tok.employee, records.get("personal")),
+        "gravity_answers": _gravity_answers_map(records.get("gravity")),
         "period_label": _period_label(survey.period),
         "closed": not survey.is_open,
         "submitted": tok.submitted_at is not None,

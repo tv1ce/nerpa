@@ -195,6 +195,7 @@ async def save_telegram(
     request: Request,
     tg_bot_token: str = Form(default=""),
     tg_report_chat_ids: str = Form(default=""),
+    tg_hr_report_chat_ids: str = Form(default=""),
     tg_callback_chat_ids: str = Form(default=""),
     tg_callback_enabled: str = Form(default=""),
     backup_enabled: str = Form(default=""),
@@ -208,6 +209,7 @@ async def save_telegram(
         db.add(company)
     company.tg_bot_token = tg_bot_token.strip() or None
     company.tg_report_chat_ids = _normalize_chat_ids(tg_report_chat_ids)
+    company.tg_hr_report_chat_ids = _normalize_chat_ids(tg_hr_report_chat_ids)
     company.tg_callback_chat_ids = _normalize_chat_ids(tg_callback_chat_ids)
     company.tg_callback_enabled = (tg_callback_enabled == "1")
     company.backup_enabled = (backup_enabled == "1")

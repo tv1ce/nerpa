@@ -51,5 +51,29 @@
   </div>
 
 {% elif code == 'gravity' %}
-  <textarea name="gravity_1" class="form-control" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
+  <label class="form-label form-label-sm text-muted">Что притягивает и держит в компании — общими словами</label>
+  <textarea name="gravity_1" class="form-control mb-3" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
+
+  {% set ns = namespace(group="") %}
+  {% for key, group, q in gravity_questions %}
+    {% if group != ns.group %}
+      {% set ns.group = group %}
+      <div class="fw-semibold {% if not loop.first %}mt-3{% endif %} mb-2" style="font-size:.88rem">{{ group }}</div>
+    {% endif %}
+    {% set ans = gravity_answers.get(key, {}) %}
+    <label class="form-label form-label-sm text-muted">{{ q }}</label>
+    <div class="row g-2 align-items-start mb-3">
+      <div class="col-auto">
+        <select name="gravity_{{ key }}_score" class="form-select form-select-sm" style="max-width:90px">
+          <option value="">—</option>
+          {% for i in range(0, 11) %}
+          <option value="{{ i }}" {% if ans.get('score') == i %}selected{% endif %}>{{ i }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col">
+        <textarea name="gravity_{{ key }}_comment" class="form-control form-control-sm" rows="2" placeholder="Комментарий">{{ ans.get('comment', '') }}</textarea>
+      </div>
+    </div>
+  {% endfor %}
 {% endif %}

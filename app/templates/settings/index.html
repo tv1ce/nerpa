@@ -809,6 +809,14 @@
           <div class="form-text" style="font-size:.72rem">Куда идут ежедневные/ежемесячные отчёты о выручке</div>
         </div>
 
+        <div class="mb-3">
+          <label class="form-label form-label-sm">Чат для ИИ-отчёта HR <span class="text-muted">(chat_id через запятую)</span></label>
+          <input type="text" name="tg_hr_report_chat_ids" class="form-control form-control-sm font-monospace"
+                 placeholder="-1001234567890"
+                 value="{{ company.tg_hr_report_chat_ids if company and company.tg_hr_report_chat_ids else '' }}">
+          <div class="form-text" style="font-size:.72rem">Куда идёт ИИ-отчёт HR (кнопка на странице «HR-учёт»). Пусто — в чат отчётов выше</div>
+        </div>
+
         <hr class="my-3">
 
         <div class="d-flex align-items-center justify-content-between mb-2">

@@ -340,6 +340,7 @@ def _migrate_db():
         # таблица logistics_costs создана до появления этих полей в модели.
         ("logistics_costs", "order_id",  "INTEGER REFERENCES orders(id)"),
         ("logistics_costs", "cost_type", "TEXT DEFAULT 'other'"),
+        ("company_settings", "tg_hr_report_chat_ids", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
