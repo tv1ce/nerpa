@@ -576,6 +576,26 @@ class BitrixPipeline(Base):
     created_at = Column(DateTime, server_default=func.now())
 
 
+class BitrixProductLink(Base):
+    """Привязка товарной позиции каталога Bitrix24 к номенклатуре TMS.
+
+    Название товара в Bitrix24 нередко не совпадает буква-в-букву с названием
+    в TMS/1С (лишние пробелы, другой порядок слов, ручная правка в CRM), из-за
+    чего автосопоставление по имени при приёме сделки (см. api_bitrix.py)
+    иногда не срабатывает и позиция не попадает в заказ. Как только конкретный
+    PRODUCT_ID Bitrix сопоставлен с товаром TMS (по коду/артикулу или мягкому
+    совпадению имени), связка запоминается здесь и в следующий раз матчится
+    мгновенно и однозначно — независимо от того, как называется товар в CRM."""
+    __tablename__ = "bitrix_product_links"
+    id = Column(Integer, primary_key=True)
+    bitrix_product_id = Column(String(50), unique=True, nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    bitrix_product_name = Column(String(200))  # имя в Bitrix на момент привязки — для истории/отладки
+    created_at = Column(DateTime, server_default=func.now())
+
+    product = relationship("Product")
+
+
 class MonthlyPlan(Base):
     """Фиксированный план продаж на конкретный месяц."""
     __tablename__ = "monthly_plans"

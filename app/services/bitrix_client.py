@@ -111,6 +111,12 @@ class BitrixClient:
     def get_deal_products(self, deal_id) -> list:
         return self.call("crm.deal.productrows.get", id=deal_id) or []
 
+    def get_product(self, product_id) -> dict:
+        """Карточка товара каталога Bitrix24 — читаем XML_ID (обычно код/GUID
+        номенклатуры из 1С, если каталог заведён через штатную выгрузку), чтобы
+        сопоставлять товарные позиции сделки с TMS не только по названию."""
+        return self.call("crm.product.get", id=product_id) or {}
+
     def deal_uf_codes(self) -> dict:
         """Карта {ключ TMS: код UF-поля сделки}, найденная по подписям полей.
 
