@@ -163,23 +163,10 @@ async def mark_assembled(request: Request, order_id: int, db: Session = Depends(
                    request.session.get("user_id"),
                    "Заказ собран кладовщиком",
                    field="status", old_value=old, new_value="assembled")
-        # Автосписание: создаём движение "out" по каждой позиции заказа
-        user_id = request.session.get("user_id")
-        for item in order.items:
-            # Проверяем что позиция привязана к товару (может быть подставка или услуга без product_id)
-            if not item.product_id:
-                logger.warning("Заказ %d: позиция без product_id пропущена при сборке", order_id)
-                continue
-            db.add(StockMovement(
-                product_id=item.product_id,
-                movement_type="out",
-                quantity=abs(item.quantity),
-                date=date.today(),
-                reason="Продажа",
-                order_id=order_id,
-                created_by_id=user_id,
-            ))
-            maybe_notify_low_stock(db, item.product_id)
+        # Автосписание убрано: реальный расход товара со склада проводит 1С сама
+        # при проведении УПД логистом. Раньше здесь ещё создавалось движение
+        # StockMovement(out) — это дублировало списание (товар уходил дважды:
+        # один раз в TMS по факту сборки, второй раз в 1С по факту УПД).
         db.commit()
     return RedirectResponse(url="/warehouse/", status_code=302)
 
