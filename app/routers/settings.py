@@ -201,6 +201,11 @@ async def save_telegram(
     backup_enabled: str = Form(default=""),
     backup_frequency: str = Form(default="weekly"),
     tg_backup_chat_id: str = Form(default=""),
+    tg_warehouse_enabled: str = Form(default=""),
+    tg_warehouse_chat_id: str = Form(default=""),
+    tg_warehouse_topic_receiving: str = Form(default=""),
+    tg_warehouse_topic_assembled: str = Form(default=""),
+    tg_warehouse_topic_shipped: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -215,8 +220,32 @@ async def save_telegram(
     company.backup_enabled = (backup_enabled == "1")
     company.backup_frequency = backup_frequency if backup_frequency in ("daily", "weekly", "monthly") else "weekly"
     company.tg_backup_chat_id = _normalize_chat_ids(tg_backup_chat_id) or None
+    company.tg_warehouse_enabled = (tg_warehouse_enabled == "1")
+    company.tg_warehouse_chat_id = _normalize_chat_ids(tg_warehouse_chat_id) or None
+    company.tg_warehouse_topic_receiving = tg_warehouse_topic_receiving.strip() or None
+    company.tg_warehouse_topic_assembled = tg_warehouse_topic_assembled.strip() or None
+    company.tg_warehouse_topic_shipped = tg_warehouse_topic_shipped.strip() or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
+
+
+@router.post("/telegram/discover-warehouse-topics")
+@role_required("admin")
+async def discover_warehouse_topics(request: Request, db: Session = Depends(get_db)):
+    """Диагностика: показывает последние сообщения бота в группах — чтобы найти
+    chat_id и message_thread_id нужных топиков. Попросите кладовщика/себя
+    отправить по одному сообщению в каждый топик группы, затем нажмите эту
+    кнопку — ниже появятся chat_id, thread_id и текст последних сообщений."""
+    from app.services.telegram_send import fetch_recent_topic_updates
+    company = db.query(CompanySettings).first()
+    token = (company.tg_bot_token or "").strip() if company else ""
+    if not token:
+        return JSONResponse({"ok": False, "error": "Сначала укажите и сохраните токен бота"}, status_code=400)
+    try:
+        updates = fetch_recent_topic_updates(token)
+        return JSONResponse({"ok": True, "updates": updates})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
 @router.post("/users/new")

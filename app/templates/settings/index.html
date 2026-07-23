@@ -838,6 +838,51 @@
         <hr class="my-3">
 
         <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label form-label-sm mb-0"><i class="bi bi-box-seam me-1"></i>Уведомления склада (топики супергруппы)</label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="tg_warehouse_enabled" value="1" id="tgWarehouseEnabled"
+                   {% if company and company.tg_warehouse_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="tgWarehouseEnabled" style="font-size:.82rem">Вкл</label>
+          </div>
+        </div>
+        <div class="mb-2">
+          <input type="text" name="tg_warehouse_chat_id" class="form-control form-control-sm font-monospace mb-2"
+                 placeholder="chat_id супергруппы, напр. -1001234567890"
+                 value="{{ company.tg_warehouse_chat_id if company and company.tg_warehouse_chat_id else '' }}">
+          <div class="row g-2">
+            <div class="col-4">
+              <input type="text" name="tg_warehouse_topic_receiving" class="form-control form-control-sm font-monospace"
+                     placeholder="thread_id"
+                     value="{{ company.tg_warehouse_topic_receiving if company and company.tg_warehouse_topic_receiving else '' }}">
+              <div class="form-text" style="font-size:.68rem">«Поступления сырья»</div>
+            </div>
+            <div class="col-4">
+              <input type="text" name="tg_warehouse_topic_assembled" class="form-control form-control-sm font-monospace"
+                     placeholder="thread_id"
+                     value="{{ company.tg_warehouse_topic_assembled if company and company.tg_warehouse_topic_assembled else '' }}">
+              <div class="form-text" style="font-size:.68rem">«Собранные заказы»</div>
+            </div>
+            <div class="col-4">
+              <input type="text" name="tg_warehouse_topic_shipped" class="form-control form-control-sm font-monospace"
+                     placeholder="thread_id"
+                     value="{{ company.tg_warehouse_topic_shipped if company and company.tg_warehouse_topic_shipped else '' }}">
+              <div class="form-text" style="font-size:.68rem">«Отгрузки»</div>
+            </div>
+          </div>
+          <div class="form-text mt-1" style="font-size:.72rem">
+            Бот должен быть добавлен в супергруппу (админом, если топики закрыты). Не знаете chat_id/thread_id —
+            напишите по одному сообщению в каждый нужный топик и нажмите кнопку ниже.
+          </div>
+          <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="btnDiscoverTopics">
+            <i class="bi bi-search me-1"></i>Найти chat_id / thread_id по последним сообщениям
+          </button>
+          <div id="discoverTopicsResult" class="mt-2" style="font-size:.78rem"></div>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="d-flex align-items-center justify-content-between mb-2">
           <label class="form-label form-label-sm mb-0"><i class="bi bi-archive me-1"></i>Автобекап БД</label>
           <div class="form-check form-switch mb-0">
             <input class="form-check-input" type="checkbox" role="switch"
@@ -1315,6 +1360,40 @@ async function deleteBitrixPipeline(id) {
 if (document.getElementById('bitrixPipelinesList')) {
   loadBitrixPipelines();
   initBitrixPipelineForm();
+}
+
+var _btnDiscoverTopics = document.getElementById('btnDiscoverTopics');
+if (_btnDiscoverTopics) {
+  _btnDiscoverTopics.addEventListener('click', async function () {
+    var out = document.getElementById('discoverTopicsResult');
+    out.innerHTML = '<span class="text-muted">Проверяем последние сообщения бота…</span>';
+    try {
+      var r = await fetch('/settings/telegram/discover-warehouse-topics', { method: 'POST' });
+      var d = await r.json();
+      if (!d.ok) {
+        out.innerHTML = '<span class="text-danger">' + (d.error || 'Ошибка') + '</span>';
+        return;
+      }
+      if (!d.updates.length) {
+        out.innerHTML = '<span class="text-muted">Пока ничего не найдено — напишите сообщение в нужном топике группы и попробуйте снова (важно: бот должен получать сообщения — если Privacy Mode включён у @BotFather, отключите его, либо назначьте бота админом группы).</span>';
+        return;
+      }
+      var rows = d.updates.map(function (u) {
+        var topicName = u.topic_created_name ? ' — <strong>' + u.topic_created_name + '</strong>' : '';
+        return '<tr>' +
+          '<td class="font-monospace">' + u.chat_id + '</td>' +
+          '<td class="font-monospace">' + (u.thread_id || '—') + topicName + '</td>' +
+          '<td>' + (u.text || '') + '</td>' +
+          '</tr>';
+      }).join('');
+      out.innerHTML = '<div class="table-responsive"><table class="table table-sm mb-0">' +
+        '<thead><tr><th>chat_id</th><th>thread_id</th><th>Текст сообщения</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table></div>' +
+        '<div class="form-text mt-1" style="font-size:.72rem">Сопоставьте thread_id с топиком по тексту вашего сообщения и вставьте значения в поля выше.</div>';
+    } catch (e) {
+      out.innerHTML = '<span class="text-danger">' + e + '</span>';
+    }
+  });
 }
 </script>
 {% endblock %}

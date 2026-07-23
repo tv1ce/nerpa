@@ -25,8 +25,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.auth import login_required
-from app.models import Receipt, ReceiptLine, StockMovement, Notification
+from app.models import Receipt, ReceiptLine, StockMovement, Notification, User
 from app.services.onec_client import confirm_receipt, sync_receiving_tasks_from_1c
+from app.services.telegram_send import notify_warehouse_group
 from app.utils import log_action
 
 router = APIRouter(prefix="/warehouse/receiving", tags=["warehouse_receiving"])
@@ -140,6 +141,20 @@ async def confirm(request: Request, receipt_id: int, db: Session = Depends(get_d
     log_action(db, "receipt", receipt.id, "confirmed", user_id,
                f"Приёмка подтверждена, поставщик: {receipt.supplier.name if receipt.supplier else '—'}")
     db.commit()
+
+    user = db.query(User).filter(User.id == user_id).first()
+    items_text = "\n".join(
+        f"  • {ln.product.name if ln.product else '—'} — {ln.actual_qty:g} {ln.product.unit if ln.product else ''}"
+        for ln in receipt.lines if ln.product_id
+    )
+    notify_warehouse_group(
+        db, "receiving",
+        f"✅ Приход №{receipt.id} принят\n"
+        f"Поставщик: {receipt.supplier.name if receipt.supplier else '—'}\n"
+        f"Склад: {receipt.warehouse.name if receipt.warehouse else '—'}\n"
+        f"Кладовщик: {user.full_name if user else '—'}\n"
+        f"{items_text}"
+    )
     return RedirectResponse(url="/warehouse/receiving/", status_code=302)
 
 

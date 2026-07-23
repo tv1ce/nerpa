@@ -341,6 +341,12 @@ def _migrate_db():
         ("logistics_costs", "order_id",  "INTEGER REFERENCES orders(id)"),
         ("logistics_costs", "cost_type", "TEXT DEFAULT 'other'"),
         ("company_settings", "tg_hr_report_chat_ids", "TEXT"),
+        # Уведомления склада в Telegram-супергруппу с топиками
+        ("company_settings", "tg_warehouse_enabled",         "INTEGER DEFAULT 0"),
+        ("company_settings", "tg_warehouse_chat_id",         "TEXT"),
+        ("company_settings", "tg_warehouse_topic_receiving", "TEXT"),
+        ("company_settings", "tg_warehouse_topic_assembled", "TEXT"),
+        ("company_settings", "tg_warehouse_topic_shipped",   "TEXT"),
         # ── Кабинет кладовщика: склады, категории, приёмка/перемещение/списание ──
         ("products", "category_id", "INTEGER REFERENCES categories(id)"),
         ("products", "unit_id_1c", "TEXT"),

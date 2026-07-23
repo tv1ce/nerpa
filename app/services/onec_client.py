@@ -1437,13 +1437,16 @@ def sync_receiving_tasks_from_1c(db: Session) -> dict:
     Пулл непроведённых поступлений из 1С в Receipt/ReceiptLine — задача
     кладовщику на приёмку. Не создаёт движения и не проводит документ — это
     делает confirm_receipt после того, как кладовщик подтвердит факт приёмки.
-    Возвращает {"created": N, "updated": N, "errors": [...]}.
+    Также сверяет уже загруженные задачи: если документ в 1С удалили — задача
+    удаляется и в TMS; если его провели напрямую в 1С — задача помечается
+    подтверждённой (иначе зависала бы в очереди навсегда).
+    Возвращает {"created": N, "updated": N, "removed": N, "errors": [...]}.
     """
     from app.models import Receipt, ReceiptLine, Counterparty, Warehouse, Product
 
     s = _get_settings(db)
     if not s or not s.onec_enabled:
-        return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
+        return {"created": 0, "updated": 0, "removed": 0, "errors": ["Синхронизация отключена"]}
 
     errors: list[str] = []
     created = updated = 0
@@ -1465,15 +1468,35 @@ def sync_receiving_tasks_from_1c(db: Session) -> dict:
                 },
             )
         r.raise_for_status()
-        docs = [
-            d for d in r.json().get("value", [])
-            if not d.get("DeletionMark") and not d.get("Posted")
-        ]
+        all_docs = r.json().get("value", [])
+        docs = [d for d in all_docs if not d.get("DeletionMark") and not d.get("Posted")]
     except Exception as e:
         logger.error("sync_receiving_tasks_from_1c: %s", e)
-        return {"created": 0, "updated": 0, "errors": [str(e)]}
+        return {"created": 0, "updated": 0, "removed": 0, "errors": [str(e)]}
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    removed = 0
+
+    # Сверка уже загруженных задач: документ мог быть помечен на удаление в 1С
+    # (заявка отменена) или проведён напрямую в 1С, минуя кнопку «Принять» в TMS.
+    # Раньше такие задачи навсегда зависали в очереди — sync их просто не видел,
+    # т.к. фильтр выше исключает Posted/DeletionMark из docs, но никогда не
+    # реагирует на то, что уже существующая в TMS запись сменила состояние.
+    by_ref = {d.get("Ref_Key"): d for d in all_docs if d.get("Ref_Key")}
+    pending = db.query(Receipt).filter(
+        Receipt.status.in_(["pending", "discrepancy"]),
+        Receipt.external_id_1c.isnot(None),
+    ).all()
+    for pr in pending:
+        d = by_ref.get(pr.external_id_1c)
+        if d is None:
+            continue
+        if d.get("DeletionMark"):
+            db.delete(pr)
+            removed += 1
+        elif d.get("Posted"):
+            pr.status = "confirmed"
+            pr.confirmed_at = pr.confirmed_at or now
 
     for d in docs:
         ref_key = d.get("Ref_Key")
@@ -1545,13 +1568,13 @@ def sync_receiving_tasks_from_1c(db: Session) -> dict:
     except Exception as e:
         db.rollback()
         errors.append(f"commit: {e}")
-        created = updated = 0
+        created = updated = removed = 0
 
     logger.info(
-        "sync_receiving_tasks_from_1c: создано %d, обновлено %d, ошибок %d",
-        created, updated, len(errors),
+        "sync_receiving_tasks_from_1c: создано %d, обновлено %d, удалено %d, ошибок %d",
+        created, updated, removed, len(errors),
     )
-    return {"created": created, "updated": updated, "errors": errors}
+    return {"created": created, "updated": updated, "removed": removed, "errors": errors}
 
 
 def confirm_receipt(receipt, db: Session) -> dict:
@@ -1613,12 +1636,15 @@ def sync_transfer_tasks_from_1c(db: Session) -> dict:
     Пулл непроведённых перемещений из 1С в StockTransfer/StockTransferLine —
     задача кладовщику на перемещение товара между складами. Не создаёт движения
     и не проводит документ — это делает confirm_transfer.
+    Также сверяет уже загруженные задачи: если документ в 1С удалили — задача
+    удаляется и в TMS; если его провели напрямую в 1С — задача помечается done
+    (иначе зависала бы в очереди навсегда).
     """
     from app.models import StockTransfer, StockTransferLine, Warehouse, Product
 
     s = _get_settings(db)
     if not s or not s.onec_enabled:
-        return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
+        return {"created": 0, "updated": 0, "removed": 0, "errors": ["Синхронизация отключена"]}
 
     errors: list[str] = []
     created = updated = 0
@@ -1637,15 +1663,30 @@ def sync_transfer_tasks_from_1c(db: Session) -> dict:
                 },
             )
         r.raise_for_status()
-        docs = [
-            d for d in r.json().get("value", [])
-            if not d.get("DeletionMark") and not d.get("Posted")
-        ]
+        all_docs = r.json().get("value", [])
+        docs = [d for d in all_docs if not d.get("DeletionMark") and not d.get("Posted")]
     except Exception as e:
         logger.error("sync_transfer_tasks_from_1c: %s", e)
-        return {"created": 0, "updated": 0, "errors": [str(e)]}
+        return {"created": 0, "updated": 0, "removed": 0, "errors": [str(e)]}
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    removed = 0
+
+    by_ref = {d.get("Ref_Key"): d for d in all_docs if d.get("Ref_Key")}
+    pending = db.query(StockTransfer).filter(
+        StockTransfer.status == "pending",
+        StockTransfer.external_id_1c.isnot(None),
+    ).all()
+    for pt in pending:
+        d = by_ref.get(pt.external_id_1c)
+        if d is None:
+            continue
+        if d.get("DeletionMark"):
+            db.delete(pt)
+            removed += 1
+        elif d.get("Posted"):
+            pt.status = "done"
+            pt.confirmed_at = pt.confirmed_at or now
 
     for d in docs:
         ref_key = d.get("Ref_Key")
@@ -1712,13 +1753,13 @@ def sync_transfer_tasks_from_1c(db: Session) -> dict:
     except Exception as e:
         db.rollback()
         errors.append(f"commit: {e}")
-        created = updated = 0
+        created = updated = removed = 0
 
     logger.info(
-        "sync_transfer_tasks_from_1c: создано %d, обновлено %d, ошибок %d",
-        created, updated, len(errors),
+        "sync_transfer_tasks_from_1c: создано %d, обновлено %d, удалено %d, ошибок %d",
+        created, updated, removed, len(errors),
     )
-    return {"created": created, "updated": updated, "errors": errors}
+    return {"created": created, "updated": updated, "removed": removed, "errors": errors}
 
 
 def confirm_transfer(transfer, db: Session) -> dict:

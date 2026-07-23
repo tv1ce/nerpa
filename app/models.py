@@ -492,6 +492,13 @@ class CompanySettings(Base):
     tg_hr_report_chat_ids = Column(Text)        # chat_id для ИИ-отчёта HR, через запятую (пусто — как tg_report_chat_ids)
     tg_callback_chat_ids = Column(Text)         # chat_id для напоминаний о прозвонах (отдельно от отчётов)
     tg_callback_enabled = Column(Boolean, default=True)  # вкл/выкл авторассылку напоминаний о прозвонах
+    # ── Уведомления склада в Telegram-супергруппу с топиками ──
+    # («Склад и логистика» — топики «Поступления сырья» / «Отгрузки» / «Собранные заказы»)
+    tg_warehouse_enabled  = Column(Boolean, default=False)
+    tg_warehouse_chat_id  = Column(String(100))   # chat_id супергруппы (отрицательное число)
+    tg_warehouse_topic_receiving = Column(String(20))  # message_thread_id топика «Поступления сырья»
+    tg_warehouse_topic_assembled = Column(String(20))  # message_thread_id топика «Собранные заказы»
+    tg_warehouse_topic_shipped   = Column(String(20))  # message_thread_id топика «Отгрузки»
     # ── KPI-фильтр продукта (дашборд и отчёты) ──
     kpi_product_filter = Column(String(100), default="орешк")  # ilike-подстрока для фильтра KPI
     # ── Saby «Управление транспортом»: наименование груза по умолчанию для заявок/ЭТрН ──

@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Product, StockMovement, Order, StockAdjustment, StockAdjustmentLine, CompanySettings
+from app.models import Product, StockMovement, Order, StockAdjustment, StockAdjustmentLine, CompanySettings, User
 from app.utils import maybe_notify_low_stock, log_action
+from app.services.telegram_send import notify_warehouse_group
 
 # Статусы заказа, считающиеся «в работе» (не черновик и не завершён/отменён)
 ACTIVE_ORDER_STATUSES = ["confirmed", "paid", "assembled", "handed", "delivered"]
@@ -176,6 +177,20 @@ async def mark_assembled(request: Request, order_id: int, db: Session = Depends(
         # StockMovement(out) — это дублировало списание (товар уходил дважды:
         # один раз в TMS по факту сборки, второй раз в 1С по факту УПД).
         db.commit()
+
+        user = db.query(User).filter(User.id == request.session.get("user_id")).first()
+        items_text = "\n".join(
+            f"  • {i.product.name if i.product else '—'} — {i.quantity:g} {i.product.unit if i.product else ''}"
+            for i in order.items if i.product_id
+        )
+        cp = order.counterparty
+        notify_warehouse_group(
+            db, "assembled",
+            f"📦 Заказ №{order.number} собран\n"
+            f"Клиент: {(cp.trade_name or cp.name) if cp else '—'}\n"
+            f"Кладовщик: {user.full_name if user else '—'}\n"
+            f"{items_text}"
+        )
     return RedirectResponse(url="/warehouse/", status_code=302)
 
 

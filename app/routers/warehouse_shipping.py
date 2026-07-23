@@ -20,8 +20,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.auth import login_required
-from app.models import Order
+from app.models import Order, User
 from app.utils import log_action
+from app.services.telegram_send import notify_warehouse_group
 
 router = APIRouter(prefix="/warehouse/shipping", tags=["warehouse_shipping"])
 templates = Jinja2Templates(directory="app/templates")
@@ -60,4 +61,14 @@ async def mark_shipped(request: Request, order_id: int, db: Session = Depends(ge
                    "Заказ отгружен кладовщиком",
                    field="status", old_value=old_status, new_value="handed")
         db.commit()
+
+        user = db.query(User).filter(User.id == request.session.get("user_id")).first()
+        cp = order.counterparty
+        notify_warehouse_group(
+            db, "shipped",
+            f"🚚 Заказ №{order.number} передан поставщику\n"
+            f"Клиент: {(cp.trade_name or cp.name) if cp else '—'}\n"
+            f"Мест: {order.cargo_places if order.cargo_places else len(order.items)}\n"
+            f"Кладовщик: {user.full_name if user else '—'}"
+        )
     return RedirectResponse(url="/warehouse/shipping/", status_code=302)
