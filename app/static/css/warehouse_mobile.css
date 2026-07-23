@@ -164,6 +164,22 @@ body {
 .wm-tab-out.active { color: var(--wm-danger); }
 .wm-tab-out.active::after { background: var(--wm-danger); }
 
+/* 6 пунктов кабинета кладовщика — слова длиннее, чем в старом 5-пунктовом
+   таббаре («Поступление», «Перемещение»), поэтому текст мельче и в 2 строки. */
+.wm-tabbar-6 .wm-tab {
+  font-size: .58rem;
+  padding: 6px 2px;
+  letter-spacing: 0;
+}
+.wm-tabbar-6 .wm-tab span {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.05;
+}
+.wm-tabbar-6 .wm-tab i {
+  font-size: 1.2rem;
+}
+
 .wm-tab-badge {
   position: absolute;
   top: 5px;

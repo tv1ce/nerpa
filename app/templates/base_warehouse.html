@@ -29,6 +29,9 @@
   </div>
   <div class="wm-header-right">
     {% block header_actions %}{% endblock %}
+    <a href="/warehouse/" class="wm-icon-btn" title="Остатки и журнал (общий обзор склада)">
+      <i class="bi bi-speedometer2"></i>
+    </a>
     <form method="post" action="/warehouse/toggle-view" style="display:contents">
       <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
@@ -56,35 +59,49 @@
   {% block content %}{% endblock %}
 </main>
 
-<!-- ── Bottom tab bar ── -->
-<nav class="wm-tabbar">
-  <a href="/warehouse/" class="wm-tab {% if '/warehouse' in request.url.path and 'journal' not in request.url.path and 'new' not in request.url.path and 'orders' not in request.url.path %}active{% endif %}"
-     title="Главная">
-    <i class="bi bi-house-door"></i>
-    <span>Главная</span>
+<!-- ── Bottom tab bar: 6 контуров кабинета кладовщика ── -->
+<nav class="wm-tabbar wm-tabbar-6">
+  <a href="/warehouse/receiving" class="wm-tab {% if '/warehouse/receiving' in request.url.path %}active{% endif %}"
+     title="Поступление">
+    <i class="bi bi-box-arrow-in-down"></i>
+    <span>Поступление</span>
+    {% if receiving_queue_count and receiving_queue_count > 0 %}
+    <span class="wm-tab-badge">{{ receiving_queue_count }}</span>
+    {% endif %}
+  </a>
+  <a href="/warehouse/assembly" class="wm-tab {% if '/warehouse/assembly' in request.url.path or '/orders' in request.url.path %}active{% endif %}"
+     title="Сборка">
+    <i class="bi bi-basket"></i>
+    <span>Сборка</span>
     {% if assembly_queue_count and assembly_queue_count > 0 %}
     <span class="wm-tab-badge">{{ assembly_queue_count }}</span>
     {% endif %}
   </a>
-  <a href="/warehouse/new?mtype=in" class="wm-tab wm-tab-in {% if 'new' in request.url.path and request.query_params.get('mtype','in') == 'in' %}active{% endif %}"
-     title="Приход">
-    <i class="bi bi-plus-circle"></i>
-    <span>Приход</span>
+  <a href="/warehouse/shipping" class="wm-tab {% if '/warehouse/shipping' in request.url.path %}active{% endif %}"
+     title="Отгрузка">
+    <i class="bi bi-truck"></i>
+    <span>Отгрузка</span>
+    {% if shipping_queue_count and shipping_queue_count > 0 %}
+    <span class="wm-tab-badge">{{ shipping_queue_count }}</span>
+    {% endif %}
   </a>
-  <a href="/warehouse/new?mtype=out" class="wm-tab wm-tab-out {% if 'new' in request.url.path and request.query_params.get('mtype') == 'out' %}active{% endif %}"
-     title="Расход">
-    <i class="bi bi-dash-circle"></i>
-    <span>Расход</span>
+  <a href="/warehouse/transfers" class="wm-tab {% if '/warehouse/transfers' in request.url.path %}active{% endif %}"
+     title="Перемещение">
+    <i class="bi bi-arrow-left-right"></i>
+    <span>Перемещение</span>
+    {% if transfer_queue_count and transfer_queue_count > 0 %}
+    <span class="wm-tab-badge">{{ transfer_queue_count }}</span>
+    {% endif %}
   </a>
-  <a href="/warehouse/journal" class="wm-tab {% if 'journal' in request.url.path %}active{% endif %}"
-     title="Журнал">
-    <i class="bi bi-journal-text"></i>
-    <span>Журнал</span>
+  <a href="/warehouse/writeoffs" class="wm-tab {% if '/warehouse/writeoffs' in request.url.path %}active{% endif %}"
+     title="Списание">
+    <i class="bi bi-trash"></i>
+    <span>Списание</span>
   </a>
-  <a href="/orders" class="wm-tab {% if '/orders' in request.url.path %}active{% endif %}"
-     title="Заказы">
-    <i class="bi bi-list-check"></i>
-    <span>Заказы</span>
+  <a href="/warehouse/inventory" class="wm-tab {% if '/warehouse/inventory' in request.url.path %}active{% endif %}"
+     title="Инвентаризация">
+    <i class="bi bi-clipboard-check"></i>
+    <span>Инвентаризация</span>
   </a>
 </nav>
 

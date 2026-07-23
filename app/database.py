@@ -341,6 +341,10 @@ def _migrate_db():
         ("logistics_costs", "order_id",  "INTEGER REFERENCES orders(id)"),
         ("logistics_costs", "cost_type", "TEXT DEFAULT 'other'"),
         ("company_settings", "tg_hr_report_chat_ids", "TEXT"),
+        # ── Кабинет кладовщика: склады, категории, приёмка/перемещение/списание ──
+        ("products", "category_id", "INTEGER REFERENCES categories(id)"),
+        ("stock_movements", "warehouse_id",    "INTEGER REFERENCES warehouses(id)"),
+        ("stock_movements", "to_warehouse_id", "INTEGER REFERENCES warehouses(id)"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
@@ -485,7 +489,7 @@ def _seed_defaults():
     _log = _logging.getLogger(__name__)
     db = SessionLocal()
     try:
-        from app.models import User, CompanySettings
+        from app.models import User, CompanySettings, Warehouse, StockMovement, WriteOffReason
         if not db.query(User).first():
             admin = User(
                 username="admin",
@@ -498,6 +502,26 @@ def _seed_defaults():
             _log.warning("Создан пользователь admin — при первом входе потребуется сменить пароль!")
         if not db.query(CompanySettings).first():
             db.add(CompanySettings(name="Моя компания"))
+
+        # Склад по умолчанию — до появления реальной синхронизации складов из 1С
+        # (и для старых строк StockMovement, у которых warehouse_id ещё пуст).
+        default_wh = db.query(Warehouse).filter(Warehouse.is_default.is_(True)).first()
+        if not default_wh:
+            default_wh = Warehouse(name="Основной склад", is_default=True, is_active=True)
+            db.add(default_wh)
+            db.flush()
+            db.query(StockMovement).filter(StockMovement.warehouse_id.is_(None)).update(
+                {StockMovement.warehouse_id: default_wh.id}, synchronize_session=False
+            )
+            _log.info("Создан склад по умолчанию «Основной склад» и привязан к старым движениям")
+
+        # Стандартный набор причин списания — до появления точного справочника
+        # причин/корреспонденций из 1С (сопоставление добавится позже через
+        # WriteOffReason.external_id_1c, как и для остальных 1С-сущностей).
+        if not db.query(WriteOffReason).first():
+            for name in ["Порча", "Брак", "Недостача", "Собственное потребление", "Прочее"]:
+                db.add(WriteOffReason(name=name))
+
         db.commit()
     finally:
         db.close()

@@ -1,0 +1,43 @@
+{% extends "base_warehouse.html" %}
+
+{% block title %}Списание{% endblock %}
+{% block page_title %}Списание{% endblock %}
+
+{% block header_actions %}
+<a href="/warehouse/writeoffs/new" class="wm-icon-btn" title="Создать списание">
+  <i class="bi bi-plus-lg"></i>
+</a>
+{% endblock %}
+
+{% block content %}
+<a href="/warehouse/writeoffs/new" style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px;margin-bottom:14px;border-radius:12px;background:var(--wm-brand);color:#fff;font-weight:700;text-decoration:none">
+  <i class="bi bi-plus-lg"></i> Создать списание
+</a>
+
+<div class="wm-section-title"><span>История списаний</span></div>
+
+{% if writeoffs %}
+<div class="wm-card" style="margin-bottom:12px">
+  {% for w in writeoffs %}
+  <a href="/warehouse/writeoffs/{{ w.id }}" class="wm-journal-item" style="text-decoration:none;color:inherit">
+    <div class="wm-journal-icon out"><i class="bi bi-trash"></i></div>
+    <div class="wm-journal-body">
+      <div class="wm-journal-product">{{ w.reason.name if w.reason else 'Списание' }} — {{ w.lines | length }} поз.</div>
+      <div class="wm-journal-meta">
+        {{ w.created_at.strftime('%d.%m.%Y %H:%M') if w.created_at else '—' }}
+        {% if w.warehouse %} · {{ w.warehouse.name }}{% endif %}
+        {% if w.external_id_1c %} · <i class="bi bi-check-circle"></i> в 1С{% endif %}
+      </div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<div class="wm-card" style="margin-bottom:14px">
+  <div class="wm-empty">
+    <i class="bi bi-inbox"></i>
+    <p style="font-weight:700">Списаний ещё не было</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -152,6 +152,8 @@
               <span class="badge bg-success" style="font-size:.75rem">Приход</span>
             {% elif mv.movement_type == 'out' %}
               <span class="badge bg-danger" style="font-size:.75rem">Расход</span>
+            {% elif mv.movement_type == 'transfer' %}
+              <span class="badge bg-info text-dark" style="font-size:.75rem">Перемещение</span>
             {% else %}
               <span class="badge bg-secondary" style="font-size:.75rem">Корректировка</span>
             {% endif %}

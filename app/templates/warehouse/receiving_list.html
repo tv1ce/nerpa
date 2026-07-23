@@ -1,0 +1,48 @@
+{% extends "base_warehouse.html" %}
+
+{% block title %}Поступление{% endblock %}
+{% block page_title %}Поступление товаров{% endblock %}
+
+{% block content %}
+<div class="wm-section-title">
+  <span>
+    <i class="bi bi-box-arrow-in-down me-1" style="color:var(--wm-brand)"></i>
+    Ждут приёмки
+    {% if receipts %}<span style="background:#EF4444;color:#fff;border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;margin-left:6px">{{ receipts|length }}</span>{% endif %}
+  </span>
+</div>
+
+{% if receipts %}
+{% for r in receipts %}
+<a href="/warehouse/receiving/{{ r.id }}" class="wm-queue-card {{ 'deferred' if r.status == 'discrepancy' else 'prepay' }}" style="display:block;text-decoration:none;color:inherit">
+  <div class="wm-queue-card-head">
+    <div>
+      <div class="wm-queue-num">
+        Приход № {{ r.id }}
+        {% if r.status == 'discrepancy' %}
+        <span style="background:#F59E0B;color:#fff;border-radius:6px;padding:1px 7px;font-size:.68rem;font-weight:700;margin-left:6px">Расхождение</span>
+        {% endif %}
+      </div>
+      <div class="wm-queue-client">{{ r.supplier.trade_name or r.supplier.name if r.supplier else 'Поставщик не указан' }}</div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:.78rem;color:var(--wm-muted);font-weight:600">{{ r.expected_date | date_fmt if r.expected_date else '—' }}</div>
+    </div>
+  </div>
+  <div class="wm-queue-meta">
+    <span class="wm-pill wm-pill-items"><i class="bi bi-list-ul"></i>{{ r.lines | length }} поз.</span>
+    {% if r.warehouse %}<span class="wm-pill wm-pill-date"><i class="bi bi-building"></i>{{ r.warehouse.name }}</span>{% endif %}
+  </div>
+</a>
+{% endfor %}
+
+{% else %}
+<div class="wm-card" style="margin-bottom:14px">
+  <div class="wm-empty">
+    <i class="bi bi-check2-all" style="color:var(--wm-success);opacity:1"></i>
+    <p style="font-weight:700;color:var(--wm-success)">Нет поступлений на приёмку</p>
+    <p style="font-size:.8rem;color:var(--wm-muted);margin-top:4px">Накладные из 1С появятся здесь автоматически</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

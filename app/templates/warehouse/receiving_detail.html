@@ -1,0 +1,55 @@
+{% extends "base_warehouse.html" %}
+
+{% block title %}Приход № {{ receipt.id }}{% endblock %}
+{% block page_title %}Приход № {{ receipt.id }}{% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="wm-alert wm-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i><span>{{ error }}</span></div>
+{% endif %}
+
+{% if receipt.status == 'discrepancy' %}
+<div class="wm-alert wm-alert-warn">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  <span>Зафиксировано расхождение — документ не проведён в 1С. Проверьте количество и нажмите «Принять» ещё раз, когда цифры совпадут с накладной.</span>
+</div>
+{% endif %}
+
+<div class="wm-card" style="margin-bottom:12px;padding:14px">
+  <div style="font-weight:700;margin-bottom:4px">{{ receipt.supplier.name if receipt.supplier else 'Поставщик не указан' }}</div>
+  <div style="font-size:.82rem;color:var(--wm-muted)">
+    Дата прихода: {{ receipt.expected_date | date_fmt if receipt.expected_date else '—' }}
+    {% if receipt.warehouse %} · Склад: {{ receipt.warehouse.name }}{% endif %}
+  </div>
+  {% if receipt.notes %}<div style="font-size:.82rem;color:var(--wm-muted);margin-top:4px">{{ receipt.notes }}</div>{% endif %}
+</div>
+
+<form method="post" id="receiptForm">
+  <div class="wm-section-title"><span>Номенклатура — введите фактическое количество</span></div>
+  <div class="wm-card" style="margin-bottom:14px">
+    {% for ln in receipt.lines %}
+    <div class="wm-stock-item">
+      <div class="wm-stock-info">
+        <div class="wm-stock-name">{{ ln.product.name if ln.product else '—' }}</div>
+        <div class="wm-stock-article">По накладной: {{ ln.expected_qty | int if ln.expected_qty == ln.expected_qty | int else ln.expected_qty }} {{ ln.product.unit if ln.product else '' }}</div>
+      </div>
+      <div class="wm-stock-qty">
+        <input type="number" step="any" inputmode="decimal" name="qty_{{ ln.id }}"
+               value="{{ ln.actual_qty if ln.actual_qty is not none else ln.expected_qty }}"
+               style="width:84px;text-align:right;border:1.5px solid var(--wm-border);border-radius:8px;padding:6px 8px;font-size:1rem;font-weight:700">
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <button type="submit" formaction="/warehouse/receiving/{{ receipt.id }}/confirm" class="wm-btn-assembled"
+          onclick="return confirm('Подтвердите: фактическое количество совпадает с накладной, документ будет проведён в 1С?')">
+    <i class="bi bi-check2-square"></i> Принять
+  </button>
+  <button type="submit" formaction="/warehouse/receiving/{{ receipt.id }}/discrepancy"
+          style="width:100%;margin-top:10px;padding:12px;border:1.5px solid #F59E0B;border-radius:10px;color:#F59E0B;background:#fff;font-weight:700"
+          onclick="return confirm('Зафиксировать расхождение? Документ НЕ будет проведён в 1С до проверки.')">
+    <i class="bi bi-exclamation-triangle"></i> Расхождение
+  </button>
+</form>
+{% endblock %}

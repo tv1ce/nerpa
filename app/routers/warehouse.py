@@ -129,6 +129,26 @@ async def warehouse_index(request: Request, db: Session = Depends(get_db)):
     })
 
 
+# ── Раздел «Сборка заказов» кабинета кладовщика ───────────────────────────────
+# Тонкая обёртка над той же очередью, что раньше показывалась на общей главной
+# /warehouse/ — вынесена отдельным пунктом меню, логика/кнопка «Собрано» не менялись.
+
+@router.get("/assembly", response_class=HTMLResponse)
+@login_required
+async def warehouse_assembly(request: Request, db: Session = Depends(get_db)):
+    assembly_candidates = (
+        db.query(Order)
+        .filter(Order.status.in_(["confirmed", "paid"]))
+        .order_by(Order.delivery_date.asc().nullslast(), Order.date.asc())
+        .all()
+    )
+    assembly_queue = [o for o in assembly_candidates if o.ready_for_assembly]
+    return templates.TemplateResponse(request, "warehouse/assembly.html", {
+        "assembly_queue": assembly_queue,
+        "assembly_queue_count": len(assembly_queue),
+    })
+
+
 # ── Очередь сборки: кладовщик отмечает заказ собранным ────────────────────────
 
 @router.post("/orders/{order_id}/assemble")

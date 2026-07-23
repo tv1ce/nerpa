@@ -1,0 +1,44 @@
+{% extends "base_warehouse.html" %}
+
+{% block title %}Перемещение № {{ transfer.id }}{% endblock %}
+{% block page_title %}Перемещение № {{ transfer.id }}{% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="wm-alert wm-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i><span>{{ error }}</span></div>
+{% endif %}
+
+<div class="wm-card" style="margin-bottom:12px;padding:14px">
+  <div style="font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:6px">
+    <span>{{ transfer.from_warehouse.name if transfer.from_warehouse else '—' }}</span>
+    <i class="bi bi-arrow-right" style="opacity:.5"></i>
+    <span>{{ transfer.to_warehouse.name if transfer.to_warehouse else '—' }}</span>
+  </div>
+  <div style="font-size:.82rem;color:var(--wm-muted)">
+    Время: {{ transfer.planned_at.strftime('%d.%m.%Y %H:%M') if transfer.planned_at else '—' }}
+  </div>
+  {% if transfer.notes %}<div style="font-size:.82rem;color:var(--wm-muted);margin-top:4px">{{ transfer.notes }}</div>{% endif %}
+</div>
+
+<div class="wm-section-title"><span>Номенклатура для перемещения</span></div>
+<div class="wm-card" style="margin-bottom:14px">
+  {% for ln in transfer.lines %}
+  <div class="wm-stock-item">
+    <div class="wm-stock-info">
+      <div class="wm-stock-name">{{ ln.product.name if ln.product else '—' }}</div>
+    </div>
+    <div class="wm-stock-qty">
+      <div class="wm-stock-qty-val ok">{{ ln.quantity | int if ln.quantity == ln.quantity | int else ln.quantity }}</div>
+      <div class="wm-stock-qty-unit">{{ ln.product.unit if ln.product else '' }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<form method="post" action="/warehouse/transfers/{{ transfer.id }}/confirm"
+      data-confirm="Подтвердите: товар физически перемещён на другой склад?">
+  <button type="submit" class="wm-btn-assembled">
+    <i class="bi bi-arrow-left-right"></i> Провести перемещение
+  </button>
+</form>
+{% endblock %}

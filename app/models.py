@@ -103,6 +103,41 @@ class CarrierVehicle(Base):
     counterparty = relationship("Counterparty", back_populates="vehicles")
 
 
+class Warehouse(Base):
+    """Склад — синхронизируется из справочника складов/структурных единиц 1С.
+
+    is_default — склад, подставляемый там, где выбор ещё не появился в UI
+    (легаси-строки StockMovement без явного warehouse_id)."""
+    __tablename__ = "warehouses"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    code = Column(String(50))
+    is_active = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
+    # 1С:УНФ
+    external_id_1c    = Column(String(36))      # Ref_Key склада/структурной единицы в 1С
+    synced_from_1c_at = Column(DateTime)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class Category(Base):
+    """Категория/группа номенклатуры — синхронизируется из групп Catalog_Номенклатура в 1С.
+
+    parent_id повторяет иерархию групп в 1С (None — корневая группа). Старое
+    Product.category (свободная строка) не убираем — используется в пикере
+    сборки; category_id постепенно станет основным источником группировки."""
+    __tablename__ = "categories"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    parent_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    # 1С:УНФ
+    external_id_1c    = Column(String(36))
+    synced_from_1c_at = Column(DateTime)
+    created_at = Column(DateTime, server_default=func.now())
+
+    parent = relationship("Category", remote_side=[id])
+
+
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)
@@ -115,6 +150,7 @@ class Product(Base):
     vat_rate = Column(Float, default=20.0)
     description = Column(Text)
     category = Column(String(100))             # группа для навигации в пикере (Орешки / Упаковка / …)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)  # структурная категория из 1С
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     # Склад
@@ -126,6 +162,7 @@ class Product(Base):
 
     order_items = relationship("OrderItem", back_populates="product")
     stock_movements = relationship("StockMovement", back_populates="product")
+    category_ref = relationship("Category")
 
 
 # ── Циклы статусов заказа (зависят от типа оплаты по договору) ────────────────
@@ -610,11 +647,11 @@ class Notification(Base):
 
 
 class StockMovement(Base):
-    """Движение товара на складе (приход / расход / корректировка)."""
+    """Движение товара на складе (приход / расход / корректировка / перемещение)."""
     __tablename__ = "stock_movements"
     id = Column(Integer, primary_key=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    movement_type = Column(String(20), nullable=False)  # in / out / adjustment
+    movement_type = Column(String(20), nullable=False)  # in / out / adjustment / transfer
     quantity = Column(Float, nullable=False)             # всегда > 0
     date = Column(Date, nullable=False)
     reason = Column(String(200))   # Поставка / Продажа / Списание / Корректировка
@@ -622,6 +659,11 @@ class StockMovement(Base):
     notes = Column(Text)
     created_by_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, server_default=func.now())
+    # Склад движения; для movement_type='transfer' — склад-источник, а
+    # to_warehouse_id — склад-назначение (движение сразу отражает оба конца).
+    # Nullable ради обратной совместимости со старыми строками (один склад).
+    warehouse_id    = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
+    to_warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
     # 1С:УНФ — только для типов 'in' (поступление) и 'adjustment' (инвентаризация)
     # Движения 'out' с order_id не пушатся — 1С создаёт их сама через заказ
     external_id_1c  = Column(String(36))
@@ -630,6 +672,8 @@ class StockMovement(Base):
     product = relationship("Product", back_populates="stock_movements")
     order = relationship("Order")
     created_by = relationship("User")
+    warehouse = relationship("Warehouse", foreign_keys=[warehouse_id])
+    to_warehouse = relationship("Warehouse", foreign_keys=[to_warehouse_id])
 
 
 class SalesLead(Base):
@@ -1117,6 +1161,143 @@ class HrEmployeeInsight(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     employee = relationship("HrEmployee")
+
+
+class Receipt(Base):
+    """Задача на приёмку товара — пара документов 1С «Заказ поставщику» +
+    «Поступление товаров» (ещё не проведено), которую технолог создал в 1С.
+    Кладовщик сверяет факт и либо подтверждает (документ в 1С проводится),
+    либо фиксирует расхождение — тогда проведение блокируется до решения
+    менеджера/технолога."""
+    __tablename__ = "receipts"
+    id = Column(Integer, primary_key=True)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
+    supplier_id  = Column(Integer, ForeignKey("counterparties.id"), nullable=True)
+    expected_date = Column(Date)   # дата прихода — тянется из заказа поставщику в 1С
+    status = Column(String(20), default="pending")  # pending / discrepancy / confirmed
+    notes = Column(Text)
+    # 1С:УНФ
+    external_id_1c     = Column(String(36))   # Ref_Key Document_ПоступлениеТоваров
+    source_order_id_1c = Column(String(36))   # Ref_Key Document_ЗаказПоставщику (для трассировки)
+    synced_from_1c_at  = Column(DateTime)
+    confirmed_at    = Column(DateTime)
+    confirmed_by_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+    warehouse = relationship("Warehouse")
+    supplier = relationship("Counterparty")
+    confirmed_by = relationship("User")
+    lines = relationship("ReceiptLine", back_populates="receipt", cascade="all, delete-orphan")
+
+
+class ReceiptLine(Base):
+    """Строка задачи на приёмку: ожидаемое (из накладной 1С) и фактическое количество."""
+    __tablename__ = "receipt_lines"
+    id = Column(Integer, primary_key=True)
+    receipt_id = Column(Integer, ForeignKey("receipts.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    expected_qty = Column(Float, default=0.0)
+    actual_qty   = Column(Float, nullable=True)   # NULL пока кладовщик не ввёл факт
+
+    receipt = relationship("Receipt", back_populates="lines")
+    product = relationship("Product")
+
+    @property
+    def diff(self) -> float:
+        if self.actual_qty is None:
+            return 0.0
+        return round((self.actual_qty or 0) - (self.expected_qty or 0), 3)
+
+
+class StockTransfer(Base):
+    """Задача на складское перемещение — из пары документов 1С «Заказ на
+    перемещение» + «Перемещение товаров» (ещё не проведено). Кнопка «Провести
+    перемещение» в TMS проводит документ в 1С и создаёт движения по обоим
+    складам в TMS (см. StockMovement.to_warehouse_id)."""
+    __tablename__ = "stock_transfers"
+    id = Column(Integer, primary_key=True)
+    from_warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
+    to_warehouse_id   = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
+    planned_at = Column(DateTime)   # время перемещения — тянется из заказа на перемещение
+    status = Column(String(20), default="pending")  # pending / done
+    notes = Column(Text)
+    # 1С:УНФ
+    external_id_1c     = Column(String(36))   # Ref_Key Document_ПеремещениеТоваров
+    source_order_id_1c = Column(String(36))   # Ref_Key Document_ЗаказНаПеремещение
+    synced_from_1c_at  = Column(DateTime)
+    confirmed_at    = Column(DateTime)
+    confirmed_by_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+    from_warehouse = relationship("Warehouse", foreign_keys=[from_warehouse_id])
+    to_warehouse   = relationship("Warehouse", foreign_keys=[to_warehouse_id])
+    confirmed_by = relationship("User")
+    lines = relationship("StockTransferLine", back_populates="transfer", cascade="all, delete-orphan")
+
+
+class StockTransferLine(Base):
+    """Строка задачи на перемещение: номенклатура + количество."""
+    __tablename__ = "stock_transfer_lines"
+    id = Column(Integer, primary_key=True)
+    transfer_id = Column(Integer, ForeignKey("stock_transfers.id"), nullable=False)
+    product_id  = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity = Column(Float, default=0.0)
+
+    transfer = relationship("StockTransfer", back_populates="lines")
+    product = relationship("Product")
+
+
+class WriteOffReason(Base):
+    """Причина/корреспонденция списания — справочник, пока ведётся вручную в
+    TMS (в 1С аналог ещё не сопоставлен; external_id_1c заполнится, когда
+    появится точный справочник причин списания в 1С:УНФ)."""
+    __tablename__ = "writeoff_reasons"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True)
+    external_id_1c = Column(String(36))
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class WriteOff(Base):
+    """Списание товара — создаётся кладовщиком в TMS, пушится в 1С и сразу же
+    проводится (Posted: true в том же запросе, без промежуточного черновика)."""
+    __tablename__ = "writeoffs"
+    id = Column(Integer, primary_key=True)
+    warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
+    reason_id    = Column(Integer, ForeignKey("writeoff_reasons.id"), nullable=True)
+    notes = Column(Text)
+    created_by_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())   # дата/время списания = момент создания
+    # 1С:УНФ
+    external_id_1c  = Column(String(36))   # Ref_Key документа списания в 1С
+    synced_to_1c_at = Column(DateTime)
+
+    warehouse = relationship("Warehouse")
+    reason = relationship("WriteOffReason")
+    created_by = relationship("User")
+    lines = relationship("WriteOffLine", back_populates="writeoff", cascade="all, delete-orphan")
+
+
+class WriteOffLine(Base):
+    """Строка списания: номенклатура + количество."""
+    __tablename__ = "writeoff_lines"
+    id = Column(Integer, primary_key=True)
+    writeoff_id = Column(Integer, ForeignKey("writeoffs.id"), nullable=False)
+    product_id  = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity = Column(Float, default=0.0)
+
+    writeoff = relationship("WriteOff", back_populates="lines")
+    product = relationship("Product")
+
+
+Index("ix_receipts_status",           Receipt.status)
+Index("ix_receipt_lines_receipt_id",  ReceiptLine.receipt_id)
+Index("ix_stock_transfers_status",         StockTransfer.status)
+Index("ix_stock_transfer_lines_transfer_id", StockTransferLine.transfer_id)
+Index("ix_writeoff_lines_writeoff_id", WriteOffLine.writeoff_id)
+Index("ix_stock_movements_warehouse_id", StockMovement.warehouse_id)
+Index("ix_products_category_id", Product.category_id)
 
 
 Index("ix_hr_employee_insights_employee_id", HrEmployeeInsight.employee_id)

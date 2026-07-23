@@ -13,6 +13,10 @@ from app.services.onec_client import (
     sync_invoices_from_1c,
     sync_shipments_from_1c,
     sync_documents_from_1c,
+    sync_warehouses_from_1c,
+    sync_categories_from_1c,
+    sync_receiving_tasks_from_1c,
+    sync_transfer_tasks_from_1c,
     push_counterparty,
     push_order,
     push_stock_movement,
@@ -77,6 +81,42 @@ async def sync_invoices(request: Request, db: Session = Depends(get_db)):
     return JSONResponse(result)
 
 
+@router.post("/warehouses")
+@role_required("admin")
+async def sync_warehouses(request: Request, db: Session = Depends(get_db)):
+    """Ручной запуск импорта справочника складов из 1С."""
+    result = sync_warehouses_from_1c(db)
+    _audit_sync(db, "sync_warehouses", result)
+    return JSONResponse(result)
+
+
+@router.post("/categories")
+@role_required("admin")
+async def sync_categories(request: Request, db: Session = Depends(get_db)):
+    """Ручной запуск импорта категорий (групп номенклатуры) из 1С."""
+    result = sync_categories_from_1c(db)
+    _audit_sync(db, "sync_categories", result)
+    return JSONResponse(result)
+
+
+@router.post("/receiving")
+@role_required("admin")
+async def sync_receiving(request: Request, db: Session = Depends(get_db)):
+    """Ручной запуск импорта задач на приёмку (непроведённых поступлений) из 1С."""
+    result = sync_receiving_tasks_from_1c(db)
+    _audit_sync(db, "sync_receiving", result)
+    return JSONResponse(result)
+
+
+@router.post("/transfers")
+@role_required("admin")
+async def sync_transfers(request: Request, db: Session = Depends(get_db)):
+    """Ручной запуск импорта задач на складское перемещение из 1С."""
+    result = sync_transfer_tasks_from_1c(db)
+    _audit_sync(db, "sync_transfers", result)
+    return JSONResponse(result)
+
+
 @router.post("/documents")
 @role_required("admin")
 async def sync_documents(request: Request, db: Session = Depends(get_db)):
@@ -129,20 +169,30 @@ async def push_stock(movement_id: int, request: Request, db: Session = Depends(g
 @router.post("/run-all")
 @role_required("admin")
 async def run_all(request: Request, db: Session = Depends(get_db)):
-    """Полный цикл синхронизации: номенклатура + счета + расходные/документы + оплаты."""
+    """Полный цикл синхронизации: справочники + номенклатура + счета + расходные/документы + оплаты + приёмка."""
+    rw = sync_warehouses_from_1c(db)
+    rc = sync_categories_from_1c(db)
     r1 = sync_products_from_1c(db)
     r3 = sync_invoices_from_1c(db)
     rs = sync_shipments_from_1c(db)
     rd = sync_documents_from_1c(db)
     r2 = sync_payments_from_1c(db)
+    rr = sync_receiving_tasks_from_1c(db)
+    rtr = sync_transfer_tasks_from_1c(db)
     result = {
+        "warehouses": rw,
+        "categories": rc,
         "products": r1,
         "invoices": r3,
         "shipments": rs,
         "documents": rd,
         "payments": r2,
-        "errors": (r1.get("errors", []) + r3.get("errors", []) + rs.get("errors", [])
-                   + rd.get("errors", []) + r2.get("errors", [])),
+        "receiving": rr,
+        "transfers": rtr,
+        "errors": (rw.get("errors", []) + rc.get("errors", []) + r1.get("errors", [])
+                   + r3.get("errors", []) + rs.get("errors", [])
+                   + rd.get("errors", []) + r2.get("errors", []) + rr.get("errors", [])
+                   + rtr.get("errors", [])),
     }
     _audit_sync(db, "run_all", result)
     return JSONResponse(result)

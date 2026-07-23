@@ -165,6 +165,199 @@ def sync_products_from_1c(db: Session) -> dict:
     return {"created": created, "updated": updated, "errors": errors}
 
 
+# ── Склады: 1С → TMS ─────────────────────────────────────────────────────────
+# ПРИМЕЧАНИЕ: имя каталога подобрано по аналогии с уже используемым полем
+# «СтруктурнаяЕдиницаРезерв_Key» в push_order (см. _ORDER_WAREHOUSE_KEY) — в
+# 1С:УНФ склады и подразделения ведутся в одном каталоге Catalog_СтруктурныеЕдиницы.
+# ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по $metadata реальной базы при первом тестовом запуске.
+_WAREHOUSE_CATALOG = "Catalog_СтруктурныеЕдиницы"
+
+
+def sync_warehouses_from_1c(db: Session) -> dict:
+    """
+    Читает справочник складов (структурных единиц) из 1С, создаёт/обновляет
+    Warehouse в TMS. В отличие от sync_products_from_1c — новые записи заводим
+    автоматически: это чистый справочник-источник истины из 1С, а не курируемый
+    вручную ассортимент. Существующий вручную заведённый склад с тем же именем
+    (например дефолтный «Основной склад») связывается, а не дублируется.
+    Возвращает {"created": N, "updated": N, "errors": [...]}.
+    """
+    from app.models import Warehouse
+
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
+
+    errors: list[str] = []
+    created = updated = 0
+
+    try:
+        with _client(s) as c:
+            r = c.get(
+                _WAREHOUSE_CATALOG,
+                params={
+                    "$format": "json",
+                    "$select": "Ref_Key,Code,Description,DeletionMark",
+                    "$top": "1000",
+                },
+            )
+        r.raise_for_status()
+        items = [i for i in r.json().get("value", []) if not i.get("DeletionMark", False)]
+    except Exception as e:
+        logger.error("sync_warehouses_from_1c: %s", e)
+        return {"created": 0, "updated": 0, "errors": [str(e)]}
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for item in items:
+        ref_key = item.get("Ref_Key")
+        name = (item.get("Description") or "").strip()
+        code = (item.get("Code") or "").strip()
+        if not ref_key or not name:
+            continue
+        try:
+            wh = db.query(Warehouse).filter(Warehouse.external_id_1c == ref_key).first()
+            if not wh:
+                wh = (
+                    db.query(Warehouse)
+                    .filter(Warehouse.name == name, Warehouse.external_id_1c.is_(None))
+                    .first()
+                )
+            if wh:
+                wh.name = name
+                if code:
+                    wh.code = code
+                wh.external_id_1c = ref_key
+                wh.synced_from_1c_at = now
+                updated += 1
+            else:
+                db.add(Warehouse(
+                    name=name, code=code or None,
+                    external_id_1c=ref_key, synced_from_1c_at=now, is_active=True,
+                ))
+                created += 1
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+            logger.warning("sync_warehouses_from_1c item error: %s", e)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors.append(f"commit: {e}")
+        created = updated = 0
+
+    logger.info(
+        "sync_warehouses_from_1c: создано %d, обновлено %d, ошибок %d",
+        created, updated, len(errors),
+    )
+    return {"created": created, "updated": updated, "errors": errors}
+
+
+# ── Категории номенклатуры: 1С → TMS ─────────────────────────────────────────
+
+def sync_categories_from_1c(db: Session) -> dict:
+    """
+    Читает группы (папки) Catalog_Номенклатура из 1С в Category (иерархия по
+    Parent_Key), затем проставляет Product.category_id уже привязанным к 1С
+    товарам по их собственному Parent_Key. Ничего не удаляет — только
+    создаёт/обновляет, как и остальные пуллы справочников.
+    Возвращает {"created": N, "updated": N, "linked": N, "errors": [...]}.
+    """
+    from app.models import Category, Product
+
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"created": 0, "updated": 0, "linked": 0, "errors": ["Синхронизация отключена"]}
+
+    errors: list[str] = []
+    created = updated = linked = 0
+
+    try:
+        with _client(s) as c:
+            r = c.get(
+                "Catalog_Номенклатура",
+                params={
+                    "$format": "json",
+                    "$select": "Ref_Key,Parent_Key,Description,IsFolder,DeletionMark",
+                    "$top": "10000",
+                },
+            )
+        r.raise_for_status()
+        items = [i for i in r.json().get("value", []) if not i.get("DeletionMark", False)]
+    except Exception as e:
+        logger.error("sync_categories_from_1c: %s", e)
+        return {"created": 0, "updated": 0, "linked": 0, "errors": [str(e)]}
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    folders = [i for i in items if i.get("IsFolder")]
+    products = [i for i in items if not i.get("IsFolder")]
+    root_key = "00000000-0000-0000-0000-000000000000"
+
+    # 1) сами категории (родителя проставляем вторым проходом — 1С отдаёт
+    # плоский список, папка-родитель может встретиться после дочерней)
+    by_ref: dict[str, Category] = {}
+    for f in folders:
+        ref_key = f.get("Ref_Key")
+        name = (f.get("Description") or "").strip()
+        if not ref_key or not name:
+            continue
+        try:
+            cat = db.query(Category).filter(Category.external_id_1c == ref_key).first()
+            if cat:
+                cat.name = name
+                cat.synced_from_1c_at = now
+                updated += 1
+            else:
+                cat = Category(name=name, external_id_1c=ref_key, synced_from_1c_at=now)
+                db.add(cat)
+                db.flush()
+                created += 1
+            by_ref[ref_key] = cat
+        except Exception as e:
+            errors.append(f"{name}: {e}")
+            logger.warning("sync_categories_from_1c folder error: %s", e)
+
+    # 2) иерархия родитель→потомок
+    for f in folders:
+        ref_key = f.get("Ref_Key")
+        parent_key = f.get("Parent_Key")
+        if not ref_key or ref_key not in by_ref:
+            continue
+        if parent_key and parent_key != root_key and parent_key in by_ref:
+            by_ref[ref_key].parent_id = by_ref[parent_key].id
+
+    # 3) привязка category_id уже связанным с 1С товарам по их Parent_Key
+    for p in products:
+        ref_key = p.get("Ref_Key")
+        parent_key = p.get("Parent_Key")
+        if not ref_key or not parent_key or parent_key == root_key:
+            continue
+        cat = by_ref.get(parent_key)
+        if not cat:
+            continue
+        try:
+            prod = db.query(Product).filter(Product.external_id_1c == ref_key).first()
+            if prod and prod.category_id != cat.id:
+                prod.category_id = cat.id
+                linked += 1
+        except Exception as e:
+            errors.append(f"link {ref_key}: {e}")
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors.append(f"commit: {e}")
+        created = updated = linked = 0
+
+    logger.info(
+        "sync_categories_from_1c: создано %d, обновлено %d, привязано товаров %d, ошибок %d",
+        created, updated, linked, len(errors),
+    )
+    return {"created": created, "updated": updated, "linked": linked, "errors": errors}
+
+
 # ── Контрагенты: TMS → 1С ───────────────────────────────────────────────────
 
 _ENTITY_TYPE_MAP = {
@@ -1162,4 +1355,360 @@ def push_stock_movement(movement, db: Session) -> str | None:
             return ref_key
     except Exception as e:
         logger.error("push_stock_movement %s: %s", movement.id, e)
+        return None
+
+
+# ── Поступление товаров: 1С → TMS (задача) + TMS → 1С (подтверждение/проведение) ──
+# ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по $metadata реальной базы: предполагаем, что технолог
+# создаёт непроведённый Document_ПоступлениеТоваров (табличная часть «Товары» с
+# Номенклатура_Key/Количество — по аналогии с уже используемым push_stock_movement),
+# со ссылкой на исходный заказ поставщику в поле ДокументОснование.
+_RECEIPT_DOC = "Document_ПоступлениеТоваров"
+
+
+def sync_receiving_tasks_from_1c(db: Session) -> dict:
+    """
+    Пулл непроведённых поступлений из 1С в Receipt/ReceiptLine — задача
+    кладовщику на приёмку. Не создаёт движения и не проводит документ — это
+    делает confirm_receipt после того, как кладовщик подтвердит факт приёмки.
+    Возвращает {"created": N, "updated": N, "errors": [...]}.
+    """
+    from app.models import Receipt, ReceiptLine, Counterparty, Warehouse, Product
+
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
+
+    errors: list[str] = []
+    created = updated = 0
+
+    try:
+        with _client(s) as c:
+            r = c.get(
+                _RECEIPT_DOC,
+                params={
+                    "$format": "json",
+                    "$select": "Ref_Key,Date,Контрагент_Key,Комментарий,ДокументОснование,"
+                               "СтруктурнаяЕдиница_Key,Posted,DeletionMark",
+                    "$expand": "Товары",
+                    "$top": "200",
+                },
+            )
+        r.raise_for_status()
+        docs = [
+            d for d in r.json().get("value", [])
+            if not d.get("DeletionMark") and not d.get("Posted")
+        ]
+    except Exception as e:
+        logger.error("sync_receiving_tasks_from_1c: %s", e)
+        return {"created": 0, "updated": 0, "errors": [str(e)]}
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for d in docs:
+        ref_key = d.get("Ref_Key")
+        if not ref_key:
+            continue
+        try:
+            receipt = db.query(Receipt).filter(Receipt.external_id_1c == ref_key).first()
+            is_new = receipt is None
+            if is_new:
+                receipt = Receipt(external_id_1c=ref_key, status="pending")
+                db.add(receipt)
+
+            cp_key = d.get("Контрагент_Key")
+            if cp_key:
+                supplier = db.query(Counterparty).filter(Counterparty.external_id_1c == cp_key).first()
+                if supplier:
+                    receipt.supplier_id = supplier.id
+
+            wh_key = d.get("СтруктурнаяЕдиница_Key")
+            if wh_key:
+                wh = db.query(Warehouse).filter(Warehouse.external_id_1c == wh_key).first()
+                if wh:
+                    receipt.warehouse_id = wh.id
+
+            doc_date = d.get("Date")
+            if doc_date:
+                try:
+                    receipt.expected_date = datetime.fromisoformat(doc_date.replace("Z", "")).date()
+                except ValueError:
+                    pass
+            receipt.source_order_id_1c = d.get("ДокументОснование") or receipt.source_order_id_1c
+            receipt.notes = d.get("Комментарий") or receipt.notes
+            receipt.synced_from_1c_at = now
+            if receipt.status is None:
+                receipt.status = "pending"
+
+            db.flush()
+
+            # Строки: синхронизируем состав «Товары» (обычно не меняется после
+            # создания в 1С технологом, но безопаснее сверять полностью)
+            existing_lines = {ln.product_id: ln for ln in receipt.lines}
+            for row in (d.get("Товары") or []):
+                prod_key = row.get("Номенклатура_Key")
+                qty = row.get("Количество") or 0
+                if not prod_key:
+                    continue
+                prod = db.query(Product).filter(Product.external_id_1c == prod_key).first()
+                if not prod:
+                    continue
+                ln = existing_lines.get(prod.id)
+                if ln:
+                    ln.expected_qty = qty
+                else:
+                    db.add(ReceiptLine(receipt_id=receipt.id, product_id=prod.id, expected_qty=qty))
+
+            if is_new:
+                created += 1
+            else:
+                updated += 1
+        except Exception as e:
+            errors.append(f"{ref_key}: {e}")
+            logger.warning("sync_receiving_tasks_from_1c doc error: %s", e)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors.append(f"commit: {e}")
+        created = updated = 0
+
+    logger.info(
+        "sync_receiving_tasks_from_1c: создано %d, обновлено %d, ошибок %d",
+        created, updated, len(errors),
+    )
+    return {"created": created, "updated": updated, "errors": errors}
+
+
+def confirm_receipt(receipt, db: Session) -> dict:
+    """
+    Подтверждает приёмку: пушит фактические количества (ReceiptLine.actual_qty)
+    в табличную часть 1С и проводит документ (Posted: true) одним PATCH —
+    вызывать только когда факт совпал с накладной. При расхождении используется
+    отдельный флоу в warehouse_receiving.py (документ не трогаем).
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"ok": False, "message": "Синхронизация с 1С отключена"}
+    if not receipt.external_id_1c:
+        return {"ok": False, "message": "Нет связанного документа в 1С"}
+
+    tovary = []
+    for i, ln in enumerate(receipt.lines, 1):
+        prod = ln.product
+        if not prod or not prod.external_id_1c:
+            continue
+        qty = ln.actual_qty if ln.actual_qty is not None else ln.expected_qty
+        tovary.append({
+            "LineNumber": str(i),
+            "Номенклатура_Key": prod.external_id_1c,
+            "Количество": qty,
+        })
+
+    payload = {"Posted": True}
+    if tovary:
+        payload["Товары"] = tovary
+
+    try:
+        with _client(s) as c:
+            r = c.patch(f"{_RECEIPT_DOC}(guid'{receipt.external_id_1c}')", json=payload)
+        r.raise_for_status()
+        return {"ok": True}
+    except Exception as e:
+        logger.error("confirm_receipt %s: %s", receipt.id, e)
+        return {"ok": False, "message": str(e)}
+
+
+# ── Складское перемещение: 1С → TMS (задача) + TMS → 1С (проведение) ────────
+# ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по $metadata реальной базы: предполагаем документ
+# Document_ПеремещениеТоваров с полями СкладОтправитель_Key/СкладПолучатель_Key
+# и табличной частью «Товары» (Номенклатура_Key/Количество), созданный на
+# основании «Заказа на перемещение» (ДокументОснование).
+_TRANSFER_DOC = "Document_ПеремещениеТоваров"
+
+
+def sync_transfer_tasks_from_1c(db: Session) -> dict:
+    """
+    Пулл непроведённых перемещений из 1С в StockTransfer/StockTransferLine —
+    задача кладовщику на перемещение товара между складами. Не создаёт движения
+    и не проводит документ — это делает confirm_transfer.
+    """
+    from app.models import StockTransfer, StockTransferLine, Warehouse, Product
+
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"created": 0, "updated": 0, "errors": ["Синхронизация отключена"]}
+
+    errors: list[str] = []
+    created = updated = 0
+
+    try:
+        with _client(s) as c:
+            r = c.get(
+                _TRANSFER_DOC,
+                params={
+                    "$format": "json",
+                    "$select": "Ref_Key,Date,СкладОтправитель_Key,СкладПолучатель_Key,"
+                               "Комментарий,ДокументОснование,Posted,DeletionMark",
+                    "$expand": "Товары",
+                    "$top": "200",
+                },
+            )
+        r.raise_for_status()
+        docs = [
+            d for d in r.json().get("value", [])
+            if not d.get("DeletionMark") and not d.get("Posted")
+        ]
+    except Exception as e:
+        logger.error("sync_transfer_tasks_from_1c: %s", e)
+        return {"created": 0, "updated": 0, "errors": [str(e)]}
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    for d in docs:
+        ref_key = d.get("Ref_Key")
+        if not ref_key:
+            continue
+        try:
+            transfer = db.query(StockTransfer).filter(StockTransfer.external_id_1c == ref_key).first()
+            is_new = transfer is None
+            if is_new:
+                transfer = StockTransfer(external_id_1c=ref_key, status="pending")
+                db.add(transfer)
+
+            from_key = d.get("СкладОтправитель_Key")
+            if from_key:
+                wh = db.query(Warehouse).filter(Warehouse.external_id_1c == from_key).first()
+                if wh:
+                    transfer.from_warehouse_id = wh.id
+
+            to_key = d.get("СкладПолучатель_Key")
+            if to_key:
+                wh = db.query(Warehouse).filter(Warehouse.external_id_1c == to_key).first()
+                if wh:
+                    transfer.to_warehouse_id = wh.id
+
+            doc_date = d.get("Date")
+            if doc_date:
+                try:
+                    transfer.planned_at = datetime.fromisoformat(doc_date.replace("Z", ""))
+                except ValueError:
+                    pass
+            transfer.source_order_id_1c = d.get("ДокументОснование") or transfer.source_order_id_1c
+            transfer.notes = d.get("Комментарий") or transfer.notes
+            transfer.synced_from_1c_at = now
+            if transfer.status is None:
+                transfer.status = "pending"
+
+            db.flush()
+
+            existing_lines = {ln.product_id: ln for ln in transfer.lines}
+            for row in (d.get("Товары") or []):
+                prod_key = row.get("Номенклатура_Key")
+                qty = row.get("Количество") or 0
+                if not prod_key:
+                    continue
+                prod = db.query(Product).filter(Product.external_id_1c == prod_key).first()
+                if not prod:
+                    continue
+                ln = existing_lines.get(prod.id)
+                if ln:
+                    ln.quantity = qty
+                else:
+                    db.add(StockTransferLine(transfer_id=transfer.id, product_id=prod.id, quantity=qty))
+
+            if is_new:
+                created += 1
+            else:
+                updated += 1
+        except Exception as e:
+            errors.append(f"{ref_key}: {e}")
+            logger.warning("sync_transfer_tasks_from_1c doc error: %s", e)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors.append(f"commit: {e}")
+        created = updated = 0
+
+    logger.info(
+        "sync_transfer_tasks_from_1c: создано %d, обновлено %d, ошибок %d",
+        created, updated, len(errors),
+    )
+    return {"created": created, "updated": updated, "errors": errors}
+
+
+def confirm_transfer(transfer, db: Session) -> dict:
+    """Проводит перемещение в 1С (Posted: true). Кладовщик уже подтвердил, что
+    физически переместил товар — расхождений в этом контуре TMS не запрашивает
+    (в отличие от приёмки), в 1С уходят количества как в задаче."""
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return {"ok": False, "message": "Синхронизация с 1С отключена"}
+    if not transfer.external_id_1c:
+        return {"ok": False, "message": "Нет связанного документа в 1С"}
+
+    try:
+        with _client(s) as c:
+            r = c.patch(f"{_TRANSFER_DOC}(guid'{transfer.external_id_1c}')", json={"Posted": True})
+        r.raise_for_status()
+        return {"ok": True}
+    except Exception as e:
+        logger.error("confirm_transfer %s: %s", transfer.id, e)
+        return {"ok": False, "message": str(e)}
+
+
+# ── Списание: TMS → 1С (создание + мгновенное проведение) ──────────────────
+# ТРЕБУЕТ ПОДТВЕРЖДЕНИЯ по $metadata реальной базы: имя документа и поле
+# корреспонденции/причины предположительные — причины списания в TMS пока
+# ведутся отдельным локальным справочником (WriteOffReason), сопоставление
+# с 1С появится, когда будет известен точный справочник причин в 1С:УНФ.
+_WRITEOFF_DOC = "Document_СписаниеТоваров"
+
+
+def push_writeoff(writeoff, db: Session) -> str | None:
+    """
+    Создаёт Document_СписаниеТоваров в 1С и сразу проводит его (Posted: true
+    в том же запросе) — списание в TMS всегда мгновенное, черновика не бывает.
+    """
+    s = _get_settings(db)
+    if not s or not s.onec_enabled:
+        return None
+
+    tovary = []
+    for i, ln in enumerate(writeoff.lines, 1):
+        prod = ln.product
+        if not prod or not prod.external_id_1c:
+            continue
+        tovary.append({
+            "LineNumber": str(i),
+            "Номенклатура_Key": prod.external_id_1c,
+            "Количество": ln.quantity,
+        })
+    if not tovary:
+        logger.info("push_writeoff %s: нет позиций, привязанных к 1С — пропуск", writeoff.id)
+        return None
+
+    payload = {
+        "Date": writeoff.created_at.isoformat() if writeoff.created_at else None,
+        "Комментарий": (writeoff.reason.name if writeoff.reason else "") +
+                       (f" — {writeoff.notes}" if writeoff.notes else ""),
+        "Товары": tovary,
+        "Posted": True,
+    }
+    if writeoff.warehouse and writeoff.warehouse.external_id_1c:
+        payload["СтруктурнаяЕдиница_Key"] = writeoff.warehouse.external_id_1c
+
+    try:
+        with _client(s) as c:
+            r = c.post(_WRITEOFF_DOC, json=payload)
+            r.raise_for_status()
+            ref_key = r.json().get("Ref_Key")
+            if ref_key:
+                _save_external_id(db, writeoff, ref_key)
+            return ref_key
+    except Exception as e:
+        logger.error("push_writeoff %s: %s", writeoff.id, e)
         return None

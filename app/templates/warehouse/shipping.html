@@ -1,0 +1,60 @@
+{% extends "base_warehouse.html" %}
+
+{% block title %}Отгрузка{% endblock %}
+{% block page_title %}Отгрузка заказов{% endblock %}
+
+{% block content %}
+<div class="wm-section-title">
+  <span>
+    <i class="bi bi-truck me-1" style="color:var(--wm-brand)"></i>
+    Собраны, ждут отгрузки
+    {% if orders %}<span style="background:#EF4444;color:#fff;border-radius:99px;padding:1px 8px;font-size:.7rem;font-weight:800;margin-left:6px">{{ orders|length }}</span>{% endif %}
+  </span>
+</div>
+
+{% if orders %}
+{% for o in orders %}
+<div class="wm-queue-card {{ 'prepay' if o.is_prepay else 'deferred' }}">
+  <div class="wm-queue-card-head">
+    <a href="/orders/{{ o.id }}" style="text-decoration:none;color:inherit">
+      <div class="wm-queue-num">Заказ № {{ o.number }} <i class="bi bi-box-arrow-up-right" style="font-size:.78rem;opacity:.55"></i></div>
+      <div class="wm-queue-client">{{ o.counterparty.trade_name or o.counterparty.name }}</div>
+      {% if o.counterparty.trade_name and o.counterparty.name and o.counterparty.trade_name != o.counterparty.name %}
+      <div class="wm-queue-cp">{{ o.counterparty.name }}</div>
+      {% endif %}
+    </a>
+    <div style="text-align:right">
+      <div style="font-size:.78rem;color:var(--wm-muted);font-weight:600">
+        {{ (o.dispatch_date or o.delivery_date) | date_fmt if (o.dispatch_date or o.delivery_date) else '—' }}
+      </div>
+    </div>
+  </div>
+
+  <div class="wm-queue-meta">
+    <span class="wm-pill wm-pill-items"><i class="bi bi-box-seam"></i>{{ o.cargo_places if o.cargo_places else (o.items | length) }} мест</span>
+    {% if o.carrier %}
+    <span class="wm-pill wm-pill-date"><i class="bi bi-truck"></i>{{ o.carrier.trade_name or o.carrier.name }}</span>
+    {% endif %}
+  </div>
+
+  <div class="wm-queue-footer">
+    <form method="post" action="/warehouse/shipping/{{ o.id }}/ship"
+          data-confirm="Подтвердите: заказ {{ o.number }} отгружен и передан поставщику?">
+      <button type="submit" class="wm-btn-assembled">
+        <i class="bi bi-truck"></i> Отгружено
+      </button>
+    </form>
+  </div>
+</div>
+{% endfor %}
+
+{% else %}
+<div class="wm-card" style="margin-bottom:14px">
+  <div class="wm-empty">
+    <i class="bi bi-check2-all" style="color:var(--wm-success);opacity:1"></i>
+    <p style="font-weight:700;color:var(--wm-success)">Нет заказов на отгрузку</p>
+    <p style="font-size:.8rem;color:var(--wm-muted);margin-top:4px">Собранные заказы появятся здесь автоматически</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

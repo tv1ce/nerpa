@@ -1,0 +1,37 @@
+{% extends "base_warehouse.html" %}
+
+{% block title %}Списание № {{ writeoff.id }}{% endblock %}
+{% block page_title %}Списание № {{ writeoff.id }}{% endblock %}
+
+{% block content %}
+<div class="wm-card" style="margin-bottom:12px;padding:14px">
+  <div style="font-weight:700;margin-bottom:4px">{{ writeoff.reason.name if writeoff.reason else '—' }}</div>
+  <div style="font-size:.82rem;color:var(--wm-muted)">
+    {{ writeoff.created_at.strftime('%d.%m.%Y %H:%M') if writeoff.created_at else '—' }}
+    {% if writeoff.warehouse %} · Склад: {{ writeoff.warehouse.name }}{% endif %}
+  </div>
+  {% if writeoff.notes %}<div style="font-size:.82rem;color:var(--wm-muted);margin-top:4px">{{ writeoff.notes }}</div>{% endif %}
+  <div style="font-size:.82rem;margin-top:8px">
+    {% if writeoff.external_id_1c %}
+    <span style="color:var(--wm-success);font-weight:600"><i class="bi bi-check-circle-fill"></i> Проведено в 1С</span>
+    {% else %}
+    <span style="color:var(--wm-muted)"><i class="bi bi-dash-circle"></i> Не отправлено в 1С</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="wm-section-title"><span>Номенклатура</span></div>
+<div class="wm-card" style="margin-bottom:14px">
+  {% for ln in writeoff.lines %}
+  <div class="wm-stock-item">
+    <div class="wm-stock-info">
+      <div class="wm-stock-name">{{ ln.product.name if ln.product else '—' }}</div>
+    </div>
+    <div class="wm-stock-qty">
+      <div class="wm-stock-qty-val ok">{{ ln.quantity | int if ln.quantity == ln.quantity | int else ln.quantity }}</div>
+      <div class="wm-stock-qty-unit">{{ ln.product.unit if ln.product else '' }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

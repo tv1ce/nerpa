@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, hr
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, warehouse_shipping, warehouse_receiving, warehouse_transfers, warehouse_writeoffs, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, hr
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -314,21 +314,30 @@ def _run_1c_sync_job():
     from app.services.onec_client import (
         sync_products_from_1c, sync_payments_from_1c, sync_invoices_from_1c,
         sync_shipments_from_1c, sync_documents_from_1c, retry_unpushed_orders,
+        sync_warehouses_from_1c, sync_categories_from_1c, sync_receiving_tasks_from_1c,
+        sync_transfer_tasks_from_1c,
     )
     db = SessionLocal()
     try:
         rt = sync_payments_from_tochka(db)   # 1) банк «Точка» — приоритетный источник оплат
         r0 = retry_unpushed_orders(db)       # самовосстановление пропущенного push заказов
+        rw = sync_warehouses_from_1c(db)
+        rc = sync_categories_from_1c(db)
         r1 = sync_products_from_1c(db)
         r3 = sync_invoices_from_1c(db)
         sync_shipments_from_1c(db)
         rd = sync_documents_from_1c(db)
         r2 = sync_payments_from_1c(db)        # 2) 1С — добор того, чего не было в банке
+        rr = sync_receiving_tasks_from_1c(db)
+        rtr = sync_transfer_tasks_from_1c(db)
         logger.info(
-            "auto-sync: tochka m=%s u=%s; orders_pushed=%s; products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments_1c u=%s",
+            "auto-sync: tochka m=%s u=%s; orders_pushed=%s; warehouses c=%s u=%s; categories c=%s u=%s; "
+            "products c=%s u=%s; invoices c=%s u=%s; docs a=%s; payments_1c u=%s; receiving c=%s u=%s; transfers c=%s u=%s",
             rt.get("matched"), rt.get("unmatched"), r0.get("pushed"),
+            rw.get("created"), rw.get("updated"), rc.get("created"), rc.get("updated"),
             r1.get("created"), r1.get("updated"),
             r3.get("created"), r3.get("updated"), rd.get("attached"), r2.get("updated"),
+            rr.get("created"), rr.get("updated"), rtr.get("created"), rtr.get("updated"),
         )
     except Exception as e:
         logger.error("auto-sync job error: %s", e)
@@ -602,6 +611,10 @@ app.include_router(contracts.router)
 app.include_router(settings.router)
 app.include_router(reports.router)
 app.include_router(warehouse.router)
+app.include_router(warehouse_shipping.router)
+app.include_router(warehouse_receiving.router)
+app.include_router(warehouse_transfers.router)
+app.include_router(warehouse_writeoffs.router)
 app.include_router(receivables.router)
 app.include_router(notifications.router)
 app.include_router(claims.router)
@@ -737,6 +750,10 @@ import app.routers.contracts as _r_con
 import app.routers.settings as _r_set
 import app.routers.reports as _r_rep
 import app.routers.warehouse as _r_wh
+import app.routers.warehouse_shipping as _r_wh_ship
+import app.routers.warehouse_receiving as _r_wh_recv
+import app.routers.warehouse_transfers as _r_wh_trans
+import app.routers.warehouse_writeoffs as _r_wh_wo
 import app.routers.receivables as _r_rec
 import app.routers.notifications as _r_notif
 import app.routers.claims as _r_claims
@@ -754,5 +771,5 @@ import app.routers.sourcing as _r_sourcing
 import app.routers.api_sbis as _r_api_sbis
 import app.routers.hr as _r_hr
 
-for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_sync_1c, _r_sourcing, _r_api_sbis, _r_hr]:
+for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_wh_ship, _r_wh_recv, _r_wh_trans, _r_wh_wo, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_sync_1c, _r_sourcing, _r_api_sbis, _r_hr]:
     _mod.templates = _templates
