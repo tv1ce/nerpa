@@ -330,11 +330,13 @@ async def create_employee(
     request: Request,
     full_name: str = Form(...),
     position_id: str = Form(default=""),
+    manager_id: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     db.add(HrEmployee(
         full_name=full_name.strip(),
         position_id=int(position_id) if position_id else None,
+        manager_id=int(manager_id) if manager_id else None,
     ))
     db.commit()
     return RedirectResponse(url="/hr/", status_code=302)
@@ -347,6 +349,7 @@ async def edit_employee(
     employee_id: int,
     full_name: str = Form(...),
     position_id: str = Form(default=""),
+    manager_id: str = Form(default=""),
     is_active: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
@@ -355,6 +358,8 @@ async def edit_employee(
         now_active = bool(is_active)
         emp.full_name = full_name.strip()
         emp.position_id = int(position_id) if position_id else None
+        new_manager_id = int(manager_id) if manager_id else None
+        emp.manager_id = new_manager_id if new_manager_id != emp.id else None
         if emp.is_active and not now_active:
             # увольняем: сотрудник пропадает из текущего месяца сразу же — последний
             # видимый период это предыдущий месяц (текущий и позже уже не показываем)
@@ -656,6 +661,115 @@ async def send_ai_report(
         await asyncio.to_thread(telegram_send.send_markdown, ids, mdv2, bot_token)
     except Exception:
         logger.exception("Не удалось отправить ИИ-отчёт HR в Telegram")
+        return RedirectResponse(url=f"/hr/?period={period}&report=error", status_code=302)
+
+    return RedirectResponse(url=f"/hr/?period={period}&report=ok", status_code=302)
+
+
+def _gather_enps_managers_context(db: Session, period_date: date) -> list[dict]:
+    """Собирает оценки eNPS руководителей за период, сгруппированные по руководителю
+    (HrEmployee.manager_id), на основе ответов раздела «enps_managers» подчинённых.
+    Каждый подчинённый оценивает и комментирует именно своего непосредственного
+    руководителя — это и связывает ответ с конкретным управленцем."""
+    employees = [e for e in db.query(HrEmployee)
+                 .order_by(HrEmployee.full_name).all()
+                 if e.visible_in_period(period_date)]
+    by_id = {e.id: e for e in employees}
+    records = {r.employee_id: r for r in db.query(HrRecord).filter(
+        HrRecord.period == period_date, HrRecord.section == "enps_managers").all()}
+
+    by_manager: dict[int, list[dict]] = defaultdict(list)
+    for e in employees:
+        if not e.manager_id or e.manager_id not in by_id:
+            continue
+        if "enps_managers" not in e.enabled_sections:
+            continue
+        rec = records.get(e.id)
+        if not rec or (rec.score is None and not (rec.text_1 or "").strip()):
+            continue
+        by_manager[e.manager_id].append({
+            "name": e.full_name,
+            "score": rec.score,
+            "comment": (rec.text_1 or "").strip(),
+        })
+
+    result = []
+    for manager_id, answers in by_manager.items():
+        manager = by_id.get(manager_id)
+        if not manager:
+            continue
+        scored = [a["score"] for a in answers if a["score"] is not None]
+        avg = sum(scored) / len(scored) if scored else None
+        result.append({
+            "manager": manager.full_name,
+            "avg": avg,
+            "count": len(scored),
+            "answers": answers,
+        })
+    result.sort(key=lambda m: m["manager"])
+    return result
+
+
+def _format_enps_managers_report(period_label: str, managers: list[dict]) -> str:
+    lines = [f"📣 **eNPS руководителей — {period_label}**", ""]
+    if not managers:
+        lines.append("Данных нет за этот период.")
+        return "\n".join(lines).strip()
+
+    for m in managers:
+        avg_str = f"{m['avg']:.1f}" if m["avg"] is not None else "—"
+        warn = " ⚠️" if m["avg"] is not None and m["avg"] <= 6 else ""
+        lines.append(f"**{m['manager']}** — средний балл: {avg_str}/10 ({m['count']} оценок){warn}")
+        for a in m["answers"]:
+            score = f"{a['score']}/10" if a["score"] is not None else "—"
+            comment = f" — {a['comment']}" if a["comment"] else ""
+            lines.append(f"• {a['name']}: {score}{comment}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+@router.post("/report/enps-managers/telegram")
+@login_required
+async def send_enps_managers_report(
+    request: Request,
+    period: str = Form(...),
+    chat_ids: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    """Формирует отчёт eNPS руководителей за период (на основе оценок подчинённых)
+    и отправляет его в Telegram. chat_id можно менять прямо из формы — новое
+    значение сохраняется в тех же настройках, что и общий ИИ-отчёт HR."""
+    from app.routers.settings import _normalize_chat_ids
+    from app.services import telegram_send
+
+    period_date = _period_from_str(period)
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+
+    normalized = _normalize_chat_ids(chat_ids)
+    if normalized:
+        company.tg_hr_report_chat_ids = normalized
+    db.commit()
+
+    target_raw = company.tg_hr_report_chat_ids or company.tg_report_chat_ids or ""
+    ids = telegram_send.parse_chat_ids(target_raw)
+    if not ids:
+        return RedirectResponse(url=f"/hr/?period={period}&report=nochat", status_code=302)
+
+    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    if not bot_token:
+        return RedirectResponse(url=f"/hr/?period={period}&report=notoken", status_code=302)
+
+    try:
+        managers = _gather_enps_managers_context(db, period_date)
+        text = _format_enps_managers_report(_period_label(period_date), managers)
+        mdv2 = telegram_send.ai_text_to_mdv2(text)
+        await asyncio.to_thread(telegram_send.send_markdown, ids, mdv2, bot_token)
+    except Exception:
+        logger.exception("Не удалось отправить отчёт eNPS руководителей в Telegram")
         return RedirectResponse(url=f"/hr/?period={period}&report=error", status_code=302)
 
     return RedirectResponse(url=f"/hr/?period={period}&report=ok", status_code=302)

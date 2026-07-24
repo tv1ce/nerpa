@@ -352,6 +352,8 @@ def _migrate_db():
         ("products", "unit_id_1c", "TEXT"),
         ("stock_movements", "warehouse_id",    "INTEGER REFERENCES warehouses(id)"),
         ("stock_movements", "to_warehouse_id", "INTEGER REFERENCES warehouses(id)"),
+        # Непосредственный руководитель сотрудника (для отчёта eNPS руководителей)
+        ("hr_employees", "manager_id", "INTEGER REFERENCES hr_employees(id)"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

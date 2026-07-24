@@ -6,6 +6,9 @@
   <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#sendAiReport">
     <i class="bi bi-stars me-1"></i>ИИ-отчёт в Telegram
   </button>
+  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#sendEnpsManagersReport">
+    <i class="bi bi-megaphone me-1"></i>eNPS руководителей в Telegram
+  </button>
   <a href="/hr/surveys" class="btn btn-sm btn-outline-secondary"><i class="bi bi-send me-1"></i>Опросы</a>
   <a href="/hr/positions" class="btn btn-sm btn-outline-secondary"><i class="bi bi-diagram-3 me-1"></i>Должности</a>
   <span class="vr mx-1"></span>
@@ -48,6 +51,7 @@
             <tr>
               <th class="ps-3">Сотрудник</th>
               <th>Должность</th>
+              <th>Руководитель</th>
               <th style="width:220px">Заполнено за {{ period_label }}</th>
               <th></th>
               <th class="pe-3"></th>
@@ -61,6 +65,7 @@
                 {% if not e.is_active %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">неактивен</span>{% endif %}
               </td>
               <td class="text-muted" style="font-size:.85rem">{{ e.position_title or '—' }}</td>
+              <td class="text-muted" style="font-size:.85rem">{{ e.manager.full_name if e.manager else '—' }}</td>
               <td>
                 {% set enabled = e.enabled_sections %}
                 {% set total = enabled | length %}
@@ -83,7 +88,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="5" class="text-center py-4 text-muted">
+            <tr><td colspan="6" class="text-center py-4 text-muted">
               Сотрудников пока нет. Добавьте первого, чтобы начать вести учёт.
             </td></tr>
             {% endfor %}
@@ -148,7 +153,7 @@
             <label class="form-label form-label-sm">ФИО</label>
             <input type="text" name="full_name" class="form-control form-control-sm" required>
           </div>
-          <div class="mb-1">
+          <div class="mb-2">
             <label class="form-label form-label-sm">Должность</label>
             <select name="position_id" class="form-select form-select-sm">
               <option value="">— не задана —</option>
@@ -159,6 +164,15 @@
             {% if not positions %}
             <div class="form-text">Сначала создайте должности в разделе <a href="/hr/positions">Должности</a>.</div>
             {% endif %}
+          </div>
+          <div class="mb-1">
+            <label class="form-label form-label-sm">Руководитель</label>
+            <select name="manager_id" class="form-select form-select-sm">
+              <option value="">— не задан —</option>
+              {% for m in employees %}
+              <option value="{{ m.id }}">{{ m.full_name }}</option>
+              {% endfor %}
+            </select>
           </div>
         </div>
         <div class="modal-footer py-2 px-3">
@@ -194,6 +208,15 @@
               {% endfor %}
             </select>
           </div>
+          <div class="mb-2">
+            <label class="form-label form-label-sm">Руководитель</label>
+            <select name="manager_id" class="form-select form-select-sm">
+              <option value="">— не задан —</option>
+              {% for m in employees if m.id != e.id %}
+              <option value="{{ m.id }}" {% if e.manager_id == m.id %}selected{% endif %}>{{ m.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
           <div class="form-check">
             <input type="checkbox" name="is_active" value="1" class="form-check-input" id="active{{ e.id }}" {% if e.is_active %}checked{% endif %}>
             <label class="form-check-label" for="active{{ e.id }}">Активен</label>
@@ -225,6 +248,40 @@
           <p class="text-muted" style="font-size:.85rem">
             ИИ соберёт сводный отчёт по всем сотрудникам за выбранный период
             (личностный файл, достижения, eNPS, метрики, вакансии) и отправит его в Telegram.
+          </p>
+          <div class="mb-1">
+            <label class="form-label form-label-sm">Chat ID <span class="text-muted">(через запятую)</span></label>
+            <input type="text" name="chat_ids" class="form-control form-control-sm font-monospace"
+                   placeholder="-1001234567890" value="{{ default_chat_ids }}">
+            <div class="form-text" style="font-size:.72rem">Можно изменить — новое значение запомнится для следующих отчётов</div>
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-send me-1"></i>Отправить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Модалка: отчёт eNPS руководителей в Telegram -->
+<div class="modal fade" id="sendEnpsManagersReport" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/hr/report/enps-managers/telegram"
+            onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').innerHTML = 'Формирую и отправляю…';">
+        <input type="hidden" name="period" value="{{ period }}">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title"><i class="bi bi-megaphone me-1"></i>eNPS руководителей — {{ period_label }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <p class="text-muted" style="font-size:.85rem">
+            Отчёт соберёт оценки и комментарии из раздела «eNPS Руководителей», которые
+            подчинённые оставили о своём непосредственном руководителе за выбранный период,
+            сгруппирует по руководителям (по полю «Руководитель» в карточке сотрудника)
+            и отправит в Telegram.
           </p>
           <div class="mb-1">
             <label class="form-label form-label-sm">Chat ID <span class="text-muted">(через запятую)</span></label>

@@ -1098,6 +1098,7 @@ class HrEmployee(Base):
     full_name = Column(String(200), nullable=False)
     position = Column(String(200))                                    # legacy: текст должности
     position_id = Column(Integer, ForeignKey("hr_positions.id"))      # ссылка на справочник должностей
+    manager_id = Column(Integer, ForeignKey("hr_employees.id"))       # непосредственный руководитель
     is_active = Column(Boolean, default=True)
     # Последний месяц (1-е число), в котором сотрудник ещё виден — сохраняется при
     # деактивации (обычно это предыдущий месяц, чтобы сотрудник пропадал из текущего
@@ -1107,6 +1108,7 @@ class HrEmployee(Base):
 
     records = relationship("HrRecord", back_populates="employee")
     position_ref = relationship("HrPosition", back_populates="employees")
+    manager = relationship("HrEmployee", remote_side=[id], backref="subordinates")
 
     @property
     def position_title(self) -> str:
