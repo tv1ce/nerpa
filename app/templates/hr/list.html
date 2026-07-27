@@ -80,10 +80,10 @@
                 <a href="/hr/entry/{{ e.id }}?period={{ period }}" class="btn btn-sm btn-outline-primary">
                   <i class="bi bi-pencil-square me-1"></i>Заполнить
                 </a>
-                {# у кого есть подчинённые — тот заполняет их метрики по недельной ссылке #}
-                {% if e.id in manager_ids %}
+                {# ссылка на недельную форму: свои метрики + метрики подчинённых #}
+                {% if e.id in link_ids %}
                 <button class="btn btn-sm btn-outline-secondary metric-link" data-id="{{ e.id }}"
-                        title="Ссылка на еженедельную форму метрик подразделения">
+                        title="Ссылка на еженедельную форму метрик — свои и подчинённых">
                   <i class="bi bi-link-45deg"></i>
                 </button>
                 {% endif %}
@@ -106,40 +106,76 @@
   </div>
 
   <div class="col-lg-4">
+    {# Достижения команды — одна запись на месяц, идёт в ИИ-отчёт в Telegram #}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body pb-2">
+        <div class="fw-semibold mb-1">🏅 Достижения как команда</div>
+        <div class="text-muted mb-2" style="font-size:.78rem">
+          Что получилось у команды в целом за {{ period_label }}. Попадёт в ИИ-отчёт в Telegram.
+        </div>
+        <form method="post" action="/hr/team-achievement">
+          <input type="hidden" name="period" value="{{ period }}">
+          <textarea name="text" class="form-control form-control-sm" rows="5"
+                    placeholder="Например: самостоятельное движение — даже когда меня нет на связи, команда работает как живой организм, без торможения и сбоев.">{{ team_achievement }}</textarea>
+          <div class="text-end mt-2">
+            <button class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="card border-0 shadow-sm">
-      <div class="card-body d-flex align-items-center justify-content-between pb-2">
-        <div class="fw-semibold">📆 Сроки закрытия вакансий</div>
-        <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#addVacancy">
+      <div class="card-body d-flex align-items-center justify-content-between pb-1">
+        <div>
+          <div class="fw-semibold">📆 Вакансии</div>
+          {# смысл раздела — срок закрытия, поэтому он вынесен в шапку числом #}
+          <div class="text-muted" style="font-size:.78rem">
+            {% if vacancy_stats.avg %}Закрываем в среднем за <b>{{ vacancy_stats.avg_text }}</b>{% else %}Закрытых вакансий пока нет{% endif %}
+            {% if vacancy_stats.open %} · в работе {{ vacancy_stats.open }}{% endif %}
+          </div>
+        </div>
+        <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#addVacancy"
+                title="Добавить вакансию">
           <i class="bi bi-plus-lg"></i>
         </button>
       </div>
-      <div class="card-body pt-0">
-        {% for v in vacancies %}
-        <div class="d-flex align-items-center justify-content-between py-2 {% if not loop.last %}border-bottom{% endif %} flex-wrap gap-2">
-          <div>
-            <div class="fw-semibold" style="font-size:.9rem">{{ v.title }}</div>
-            <div class="text-muted" style="font-size:.78rem">
-              Открытие: {{ v.opened_at.strftime('%d.%m.%Y') if v.opened_at else '—' }}
-              {% if v.closed_at %} · Закрытие: {{ v.closed_at.strftime('%d.%m.%Y') }}{% endif %}
+      <div class="card-body pt-2">
+        {% for row in vacancies %}{% set v = row.v %}
+        <div class="d-flex align-items-start justify-content-between gap-2 py-2 {% if not loop.last %}border-bottom{% endif %}">
+          <div class="flex-grow-1" style="min-width:0">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              <span class="fw-semibold" style="font-size:.9rem">{{ v.title }}</span>
+              {% if row.is_closed %}
+              <span class="badge bg-success-subtle text-success-emphasis border border-success-subtle"
+                    style="font-size:.68rem">закрыта за {{ row.days_text }}</span>
+              {% else %}
+              <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle"
+                    style="font-size:.68rem">в работе {{ row.days_text }}</span>
+              {% endif %}
+            </div>
+            <div class="text-muted" style="font-size:.76rem">
+              {{ v.opened_at.strftime('%d.%m.%Y') if v.opened_at else '—' }}
+              {% if row.is_closed %} → {{ v.closed_at.strftime('%d.%m.%Y') }}{% endif %}
             </div>
           </div>
-          <div class="d-flex align-items-center gap-1">
-            <form method="post" action="/hr/vacancies/{{ v.id }}/close" class="d-flex align-items-center gap-1">
-              <input type="date" name="closed_at" class="form-control form-control-sm" style="width:132px; font-size:.72rem"
-                     value="{{ v.closed_at.isoformat() if v.closed_at else today }}">
-              <button class="btn btn-xs btn-outline-success" style="font-size:.72rem">
-                {{ 'Сохранить' if v.closed_at else 'Закрыть' }}
-              </button>
-            </form>
-            {% if v.closed_at %}
-            <form method="post" action="/hr/vacancies/{{ v.id }}/reopen">
-              <button class="btn btn-xs btn-outline-secondary" style="font-size:.72rem">Открыть снова</button>
+
+          <div class="d-flex align-items-center gap-1 flex-shrink-0">
+            {% if not row.is_closed %}
+            {# частое действие — в один клик, сегодняшней датой #}
+            <form method="post" action="/hr/vacancies/{{ v.id }}/close">
+              <button class="btn btn-xs btn-outline-success" style="font-size:.72rem">Закрыть</button>
             </form>
             {% endif %}
+            <button class="btn btn-xs btn-outline-secondary border-0" data-bs-toggle="modal"
+                    data-bs-target="#editVacancy{{ v.id }}" title="Изменить">
+              <i class="bi bi-three-dots"></i>
+            </button>
           </div>
         </div>
         {% else %}
-        <div class="text-center text-muted py-3">Вакансий нет.</div>
+        <div class="text-center text-muted py-3" style="font-size:.85rem">
+          Вакансий нет. Добавьте открытую — система посчитает,<br>за сколько дней её закрыли.
+        </div>
         {% endfor %}
       </div>
     </div>
@@ -156,8 +192,9 @@
       </div>
       <div class="modal-body px-3">
         <p class="text-muted" style="font-size:.85rem">
-          Отправьте её руководителю один раз и попросите закрепить в чате: каждую неделю
-          он открывает ту же ссылку и вносит цифры по своим людям. Вход в TMS не нужен.
+          Отправьте её один раз и попросите закрепить в чате: каждую неделю руководитель
+          открывает ту же ссылку и вносит цифры — <b>свою метрику и метрики своих
+          сотрудников</b>. Вход в TMS не нужен.
         </p>
         <div class="input-group input-group-sm">
           <input type="text" id="metricLinkUrl" class="form-control font-monospace" readonly>
@@ -283,8 +320,9 @@
         </div>
         <div class="modal-body px-3">
           <p class="text-muted" style="font-size:.85rem">
-            ИИ соберёт сводный отчёт по всем сотрудникам за выбранный период
-            (личностный файл, достижения, eNPS, метрики, вакансии) и отправит его в Telegram.
+            ИИ соберёт сводный отчёт за выбранный период (личностный файл, достижения
+            команды и по сотрудникам, eNPS, метрики по неделям, вакансии) и отправит
+            его в Telegram.
           </p>
           <div class="mb-1">
             <label class="form-label form-label-sm">Chat ID <span class="text-muted">(через запятую)</span></label>
@@ -351,8 +389,9 @@
             <input type="text" name="title" class="form-control form-control-sm" required>
           </div>
           <div class="mb-1">
-            <label class="form-label form-label-sm">Дата открытия</label>
-            <input type="date" name="opened_at" class="form-control form-control-sm" value="{{ today_period }}-01">
+            <label class="form-label form-label-sm">Когда открыли</label>
+            <input type="date" name="opened_at" class="form-control form-control-sm" value="{{ today.isoformat() }}">
+            <div class="form-text" style="font-size:.72rem">От этой даты считается срок закрытия</div>
           </div>
         </div>
         <div class="modal-footer py-2 px-3">
@@ -363,6 +402,57 @@
     </div>
   </div>
 </div>
+
+<!-- Модалки: правка вакансии — редкие действия убраны сюда из строки списка -->
+{% for row in vacancies %}{% set v = row.v %}
+<div class="modal fade" id="editVacancy{{ v.id }}" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/hr/vacancies/{{ v.id }}/edit">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title">{{ v.title }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="mb-2">
+            <label class="form-label form-label-sm">Название</label>
+            <input type="text" name="title" class="form-control form-control-sm" value="{{ v.title }}" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label form-label-sm">Когда открыли</label>
+              <input type="date" name="opened_at" class="form-control form-control-sm"
+                     value="{{ v.opened_at.isoformat() if v.opened_at else '' }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label form-label-sm">Когда закрыли</label>
+              <input type="date" name="closed_at" class="form-control form-control-sm"
+                     value="{{ v.closed_at.isoformat() if v.closed_at else '' }}">
+              <div class="form-text" style="font-size:.72rem">Пусто — вакансия снова в работе</div>
+            </div>
+          </div>
+          {% if row.days is not none %}
+          <div class="mt-2 text-muted" style="font-size:.8rem">
+            Сейчас: {% if row.is_closed %}закрыта за {{ row.days_text }}{% else %}в работе {{ row.days_text }}{% endif %}
+          </div>
+          {% endif %}
+        </div>
+        <div class="modal-footer py-2 px-3 d-flex justify-content-between">
+          <button type="submit" class="btn btn-sm btn-outline-danger"
+                  formaction="/hr/vacancies/{{ v.id }}/delete"
+                  onclick="return confirm('Удалить вакансию «{{ v.title }}»? Она пропадёт из статистики сроков.')">
+            <i class="bi bi-trash me-1"></i>Удалить
+          </button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+            <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
 
 <script>
 (function () {

@@ -17,7 +17,7 @@ from app.database import get_db
 from app.auth import login_required
 from app.models import (
     HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
-    HrEmployeeInsight, Notification, User, CompanySettings,
+    HrEmployeeInsight, HrTeamAchievement, Notification, User, CompanySettings,
     HR_SECTIONS, HR_INPUT_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
 )
 
@@ -105,6 +105,37 @@ def _period_label(d: date) -> str:
     months = ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
               "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
     return f"{months[d.month]} {d.year}"
+
+
+def _days_word(n: int) -> str:
+    """«1 день», «3 дня», «12 дней» — русское склонение для сроков вакансий."""
+    if 11 <= n % 100 <= 14:
+        return "дней"
+    return {1: "день", 2: "дня", 3: "дня", 4: "дня"}.get(n % 10, "дней")
+
+
+def _vacancy_rows(vacancies: list[HrVacancy]) -> tuple[list[dict], dict]:
+    """Вакансии с посчитанным сроком + сводка. Смысл раздела — именно срок
+    закрытия, поэтому он считается здесь, а не остаётся датами в две строки."""
+    today = date.today()
+    rows = []
+    for v in vacancies:
+        end = v.closed_at or today
+        days = (end - v.opened_at).days if v.opened_at else None
+        rows.append({
+            "v": v,
+            "days": days,
+            "days_text": f"{days} {_days_word(days)}" if days is not None else "—",
+            "is_closed": v.closed_at is not None,
+        })
+    closed = [r["days"] for r in rows if r["is_closed"] and r["days"] is not None]
+    return rows, {
+        "open": sum(1 for r in rows if not r["is_closed"]),
+        "closed": len(closed),
+        "avg": round(sum(closed) / len(closed)) if closed else None,
+        "avg_text": (f"{round(sum(closed) / len(closed))} "
+                     f"{_days_word(round(sum(closed) / len(closed)))}") if closed else "",
+    }
 
 
 def _shift_period(d: date, delta: int) -> date:
@@ -300,16 +331,33 @@ async def hr_home(request: Request, period: str = "", db: Session = Depends(get_
 
     positions = db.query(HrPosition).filter(HrPosition.is_active == True).order_by(HrPosition.title).all()
     vacancies = db.query(HrVacancy).order_by(HrVacancy.closed_at.is_not(None), HrVacancy.opened_at.desc()).all()
+    vacancy_rows, vacancy_stats = _vacancy_rows(vacancies)
     company = db.query(CompanySettings).first()
     default_chat_ids = (company.tg_hr_report_chat_ids or company.tg_report_chat_ids or "") if company else ""
 
+    # Ссылка на недельную форму нужна тем, кого не покрывает чужая ссылка:
+    #   • руководителям — их ссылка включает и подчинённых, и их самих;
+    #   • тем, у кого есть своя метрика, но нет руководителя (например, HR-менеджер) —
+    #     иначе внести свою цифру им негде.
+    # Рядовым сотрудникам ссылка не нужна: их метрики заполняет руководитель.
+    from app.models import HrMetric
+    with_metrics = {row[0] for row in db.query(HrMetric.employee_id)
+                    .filter(HrMetric.is_active == True).distinct().all()}
+    link_ids = {e.manager_id for e in all_employees if e.manager_id}
+    link_ids |= {e.id for e in all_employees
+                 if e.manager_id is None and e.id in with_metrics}
+
+    team = db.query(HrTeamAchievement).filter(
+        HrTeamAchievement.period == period_date).first()
+
     return templates.TemplateResponse(request, "hr/list.html", {
         "employees": employees,
-        # у кого есть подчинённые — тем показываем ссылку на недельную форму метрик
-        "manager_ids": {e.manager_id for e in all_employees if e.manager_id},
+        "link_ids": link_ids,
+        "team_achievement": (team.text or "") if team else "",
         "positions": positions,
         "filled_sections": filled_sections,
-        "vacancies": vacancies,
+        "vacancies": vacancy_rows,
+        "vacancy_stats": vacancy_stats,
         "period": _period_str(period_date),
         "period_label": _period_label(period_date),
         "prev_period": _period_str(_shift_period(period_date, -1)),
@@ -370,6 +418,34 @@ async def edit_employee(
         emp.is_active = now_active
         db.commit()
     return RedirectResponse(url="/hr/", status_code=302)
+
+
+# ── Достижения как команда (одна запись на месяц, заполняет HR) ──────────────
+
+@router.post("/team-achievement")
+@login_required
+async def save_team_achievement(
+    request: Request,
+    period: str = Form(...),
+    text: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    period_date = _period_from_str(period)
+    row = db.query(HrTeamAchievement).filter(
+        HrTeamAchievement.period == period_date).first()
+    cleaned = text.strip()
+    if not cleaned:
+        # пустое поле = записи за месяц нет, чтобы она не мозолила глаз в отчёте
+        if row:
+            db.delete(row)
+    else:
+        if not row:
+            row = HrTeamAchievement(period=period_date)
+            db.add(row)
+        row.text = cleaned
+        row.updated_by = request.session.get("user_id")
+    db.commit()
+    return RedirectResponse(url=f"/hr/?period={period}&saved=1", status_code=302)
 
 
 # ── Профайл сотрудника: история ответов + ИИ-анализ динамики ─────────────────
@@ -501,8 +577,11 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
         })
     vacancies = db.query(HrVacancy).order_by(
         HrVacancy.closed_at.is_not(None), HrVacancy.opened_at.desc()).all()
+    team = db.query(HrTeamAchievement).filter(
+        HrTeamAchievement.period == period_date).first()
     return {
         "period_label": _period_label(period_date),
+        "team_achievement": (team.text or "").strip() if team else "",
         "employees": emp_data,
         "vacancies": [{"title": v.title, "opened_at": v.opened_at, "closed_at": v.closed_at}
                       for v in vacancies],
@@ -560,9 +639,18 @@ def _format_hr_report(ctx: dict, summaries: dict[int, str]) -> str:
             lines.append(f"**{e['name']}** — {summary}")
             lines.append("")
 
+    if ctx["team_achievement"]:
+        lines.append("🏅 **Достижения как команда**")
+        lines.append("")
+        for row in ctx["team_achievement"].splitlines():
+            row = row.strip()
+            if row:
+                lines.append(row)
+        lines.append("")
+
     achievers = [e for e in ctx["employees"] if "achievements" in e["enabled"]]
     if achievers:
-        lines.append("🏅 **Достижения**")
+        lines.append("🏅 **Достижения по сотрудникам**")
         lines.append("")
         for e in achievers:
             lines.append(f"{e['name']} - {e['position']}")
@@ -988,6 +1076,43 @@ async def reopen_vacancy(request: Request, vacancy_id: int, db: Session = Depend
     vac = db.query(HrVacancy).filter(HrVacancy.id == vacancy_id).first()
     if vac:
         vac.closed_at = None
+        db.commit()
+    return RedirectResponse(url="/hr/", status_code=302)
+
+
+@router.post("/vacancies/{vacancy_id}/edit")
+@login_required
+async def edit_vacancy(
+    request: Request, vacancy_id: int,
+    title: str = Form(default=""),
+    opened_at: str = Form(default=""),
+    closed_at: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    """Правка вакансии целиком: название и обе даты. Раньше можно было менять
+    только дату закрытия, а опечатку в дате открытия — уже нет, хотя именно от
+    неё считается срок."""
+    vac = db.query(HrVacancy).filter(HrVacancy.id == vacancy_id).first()
+    if vac:
+        vac.title = title.strip() or vac.title
+        try:
+            vac.opened_at = date.fromisoformat(opened_at) if opened_at else vac.opened_at
+        except ValueError:
+            pass
+        try:
+            vac.closed_at = date.fromisoformat(closed_at) if closed_at else None
+        except ValueError:
+            pass
+        db.commit()
+    return RedirectResponse(url="/hr/", status_code=302)
+
+
+@router.post("/vacancies/{vacancy_id}/delete")
+@login_required
+async def delete_vacancy(request: Request, vacancy_id: int, db: Session = Depends(get_db)):
+    vac = db.query(HrVacancy).filter(HrVacancy.id == vacancy_id).first()
+    if vac:
+        db.delete(vac)
         db.commit()
     return RedirectResponse(url="/hr/", status_code=302)
 

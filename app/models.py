@@ -1199,6 +1199,19 @@ class HrRecord(Base):
     author = relationship("User")
 
 
+class HrTeamAchievement(Base):
+    """«Достижения как команда» за месяц — одна запись на всю компанию, а не на
+    сотрудника: HR описывает, что получилось у команды в целом. Попадает в
+    ежемесячный ИИ-отчёт HR в Telegram."""
+    __tablename__ = "hr_team_achievements"
+    id = Column(Integer, primary_key=True)
+    period = Column(Date, nullable=False, unique=True)   # месяц, хранится 1-м числом
+    text = Column(Text)
+    updated_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class HrVacancy(Base):
     """Вакансия — срок закрытия (не привязана к конкретному сотруднику)."""
     __tablename__ = "hr_vacancies"

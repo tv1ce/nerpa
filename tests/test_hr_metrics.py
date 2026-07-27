@@ -251,6 +251,49 @@ def test_metrics_export_csv(admin_client):
     assert "ФИО;Должность;Метрика" in r.text
 
 
+def test_team_achievement_saved_and_reaches_report(admin_client):
+    """«Достижения как команда» — одна запись на месяц, попадает в отчёт HR."""
+    from app.database import SessionLocal
+    from app.routers import hr
+
+    period = date.today().replace(day=1)
+    text = "Команда движется сама, без ручного управления."
+
+    r = admin_client.post("/hr/team-achievement", data={
+        "period": period.strftime("%Y-%m"), "text": text,
+        "csrf_token": _csrf(admin_client),
+    }, follow_redirects=False)
+    assert r.status_code == 302
+
+    # поле возвращается в форму на той же странице периода
+    page = admin_client.get(f"/hr/?period={period:%Y-%m}")
+    assert text in page.text
+
+    db = SessionLocal()
+    try:
+        ctx = hr._gather_ai_report_context(db, period)
+        assert ctx["team_achievement"] == text
+        report = hr._format_hr_report(ctx, {})
+        assert "Достижения как команда" in report
+        assert text in report
+    finally:
+        db.close()
+
+    # пустой текст стирает запись за месяц, чтобы она не висела в отчёте
+    admin_client.post("/hr/team-achievement", data={
+        "period": period.strftime("%Y-%m"), "text": "   ",
+        "csrf_token": _csrf(admin_client),
+    }, follow_redirects=False)
+
+    db = SessionLocal()
+    try:
+        ctx = hr._gather_ai_report_context(db, period)
+        assert ctx["team_achievement"] == ""
+        assert "Достижения как команда" not in hr._format_hr_report(ctx, {})
+    finally:
+        db.close()
+
+
 def test_public_week_form_rejects_unknown_token(client):
     r = client.get("/hr/w/несуществующий-токен")
     assert r.status_code == 404
@@ -303,6 +346,94 @@ def test_manager_link_is_created_on_demand_and_reused(admin_client):
 
     # старая ссылка после перевыпуска больше не открывается
     assert admin_client.get(url.replace("http://testserver", "")).status_code == 404
+
+
+def test_week_form_includes_manager_own_metric_first(admin_client):
+    """Руководитель вносит и свою метрику: она идёт первой карточкой и помечена."""
+    import secrets
+    from app.database import SessionLocal
+    from app.models import HrEmployee, HrMetric, HrMetricToken
+
+    db = SessionLocal()
+    try:
+        boss = HrEmployee(full_name="Яковлев Босс Боссович", position="Мастер-Технолог")
+        db.add(boss)
+        db.flush()
+        # подчинённый с фамилией на «А» — без сортировки он оказался бы выше начальника
+        worker = HrEmployee(full_name="Абрамов Раб Рабович", position="Кондитер",
+                            manager_id=boss.id)
+        db.add(worker)
+        db.flush()
+        db.add(HrMetric(employee_id=boss.id, title="Отгружено орешков", kind="number"))
+        db.add(HrMetric(employee_id=worker.id, title="Изделия по ТТК", kind="number"))
+        token = secrets.token_urlsafe(16)
+        db.add(HrMetricToken(manager_id=boss.id, token=token))
+        db.commit()
+        boss_id = boss.id
+    finally:
+        db.close()
+
+    r = admin_client.get(f"/hr/w/{token}")
+    assert r.status_code == 200
+    assert "Отгружено орешков" in r.text, "своей метрики руководителя нет в форме"
+    assert "Абрамов Раб Рабович" in r.text
+
+    # своя карточка — раньше подчинённого, несмотря на алфавит
+    assert r.text.index("Яковлев Босс Боссович") < r.text.index("Абрамов Раб Рабович")
+    assert "ваша метрика" in r.text
+
+    # и она действительно сохраняется через эту же форму
+    from app.database import SessionLocal as SL
+    from app.models import HrMetric as M, HrMetricValue as V
+    db = SL()
+    try:
+        own = db.query(M).filter(M.employee_id == boss_id).one()
+        metric_id = own.id
+    finally:
+        db.close()
+
+    week = hm._week_start(date.today()).isoformat()
+    saved = admin_client.post(f"/hr/w/{token}", data={
+        "week": week, f"m{metric_id}_value": "1680", "author": "Босс",
+    }, follow_redirects=False)
+    assert saved.status_code == 302
+
+    db = SL()
+    try:
+        rec = db.query(V).filter(V.metric_id == metric_id).one()
+        assert rec.value == 1680
+    finally:
+        db.close()
+
+
+def test_link_offered_to_employee_without_subordinates(admin_client):
+    """У сотрудника без подчинённых, но со своей метрикой, тоже есть ссылка —
+    иначе внести свою цифру ему негде."""
+    from app.database import SessionLocal
+    from app.models import HrEmployee, HrMetric
+
+    db = SessionLocal()
+    try:
+        solo = HrEmployee(full_name="Одиночкина Анна Сергеевна", position="HR-менеджер")
+        db.add(solo)
+        db.flush()
+        db.add(HrMetric(employee_id=solo.id, title="Сотрудники с растущей метрикой",
+                        kind="number"))
+        db.commit()
+        solo_id = solo.id
+    finally:
+        db.close()
+
+    r = admin_client.get("/hr/")
+    assert r.status_code == 200
+    assert f'class="btn btn-sm btn-outline-secondary metric-link" data-id="{solo_id}"' in r.text
+
+    # ссылка охватывает только её саму
+    link = admin_client.post(f"/hr/metrics/link/{solo_id}",
+                             headers={"X-CSRF-Token": _csrf(admin_client)}).json()["url"]
+    form = admin_client.get(link.replace("http://testserver", ""))
+    assert "Одиночкина Анна Сергеевна" in form.text
+    assert "ваша метрика" in form.text
 
 
 def test_public_week_form_shows_department(admin_client):

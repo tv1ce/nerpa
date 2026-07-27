@@ -616,16 +616,29 @@ def _load_token(db: Session, token: str) -> HrMetricToken | None:
 
 def _week_form_context(db: Session, tok: HrMetricToken, ws: date) -> dict:
     """Данные формы недели: метрики подразделения + значения этой недели и
-    три предыдущие недели для контекста («а сколько было в прошлый раз»)."""
+    три предыдущие недели для контекста («а сколько было в прошлый раз»).
+
+    Руководитель заполняет и свою метрику тоже — его карточка идёт первой и
+    помечена, иначе про неё забывают, приняв ссылку за форму «на подчинённых»."""
     metrics = _active_metrics(db, employee_ids=_scope_employee_ids(db, tok.manager_id))
     history_weeks = _week_range(ws, 4)
     rows = _metric_rows(db, metrics, history_weeks)
     for r in rows:
         r["current"] = next(c for c in r["cells"] if c["week"] == ws)
         r["history"] = [c for c in r["cells"] if c["week"] != ws]
-    by_employee: dict[str, list[dict]] = defaultdict(list)
+
+    groups: dict[int, dict] = {}
     for r in rows:
-        by_employee[r["employee"].full_name].append(r)
+        emp = r["employee"]
+        group = groups.setdefault(emp.id, {
+            "employee": emp,
+            "name": emp.full_name,
+            "is_self": emp.id == tok.manager_id,
+            "rows": [],
+        })
+        group["rows"].append(r)
+    # своя карточка первой, остальные по алфавиту
+    by_employee = sorted(groups.values(), key=lambda g: (not g["is_self"], g["name"]))
 
     # Подставляем в «Кто заполнил» имя из последней записи по этому подразделению —
     # руководитель не должен представляться заново каждую неделю
@@ -636,7 +649,7 @@ def _week_form_context(db: Session, tok: HrMetricToken, ws: date) -> dict:
 
     return {
         "rows": rows,
-        "by_employee": sorted(by_employee.items()),
+        "by_employee": by_employee,
         "filled": sum(1 for r in rows if r["current"]["filled"]),
         "total": len(rows),
         "last_author": (tok.manager.full_name if tok.manager else None) or last_author or "",
@@ -659,7 +672,9 @@ async def week_form(request: Request, token: str, week: str = "",
         "invalid": False,
         "token": token,
         "tok": tok,
-        "scope_title": tok.label or (f"Подразделение: {tok.manager.full_name}"
+        # подпись прямо говорит, что заполнять надо и за себя — иначе ссылку
+        # читают как «форму на подчинённых» и свою метрику пропускают
+        "scope_title": tok.label or (f"{tok.manager.full_name} — за себя и своих сотрудников"
                                      if tok.manager else "Вся компания"),
         "week": ws.isoformat(),
         "week_label": _week_label(ws),

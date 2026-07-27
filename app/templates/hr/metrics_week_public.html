@@ -21,6 +21,13 @@
                  border:1px solid rgba(255,255,255,.35); border-radius:8px; padding:2px 10px; }
     .emp-card { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,.06);
                 padding:16px 18px; margin-bottom:12px; }
+    /* карточка самого руководителя — он заполняет и за себя, её легко пропустить */
+    .emp-self { border:2px solid var(--brand); }
+    /* nowrap — иначе на узком экране бейдж рвётся посередине на две строки */
+    .self-badge { display:inline-block; white-space:nowrap; font-size:.7rem; font-weight:600;
+                  text-transform:uppercase; letter-spacing:.04em; background:var(--brand);
+                  color:#fff; border-radius:999px; padding:2px 9px; margin-left:6px;
+                  vertical-align:2px; }
     .emp-name { font-weight:600; font-size:1.02rem; color:#1C1917; }
     .emp-pos  { font-size:.8rem; color:var(--muted); margin-bottom:10px; }
     .met      { border-top:1px solid #EFEAE1; padding-top:12px; margin-top:12px; }
@@ -98,12 +105,15 @@
   <form method="post" action="/hr/w/{{ token }}">
     <input type="hidden" name="week" value="{{ week }}">
 
-    {% for emp_name, emp_rows in by_employee %}
-    <div class="emp-card">
-      <div class="emp-name">{{ emp_name }}</div>
-      <div class="emp-pos">{{ emp_rows[0].employee.position_title or '—' }}</div>
+    {% for g in by_employee %}
+    <div class="emp-card {% if g.is_self %}emp-self{% endif %}">
+      <div class="emp-name">
+        {{ g.name }}
+        {% if g.is_self %}<span class="self-badge">ваша метрика</span>{% endif %}
+      </div>
+      <div class="emp-pos">{{ g.employee.position_title or '—' }}</div>
 
-      {% for r in emp_rows %}{% set m = r.metric %}{% set c = r.current %}
+      {% for r in g.rows %}{% set m = r.metric %}{% set c = r.current %}
       <div class="met">
         <div class="met-title">
           {{ m.title }}
