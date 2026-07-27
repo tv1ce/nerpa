@@ -354,6 +354,9 @@ def _migrate_db():
         ("stock_movements", "to_warehouse_id", "INTEGER REFERENCES warehouses(id)"),
         # Непосредственный руководитель сотрудника (для отчёта eNPS руководителей)
         ("hr_employees", "manager_id", "INTEGER REFERENCES hr_employees(id)"),
+        # Цель метрики в том виде, как её написал HR («не менее 97%») — из неё
+        # выводятся числовая цель, направление и единица измерения
+        ("hr_metrics", "target_text", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

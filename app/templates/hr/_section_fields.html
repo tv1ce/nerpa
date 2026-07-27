@@ -37,19 +37,6 @@
   <label class="form-label form-label-sm text-muted">{{ questions.enps_mgr_2 }}</label>
   <textarea name="enps_managers_comment" class="form-control" rows="2">{{ rec.text_1 if rec else '' }}</textarea>
 
-{% elif code == 'metrics' %}
-  {# метрика собирается дважды в месяц — два полумесяца в одной форме #}
-  <div class="row g-3">
-    <div class="col-md-6">
-      <label class="form-label form-label-sm text-muted"><b>1–15</b> числа</label>
-      <textarea name="metrics_h1" class="form-control" rows="3">{{ records.metrics_h1.text_1 if records.get('metrics_h1') else '' }}</textarea>
-    </div>
-    <div class="col-md-6">
-      <label class="form-label form-label-sm text-muted"><b>16 — конец</b> месяца</label>
-      <textarea name="metrics_h2" class="form-control" rows="3">{{ records.metrics_h2.text_1 if records.get('metrics_h2') else '' }}</textarea>
-    </div>
-  </div>
-
 {% elif code == 'gravity' %}
   <label class="form-label form-label-sm text-muted">Что притягивает и держит в компании — общими словами</label>
   <textarea name="gravity_1" class="form-control mb-3" rows="3">{{ rec.text_1 if rec else '' }}</textarea>

@@ -6,9 +6,16 @@
   - пустой ввод удаляет значение недели
   - публичная ссылка руководителя собирает метрики его подразделения
 """
+import re
 from datetime import date, timedelta
 
 from app.routers import hr_metrics as hm
+
+
+def _csrf(client) -> str:
+    """CSRF-токен текущей сессии — из hidden-поля любой страницы с формой."""
+    m = re.search(r'name="csrf_token"\s+value="([^"]+)"', client.get("/hr/").text)
+    return m.group(1) if m else ""
 
 
 # ── Недели ────────────────────────────────────────────────────────────────────
@@ -44,6 +51,52 @@ def test_num_accepts_human_input():
     assert hm._num("97,5") == 97.5
     assert hm._num("") is None
     assert hm._num("не помню") is None
+
+
+# ── Цель одной строкой ───────────────────────────────────────────────────────
+
+def test_target_more_is_better():
+    p = hm.parse_target("не менее 97%")
+    assert (p["target"], p["direction"], p["kind"], p["unit"]) == (97.0, "up", "percent", "%")
+
+
+def test_target_less_is_better():
+    p = hm.parse_target("не более 2 шт.")
+    assert p["target"] == 2.0
+    assert p["direction"] == "down"
+    assert p["kind"] == "number"
+    assert p["unit"] == "шт"
+
+
+def test_target_bare_number_is_growth_by_default():
+    p = hm.parse_target("1500 шт.")
+    assert (p["target"], p["direction"], p["kind"]) == (1500.0, "up", "number")
+
+
+def test_target_recognises_money_and_symbols():
+    assert hm.parse_target("от 300 000 ₽")["kind"] == "money"
+    assert hm.parse_target("≥ 98%")["direction"] == "up"
+    assert hm.parse_target("<= 5")["direction"] == "down"
+
+
+def test_target_two_numbers_forces_percent():
+    """Признак «вводятся два числа» важнее того, что написано в строке цели."""
+    p = hm.parse_target("не менее 98 операций", two_numbers=True)
+    assert p["kind"] == "ratio"
+    assert p["unit"] == "%"
+    assert p["target"] == 98.0
+
+
+def test_target_empty_is_no_target():
+    p = hm.parse_target("")
+    assert p["target"] is None
+    assert p["direction"] == "up"
+    assert "не задана" in hm._target_hint(p)
+
+
+def test_target_hint_is_readable():
+    assert hm._target_hint(hm.parse_target("не более 2 шт.")) == "цель 2 шт, чем меньше — тем лучше"
+    assert hm._target_hint(hm.parse_target("не менее 97%")) == "цель 97%, чем больше — тем лучше"
 
 
 # ── Расчёт значения ──────────────────────────────────────────────────────────
@@ -202,6 +255,54 @@ def test_public_week_form_rejects_unknown_token(client):
     r = client.get("/hr/w/несуществующий-токен")
     assert r.status_code == 404
     assert "Ссылка недействительна" in r.text
+
+
+def test_old_text_metrics_section_is_retired(admin_client):
+    """Старый текстовый раздел больше не предлагается к заполнению, но его код
+    остаётся в HR_SECTIONS — иначе уже собранные ответы пропадут из профайла."""
+    from app.models import HR_SECTIONS, HR_INPUT_SECTIONS
+
+    assert "metrics" in HR_SECTIONS
+    assert "metrics" not in HR_INPUT_SECTIONS
+
+    r = admin_client.get("/hr/positions")
+    assert r.status_code == 200
+    assert 'name="sec_metrics"' not in r.text, "чекбокс старого раздела остался в должностях"
+
+
+def test_manager_link_is_created_on_demand_and_reused(admin_client):
+    """Ссылка не заводится руками: первый запрос создаёт её, второй отдаёт ту же."""
+    from app.database import SessionLocal
+    from app.models import HrEmployee
+
+    db = SessionLocal()
+    try:
+        boss = HrEmployee(full_name="Ссылкин Пётр Петрович", position="Мастер")
+        db.add(boss)
+        db.commit()
+        boss_id = boss.id
+    finally:
+        db.close()
+
+    # ссылка запрашивается из UI через fetch — CSRF приходит заголовком
+    headers = {"X-CSRF-Token": _csrf(admin_client)}
+
+    assert admin_client.post(f"/hr/metrics/link/{boss_id}").status_code == 403, \
+        "эндпоинт должен требовать CSRF-токен"
+
+    first = admin_client.post(f"/hr/metrics/link/{boss_id}", headers=headers)
+    assert first.status_code == 200
+    url = first.json()["url"]
+    assert "/hr/w/" in url
+
+    again = admin_client.post(f"/hr/metrics/link/{boss_id}", headers=headers)
+    assert again.json()["url"] == url, "повторный запрос должен отдавать ту же ссылку"
+
+    refreshed = admin_client.post(f"/hr/metrics/link/{boss_id}?refresh=1", headers=headers)
+    assert refreshed.json()["url"] != url, "перевыпуск должен менять токен"
+
+    # старая ссылка после перевыпуска больше не открывается
+    assert admin_client.get(url.replace("http://testserver", "")).status_code == 404
 
 
 def test_public_week_form_shows_department(admin_client):

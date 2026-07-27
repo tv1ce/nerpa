@@ -1055,6 +1055,11 @@ HR_SECTIONS = (
     "enps", "enps_managers", "metrics", "gravity",
 )
 
+# Разделы, которые ещё заполняются в месячной форме и опросах. «metrics» сюда не
+# входит: метрика переехала в недельный числовой раздел (HrMetric), но код остаётся
+# в HR_SECTIONS, чтобы уже собранные текстовые ответы не пропали из профайла.
+HR_INPUT_SECTIONS = tuple(s for s in HR_SECTIONS if s != "metrics")
+
 # Вид периода сбора: весь месяц или половина месяца (двухнедельный сбор).
 #   month — весь месяц; h1 — 1–15; h2 — 16–конец
 HR_PERIOD_KINDS = ("month", "h1", "h2")
@@ -1084,7 +1089,7 @@ class HrPosition(Base):
     @property
     def enabled_sections(self) -> list[str]:
         off = self.disabled_set
-        return [s for s in HR_SECTIONS if s not in off]
+        return [s for s in HR_INPUT_SECTIONS if s not in off]
 
     @property
     def personal_question_list(self) -> list[str]:
@@ -1121,7 +1126,7 @@ class HrEmployee(Base):
         """Разделы, применимые к сотруднику с учётом его должности."""
         if self.position_ref:
             return self.position_ref.enabled_sections
-        return list(HR_SECTIONS)
+        return list(HR_INPUT_SECTIONS)
 
     def visible_in_period(self, period_date) -> bool:
         """Виден ли сотрудник в списке за данный месяц: активные — всегда,
@@ -1167,7 +1172,7 @@ class HrSurveyToken(Base):
     @property
     def effective_sections(self) -> list[str]:
         """Разделы раунда, применимые к должности сотрудника."""
-        enabled = set(self.employee.enabled_sections) if self.employee else set(HR_SECTIONS)
+        enabled = set(self.employee.enabled_sections) if self.employee else set(HR_INPUT_SECTIONS)
         return [s for s in self.survey.section_list if s in enabled]
 
 
@@ -1232,17 +1237,12 @@ class HrEmployeeInsight(Base):
 #   ratio   — вводятся «всего» и «из них с ошибкой», % без ошибок считает система
 #             (в таблице-первоисточнике этот процент считали руками и с ошибками)
 HR_METRIC_KINDS = ("number", "money", "percent", "ratio")
-HR_METRIC_KIND_LABELS = {
-    "number":  "Число (шт., операции)",
-    "money":   "Деньги (₽)",
-    "percent": "Процент (вводится вручную)",
-    "ratio":   "Доля без ошибок (всего / с ошибкой)",
-}
 
 # Куда метрике «хорошо» расти: up — чем больше, тем лучше; down — наоборот
 # (например, «количество рекламаций» или «время сборки заказа»).
+# Оба поля не выбираются в форме — они выводятся из строки цели, см.
+# routers.hr_metrics.parse_target.
 HR_METRIC_DIRECTIONS = ("up", "down")
-HR_METRIC_DIRECTION_LABELS = {"up": "Чем больше — тем лучше", "down": "Чем меньше — тем лучше"}
 
 
 class HrMetric(Base):
@@ -1255,14 +1255,16 @@ class HrMetric(Base):
     employee_id = Column(Integer, ForeignKey("hr_employees.id"), nullable=False, index=True)
     title = Column(String(200), nullable=False)   # короткое название для шапки таблицы
     formula = Column(Text)                        # полная формулировка/правила расчёта
+    # Цель как её написал HR — «не менее 97%», «не более 2 шт.». Из этой строки
+    # выводятся target/direction/kind/unit ниже (см. routers.hr_metrics.parse_target);
+    # храним и исходный текст, чтобы форма показывала то, что человек ввёл.
+    target_text = Column(String(100))
     kind = Column(String(10), default="number")   # см. HR_METRIC_KINDS
     unit = Column(String(30))                     # подпись единиц: шт., ₽, %…
     direction = Column(String(4), default="up")   # см. HR_METRIC_DIRECTIONS
     target = Column(Float)                        # целевое значение (может быть пустым)
-    # Подписи полей для kind='ratio' — «20 отгрузок, 1 ошибка» читается по-разному
-    # у логиста и кладовщика, поэтому настраиваются на метрике.
-    label_total = Column(String(40), default="всего")
-    label_bad = Column(String(40), default="с ошибкой")
+    label_total = Column(String(40), default="всего")     # legacy, больше не настраивается
+    label_bad = Column(String(40), default="с ошибкой")   # legacy, больше не настраивается
     is_active = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
     created_by = Column(Integer, ForeignKey("users.id"))

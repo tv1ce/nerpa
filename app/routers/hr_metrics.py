@@ -15,6 +15,7 @@ import csv
 import io
 import logging
 import os
+import re
 import secrets
 import time
 from collections import defaultdict
@@ -29,8 +30,6 @@ from app.database import get_db
 from app.auth import login_required
 from app.models import (
     HrEmployee, HrMetric, HrMetricValue, HrMetricToken, CompanySettings,
-    HR_METRIC_KINDS, HR_METRIC_KIND_LABELS, HR_METRIC_DIRECTIONS,
-    HR_METRIC_DIRECTION_LABELS,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,7 +38,7 @@ router = APIRouter(prefix="/hr", tags=["hr-metrics"])
 templates = Jinja2Templates(directory="app/templates")
 
 # Сколько недель показывать в таблице по умолчанию
-DEFAULT_WEEKS = 8
+DEFAULT_WEEKS = 4
 MAX_WEEKS = 26
 
 MONTHS_GEN = ["", "января", "февраля", "марта", "апреля", "мая", "июня",
@@ -110,6 +109,67 @@ def _num(raw) -> float | None:
         return float(s)
     except ValueError:
         return None
+
+
+# ── Цель одной строкой ───────────────────────────────────────────────────────
+# HR формулирует метрику словами — «не менее 97%», «не более 2 шт.», «1500 шт.».
+# Разбираем эту строку в цель + направление + единицу, чтобы не заставлять
+# заполнять три отдельных поля. Что распозналось — показываем обратно текстом,
+# так что «магия» остаётся проверяемой (см. _target_hint).
+
+_LESS_IS_BETTER = ("не более", "не выше", "не больше", "до", "максимум", "<=", "=<", "≤", "<")
+_MORE_IS_BETTER = ("не менее", "не ниже", "не меньше", "от", "минимум", ">=", "=>", "≥", ">")
+
+_TARGET_RE = re.compile(
+    r"^\s*(?P<cmp>[^\d\-+]*)?\s*(?P<num>-?[\d][\d\s .,]*)\s*(?P<unit>.*)$")
+
+
+def parse_target(raw: str | None, two_numbers: bool = False) -> dict:
+    """«не менее 97%» → {target: 97, direction: 'up', kind: 'percent', unit: '%'}.
+
+    two_numbers — руководитель вводит «всего» и «с ошибкой»: тип всегда ratio,
+    единица всегда процент, что бы ни было написано в строке цели."""
+    out = {"target": None, "direction": "up", "kind": "number", "unit": None}
+    text = (raw or "").strip()
+
+    if text:
+        m = _TARGET_RE.match(text)
+        if m:
+            out["target"] = _num(m.group("num"))
+            cmp_part = (m.group("cmp") or "").strip().casefold()
+            unit = (m.group("unit") or "").strip()
+            # сравнение может стоять и после числа («2% максимум»)
+            haystack = f"{cmp_part} {unit.casefold()}"
+            if any(w in haystack for w in _LESS_IS_BETTER):
+                out["direction"] = "down"
+            elif any(w in haystack for w in _MORE_IS_BETTER):
+                out["direction"] = "up"
+            # единицу чистим от слов сравнения, чтобы не осталось «шт. максимум»
+            for word in _LESS_IS_BETTER + _MORE_IS_BETTER:
+                unit = re.sub(re.escape(word), "", unit, flags=re.I)
+            out["unit"] = unit.strip(" .,") or None
+
+    unit_l = (out["unit"] or "").casefold()
+    if two_numbers:
+        out["kind"], out["unit"] = "ratio", "%"
+    elif "%" in unit_l or "%" in text:
+        out["kind"], out["unit"] = "percent", "%"
+    elif "₽" in unit_l or "руб" in unit_l:
+        out["kind"], out["unit"] = "money", "₽"
+    else:
+        out["kind"] = "number"
+    return out
+
+
+def _target_hint(parsed: dict) -> str:
+    """Человеческая расшифровка разобранной цели — показывается рядом с полем."""
+    if parsed["target"] is None:
+        return "цель не задана — в таблице будет видна только динамика"
+    unit = parsed["unit"] or ""
+    if unit and unit not in ("%",):      # «97%» слитно, «2 шт» — через пробел
+        unit = " " + unit
+    side = "чем больше — тем лучше" if parsed["direction"] == "up" else "чем меньше — тем лучше"
+    return f"цель {_plain(parsed['target'])}{unit}, {side}"
 
 
 def _plain(value: float | None) -> str:
@@ -225,7 +285,9 @@ def _metric_rows(db: Session, metrics: list[HrMetric], weeks: list[date]) -> lis
             "growing": growing,
             "spark": [r.value for _w, r in filled[-12:]],
             "target_text": _fmt(m.target, m) if m.target is not None else "",
-            "target_input": _plain(m.target),
+            # для формы редактирования: цель как её ввёл человек + признак «два числа»
+            "target_raw": m.target_text or (_plain(m.target) if m.target is not None else ""),
+            "two_numbers": m.kind == "ratio",
         })
     return rows
 
@@ -265,9 +327,6 @@ def _kpis(rows: list[dict], weeks: list[date]) -> dict:
         "filled_now": filled_now,
         "expected_now": len(rows),
         "filled_pct": round(filled_now / len(rows) * 100) if rows else 0,
-        "risk": [r for r in rows
-                 if r["last_status"] == "bad" or (r["trend"] != "none" and not r["growing"]
-                                                  and r["trend"] != "flat")],
     }
 
 
@@ -293,6 +352,36 @@ def employee_metric_history(db: Session, employee_id: int, weeks_count: int = 12
     week_list = _week_range(_week_start(date.today()), weeks_count)
     return {"weeks": [_week_head(w) for w in week_list],
             "rows": _metric_rows(db, metrics, week_list)}
+
+
+def month_metric_lines(db: Session, period_date: date) -> dict[int, list[str]]:
+    """{employee_id: ["Заказы без ошибок: 95% → 100% → 100% · цель 97%"]} за месяц —
+    для месячного отчёта HR (публичный хелпер, используется routers/hr.py).
+
+    В месяц попадают недели, которые в нём начинаются."""
+    metrics = _active_metrics(db)
+    if not metrics:
+        return {}
+    next_month = (period_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+    values = (db.query(HrMetricValue)
+              .filter(HrMetricValue.metric_id.in_([m.id for m in metrics]),
+                      HrMetricValue.week_start >= period_date,
+                      HrMetricValue.week_start < next_month,
+                      HrMetricValue.value.isnot(None))
+              .order_by(HrMetricValue.week_start).all())
+    by_metric: dict[int, list] = defaultdict(list)
+    for v in values:
+        by_metric[v.metric_id].append(v)
+
+    out: dict[int, list[str]] = defaultdict(list)
+    for m in metrics:
+        series = by_metric.get(m.id)
+        if not series:
+            continue
+        chain = " → ".join(_fmt(v.value, m) for v in series)
+        target = f" · цель {_fmt(m.target, m)}" if m.target is not None else ""
+        out[m.employee_id].append(f"{m.title}: {chain}{target}")
+    return dict(out)
 
 
 def _scope_employee_ids(db: Session, manager_id: int | None) -> list[int]:
@@ -331,8 +420,6 @@ async def metrics_board(request: Request, week: str = "", weeks: int = DEFAULT_W
         mgr = r["employee"].manager
         groups[mgr.full_name if mgr else "Без руководителя"].append(r)
 
-    tokens = (db.query(HrMetricToken)
-              .order_by(HrMetricToken.is_active.desc(), HrMetricToken.id).all())
     company = db.query(CompanySettings).first()
     default_chat_ids = (company.tg_hr_report_chat_ids or company.tg_report_chat_ids or "") if company else ""
 
@@ -344,17 +431,11 @@ async def metrics_board(request: Request, week: str = "", weeks: int = DEFAULT_W
         "employees": employees,
         "managers": managers,
         "manager_id": manager_id,
-        "tokens": tokens,
-        "base_url": str(request.base_url).rstrip("/"),
         "anchor": anchor.isoformat(),
         "prev_anchor": (anchor - timedelta(weeks=4)).isoformat(),
         "next_anchor": (anchor + timedelta(weeks=4)).isoformat(),
         "this_week": _week_start(date.today()).isoformat(),
         "week_count": count,
-        "kinds": HR_METRIC_KINDS,
-        "kind_labels": HR_METRIC_KIND_LABELS,
-        "directions": HR_METRIC_DIRECTIONS,
-        "direction_labels": HR_METRIC_DIRECTION_LABELS,
         "default_chat_ids": default_chat_ids,
         "saved": request.query_params.get("saved"),
         "report": request.query_params.get("report"),
@@ -364,16 +445,19 @@ async def metrics_board(request: Request, week: str = "", weeks: int = DEFAULT_W
 # ── Справочник метрик ────────────────────────────────────────────────────────
 
 def _metric_from_form(metric: HrMetric, form) -> None:
+    """Заполняет метрику из упрощённой формы: название, цель строкой и признак
+    «вводятся два числа». Тип, направление и единицы выводятся из цели —
+    отдельных полей под них в форме больше нет."""
     metric.title = (form.get("title") or "").strip() or metric.title
     metric.formula = (form.get("formula") or "").strip() or None
-    kind = form.get("kind")
-    metric.kind = kind if kind in HR_METRIC_KINDS else "number"
-    metric.unit = (form.get("unit") or "").strip() or None
-    direction = form.get("direction")
-    metric.direction = direction if direction in HR_METRIC_DIRECTIONS else "up"
-    metric.target = _num(form.get("target"))
-    metric.label_total = (form.get("label_total") or "").strip() or "всего"
-    metric.label_bad = (form.get("label_bad") or "").strip() or "с ошибкой"
+    metric.target_text = (form.get("target_text") or "").strip() or None
+
+    two_numbers = bool(form.get("two_numbers"))
+    parsed = parse_target(metric.target_text, two_numbers)
+    metric.target = parsed["target"]
+    metric.direction = parsed["direction"]
+    metric.kind = parsed["kind"]
+    metric.unit = parsed["unit"]
     metric.sort_order = int(_num(form.get("sort_order")) or 0)
 
 
@@ -480,40 +564,29 @@ async def metric_value_save(request: Request, db: Session = Depends(get_db)):
 
 # ── Ссылки для руководителей ─────────────────────────────────────────────────
 
-@router.post("/metrics/links")
+@router.post("/metrics/link/{manager_id}")
 @login_required
-async def metric_link_create(request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    raw_manager = form.get("manager_id") or ""
-    manager_id = int(raw_manager) if str(raw_manager).isdigit() else None
-    db.add(HrMetricToken(
-        manager_id=manager_id,
-        token=secrets.token_urlsafe(24),
-        label=(form.get("label") or "").strip() or None,
-        created_by=request.session.get("user_id"),
-    ))
+async def metric_link(request: Request, manager_id: int, refresh: int = 0,
+                      db: Session = Depends(get_db)):
+    """Ссылка руководителя на еженедельную форму. Отдельного управления ссылками
+    нет: она создаётся при первом запросе и дальше просто копируется. refresh=1
+    перевыпускает токен — старая ссылка сразу перестаёт работать."""
+    tok = db.query(HrMetricToken).filter(
+        HrMetricToken.manager_id == manager_id).order_by(HrMetricToken.id.desc()).first()
+    if tok and refresh:
+        tok.token = secrets.token_urlsafe(24)
+        tok.is_active = True
+    elif not tok:
+        tok = HrMetricToken(manager_id=manager_id, token=secrets.token_urlsafe(24),
+                            created_by=request.session.get("user_id"))
+        db.add(tok)
+    else:
+        tok.is_active = True
     db.commit()
-    return RedirectResponse(url="/hr/metrics?saved=link", status_code=302)
 
-
-@router.post("/metrics/links/{token_id}/toggle")
-@login_required
-async def metric_link_toggle(request: Request, token_id: int, db: Session = Depends(get_db)):
-    tok = db.query(HrMetricToken).filter(HrMetricToken.id == token_id).first()
-    if tok:
-        tok.is_active = not tok.is_active
-        db.commit()
-    return RedirectResponse(url="/hr/metrics?saved=link", status_code=302)
-
-
-@router.post("/metrics/links/{token_id}/delete")
-@login_required
-async def metric_link_delete(request: Request, token_id: int, db: Session = Depends(get_db)):
-    tok = db.query(HrMetricToken).filter(HrMetricToken.id == token_id).first()
-    if tok:
-        db.delete(tok)
-        db.commit()
-    return RedirectResponse(url="/hr/metrics?saved=link", status_code=302)
+    base = str(request.base_url).rstrip("/")
+    return JSONResponse({"ok": True, "url": f"{base}/hr/w/{tok.token}",
+                         "used": tok.last_used_at.strftime("%d.%m.%Y") if tok.last_used_at else None})
 
 
 # ── Публичная еженедельная форма руководителя (без входа в TMS) ──────────────

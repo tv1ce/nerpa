@@ -29,6 +29,10 @@
     .met-formula { font-size:.78rem; color:var(--muted); white-space:pre-line; margin:2px 0 8px; }
     .met-hist { font-size:.76rem; color:var(--muted); margin-top:6px; }
     .met-hist b { color:#57534E; font-weight:600; }
+    .cmt-toggle { font-size:.78rem; color:var(--muted); cursor:pointer; list-style:none; }
+    .cmt-toggle::marker { content:''; }
+    .cmt-toggle::before { content:'+ '; }
+    details[open] .cmt-toggle::before { content:'– '; }
     .goal { display:inline-block; font-size:.74rem; background:#EEEEFF; color:var(--brand-700);
             border-radius:999px; padding:1px 9px; margin-left:6px; vertical-align:1px; }
     .form-control-lg { font-size:1.05rem; }
@@ -110,12 +114,12 @@
         {% if m.kind == 'ratio' %}
         <div class="ratio-row">
           <div>
-            <label class="form-label" style="font-size:.76rem">Всего {{ m.label_total }}</label>
+            <label class="form-label" style="font-size:.76rem">Сделано всего</label>
             <input type="text" inputmode="decimal" class="form-control form-control-lg"
                    name="m{{ m.id }}_total" value="{{ c.total_input }}" placeholder="0">
           </div>
           <div>
-            <label class="form-label" style="font-size:.76rem">Из них {{ m.label_bad }}</label>
+            <label class="form-label" style="font-size:.76rem">Из них с ошибкой</label>
             <input type="text" inputmode="decimal" class="form-control form-control-lg"
                    name="m{{ m.id }}_bad" value="{{ c.bad_input }}" placeholder="0">
           </div>
@@ -129,8 +133,11 @@
                placeholder="Значение за неделю{% if m.unit_label %}, {{ m.unit_label }}{% endif %}">
         {% endif %}
 
-        <input type="text" class="form-control form-control-sm mt-2" name="m{{ m.id }}_comment"
-               value="{{ c.comment }}" placeholder="Комментарий (необязательно)">
+        <details class="mt-2" {% if c.comment %}open{% endif %}>
+          <summary class="cmt-toggle">Комментарий</summary>
+          <input type="text" class="form-control form-control-sm mt-1" name="m{{ m.id }}_comment"
+                 value="{{ c.comment }}" placeholder="Если неделя выбилась из нормы — почему">
+        </details>
 
         {% if r.history %}
         <div class="met-hist">

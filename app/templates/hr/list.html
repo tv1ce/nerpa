@@ -80,6 +80,13 @@
                 <a href="/hr/entry/{{ e.id }}?period={{ period }}" class="btn btn-sm btn-outline-primary">
                   <i class="bi bi-pencil-square me-1"></i>Заполнить
                 </a>
+                {# у кого есть подчинённые — тот заполняет их метрики по недельной ссылке #}
+                {% if e.id in manager_ids %}
+                <button class="btn btn-sm btn-outline-secondary metric-link" data-id="{{ e.id }}"
+                        title="Ссылка на еженедельную форму метрик подразделения">
+                  <i class="bi bi-link-45deg"></i>
+                </button>
+                {% endif %}
               </td>
               <td class="pe-3 text-end">
                 <button class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="modal" data-bs-target="#editEmployee{{ e.id }}">
@@ -134,6 +141,36 @@
         {% else %}
         <div class="text-center text-muted py-3">Вакансий нет.</div>
         {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Ссылка руководителя на недельную форму метрик: создаётся по первому клику -->
+<div class="modal fade" id="metricLink" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header py-2 px-3">
+        <h6 class="modal-title"><i class="bi bi-link-45deg me-1"></i>Ссылка для заполнения метрик</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body px-3">
+        <p class="text-muted" style="font-size:.85rem">
+          Отправьте её руководителю один раз и попросите закрепить в чате: каждую неделю
+          он открывает ту же ссылку и вносит цифры по своим людям. Вход в TMS не нужен.
+        </p>
+        <div class="input-group input-group-sm">
+          <input type="text" id="metricLinkUrl" class="form-control font-monospace" readonly>
+          <button class="btn btn-accent" id="metricLinkCopy" type="button">
+            <i class="bi bi-clipboard me-1"></i>Копировать
+          </button>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+          <span class="text-muted" id="metricLinkUsed" style="font-size:.78rem"></span>
+          <button class="btn btn-sm btn-link text-danger p-0" id="metricLinkRefresh" type="button">
+            Перевыпустить — старая перестанет работать
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -327,4 +364,46 @@
   </div>
 </div>
 
+<script>
+(function () {
+  var modal = document.getElementById('metricLink');
+  var urlBox = document.getElementById('metricLinkUrl');
+  var used = document.getElementById('metricLinkUsed');
+  var current = null;
+
+  function load(id, refresh) {
+    fetch('/hr/metrics/link/' + id + (refresh ? '?refresh=1' : ''), { method: 'POST' })
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (data) {
+        urlBox.value = data.url;
+        used.textContent = data.used ? 'Последний раз открывали ' + data.used : 'Ещё не открывали';
+      })
+      .catch(function () { urlBox.value = 'Не удалось получить ссылку — обновите страницу'; });
+  }
+
+  document.querySelectorAll('.metric-link').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      current = btn.dataset.id;
+      urlBox.value = 'Загрузка…';
+      used.textContent = '';
+      bootstrap.Modal.getOrCreateInstance(modal).show();
+      load(current, false);
+    });
+  });
+
+  document.getElementById('metricLinkRefresh').addEventListener('click', function () {
+    if (current && confirm('Перевыпустить ссылку? Та, что уже у руководителя, перестанет открываться.')) {
+      load(current, true);
+    }
+  });
+
+  document.getElementById('metricLinkCopy').addEventListener('click', function () {
+    var btn = this;
+    navigator.clipboard.writeText(urlBox.value).then(function () {
+      btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Скопировано';
+      setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Копировать'; }, 1600);
+    });
+  });
+})();
+</script>
 {% endblock %}

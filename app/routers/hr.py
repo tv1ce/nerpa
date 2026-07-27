@@ -18,7 +18,7 @@ from app.auth import login_required
 from app.models import (
     HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
     HrEmployeeInsight, Notification, User, CompanySettings,
-    HR_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
+    HR_SECTIONS, HR_INPUT_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ SECTION_META = {
     "achievements":  {"icon": "🏅", "label": "Достижения"},
     "enps":          {"icon": "📣", "label": "eNPS"},
     "enps_managers": {"icon": "📣", "label": "eNPS Руководителей"},
-    "metrics":       {"icon": "📈", "label": "Метрика сотрудников"},
+    "metrics":       {"icon": "🗄", "label": "Метрика (архив текстовых ответов)"},
     "gravity":       {"icon": "🧲", "label": "Гравитация и антигравитация"},
 }
 
@@ -237,9 +237,6 @@ def _save_from_form(db: Session, employee: HrEmployee, period_date: date, form,
         up("enps", g("enps_comment"), sc=_score(g("enps_score")))
     if "enps_managers" in allowed:
         up("enps_managers", g("enps_managers_comment"), sc=_score(g("enps_managers_score")))
-    if "metrics" in allowed:
-        up("metrics", g("metrics_h1"), kind="h1")
-        up("metrics", g("metrics_h2"), kind="h2")
     if "gravity" in allowed:
         pairs = []
         for key, _group, _q in GRAVITY_QUESTIONS:
@@ -269,7 +266,7 @@ def _records_map(db: Session, employee_id: int, period_date: date) -> dict:
 
 def _section_ctx() -> dict:
     return {
-        "section_meta": SECTION_META, "questions": QUESTIONS, "all_sections": list(HR_SECTIONS),
+        "section_meta": SECTION_META, "questions": QUESTIONS, "all_sections": list(HR_INPUT_SECTIONS),
         "period_kinds": list(HR_PERIOD_KINDS), "period_kind_labels": HR_PERIOD_KIND_LABELS,
         "gravity_questions": GRAVITY_QUESTIONS,
     }
@@ -308,6 +305,8 @@ async def hr_home(request: Request, period: str = "", db: Session = Depends(get_
 
     return templates.TemplateResponse(request, "hr/list.html", {
         "employees": employees,
+        # у кого есть подчинённые — тем показываем ссылку на недельную форму метрик
+        "manager_ids": {e.manager_id for e in all_employees if e.manager_id},
         "positions": positions,
         "filled_sections": filled_sections,
         "vacancies": vacancies,
@@ -472,9 +471,12 @@ markdown-обёртки и пояснений — по одному объект
 def _gather_ai_report_context(db: Session, period_date: date) -> dict:
     """Собирает данные всех видимых в периоде сотрудников + вакансий — вход для
     сборки ИИ-отчёта HR (см. _format_hr_report)."""
+    from app.routers.hr_metrics import month_metric_lines
+
     employees = [e for e in db.query(HrEmployee)
                  .order_by(HrEmployee.is_active.desc(), HrEmployee.full_name).all()
                  if e.visible_in_period(period_date)]
+    metric_lines = month_metric_lines(db, period_date)
     emp_data = []
     for e in employees:
         recs = _records_map(db, e.id, period_date)
@@ -484,8 +486,6 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
         achievements_rec = recs.get("achievements")
         enps_rec = recs.get("enps")
         enps_mgr_rec = recs.get("enps_managers")
-        metrics_h1 = recs.get("metrics_h1")
-        metrics_h2 = recs.get("metrics_h2")
         emp_data.append({
             "id": e.id, "name": e.full_name, "position": e.position_title or "—",
             "enabled": enabled,
@@ -496,10 +496,8 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
             "enps_comment": (enps_rec.text_1 or "").strip() if enps_rec else "",
             "enps_mgr_score": enps_mgr_rec.score if enps_mgr_rec else None,
             "enps_mgr_comment": (enps_mgr_rec.text_1 or "").strip() if enps_mgr_rec else "",
-            "metrics": "\n".join(t.strip() for t in (
-                metrics_h1.text_1 if metrics_h1 else "",
-                metrics_h2.text_1 if metrics_h2 else "",
-            ) if t and t.strip()),
+            # метрика берётся из недельного раздела (HrMetric), а не из текстовых ответов
+            "metrics": metric_lines.get(e.id, []),
         })
     vacancies = db.query(HrVacancy).order_by(
         HrVacancy.closed_at.is_not(None), HrVacancy.opened_at.desc()).all()
@@ -596,14 +594,13 @@ def _format_hr_report(ctx: dict, summaries: dict[int, str]) -> str:
     _enps_block("eNPS (сотрудники)", "enps_score", "enps_comment", "enps")
     _enps_block("eNPS (руководители)", "enps_mgr_score", "enps_mgr_comment", "enps_managers")
 
-    metrics_emps = [e for e in ctx["employees"] if "metrics" in e["enabled"]]
+    metrics_emps = [e for e in ctx["employees"] if e["metrics"]]
     if metrics_emps:
-        lines.append("📈 **Метрики**")
+        lines.append("📈 **Метрики за месяц**")
         lines.append("")
         for e in metrics_emps:
             lines.append(f"{e['name']} - {e['position']}")
-            if e["metrics"]:
-                lines.append(e["metrics"])
+            lines.extend(e["metrics"])
             lines.append("")
 
     if ctx["vacancies"]:
@@ -904,7 +901,7 @@ async def create_position(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     title = (form.get("title") or "").strip()
     if title:
-        disabled = [s for s in HR_SECTIONS if not form.get(f"sec_{s}")]
+        disabled = [s for s in HR_INPUT_SECTIONS if not form.get(f"sec_{s}")]
         db.add(HrPosition(
             title=title,
             disabled_sections=",".join(disabled),
@@ -922,7 +919,7 @@ async def edit_position(request: Request, position_id: int, db: Session = Depend
     if pos:
         pos.title = (form.get("title") or "").strip() or pos.title
         pos.is_active = bool(form.get("is_active"))
-        disabled = [s for s in HR_SECTIONS if not form.get(f"sec_{s}")]
+        disabled = [s for s in HR_INPUT_SECTIONS if not form.get(f"sec_{s}")]
         pos.disabled_sections = ",".join(disabled)
         pos.personal_questions = (form.get("personal_questions") or "").strip() or None
         db.commit()
@@ -1060,7 +1057,7 @@ async def surveys_list(request: Request, db: Session = Depends(get_db)):
 async def create_survey(request: Request, db: Session = Depends(get_db)):
     form = await request.form()
     period_date = _period_from_str(form.get("period"))
-    sections = [s for s in HR_SECTIONS if form.get(f"sec_{s}")]
+    sections = [s for s in HR_INPUT_SECTIONS if form.get(f"sec_{s}")]
     employee_ids = [int(x) for x in form.getlist("employee_ids")]
     if not sections or not employee_ids:
         return RedirectResponse(url="/hr/surveys?error=empty", status_code=302)
