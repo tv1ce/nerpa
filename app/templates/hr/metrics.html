@@ -1,0 +1,623 @@
+{% extends "base.html" %}
+{% block title %}Метрика сотрудников{% endblock %}
+{% block page_title %}Метрика сотрудников{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2 flex-wrap">
+  <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#addMetric">
+    <i class="bi bi-plus-lg me-1"></i>Метрика
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#managerLinks">
+    <i class="bi bi-link-45deg me-1"></i>Ссылки руководителям
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#sendMetricsReport">
+    <i class="bi bi-telegram me-1"></i>Отчёт недели
+  </button>
+  <a class="btn btn-sm btn-outline-secondary"
+     href="/hr/metrics/export.csv?week={{ anchor }}&weeks={{ week_count }}">
+    <i class="bi bi-download me-1"></i>CSV
+  </a>
+  <span class="vr mx-1"></span>
+  <a href="/hr/metrics?week={{ prev_anchor }}&weeks={{ week_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="btn btn-sm btn-outline-secondary" title="На 4 недели назад"><i class="bi bi-chevron-left"></i></a>
+  <a href="/hr/metrics?week={{ next_anchor }}&weeks={{ week_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="btn btn-sm btn-outline-secondary" title="На 4 недели вперёд"><i class="bi bi-chevron-right"></i></a>
+  {% if anchor != this_week %}
+  <a href="/hr/metrics?weeks={{ week_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="btn btn-sm btn-link">Текущая неделя</a>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<style>
+  /* ── Таблица метрик: липкие первые колонки, компактные ячейки ── */
+  .mgrid-wrap { overflow-x: auto; }
+  .mgrid { border-collapse: separate; border-spacing: 0; font-size: .84rem; width: 100%; }
+  .mgrid th, .mgrid td { border-bottom: 1px solid var(--border); padding: .38rem .5rem; }
+  .mgrid thead th {
+    position: sticky; top: 0; z-index: 3; background: var(--brand-50);
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--text-muted); font-weight: 600; text-align: center; white-space: nowrap;
+  }
+  .mgrid .col-emp   { position: sticky; left: 0;     z-index: 2; background: var(--surface);
+                      min-width: 178px; max-width: 178px; }
+  .mgrid .col-met   { position: sticky; left: 178px; z-index: 2; background: var(--surface);
+                      min-width: 210px; max-width: 210px; }
+  .mgrid thead .col-emp, .mgrid thead .col-met { z-index: 4; background: var(--brand-50); }
+  .mgrid tbody tr:hover .col-emp,
+  .mgrid tbody tr:hover .col-met { background: var(--brand-50); }
+  .mgrid tbody tr:hover td { background: rgba(var(--brand-rgb), .05); }
+  .mgrid .grp td {
+    background: var(--bg); font-weight: 600; color: var(--text);
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .mgrid th.wk-cur { background: var(--cta-50); color: var(--cta-600); }
+
+  /* Ячейка недели */
+  .mcell { padding: .18rem .22rem !important; text-align: center; min-width: 92px; }
+  .mcell input {
+    width: 100%; border: 1px solid transparent; background: transparent;
+    border-radius: 6px; text-align: center; font-size: .84rem; padding: .18rem .1rem;
+    font-variant-numeric: tabular-nums; color: var(--text);
+  }
+  .mcell input:hover  { border-color: var(--border-strong); }
+  .mcell input:focus  { border-color: var(--brand); background: #fff; outline: none;
+                        box-shadow: 0 0 0 3px rgba(var(--brand-rgb), .12); }
+  /* mratio, а не ratio — .ratio занят Bootstrap-утилитой aspect-ratio,
+     которая делает всех детей position:absolute и ломает ячейку */
+  .mcell.mratio { min-width: 104px; }
+  .mcell.mratio .rr { display: flex; align-items: center; gap: 1px; }
+  .mcell.mratio input { flex: 1 1 0; width: 1px; min-width: 0; padding: .18rem 0; }
+  .mcell.mratio .sep { color: var(--text-muted); font-size: .7rem; }
+  .mcell .calc { font-size: .68rem; color: var(--text-muted); line-height: 1;
+                 display: block; margin-top: 1px; min-height: .8em; }
+
+  .st-ok      { background: rgba(22,163,74,.11); }
+  .st-warn    { background: rgba(217,119,6,.13); }
+  .st-bad     { background: rgba(220,38,38,.11); }
+  .st-neutral { background: transparent; }
+  .st-ok .calc      { color: #15803d; }
+  .st-warn .calc    { color: #b45309; }
+  .st-bad .calc     { color: #b91c1c; }
+  .mcell.future input { color: var(--text-muted); }
+
+  .trend-up   { color: #16a34a; }
+  .trend-down { color: #dc2626; }
+  .trend-flat { color: var(--text-muted); }
+
+  .kpi-card { border-radius: var(--r); background: var(--surface);
+              box-shadow: var(--shadow-sm); padding: .85rem 1rem; height: 100%; }
+  .kpi-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+               color: var(--text-muted); font-weight: 600; }
+  .kpi-value { font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: var(--text); }
+  .kpi-sub   { font-size: .76rem; color: var(--text-muted); }
+  .kpi-hero  { background: linear-gradient(135deg, var(--brand) 0%, var(--brand-700) 100%); color:#fff; }
+  .kpi-hero .kpi-label, .kpi-hero .kpi-sub { color: rgba(255,255,255,.78); }
+  .kpi-hero .kpi-value { color: #fff; }
+
+  /* полная формулировка — в tooltip; в таблице максимум две строки */
+  .formula { font-size: .72rem; color: var(--text-muted); line-height: 1.3;
+             display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+             overflow: hidden; }
+  .saving-dot { position: fixed; right: 18px; bottom: 18px; z-index: 1080;
+                background: var(--text); color:#fff; padding: .35rem .7rem;
+                border-radius: 999px; font-size: .78rem; opacity: 0;
+                transition: opacity .18s ease; pointer-events: none; }
+  .saving-dot.on { opacity: .92; }
+</style>
+
+{% include "hr/_tabs.html" %}
+
+{% if saved == 'error' %}
+<div class="alert alert-danger py-2">Не удалось сохранить: заполните сотрудника и название метрики.</div>
+{% elif saved %}
+<div class="alert alert-success py-2">Сохранено.</div>
+{% endif %}
+{% if report == 'ok' %}
+<div class="alert alert-success py-2">Отчёт по метрикам отправлен в Telegram.</div>
+{% elif report == 'nochat' %}
+<div class="alert alert-warning py-2">Не задан chat_id — укажите его в форме отправки.</div>
+{% elif report == 'notoken' %}
+<div class="alert alert-danger py-2">Токен Telegram-бота не настроен (Настройки → Telegram-бот).</div>
+{% elif report == 'error' %}
+<div class="alert alert-danger py-2">Не удалось отправить отчёт. Проверьте токен Telegram-бота.</div>
+{% endif %}
+
+<!-- ── Сводка ─────────────────────────────────────────────────────────────── -->
+<div class="row g-2 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="kpi-card kpi-hero">
+      <div class="kpi-label">Метрика растёт у</div>
+      <div class="kpi-value">{{ kpi.growing }} <span style="font-size:1.1rem;opacity:.7">/ {{ kpi.compared }}</span></div>
+      <div class="kpi-sub" title="Сравниваются две последние недели, за которые метрика заполнена — пропуск недели не считается падением">
+        {{ kpi.growing_pct }}% · по двум последним заполненным неделям
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="kpi-card">
+      <div class="kpi-label">На цели</div>
+      <div class="kpi-value">{{ kpi.on_target }} <span style="font-size:1.1rem;color:var(--text-muted)">/ {{ kpi.targeted }}</span></div>
+      <div class="kpi-sub">{{ kpi.on_target_pct }}% метрик с заданной целью</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="kpi-card">
+      <div class="kpi-label">Заполнено за текущую неделю</div>
+      <div class="kpi-value">{{ kpi.filled_now }} <span style="font-size:1.1rem;color:var(--text-muted)">/ {{ kpi.expected_now }}</span></div>
+      <div class="progress mt-1" style="height:6px">
+        <div class="progress-bar {% if kpi.filled_pct == 100 %}bg-success{% elif kpi.filled_pct > 0 %}bg-warning{% else %}bg-secondary{% endif %}"
+             style="width:{{ kpi.filled_pct }}%"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="kpi-card">
+      <div class="kpi-label">Требуют внимания</div>
+      <div class="kpi-value {% if kpi.risk %}text-danger{% endif %}">{{ kpi.risk | length }}</div>
+      <div class="kpi-sub">
+        {% if kpi.risk %}
+          {{ kpi.risk[:2] | map(attribute='employee') | map(attribute='full_name') | join(', ') }}{% if kpi.risk | length > 2 %} и ещё {{ kpi.risk | length - 2 }}{% endif %}
+        {% else %}падений и провалов цели нет{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Фильтры ────────────────────────────────────────────────────────────── -->
+<form method="get" action="/hr/metrics" class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+  <input type="hidden" name="week" value="{{ anchor }}">
+  <select name="manager" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+    <option value="">Все подразделения</option>
+    {% for m in managers %}
+    <option value="{{ m.id }}" {% if manager_id == m.id %}selected{% endif %}>{{ m.full_name }}</option>
+    {% endfor %}
+  </select>
+  <select name="weeks" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+    {% for n in [4, 6, 8, 12, 16, 26] %}
+    <option value="{{ n }}" {% if week_count == n %}selected{% endif %}>{{ n }} недель</option>
+    {% endfor %}
+  </select>
+  <span class="text-muted" style="font-size:.78rem">
+    <i class="bi bi-info-circle me-1"></i>Значения сохраняются автоматически при выходе из поля
+  </span>
+</form>
+
+<!-- ── Таблица ────────────────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm">
+  <div class="mgrid-wrap">
+    <table class="mgrid">
+      <thead>
+        <tr>
+          <th class="col-emp text-start">Сотрудник</th>
+          <th class="col-met text-start">Метрика</th>
+          <th style="min-width:96px">Динамика</th>
+          {% for w in weeks %}
+          <th class="{% if w.is_current %}wk-cur{% endif %}" title="{{ w.label }}">
+            {{ w.month[:3] }} · {{ w.no }}<br>
+            <span style="font-weight:400;text-transform:none;letter-spacing:0">{{ w.short }}</span>
+          </th>
+          {% endfor %}
+          <th style="width:40px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for group_name, group_rows in groups %}
+        <tr class="grp"><td colspan="{{ weeks | length + 4 }}">{{ group_name }}</td></tr>
+          {% for r in group_rows %}
+          {% set m = r.metric %}
+          <tr>
+            <td class="col-emp">
+              <a href="/hr/employees/{{ r.employee.id }}/profile" class="text-decoration-none fw-semibold text-reset">{{ r.employee.full_name }}</a>
+              <div class="text-muted" style="font-size:.72rem">{{ r.employee.position_title or '—' }}</div>
+            </td>
+            <td class="col-met">
+              <div class="fw-semibold">{{ m.title }}</div>
+              <div class="text-muted" style="font-size:.72rem">
+                {% if r.target_text %}цель: {{ r.target_text }}{% if not m.better_higher %} (меньше — лучше){% endif %}
+                {% else %}цель не задана{% endif %}
+              </div>
+              {% if m.formula %}<div class="formula" title="{{ m.formula }}">{{ m.formula }}</div>{% endif %}
+            </td>
+            <td class="text-center">
+              {# стрелка показывает фактическое движение, цвет — хорошее оно или плохое:
+                 у метрики «меньше — лучше» падение зелёное #}
+              <svg class="spark" data-spark="{{ r.spark | join(',') }}"
+                   data-good="{{ '1' if r.growing else ('' if r.trend in ('flat', 'none') else '0') }}"
+                   width="60" height="20"></svg>
+              <div style="font-size:.74rem"
+                   class="trend-{{ 'up' if r.growing else ('flat' if r.trend in ('flat', 'none') else 'down') }}">
+                {% if r.trend == 'up' %}▲{% elif r.trend == 'down' %}▼{% elif r.trend == 'flat' %}▬{% endif %}
+                {% if r.delta is not none %}{{ r.delta_text }}{% endif %}
+              </div>
+            </td>
+            {% for c in r.cells %}
+            <td class="mcell {% if m.kind == 'ratio' %}mratio{% endif %} st-{{ c.status }}"
+                data-metric="{{ m.id }}" data-week="{{ c.iso }}"
+                {% if c.comment %}title="{{ c.comment }}{% if c.author %} — {{ c.author }}{% endif %}"{% endif %}>
+              {% if m.kind == 'ratio' %}
+              {# два поля: всего / из них с ошибкой — процент считает сервер #}
+              <div class="rr">
+                <input type="text" inputmode="decimal" size="3" class="mv-total" placeholder="всего"
+                       title="Всего {{ m.label_total }}" value="{{ c.total_input }}">
+                <span class="sep">/</span>
+                <input type="text" inputmode="decimal" size="3" class="mv-bad" placeholder="ош."
+                       title="Из них {{ m.label_bad }}" value="{{ c.bad_input }}">
+              </div>
+              {% else %}
+              <input type="text" inputmode="decimal" size="6" class="mv-value" value="{{ c.input }}">
+              {% endif %}
+              <span class="calc">{{ c.text }}</span>
+            </td>
+            {% endfor %}
+            <td class="text-end">
+              <button class="btn btn-xs btn-outline-secondary border-0" title="Настроить метрику"
+                      data-bs-toggle="modal" data-bs-target="#editMetric{{ m.id }}">
+                <i class="bi bi-gear"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+        <tr><td colspan="{{ weeks | length + 4 }}" class="text-center py-5 text-muted">
+          <div style="font-size:2rem">📈</div>
+          Метрик пока нет. Нажмите «Метрика», чтобы задать первую —<br>
+          после этого руководители смогут заполнять её каждую неделю.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="saving-dot" id="savingDot">Сохранено ✓</div>
+
+<!-- ── Модалка: новая метрика ─────────────────────────────────────────────── -->
+<div class="modal fade" id="addMetric" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/hr/metrics/new">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title">Новая метрика</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label form-label-sm">Сотрудник</label>
+              <select name="employee_id" class="form-select form-select-sm" required>
+                <option value="">— выберите —</option>
+                {% for e in employees %}
+                <option value="{{ e.id }}">{{ e.full_name }}{% if e.position_title %} · {{ e.position_title }}{% endif %}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label form-label-sm">Название (коротко, для таблицы)</label>
+              <input type="text" name="title" class="form-control form-control-sm"
+                     placeholder="Отгрузки без ошибок" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label form-label-sm">Формулировка метрики</label>
+              <textarea name="formula" class="form-control form-control-sm" rows="3"
+                        placeholder="Доля заказов, обработанных и подготовленных к отгрузке без ошибок (не менее 97%). Ошибкой считается…"></textarea>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label form-label-sm">Тип</label>
+              <select name="kind" class="form-select form-select-sm kind-select">
+                {% for k in kinds %}<option value="{{ k }}">{{ kind_labels[k] }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label form-label-sm">Единицы</label>
+              <input type="text" name="unit" class="form-control form-control-sm" placeholder="шт.">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label form-label-sm">Цель</label>
+              <input type="text" name="target" class="form-control form-control-sm" placeholder="97">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label form-label-sm">Направление</label>
+              <select name="direction" class="form-select form-select-sm">
+                {% for d in directions %}<option value="{{ d }}">{{ direction_labels[d] }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label form-label-sm">Что считаем</label>
+              <input type="text" name="label_total" class="form-control form-control-sm" placeholder="отгрузок">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label form-label-sm">Что ошибка</label>
+              <input type="text" name="label_bad" class="form-control form-control-sm" placeholder="ошибок">
+            </div>
+          </div>
+          <div class="form-text mt-2" style="font-size:.75rem">
+            Тип <b>«Доля без ошибок»</b> — руководитель вводит два числа (всего и с ошибкой),
+            процент система считает сама. Так исключаются ошибки ручного подсчёта.
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Создать</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ── Модалки: настройка метрики ─────────────────────────────────────────── -->
+{% for r in rows %}{% set m = r.metric %}
+<div class="modal fade" id="editMetric{{ m.id }}" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="/hr/metrics/{{ m.id }}/edit">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title">{{ r.employee.full_name }} — метрика</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="row g-2">
+            <div class="col-md-8">
+              <label class="form-label form-label-sm">Название</label>
+              <input type="text" name="title" class="form-control form-control-sm" value="{{ m.title }}" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label form-label-sm">Порядок</label>
+              <input type="text" name="sort_order" class="form-control form-control-sm" value="{{ m.sort_order or 0 }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label form-label-sm">Формулировка метрики</label>
+              <textarea name="formula" class="form-control form-control-sm" rows="4">{{ m.formula or '' }}</textarea>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label form-label-sm">Тип</label>
+              <select name="kind" class="form-select form-select-sm">
+                {% for k in kinds %}<option value="{{ k }}" {% if m.kind == k %}selected{% endif %}>{{ kind_labels[k] }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label form-label-sm">Единицы</label>
+              <input type="text" name="unit" class="form-control form-control-sm" value="{{ m.unit or '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label form-label-sm">Цель</label>
+              <input type="text" name="target" class="form-control form-control-sm"
+                     value="{{ r.target_input }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label form-label-sm">Направление</label>
+              <select name="direction" class="form-select form-select-sm">
+                {% for d in directions %}<option value="{{ d }}" {% if m.direction == d %}selected{% endif %}>{{ direction_labels[d] }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label form-label-sm">Что считаем</label>
+              <input type="text" name="label_total" class="form-control form-control-sm" value="{{ m.label_total or '' }}">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label form-label-sm">Что ошибка</label>
+              <input type="text" name="label_bad" class="form-control form-control-sm" value="{{ m.label_bad or '' }}">
+            </div>
+            <div class="col-12">
+              <div class="form-check mt-1">
+                <input type="checkbox" name="is_active" value="1" class="form-check-input"
+                       id="mact{{ m.id }}" {% if m.is_active %}checked{% endif %}>
+                <label class="form-check-label" for="mact{{ m.id }}">Активна (собирается каждую неделю)</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3 d-flex justify-content-between">
+          <button type="submit" class="btn btn-sm btn-outline-danger" formaction="/hr/metrics/{{ m.id }}/delete"
+                  onclick="return confirm('Удалить метрику вместе со всей историей значений?')">
+            <i class="bi bi-trash me-1"></i>Удалить
+          </button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+            <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<!-- ── Модалка: ссылки руководителям ──────────────────────────────────────── -->
+<div class="modal fade" id="managerLinks" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header py-2 px-3">
+        <h6 class="modal-title"><i class="bi bi-link-45deg me-1"></i>Еженедельные ссылки для руководителей</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body px-3">
+        <p class="text-muted" style="font-size:.84rem">
+          Постоянная ссылка открывает форму заполнения метрик подразделения за текущую неделю —
+          без входа в TMS. Её можно один раз отправить руководителю и закрепить в чате:
+          каждую неделю он открывает ту же ссылку.
+        </p>
+        <table class="table table-sm align-middle">
+          <thead><tr><th>Кому</th><th>Ссылка</th><th>Последний раз</th><th></th></tr></thead>
+          <tbody>
+            {% for t in tokens %}
+            <tr class="{% if not t.is_active %}text-muted{% endif %}">
+              <td style="font-size:.84rem">
+                {{ t.label or (t.manager.full_name if t.manager else 'Вся компания') }}
+                {% if not t.is_active %}<span class="badge bg-secondary ms-1">выкл</span>{% endif %}
+              </td>
+              <td>
+                <div class="input-group input-group-sm">
+                  <input type="text" class="form-control font-monospace" style="font-size:.72rem" readonly
+                         value="{{ base_url }}/hr/w/{{ t.token }}">
+                  <button class="btn btn-outline-secondary copy-link" type="button"
+                          data-link="{{ base_url }}/hr/w/{{ t.token }}"><i class="bi bi-clipboard"></i></button>
+                </div>
+              </td>
+              <td class="text-muted" style="font-size:.78rem">
+                {{ t.last_used_at.strftime('%d.%m.%Y') if t.last_used_at else 'не открывали' }}
+              </td>
+              <td class="text-end">
+                <form method="post" action="/hr/metrics/links/{{ t.id }}/toggle" class="d-inline">
+                  <button class="btn btn-xs btn-outline-secondary">{{ 'Выкл' if t.is_active else 'Вкл' }}</button>
+                </form>
+                <form method="post" action="/hr/metrics/links/{{ t.id }}/delete" class="d-inline"
+                      onsubmit="return confirm('Удалить ссылку? Она перестанет открываться.')">
+                  <button class="btn btn-xs btn-outline-danger"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-center text-muted py-3">Ссылок пока нет.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <form method="post" action="/hr/metrics/links" class="row g-2 align-items-end border-top pt-3">
+          <div class="col-md-5">
+            <label class="form-label form-label-sm">Руководитель</label>
+            <select name="manager_id" class="form-select form-select-sm">
+              <option value="">Вся компания (для директора / HR)</option>
+              {% for e in employees %}
+              <option value="{{ e.id }}">{{ e.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label form-label-sm">Подпись <span class="text-muted">(необязательно)</span></label>
+            <input type="text" name="label" class="form-control form-control-sm" placeholder="Производство">
+          </div>
+          <div class="col-md-2 d-grid">
+            <button class="btn btn-sm btn-accent"><i class="bi bi-plus-lg me-1"></i>Создать</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Модалка: отчёт недели в Telegram ───────────────────────────────────── -->
+<div class="modal fade" id="sendMetricsReport" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/hr/metrics/report/telegram"
+            onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').innerHTML = 'Отправляю…';">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title"><i class="bi bi-telegram me-1"></i>Отчёт по метрикам за неделю</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="mb-2">
+            <label class="form-label form-label-sm">Неделя</label>
+            <input type="date" name="week" class="form-control form-control-sm" value="{{ anchor }}">
+            <div class="form-text" style="font-size:.72rem">Любой день нужной недели</div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label form-label-sm">Chat ID <span class="text-muted">(через запятую)</span></label>
+            <input type="text" name="chat_ids" class="form-control form-control-sm font-monospace"
+                   placeholder="-1001234567890" value="{{ default_chat_ids }}">
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-send me-1"></i>Отправить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // ── Спарклайны: рисуем из data-spark="1,2,3" ──
+  document.querySelectorAll('svg.spark').forEach(function (svg) {
+    var raw = (svg.dataset.spark || '').split(',').filter(function (s) { return s !== ''; }).map(Number);
+    if (raw.length < 2) return;
+    var w = +svg.getAttribute('width'), h = +svg.getAttribute('height'), pad = 2;
+    var min = Math.min.apply(null, raw), max = Math.max.apply(null, raw);
+    var span = (max - min) || 1;
+    var pts = raw.map(function (v, i) {
+      var x = pad + i * (w - 2 * pad) / (raw.length - 1);
+      var y = h - pad - (v - min) / span * (h - 2 * pad);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    // цвет линии — по благоприятности последнего движения (data-good), а не по знаку;
+    // пусто = без изменений, красить в «плохо» нечего
+    var good = svg.dataset.good;
+    var stroke = good === '1' ? '#16a34a' : (good === '0' ? '#dc2626' : '#a8a29e');
+    svg.innerHTML = '<polyline points="' + pts + '" fill="none" stroke="' + stroke +
+      '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>';
+  });
+
+  // ── Автосохранение ячеек ──
+  var dot = document.getElementById('savingDot');
+  var dotTimer = null;
+  function flash(text, bad) {
+    dot.textContent = text;
+    dot.style.background = bad ? '#dc2626' : 'var(--text)';
+    dot.classList.add('on');
+    clearTimeout(dotTimer);
+    dotTimer = setTimeout(function () { dot.classList.remove('on'); }, 1600);
+  }
+
+  function snapshot(cell) {
+    var get = function (sel) { var el = cell.querySelector(sel); return el ? el.value.trim() : ''; };
+    return { value: get('.mv-value'), raw_total: get('.mv-total'), raw_bad: get('.mv-bad') };
+  }
+
+  document.querySelectorAll('td.mcell').forEach(function (cell) {
+    cell.dataset.snap = JSON.stringify(snapshot(cell));
+
+    cell.querySelectorAll('input').forEach(function (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { input.blur(); }
+        if (e.key === 'Escape') {
+          var snap = JSON.parse(cell.dataset.snap);
+          var v = cell.querySelector('.mv-value'), t = cell.querySelector('.mv-total'), b = cell.querySelector('.mv-bad');
+          if (v) v.value = snap.value; if (t) t.value = snap.raw_total; if (b) b.value = snap.raw_bad;
+          input.blur();
+        }
+      });
+
+      input.addEventListener('blur', function () {
+        var now = snapshot(cell);
+        if (cell.dataset.snap === JSON.stringify(now)) return;   // ничего не менялось
+        cell.dataset.snap = JSON.stringify(now);
+
+        fetch('/hr/metrics/value', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            metric_id: +cell.dataset.metric,
+            week: cell.dataset.week,
+            value: now.value,
+            raw_total: now.raw_total,
+            raw_bad: now.raw_bad
+          })
+        }).then(function (r) {
+          if (!r.ok) throw new Error();
+          return r.json();
+        }).then(function (data) {
+          cell.className = cell.className.replace(/st-\w+/, 'st-' + (data.status || 'neutral'));
+          var calc = cell.querySelector('.calc');
+          if (calc) calc.textContent = data.text || '';
+          flash('Сохранено ✓', false);
+        }).catch(function () {
+          flash('Не сохранилось — обновите страницу', true);
+        });
+      });
+    });
+  });
+
+  // ── Копирование ссылок ──
+  document.querySelectorAll('.copy-link').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      navigator.clipboard.writeText(btn.dataset.link).then(function () {
+        btn.innerHTML = '<i class="bi bi-check-lg"></i>';
+        setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard"></i>'; }, 1400);
+      });
+    });
+  });
+})();
+</script>
+{% endblock %}

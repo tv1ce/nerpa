@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, warehouse_shipping, warehouse_receiving, warehouse_transfers, warehouse_writeoffs, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, hr
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, warehouse_shipping, warehouse_receiving, warehouse_transfers, warehouse_writeoffs, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, hr, hr_metrics
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -210,6 +210,7 @@ async def _overdue_loop():
             _mark_expired_contracts()
             _notify_expiring_contracts()
             _notify_due_invoices()
+            _notify_unfilled_metrics()
         except Exception as e:
             logger.error("overdue_loop: %s", e)
         await asyncio.sleep(3600)  # раз в час
@@ -279,6 +280,62 @@ async def _bitrix_escalation_loop():
         except Exception as e:
             logger.error("bitrix_escalation_loop: %s", e)
         await asyncio.sleep(300)
+
+
+def _notify_unfilled_metrics() -> int:
+    """Понедельник: напоминание HR/админам о метриках, не заполненных за прошлую
+    неделю. Уведомление внутреннее (колокольчик) — рассылку руководителям HR
+    инициирует сам, кнопкой «Отчёт недели» в разделе метрик.
+
+    Дедуп по ссылке с датой недели: за одну неделю напоминаем один раз."""
+    from datetime import timedelta
+    from app.database import SessionLocal
+    from app.models import HrEmployee, HrMetric, HrMetricValue, Notification, User
+
+    db = SessionLocal()
+    try:
+        today = _date.today()
+        if today.weekday() != 0:   # напоминаем в понедельник, когда неделя уже закрыта
+            return 0
+        week = today - timedelta(days=7)   # понедельник прошлой недели
+        link = f"/hr/metrics?week={week.isoformat()}"
+        if db.query(Notification).filter(
+                Notification.type == "hr_metrics_missing",
+                Notification.link == link).first():
+            return 0
+
+        metric_ids = [m.id for m in db.query(HrMetric)
+                      .join(HrEmployee, HrMetric.employee_id == HrEmployee.id)
+                      .filter(HrMetric.is_active == True, HrEmployee.is_active == True).all()]
+        if not metric_ids:
+            return 0
+        filled = {v.metric_id for v in db.query(HrMetricValue).filter(
+            HrMetricValue.metric_id.in_(metric_ids),
+            HrMetricValue.week_start == week,
+            HrMetricValue.value.isnot(None)).all()}
+        missing = len(metric_ids) - len(filled)
+        if not missing:
+            return 0
+
+        recipients = db.query(User).filter(
+            User.role.in_(("hr", "admin")), User.is_active == True).all()
+        for user in recipients:
+            db.add(Notification(
+                type="hr_metrics_missing",
+                title=f"Метрики за прошлую неделю: не заполнено {missing} из {len(metric_ids)}",
+                body=f"Неделя с {week.strftime('%d.%m.%Y')}. Напомните руководителям подразделений.",
+                link=link,
+                user_id=user.id,
+            ))
+        db.commit()
+        logger.info("Напоминание о метриках за неделю %s: не заполнено %d", week, missing)
+        return missing
+    except Exception as e:
+        logger.error("_notify_unfilled_metrics: %s", e)
+        db.rollback()
+        return 0
+    finally:
+        db.close()
 
 
 def _rotate_generated(max_age_days: int = 90) -> int:
@@ -664,6 +721,7 @@ app.include_router(api_saby_tms.router)  # Saby «Управление тран�
 app.include_router(api_bitrix.router) # Bitrix24 CRM — приём сделок + настройка маппинга
 app.include_router(api_tochka.router) # Банк «Точка» — вебхук/сверка входящих оплат
 app.include_router(hr.router)         # HR-отчётность (Teamly)
+app.include_router(hr_metrics.router) # Метрика сотрудников — недельный срез
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────
@@ -811,6 +869,7 @@ import app.routers.sync_1c as _r_sync_1c
 import app.routers.sourcing as _r_sourcing
 import app.routers.api_sbis as _r_api_sbis
 import app.routers.hr as _r_hr
+import app.routers.hr_metrics as _r_hr_metrics
 
-for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_wh_ship, _r_wh_recv, _r_wh_trans, _r_wh_wo, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_sync_1c, _r_sourcing, _r_api_sbis, _r_hr]:
+for _mod in [_r_auth, _r_dash, _r_cp, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_wh_ship, _r_wh_recv, _r_wh_trans, _r_wh_wo, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_sync_1c, _r_sourcing, _r_api_sbis, _r_hr, _r_hr_metrics]:
     _mod.templates = _templates

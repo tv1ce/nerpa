@@ -795,11 +795,14 @@ async def employee_profile(request: Request, employee_id: int, db: Session = Dep
                         key=lambda r: r.period)
     ]
 
+    from app.routers.hr_metrics import employee_metric_history
+
     return templates.TemplateResponse(request, "hr/profile.html", {
         "employee": employee,
         "months": months,
         "insights": insights,
         "enps_trend": enps_trend,
+        "metric_history": employee_metric_history(db, employee_id),
         "today_period": _period_str(date.today()),
         "error": request.query_params.get("error"),
         "analyzed": request.query_params.get("analyzed"),

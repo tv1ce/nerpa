@@ -3,7 +3,6 @@
 {% block page_title %}Должности{% endblock %}
 {% block topbar_actions %}
 <div class="d-flex align-items-center gap-2">
-  <a href="/hr/" class="btn btn-sm btn-link">← К сотрудникам</a>
   <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#addPosition">
     <i class="bi bi-plus-lg me-1"></i>Добавить должность
   </button>
@@ -11,6 +10,7 @@
 {% endblock %}
 
 {% block content %}
+{% include "hr/_tabs.html" %}
 {% if request.query_params.get('error') == 'in_use' %}
 <div class="alert alert-warning py-2">
   Нельзя удалить должность, пока к ней привязаны сотрудники — сначала переназначьте им

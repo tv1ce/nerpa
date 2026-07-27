@@ -41,6 +41,48 @@
   </form>
 </div>
 
+{% if metric_history.rows %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body pb-2">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <div class="fw-semibold">📈 Метрика по неделям</div>
+      <a href="/hr/metrics" class="btn btn-sm btn-link p-0">Вся таблица <i class="bi bi-arrow-right"></i></a>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm mb-0" style="font-size:.82rem">
+        <thead>
+          <tr class="text-muted" style="font-size:.7rem;text-transform:uppercase">
+            <th style="min-width:170px">Метрика</th>
+            {% for w in metric_history.weeks %}<th class="text-center">{{ w.short }}</th>{% endfor %}
+            <th class="text-center">Δ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in metric_history.rows %}
+          <tr>
+            <td>
+              <span class="fw-semibold">{{ r.metric.title }}</span>
+              {% if r.target_text %}<span class="text-muted"> · цель {{ r.target_text }}</span>{% endif %}
+              {% if not r.metric.is_active %}<span class="badge bg-secondary ms-1">не активна</span>{% endif %}
+            </td>
+            {% for c in r.cells %}
+            <td class="text-center {% if c.status == 'ok' %}text-success{% elif c.status == 'bad' %}text-danger{% elif c.status == 'warn' %}text-warning{% endif %}"
+                {% if c.comment %}title="{{ c.comment }}"{% endif %}>{{ c.text or '·' }}</td>
+            {% endfor %}
+            {# цвет — по благоприятности движения: у метрики «меньше — лучше» падение зелёное #}
+            <td class="text-center fw-semibold {% if r.growing %}text-success{% elif r.trend in ('up', 'down') %}text-danger{% endif %}">
+              {% if r.trend == 'up' %}▲{% elif r.trend == 'down' %}▼{% endif %}
+              {% if r.delta is not none %}{{ r.delta_text }}{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-3">
   <div class="col-lg-7">
     <div class="fw-semibold mb-2">История по месяцам</div>

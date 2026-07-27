@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Boolean,
-    ForeignKey, Text, Date, Index,
+    ForeignKey, Text, Date, Index, UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -1217,6 +1217,127 @@ class HrEmployeeInsight(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     employee = relationship("HrEmployee")
+
+
+# ── Метрика сотрудника: еженедельный срез ────────────────────────────────────
+# Раздел "metrics" HR-отчёта собирает метрику текстом раз в полмесяца. Этого мало:
+# смысл метрики — видеть недельную динамику («растёт / падает»), а заполняют её
+# руководители подразделений по своим людям. Поэтому метрика вынесена в отдельную
+# сущность с числовым значением по неделям (неделя хранится датой понедельника).
+
+# Тип метрики определяет, что вводит руководитель и как считается значение:
+#   number  — просто число (шт., операции, изделия)
+#   money   — рубли
+#   percent — процент вводится напрямую
+#   ratio   — вводятся «всего» и «из них с ошибкой», % без ошибок считает система
+#             (в таблице-первоисточнике этот процент считали руками и с ошибками)
+HR_METRIC_KINDS = ("number", "money", "percent", "ratio")
+HR_METRIC_KIND_LABELS = {
+    "number":  "Число (шт., операции)",
+    "money":   "Деньги (₽)",
+    "percent": "Процент (вводится вручную)",
+    "ratio":   "Доля без ошибок (всего / с ошибкой)",
+}
+
+# Куда метрике «хорошо» расти: up — чем больше, тем лучше; down — наоборот
+# (например, «количество рекламаций» или «время сборки заказа»).
+HR_METRIC_DIRECTIONS = ("up", "down")
+HR_METRIC_DIRECTION_LABELS = {"up": "Чем больше — тем лучше", "down": "Чем меньше — тем лучше"}
+
+
+class HrMetric(Base):
+    """Определение метрики одного сотрудника: формулировка, тип, цель, направление.
+
+    У сотрудника может быть несколько метрик (основная + вспомогательные), поэтому
+    это отдельная таблица, а не поля в hr_employees."""
+    __tablename__ = "hr_metrics"
+    id = Column(Integer, primary_key=True)
+    employee_id = Column(Integer, ForeignKey("hr_employees.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False)   # короткое название для шапки таблицы
+    formula = Column(Text)                        # полная формулировка/правила расчёта
+    kind = Column(String(10), default="number")   # см. HR_METRIC_KINDS
+    unit = Column(String(30))                     # подпись единиц: шт., ₽, %…
+    direction = Column(String(4), default="up")   # см. HR_METRIC_DIRECTIONS
+    target = Column(Float)                        # целевое значение (может быть пустым)
+    # Подписи полей для kind='ratio' — «20 отгрузок, 1 ошибка» читается по-разному
+    # у логиста и кладовщика, поэтому настраиваются на метрике.
+    label_total = Column(String(40), default="всего")
+    label_bad = Column(String(40), default="с ошибкой")
+    is_active = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+    employee = relationship("HrEmployee", backref="metrics")
+    values = relationship("HrMetricValue", back_populates="metric",
+                          cascade="all, delete-orphan")
+
+    @property
+    def unit_label(self) -> str:
+        if self.unit:
+            return self.unit
+        return {"money": "₽", "percent": "%", "ratio": "%"}.get(self.kind, "")
+
+    @property
+    def better_higher(self) -> bool:
+        return (self.direction or "up") != "down"
+
+    def status_for(self, value) -> str:
+        """Статус значения относительно цели: ok / warn / bad / none.
+        Без заданной цели статус определить нельзя — решает динамика (см. роутер)."""
+        if value is None:
+            return "none"
+        if self.target is None:
+            return "neutral"
+        if self.better_higher:
+            if value >= self.target:
+                return "ok"
+            # «почти дотянул» — в пределах 10% от цели, чтобы не красить всё красным
+            return "warn" if value >= self.target * 0.9 else "bad"
+        if value <= self.target:
+            return "ok"
+        return "warn" if value <= self.target * 1.1 else "bad"
+
+
+class HrMetricValue(Base):
+    """Значение метрики за одну неделю. Неделя ISO — хранится датой понедельника,
+    чтобы недели корректно сравнивались и сортировались на стыке месяцев."""
+    __tablename__ = "hr_metric_values"
+    id = Column(Integer, primary_key=True)
+    metric_id = Column(Integer, ForeignKey("hr_metrics.id"), nullable=False, index=True)
+    week_start = Column(Date, nullable=False, index=True)   # понедельник недели
+    value = Column(Float)          # итоговое значение (для ratio считается из raw_*)
+    raw_total = Column(Float)      # ratio: сколько всего операций/отгрузок
+    raw_bad = Column(Float)        # ratio: сколько из них с ошибкой
+    comment = Column(Text)
+    filled_by = Column(Integer, ForeignKey("users.id"))
+    filled_by_name = Column(String(200))   # кто заполнил по внешней ссылке (без входа)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    metric = relationship("HrMetric", back_populates="values")
+
+    __table_args__ = (
+        UniqueConstraint("metric_id", "week_start", name="uq_hr_metric_week"),
+    )
+
+
+class HrMetricToken(Base):
+    """Постоянная ссылка руководителя на еженедельную форму заполнения метрик
+    своего подразделения — без входа в TMS (у мастера цеха логина обычно нет).
+
+    manager_id пустой — ссылка «на всю компанию» (для директора/HR)."""
+    __tablename__ = "hr_metric_tokens"
+    id = Column(Integer, primary_key=True)
+    manager_id = Column(Integer, ForeignKey("hr_employees.id"))
+    token = Column(String(64), unique=True, nullable=False)
+    label = Column(String(200))
+    is_active = Column(Boolean, default=True)
+    last_used_at = Column(DateTime)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, server_default=func.now())
+
+    manager = relationship("HrEmployee")
 
 
 class Receipt(Base):

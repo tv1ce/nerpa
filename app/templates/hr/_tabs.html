@@ -1,0 +1,28 @@
+{# Вкладки HR-раздела. Ожидает tab: employees | metrics | surveys | positions #}
+{% set _p = request.url.path %}
+{% set _tab = tab | default(
+     'metrics' if '/hr/metrics' in _p else
+     'surveys' if '/hr/surveys' in _p else
+     'positions' if '/hr/positions' in _p else 'employees') %}
+<ul class="nav nav-pills mb-3" style="gap:.35rem">
+  <li class="nav-item">
+    <a class="nav-link py-1 px-3 {% if _tab == 'employees' %}active{% endif %}" href="/hr/">
+      <i class="bi bi-people me-1"></i>Сотрудники
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link py-1 px-3 {% if _tab == 'metrics' %}active{% endif %}" href="/hr/metrics">
+      <i class="bi bi-graph-up-arrow me-1"></i>Метрика недели
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link py-1 px-3 {% if _tab == 'surveys' %}active{% endif %}" href="/hr/surveys">
+      <i class="bi bi-send me-1"></i>Опросы
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link py-1 px-3 {% if _tab == 'positions' %}active{% endif %}" href="/hr/positions">
+      <i class="bi bi-diagram-3 me-1"></i>Должности
+    </a>
+  </li>
+</ul>
