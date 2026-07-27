@@ -124,6 +124,26 @@ def _norm(name: str) -> str:
     return " ".join(name.split()).casefold()
 
 
+def _short(name: str) -> str:
+    """Фамилия + имя без отчества. В TMS сотрудник может быть заведён как
+    «Волкова Юлия», а в HR-таблице — «Волкова Юлия Олеговна»: сопоставляем по
+    первым двум словам, иначе скрипт наплодит дубли вместо привязки к своим."""
+    return " ".join(_norm(name).split()[:2])
+
+
+def _find_employee(db, name: str):
+    """Ищет сотрудника: сначала по полному ФИО, затем по «фамилия + имя».
+    Если по короткому имени нашлось несколько — не угадываем, возвращаем None
+    (лучше создать явный дубль и дать человеку разобраться, чем привязать
+    метрику к однофамильцу)."""
+    everyone = db.query(HrEmployee).all()
+    exact = [e for e in everyone if _norm(e.full_name) == _norm(name)]
+    if exact:
+        return exact[0]
+    short = [e for e in everyone if _short(e.full_name) == _short(name)]
+    return short[0] if len(short) == 1 else None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Наполнение метрик сотрудников")
     parser.add_argument("--apply", action="store_true",
@@ -134,15 +154,12 @@ def main() -> None:
     db = SessionLocal()
     log: list[str] = []
     try:
-        existing = {_norm(e.full_name): e for e in db.query(HrEmployee).all()}
-
         for item in SEED:
-            employee = existing.get(_norm(item["name"]))
+            employee = _find_employee(db, item["name"])
             if employee is None:
                 employee = HrEmployee(full_name=item["name"], position=item["position"])
                 db.add(employee)
                 db.flush()
-                existing[_norm(item["name"])] = employee
                 log.append(f"+ сотрудник: {item['name']} ({item['position']})")
             else:
                 log.append(f"= сотрудник: {employee.full_name} (уже есть, id={employee.id})")
