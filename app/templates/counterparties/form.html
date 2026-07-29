@@ -252,6 +252,14 @@ function setField(id, val) {
   if (el && val) el.value = val;
 }
 
+// Для адресов: заполняем только пустое поле. DaData знает лишь адрес из ЕГРЮЛ,
+// а в карточке уже может лежать адрес из Bitrix24 или уточнённый вручную —
+// перетирать его нельзя (заказы уезжали на юр.адрес фирмы вместо точки).
+function setFieldIfEmpty(id, val) {
+  const el = document.getElementById('f-' + id);
+  if (el && val && !el.value.trim()) el.value = val;
+}
+
 function showAlert(elId, msg, type) {
   const el = document.getElementById(elId);
   if (!el) return;
@@ -283,8 +291,8 @@ async function ddLookup() {
     setField('inn', data.inn);
     setField('kpp', data.kpp);
     setField('ogrn', data.ogrn);
-    setField('legal_address', data.legal_address);
-    setField('actual_address', data.legal_address);  // По умолчанию совпадает
+    setFieldIfEmpty('legal_address', data.legal_address);
+    setFieldIfEmpty('actual_address', data.legal_address);  // По умолчанию совпадает
     if (data.director) setField('contact_person', data.director);
 
     // Синхронизируем поле ИНН в форме

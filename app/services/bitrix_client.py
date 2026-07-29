@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 
 ENTITY_TYPE_COMPANY = 4
 ENTITY_TYPE_CONTACT = 3
+ENTITY_TYPE_REQUISITE = 8   # владелец адресов в crm.address (см. requisite_addresses)
+
+# Типы адресов (crm.enum.addresstype). Числовые ID у типов «юридический»/
+# «фактический» на разных порталах разные, поэтому сопоставляем их по названию
+# (BitrixClient.address_types), а это — запасной вариант, если метод недоступен.
+ADDRESS_TYPE_FALLBACK = {"legal": 6, "actual": 1, "registered": 4}
 
 # Пользовательские поля сделки, которые заполняет менеджер в карточке Bitrix24.
 # Ключ TMS -> (подпись поля в карточке, известный код на текущем портале).
@@ -73,6 +79,7 @@ class BitrixClient:
         self.base = webhook_url.rstrip("/") + "/"
         self._http = httpx.Client(timeout=30)
         self._uf_codes = None      # кэш карты UF-полей сделки (см. deal_uf_codes)
+        self._addr_types = None    # кэш карты типов адресов (см. address_types)
 
     def __enter__(self):
         return self
@@ -170,6 +177,58 @@ class BitrixClient:
         rows = self.call("crm.requisite.bankdetail.list", filter={"ENTITY_ID": requisite_id}) or []
         return rows[0] if rows else {}
 
+    def address_types(self) -> dict:
+        """{'legal': <TYPE_ID>, 'actual': ..., 'registered': ...}.
+
+        Сопоставляем по названию, а не по числу: ID типов адресов различаются
+        между порталами (на текущем «Юридический адрес» = 6, а «Фактический» = 1,
+        что не совпадает с порядком из документации). Кэшируется на сессию.
+        """
+        if self._addr_types is not None:
+            return self._addr_types
+        types = dict(ADDRESS_TYPE_FALLBACK)
+        try:
+            rows = self.call("crm.enum.addresstype") or []
+        except BitrixError as e:
+            logger.warning("Bitrix24: не удалось получить типы адресов: %s", e)
+            rows = []
+        for row in rows:
+            try:
+                type_id = int(row.get("ID"))
+            except (TypeError, ValueError):
+                continue
+            name = (row.get("NAME") or "").lower()
+            if "юридическ" in name:
+                types["legal"] = type_id
+            elif "фактическ" in name:
+                types["actual"] = type_id
+            elif "регистрац" in name:
+                types["registered"] = type_id
+        self._addr_types = types
+        return types
+
+    def requisite_addresses(self, requisite_id) -> dict:
+        """{TYPE_ID: адрес} для реквизита.
+
+        У компаний с заполненными реквизитами адреса лежат именно здесь, а поля
+        карточки ADDRESS/ADDRESS_LEGAL остаются пустыми — поэтому юр.адрес и не
+        доезжал до TMS.
+        """
+        try:
+            rows = self.call("crm.address.list",
+                              filter={"ENTITY_TYPE_ID": ENTITY_TYPE_REQUISITE,
+                                      "ENTITY_ID": requisite_id}) or []
+        except BitrixError as e:
+            logger.warning("Bitrix24: не удалось получить адреса реквизита %s: %s", requisite_id, e)
+            return {}
+        result = {}
+        for row in rows:
+            try:
+                result[int(row.get("TYPE_ID"))] = row
+            except (TypeError, ValueError):
+                continue
+        return result
+
     # ── Стадии сделок (для настройки маппинга в TMS) ──────────────────────────
 
     def list_categories(self) -> list:
@@ -252,6 +311,27 @@ def _clean_addr(v) -> str:
     return str(v).split("|")[0].strip() if v else ""
 
 
+def _format_bx_address(addr: dict) -> str:
+    """Адрес из crm.address (разложен по полям) → одна строка для TMS.
+
+    Части часто дублируют друг друга («г Санкт-Петербург» в PROVINCE и он же
+    внутри CITY), поэтому вложенные повторы выбрасываем — иначе в карточке
+    контрагента получается «Россия, г Санкт-Петербург, г Санкт-Петербург ...».
+    """
+    parts = []
+    for key in ("POSTAL_CODE", "COUNTRY", "REGION", "PROVINCE", "CITY",
+                "ADDRESS_1", "ADDRESS_2"):
+        value = str(addr.get(key) or "").strip()
+        if not value:
+            continue
+        low = value.lower()
+        if any(low in kept.lower() for kept in parts):
+            continue
+        parts = [kept for kept in parts if kept.lower() not in low]
+        parts.append(value)
+    return ", ".join(parts)
+
+
 def _parse_bx_date(v):
     """Дата из Bitrix24 → date. Принимает и ISO с таймзоной, и «25.07.2026»."""
     s = str(v or "").strip()
@@ -306,6 +386,23 @@ def extract_counterparty_data(client: BitrixClient, deal: dict) -> Optional[dict
     legal_from_bx = _clean_addr(entity.get("ADDRESS_LEGAL") or entity.get("REG_ADDRESS"))
 
     requisite = client.get_requisite(entity_type_id, entity_id)
+
+    # Если реквизит заведён, адреса живут на нём (crm.address), а не в карточке:
+    # у таких компаний ADDRESS/ADDRESS_LEGAL пустые. Карточку не перебиваем —
+    # берём адрес с реквизита только туда, где выше ничего не нашлось.
+    if requisite.get("ID"):
+        types = client.address_types()
+        addresses = client.requisite_addresses(requisite["ID"])
+        if not legal_from_bx:
+            for key in ("legal", "registered"):
+                addr = addresses.get(types.get(key))
+                legal_from_bx = _clean_addr(_format_bx_address(addr)) if addr else ""
+                if legal_from_bx:
+                    break
+        if not actual_address:
+            addr = addresses.get(types.get("actual"))
+            actual_address = _clean_addr(_format_bx_address(addr)) if addr else ""
+
     inn = (requisite.get("RQ_INN") or "").strip()
     kpp = (requisite.get("RQ_KPP") or "").strip()
     ogrn = (requisite.get("RQ_OGRN") or requisite.get("RQ_OGRNIP") or "").strip()

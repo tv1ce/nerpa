@@ -112,6 +112,29 @@ def _match_bitrix_product(db: Session, row: dict, name_index: dict, product_code
     return product
 
 
+def _price_and_discount(row: dict) -> tuple:
+    """(цена до скидки, % скидки) из товарной строки сделки.
+
+    PRICE в Bitrix24 — это цена УЖЕ со скидкой, поэтому позиция со 100% скидкой
+    (подарок, дегустационный образец) приезжала в TMS с нулевой ценой и без следа
+    того, что скидка вообще была. Цена до скидки лежит в PRICE_BRUTTO (с налогом)
+    или PRICE_NETTO (без него) — какое из полей соответствует PRICE, говорит флаг
+    TAX_INCLUDED.
+
+    Процент считаем из самих цен, а не из DISCOUNT_RATE: скидка бывает и
+    абсолютной (DISCOUNT_TYPE_ID = 1), и тогда DISCOUNT_RATE приходит нулевым.
+    """
+    final = float(row.get("PRICE") or 0)
+    tax_included = str(row.get("TAX_INCLUDED") or "Y").upper() != "N"
+    base = float(row.get("PRICE_BRUTTO" if tax_included else "PRICE_NETTO") or 0)
+
+    # Цена до скидки не заполнена или противоречит итоговой — берём как есть.
+    if base <= 0 or base < final:
+        return final, 0.0
+
+    return base, round((1 - final / base) * 100, 2)
+
+
 def _check_key(request: Request) -> bool:
     expected = os.environ.get("BITRIX_PUSH_KEY", "")
     if not expected:
@@ -294,7 +317,7 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         if not pname:
             continue
         qty = float(row.get("QUANTITY") or 0)
-        price = float(row.get("PRICE") or 0)
+        price, discount_pct = _price_and_discount(row)
         product = _match_bitrix_product(db, row, name_index, product_codes)
         if not product:
             # Сохраняем QTY/PRICE прямо в тексте — иначе при ручном добавлении
@@ -302,11 +325,13 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
             # в каталоге TMS уже ПОСЛЕ пуша сделки, минуты решают).
             qty_s = f"{qty:g}"
             price_s = f"{price:g}"
-            unmatched.append(f"{pname} — {qty_s} шт. по {price_s} ₽")
+            disc_s = f" со скидкой {discount_pct:g}%" if discount_pct else ""
+            unmatched.append(f"{pname} — {qty_s} шт. по {price_s} ₽{disc_s}")
             continue
         db.add(OrderItem(
             order_id=order.id, product_id=product.id, quantity=qty, price=price,
-            vat_rate=product.vat_rate, amount=round(qty * price, 2),
+            discount_pct=discount_pct, vat_rate=product.vat_rate,
+            amount=round(qty * price * (1 - discount_pct / 100), 2),
         ))
         matched.append(pname)
     if unmatched:
