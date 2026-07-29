@@ -1,5 +1,5 @@
 """Генерация PDF счёта-оферты (доставка за счёт покупателя / поставщика)."""
-import io, os
+import io, os, re
 from datetime import date
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -124,6 +124,13 @@ def _date_verbose(d):
         return f"{d.day} {_MONTHS[d.month-1]} {d.year} г."
     return str(d)
 
+def _display_number(number) -> str:
+    """1С формирует номер счёта с префиксом («НФНФ-000072», «НФНФ000072») —
+    для печати оставляем только сам номер: «72»."""
+    s = str(number or "").strip()
+    m = re.search(r"(\d+)\s*$", s)
+    return str(int(m.group(1))) if m else s
+
 def _entity_line(obj):
     parts = [obj.name or ""]
     if obj.inn:           parts.append(f"ИНН {obj.inn}")
@@ -131,6 +138,44 @@ def _entity_line(obj):
     if obj.legal_address: parts.append(obj.legal_address)
     if obj.phone:         parts.append(obj.phone)
     return ",  ".join(filter(None, parts))
+
+def _invoice_basis(invoice):
+    if getattr(invoice, "contract", None):
+        c = invoice.contract
+        return f"№ {c.number} от {c.date.strftime('%d.%m.%Y')} (руб.)"
+    if invoice.notes:
+        return invoice.notes
+    return "Основной договор"
+
+def _logo_cell(company, width):
+    lp = getattr(company, "logo_path", None)
+    if lp and os.path.exists(lp):
+        try:
+            img = Image(lp, width=width - 3*mm, height=20*mm)
+            img.hAlign = "LEFT"
+            return img
+        except Exception:
+            pass
+    return Paragraph("", _s(9, name="nologo"))
+
+def _qr_cell(company, amount, size):
+    """Ячейка с платёжным QR-кодом и подписью. Пусто, если QR недоступен."""
+    from app.utils.payment_qr import generate_payment_qr
+    png = generate_payment_qr(company, amount=amount, purpose="Оплата по счёту")
+    if not png:
+        return Paragraph("", _s(7, name="noqr"))
+    img = Image(io.BytesIO(png), width=size, height=size)
+    img.hAlign = "RIGHT"
+    cap = Paragraph("Отсканируйте<br/>для оплаты", _s(6, align="CENTER", color=GREY, name="qrcap"))
+    t = Table([[img], [cap]], colWidths=[size])
+    t.setStyle(TableStyle([
+        ("ALIGN",         (0,0),(-1,-1), "CENTER"),
+        ("LEFTPADDING",   (0,0),(-1,-1), 0),
+        ("RIGHTPADDING",  (0,0),(-1,-1), 0),
+        ("TOPPADDING",    (0,0),(-1,-1), 0),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 0),
+    ]))
+    return t
 
 def _build_bank_block(company, width):
     L = width * 0.52
@@ -188,8 +233,24 @@ def generate_offer_pdf(invoice, company, delivery: str = "buyer") -> bytes:
     story = []
     cp = invoice.counterparty
 
-    # 1. Банковский блок
-    story.append(_build_bank_block(company, W))
+    # 1. Шапка: логотип | банковские реквизиты | платёжный QR (как в форме 1С)
+    LOGO_W = 25*mm
+    QR_W   = 26*mm
+    BANK_W = W - LOGO_W - QR_W
+    header = Table([[
+        _logo_cell(company, LOGO_W),
+        _build_bank_block(company, BANK_W),
+        _qr_cell(company, invoice.total_amount, QR_W - 2*mm),
+    ]], colWidths=[LOGO_W, BANK_W, QR_W])
+    header.setStyle(TableStyle([
+        ("VALIGN",        (0,0),(-1,0),   "TOP"),
+        ("ALIGN",         (2,0),(2,0),    "RIGHT"),
+        ("LEFTPADDING",   (0,0),(-1,-1),  0),
+        ("RIGHTPADDING",  (0,0),(-1,-1),  0),
+        ("TOPPADDING",    (0,0),(-1,-1),  0),
+        ("BOTTOMPADDING", (0,0),(-1,-1),  0),
+    ]))
+    story.append(header)
     story.append(Spacer(1, 4*mm))
 
     # 2. Заголовок
@@ -199,7 +260,7 @@ def generate_offer_pdf(invoice, company, delivery: str = "buyer") -> bytes:
     else:
         date_str = "_____ ____________"
     story.append(Paragraph(
-        f"Счёт-оферта № {invoice.number} от {date_str} г.",
+        f"Счёт-оферта № {_display_number(invoice.number)} от {date_str} г.",
         _s(14, bold=True, name="title"),
     ))
     story.append(Spacer(1, 1*mm))
@@ -214,6 +275,8 @@ def generate_offer_pdf(invoice, company, delivery: str = "buyer") -> bytes:
          Paragraph(_entity_line(company), _s(9, name="pv"))],
         [Paragraph("Покупатель<br/>(заказчик):",   _s(8, name="pl2")),
          Paragraph(_entity_line(cp),               _s(9, name="pv2"))],
+        [Paragraph("Основание:",                   _s(9, bold=True, name="bl")),
+         Paragraph(_invoice_basis(invoice),        _s(9, name="bv"))],
     ], colWidths=[LW, W - LW])
     parties.setStyle(TableStyle([
         ("VALIGN",        (0,0),(-1,-1), "TOP"),
@@ -227,71 +290,101 @@ def generate_offer_pdf(invoice, company, delivery: str = "buyer") -> bytes:
     story.append(parties)
     story.append(Spacer(1, 5*mm))
 
-    # 4. Таблица товаров: № | Товар (Услуга) | НДС | Кол-во | Ед. | Цена | Сумма
-    CW = [8*mm, 72*mm, 16*mm, 16*mm, 10*mm, 22*mm, 21*mm]  # = 165 mm
+    # 4. Таблица товаров — 9 колонок, с учётом скидки (как в форме 1С):
+    #    № | Товар (Услуга) | Код | Кол-во | Ед. | Цена | Сумма без скидки | Скидка | Сумма
+    CW = [7*mm, 41*mm, 19*mm, 12*mm, 9*mm, 17*mm, 19*mm, 18*mm, 23*mm]  # = 165 mm
     headers = [
         _p("№",              bold=True, align="CENTER"),
         _p("Товар (Услуга)", bold=True),
-        _p("НДС",            bold=True, align="CENTER"),
+        _p("Код",            bold=True),
         _p("Кол-во",         bold=True, align="RIGHT"),
         _p("Ед.",            bold=True, align="CENTER"),
         _p("Цена",           bold=True, align="RIGHT"),
+        _p("Сумма<br/>без скидки", bold=True, align="RIGHT"),
+        _p("Скидка",         bold=True, align="RIGHT"),
         _p("Сумма",          bold=True, align="RIGHT"),
     ]
-    colnums = [_p(str(i), align="CENTER", color=GREY, sz=7) for i in range(1, 8)]
+    colnums = [_p(str(i), align="CENTER", color=GREY, sz=7) for i in range(1, 10)]
     rows = [headers, colnums]
 
+    total_qty   = 0.0
+    total_gross = 0.0
+    total_disc  = 0.0
+
     for i, item in enumerate(invoice.items, 1):
-        vat = item.vat_rate
-        if vat == 0:
-            vat_str = "Без НДС"
-        else:
-            vat_str = f"{int(vat)}%"
+        code  = (item.product.article or "") if item.product else ""
+        gross = item.price * item.quantity            # сумма без скидки
+        disc  = round(gross - item.amount, 2)          # скидка = брутто − итог строки
+        total_qty   += item.quantity
+        total_gross += gross
+        total_disc  += disc
         rows.append([
-            _p(str(i),              align="CENTER"),
+            _p(str(i),               align="CENTER"),
             _p(item.name),
-            _p(vat_str,             align="CENTER"),
-            _p(_num(item.quantity), align="RIGHT"),
-            _p(item.unit,           align="CENTER"),
-            _p(_money(item.price),  align="RIGHT"),
-            _p(_money(item.amount), align="RIGHT"),
+            _p(code,                 sz=7),
+            _p(_num(item.quantity),  align="RIGHT"),
+            _p(item.unit,            align="CENTER"),
+            _p(_money(item.price),   align="RIGHT"),
+            _p(_money(gross),        align="RIGHT"),
+            _p(_money(disc) if disc else "—", align="RIGHT"),
+            _p(_money(item.amount),  align="RIGHT"),
         ])
+
+    # итоговая строка таблицы
+    rows.append([
+        "", "", "",
+        _p(_num(total_qty), align="RIGHT"), "", "",
+        _p(f"<b>{_money(total_gross)}</b>", align="RIGHT"),
+        _p(f"<b>{_money(total_disc) if total_disc else '—'}</b>", align="RIGHT"),
+        _p(f"<b>{_money(invoice.subtotal)}</b>", align="RIGHT"),
+    ])
 
     n = len(rows)
     tbl = Table(rows, colWidths=CW, repeatRows=2)
     tbl.setStyle(TableStyle([
         ("BACKGROUND",     (0,0),(-1,0),   HDR_BG),
         ("FONTNAME",       (0,0),(-1,0),   _FB),
+        ("FONTNAME",       (0,2),(-1,-1),  _F),
         ("FONTSIZE",       (0,0),(-1,-1),  8),
         ("FONTSIZE",       (0,1),(-1,1),   7),
-        ("GRID",           (0,0),(-1,n-1), 0.4, colors.HexColor("#cccccc")),
-        ("ROWBACKGROUNDS", (0,2),(-1,n-1), [colors.white, ROW_BG]),
+        ("GRID",           (0,0),(-1,n-2), 0.4, colors.HexColor("#cccccc")),
+        ("LINEABOVE",      (0,n-1),(-1,n-1), 0.4, colors.grey),
+        ("ROWBACKGROUNDS", (0,2),(-1,n-2), [colors.white, ROW_BG]),
         ("VALIGN",         (0,0),(-1,-1),  "MIDDLE"),
         ("TOPPADDING",     (0,0),(-1,-1),  3),
         ("BOTTOMPADDING",  (0,0),(-1,-1),  3),
+        ("LEFTPADDING",    (2,0),(2,-1),   2),
+        ("RIGHTPADDING",   (2,0),(2,-1),   2),
     ]))
     story.append(tbl)
     story.append(Spacer(1, 2*mm))
 
     # 5. Итог
+    vat_str = _money(invoice.vat_amount) if invoice.vat_amount else "—"
     LBL_W = 55*mm
     VAL_W = 35*mm
     PAD_W = W - LBL_W - VAL_W
-    vat_amount = invoice.vat_amount or 0.0
-    vat_str_total = _money(vat_amount) if vat_amount else "Без НДС"
-    totals = Table([
-        ["", _p("Итого без НДС:",  align="RIGHT"), _p(_money(invoice.subtotal),    align="RIGHT")],
-        ["", _p("НДС:",            align="RIGHT"), _p(vat_str_total,               align="RIGHT")],
-        ["", _p("<b>Итого к оплате:</b>", align="RIGHT", bold=True),
-              _p(f"<b>{_money(invoice.total_amount)}</b>", align="RIGHT", bold=True)],
-    ], colWidths=[PAD_W, LBL_W, VAL_W])
+    totals_rows = [
+        ["", _p("Итого:",            align="RIGHT"), _p(_money(invoice.subtotal), align="RIGHT")],
+        ["", _p("Без налога (НДС):", align="RIGHT"), _p(vat_str,                  align="RIGHT")],
+    ]
+    if total_disc:
+        totals_rows.append(
+            ["", _p("Скидка:", align="RIGHT"), _p(_money(total_disc), align="RIGHT")])
+    totals_rows.append([
+        "",
+        _p("<b>Всего к оплате (с учётом скидки):</b>" if total_disc else "<b>Всего к оплате:</b>",
+           align="RIGHT", bold=True),
+        _p(f"<b>{_money(invoice.total_amount)}</b>", align="RIGHT", bold=True)])
+    last = len(totals_rows) - 1
+    totals = Table(totals_rows, colWidths=[PAD_W, LBL_W, VAL_W])
     totals.setStyle(TableStyle([
         ("FONTSIZE",      (0,0),(-1,-1), 8),
         ("FONTNAME",      (0,0),(-1,-1), _F),
         ("VALIGN",        (0,0),(-1,-1), "MIDDLE"),
         ("TOPPADDING",    (0,0),(-1,-1), 2),
         ("BOTTOMPADDING", (0,0),(-1,-1), 2),
-        ("LINEABOVE",     (1,2),(-1,2),  0.8, BORDER),
+        ("LINEABOVE",     (1,last),(-1,last),  0.8, BORDER),
     ]))
     story.append(totals)
     story.append(Spacer(1, 3*mm))
