@@ -5,7 +5,7 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, Image, KeepInFrame
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
@@ -348,5 +348,11 @@ def generate_offer_pdf(invoice, company, delivery: str = "buyer") -> bytes:
     ]))
     story.append(sign)
 
-    doc.build(story)
+    # Всегда укладываем весь документ на одну страницу: если контент не
+    # помещается по высоте, KeepInFrame(mode='shrink') равномерно уменьшает
+    # масштаб всего блока (аналог "вписать на одну страницу" в Excel/Word).
+    avail_h = A4[1] - doc.topMargin - doc.bottomMargin
+    framed = KeepInFrame(W, avail_h, content=story, mode="shrink",
+                         hAlign="CENTER", vAlign="TOP")
+    doc.build([framed])
     return buf.getvalue()
