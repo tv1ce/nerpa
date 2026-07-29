@@ -740,6 +740,11 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
     if order.delivery_time:
         lines += ["", "Время", "", order.delivery_time]
 
+    # Гоголеву отдельно подписываем сообщение ботом-ассистентом
+    carrier_name = (carrier.trade_name or carrier.name or "")
+    if "Гоголев" in carrier_name:
+        lines += ["", "@neuromikhailbot"]
+
     text = "\n".join(lines)
 
     proxy_url = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080") or None
