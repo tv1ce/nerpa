@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Метрика за месяц{% endblock %}
+{% block page_title %}Метрика за месяц{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2 flex-wrap">
+  <a class="btn btn-sm btn-accent"
+     href="/hr/metrics/month/report?month={{ anchor }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+    <i class="bi bi-file-earmark-text me-1"></i>Отчёт за месяц
+  </a>
+  <a class="btn btn-sm btn-outline-secondary"
+     href="/hr/metrics/month/export.csv?month={{ anchor }}&months={{ month_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+    <i class="bi bi-download me-1"></i>CSV
+  </a>
+  <span class="vr mx-1"></span>
+  <a href="/hr/metrics/month?month={{ prev_anchor }}&months={{ month_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="btn btn-sm btn-outline-secondary" title="Месяц назад"><i class="bi bi-chevron-left"></i></a>
+  <a href="/hr/metrics/month?month={{ next_anchor }}&months={{ month_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="btn btn-sm btn-outline-secondary" title="Месяц вперёд"><i class="bi bi-chevron-right"></i></a>
+  {% if anchor != this_month %}
+  <a href="/hr/metrics/month?months={{ month_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="btn btn-sm btn-link">Текущий месяц</a>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<style>
+  /* Свод по месяцам — та же сетка, что и в неделях, но ячейка только читается */
+  .mgrid-wrap { overflow-x: auto; }
+  .mgrid { border-collapse: separate; border-spacing: 0; font-size: .84rem; width: 100%; }
+  .mgrid th, .mgrid td { border-bottom: 1px solid var(--border); padding: .38rem .5rem; }
+  .mgrid thead th {
+    position: sticky; top: 0; z-index: 3; background: var(--brand-50);
+    font-size: .72rem; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--text-muted); font-weight: 600; text-align: center; white-space: nowrap;
+  }
+  .mgrid .col-emp   { position: sticky; left: 0;     z-index: 2; background: var(--surface);
+                      min-width: 178px; max-width: 178px; }
+  .mgrid .col-met   { position: sticky; left: 178px; z-index: 2; background: var(--surface);
+                      min-width: 210px; max-width: 210px; }
+  .mgrid thead .col-emp, .mgrid thead .col-met { z-index: 4; background: var(--brand-50); }
+  .mgrid tbody tr:hover .col-emp,
+  .mgrid tbody tr:hover .col-met { background: var(--brand-50); }
+  .mgrid tbody tr:hover td { background: rgba(var(--brand-rgb), .05); }
+  .mgrid .grp td {
+    background: var(--bg); font-weight: 600; color: var(--text);
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
+  }
+  .mgrid th.mo-cur { background: var(--cta-50); color: var(--cta-600); }
+
+  .mocell { text-align: center; min-width: 104px; font-variant-numeric: tabular-nums; }
+  .mocell .val  { font-weight: 600; }
+  .mocell .sub  { display: block; font-size: .68rem; color: var(--text-muted); line-height: 1.1; }
+  .mocell .dlt  { display: block; font-size: .68rem; line-height: 1.1; }
+  .mocell.empty { color: var(--text-muted); }
+
+  .st-ok      { background: rgba(22,163,74,.11); }
+  .st-warn    { background: rgba(217,119,6,.13); }
+  .st-bad     { background: rgba(220,38,38,.11); }
+  .st-neutral { background: transparent; }
+
+  .trend-up   { color: #16a34a; }
+  .trend-down { color: #dc2626; }
+  .trend-flat { color: var(--text-muted); }
+
+  .kpi-card { border-radius: var(--r); background: var(--surface);
+              box-shadow: var(--shadow-sm); padding: .85rem 1rem; height: 100%; }
+  .kpi-label { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+               color: var(--text-muted); font-weight: 600; }
+  .kpi-value { font-size: 1.9rem; font-weight: 700; line-height: 1.1; color: var(--text); }
+  .kpi-sub   { font-size: .76rem; color: var(--text-muted); }
+  .kpi-hero  { background: linear-gradient(135deg, var(--brand) 0%, var(--brand-700) 100%); color:#fff; }
+  .kpi-hero .kpi-label, .kpi-hero .kpi-sub { color: rgba(255,255,255,.78); }
+  .kpi-hero .kpi-value { color: #fff; }
+</style>
+
+{% include "hr/_tabs.html" %}
+
+<!-- ── Сводка за отчётный месяц ───────────────────────────────────────────── -->
+<div class="row g-2 mb-3">
+  <div class="col-12 col-lg-4">
+    <div class="kpi-card kpi-hero">
+      <div class="kpi-label">Метрика растёт — {{ anchor_label }}</div>
+      <div class="kpi-value">{{ kpi.growing }} <span style="font-size:1.1rem;opacity:.7">/ {{ kpi.compared }}</span></div>
+      <div class="kpi-sub">{{ kpi.growing_pct }}% · к предыдущему заполненному месяцу</div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="kpi-card">
+      <div class="kpi-label">На цели</div>
+      <div class="kpi-value">{{ kpi.on_target }} <span style="font-size:1.1rem;color:var(--text-muted)">/ {{ kpi.targeted }}</span></div>
+      <div class="kpi-sub">метрик с заданной целью выполнены за месяц</div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="kpi-card">
+      <div class="kpi-label">Заполнено недель</div>
+      <div class="kpi-value">{{ kpi.weeks_filled }} <span style="font-size:1.1rem;color:var(--text-muted)">/ {{ kpi.weeks_expected }}</span></div>
+      <div class="progress mt-1" style="height:6px">
+        <div class="progress-bar {% if kpi.weeks_pct >= 100 %}bg-success{% elif kpi.weeks_pct > 0 %}bg-warning{% else %}bg-secondary{% endif %}"
+             style="width:{{ kpi.weeks_pct if kpi.weeks_pct < 100 else 100 }}%"></div>
+      </div>
+      <div class="kpi-sub mt-1">чем полнее недели, тем честнее свод месяца</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Фильтры ────────────────────────────────────────────────────────────── -->
+<form method="get" action="/hr/metrics/month" class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+  <input type="hidden" name="month" value="{{ anchor }}">
+  <select name="manager" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+    <option value="">Все подразделения</option>
+    {% for m in managers %}
+    <option value="{{ m.id }}" {% if manager_id == m.id %}selected{% endif %}>{{ m.full_name }}</option>
+    {% endfor %}
+  </select>
+  <select name="months" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+    {% for n, label in month_options %}
+    <option value="{{ n }}" {% if month_count == n %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <span class="text-muted" style="font-size:.78rem">
+    <i class="bi bi-info-circle me-1"></i>Месяц считается из недель: процент «двух чисел» — по сумме
+    операций, остальные метрики — среднее недельное (его и сравниваем с недельной целью)
+  </span>
+</form>
+
+<!-- ── Таблица месяцев ────────────────────────────────────────────────────── -->
+<div class="card border-0 shadow-sm">
+  <div class="mgrid-wrap">
+    <table class="mgrid">
+      <thead>
+        <tr>
+          <th class="col-emp text-start">Сотрудник</th>
+          <th class="col-met text-start">Метрика</th>
+          {% for mo in months %}
+          <th class="{% if mo.iso == kpi.month.isoformat() %}mo-cur{% endif %}" title="{{ mo.label }}">
+            {{ mo.short }}<br>
+            <span style="font-weight:400;text-transform:none;letter-spacing:0">{{ mo.year }}</span>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for group_name, group_rows in groups %}
+        <tr class="grp"><td colspan="{{ months | length + 2 }}">{{ group_name }}</td></tr>
+          {% for r in group_rows %}
+          {% set m = r.metric %}
+          <tr>
+            <td class="col-emp">
+              <a href="/hr/employees/{{ r.employee.id }}/profile" class="text-decoration-none fw-semibold text-reset">{{ r.employee.full_name }}</a>
+              <div class="text-muted" style="font-size:.72rem">{{ r.employee.position_title or '—' }}</div>
+            </td>
+            <td class="col-met" {% if m.formula %}title="{{ m.formula }}"{% endif %}>
+              <div class="fw-semibold">{{ m.title }}</div>
+              <div class="text-muted" style="font-size:.72rem">
+                {% if r.target_text %}цель {{ r.target_text }}{% if not m.better_higher %} и ниже{% endif %}{% else %}без цели{% endif %}
+              </div>
+            </td>
+            {% for c in r.cells %}
+            <td class="mocell st-{{ c.status }} {% if not c.filled %}empty{% endif %}"
+                title="{{ c.label }}{% if c.filled %} · {{ c.weeks }} из {{ c.weeks_expected }} недель · лучшая {{ c.best_text }}, худшая {{ c.worst_text }}{% endif %}">
+              {% if c.filled %}
+              <span class="val">{{ c.text }}</span>
+              {% if c.sub %}<span class="sub">{{ c.sub }}</span>{% endif %}
+              {% if c.delta is not none %}
+              <span class="dlt trend-{{ 'up' if c.growing else ('flat' if c.trend == 'flat' else 'down') }}">
+                {% if c.trend == 'up' %}▲{% elif c.trend == 'down' %}▼{% else %}▬{% endif %} {{ c.delta_text }}
+              </span>
+              {% endif %}
+              {% else %}—{% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        {% else %}
+        <tr><td colspan="{{ months | length + 2 }}" class="text-center py-5 text-muted">
+          <div style="font-size:2rem">📊</div>
+          Сводить пока нечего: метрики заводятся и заполняются на вкладке «Метрика недели».
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

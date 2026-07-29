@@ -11,6 +11,11 @@
     <i class="bi bi-telegram me-1"></i>Отчёт недели
   </button>
   <a class="btn btn-sm btn-outline-secondary"
+     href="/hr/metrics/month/report?month={{ anchor_month }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     title="Свод недель за месяц отдельным отчётом">
+    <i class="bi bi-file-earmark-text me-1"></i>Отчёт за месяц
+  </a>
+  <a class="btn btn-sm btn-outline-secondary"
      href="/hr/metrics/export.csv?week={{ anchor }}&weeks={{ week_count }}">
     <i class="bi bi-download me-1"></i>CSV
   </a>
@@ -154,8 +159,8 @@
     {% endfor %}
   </select>
   <select name="weeks" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
-    {% for n in [4, 6, 8, 12, 16, 26] %}
-    <option value="{{ n }}" {% if week_count == n %}selected{% endif %}>{{ n }} недель</option>
+    {% for n, label in week_options %}
+    <option value="{{ n }}" {% if week_count == n %}selected{% endif %}>{{ label }}</option>
     {% endfor %}
   </select>
   <span class="text-muted" style="font-size:.78rem">

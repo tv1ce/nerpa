@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}Отчёт по метрике — {{ anchor_label }}{% endblock %}
+{% block page_title %}Отчёт по метрике за {{ anchor_label }}{% endblock %}
+
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2 flex-wrap">
+  <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#sendMonthReport">
+    <i class="bi bi-telegram me-1"></i>Отправить в Telegram
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" onclick="window.print()">
+    <i class="bi bi-printer me-1"></i>Печать
+  </button>
+  <a class="btn btn-sm btn-outline-secondary"
+     href="/hr/metrics/month/export.csv?month={{ anchor }}&months=3{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+    <i class="bi bi-download me-1"></i>CSV
+  </a>
+  <span class="vr mx-1"></span>
+  <a class="btn btn-sm btn-link" href="/hr/metrics/month?month={{ anchor }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+    К своду
+  </a>
+</div>
+{% endblock %}
+
+{% block content %}
+<style>
+  .rep-head { border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow-sm);
+              padding: 1rem 1.15rem; margin-bottom: 1rem; }
+  .rep-num  { font-size: 2rem; font-weight: 700; line-height: 1.05; }
+  .rep-lbl  { font-size: .72rem; text-transform: uppercase; letter-spacing: .05em;
+              color: var(--text-muted); font-weight: 600; }
+  .rep-sub  { font-size: .76rem; color: var(--text-muted); }
+
+  .rep-card { border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow-sm);
+              padding: .9rem 1.1rem; margin-bottom: .8rem; }
+  .rep-grp  { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
+              font-weight: 600; color: var(--text-muted); margin: 1.2rem 0 .5rem; }
+  .rep-line { display: flex; align-items: baseline; gap: .6rem; padding: .42rem 0;
+              border-bottom: 1px solid var(--border); }
+  .rep-line:last-child { border-bottom: none; }
+  .rep-name { min-width: 220px; }
+  .rep-val  { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .rep-hist { font-size: .74rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .rep-flag { width: 1.4rem; text-align: center; }
+
+  .trend-up   { color: #16a34a; }
+  .trend-down { color: #dc2626; }
+  .trend-flat { color: var(--text-muted); }
+
+  .rep-text { font-size: .8rem; white-space: pre-wrap; background: var(--bg);
+              border-radius: var(--r); padding: .8rem 1rem; margin: 0;
+              max-height: 320px; overflow: auto; }
+
+  @media print {
+    .no-print, .nav, .navbar, .sidebar, form { display: none !important; }
+    .rep-card, .rep-head { box-shadow: none; border: 1px solid #ddd; }
+  }
+</style>
+
+{% if report == 'ok' %}
+<div class="alert alert-success py-2 no-print">Отчёт отправлен в Telegram.</div>
+{% elif report == 'nochat' %}
+<div class="alert alert-warning py-2 no-print">Не задан chat_id — укажите его в форме отправки.</div>
+{% elif report == 'notoken' %}
+<div class="alert alert-danger py-2 no-print">Токен Telegram-бота не настроен (Настройки → Telegram-бот).</div>
+{% elif report == 'error' %}
+<div class="alert alert-danger py-2 no-print">Не удалось отправить отчёт. Проверьте токен Telegram-бота.</div>
+{% endif %}
+
+<!-- ── Шапка отчёта ───────────────────────────────────────────────────────── -->
+<div class="rep-head">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+    <div>
+      <div class="rep-lbl">Метрика сотрудников за месяц</div>
+      <h4 class="mb-1">{{ anchor_label }}</h4>
+      <div class="rep-sub">{{ scope }} · собран {{ generated_at }} · в месяце {{ weeks_expected_text }}</div>
+    </div>
+    <div class="d-flex gap-4 text-center">
+      <div>
+        <div class="rep-lbl">Растут</div>
+        <div class="rep-num">{{ kpi.growing }}<span class="text-muted" style="font-size:1rem">/{{ kpi.compared }}</span></div>
+        <div class="rep-sub">{{ kpi.growing_pct }}%</div>
+      </div>
+      <div>
+        <div class="rep-lbl">Падают</div>
+        <div class="rep-num">{{ kpi.falling }}</div>
+        <div class="rep-sub">к прошлому месяцу</div>
+      </div>
+      <div>
+        <div class="rep-lbl">На цели</div>
+        <div class="rep-num">{{ kpi.on_target }}<span class="text-muted" style="font-size:1rem">/{{ kpi.targeted }}</span></div>
+        <div class="rep-sub">{{ kpi.on_target_pct }}%</div>
+      </div>
+      <div>
+        <div class="rep-lbl">Заполнено недель</div>
+        <div class="rep-num">{{ kpi.weeks_filled }}<span class="text-muted" style="font-size:1rem">/{{ kpi.weeks_expected }}</span></div>
+        <div class="rep-sub">{{ kpi.weeks_pct }}%</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Разбор по подразделениям ───────────────────────────────────────────── -->
+{% for group_name, group_rows in groups %}
+<div class="rep-grp">{{ group_name }}</div>
+<div class="rep-card">
+  {% for r in group_rows %}
+  {% set c = r.current %}
+  <div class="rep-line">
+    <div class="rep-flag">
+      {% if not c.filled %}▫️
+      {% elif c.status == 'ok' %}✅
+      {% elif c.status == 'warn' %}🟡
+      {% elif c.status == 'bad' %}🔴
+      {% elif c.growing %}📈
+      {% elif c.trend in ('flat', 'none') %}▪️
+      {% else %}📉{% endif %}
+    </div>
+    <div class="rep-name">
+      <div class="fw-semibold">{{ r.employee.full_name }}</div>
+      <div class="text-muted" style="font-size:.72rem">{{ r.employee.position_title or '—' }}</div>
+    </div>
+    <div class="flex-grow-1">
+      <div>{{ r.metric.title }}</div>
+      <div class="rep-hist">
+        {% for prev in r.cells[:-1] %}{{ prev.label.split()[0] }}: {{ prev.text or '—' }}{% if not loop.last %} · {% endif %}{% endfor %}
+        {% if r.target_text %} · цель {{ r.target_text }}{% if not r.metric.better_higher %} и ниже{% endif %}{% endif %}
+      </div>
+    </div>
+    <div class="text-end" style="min-width:150px">
+      <span class="rep-val">{{ c.text or '—' }}</span>
+      {% if c.delta is not none %}
+      <span class="trend-{{ 'up' if c.growing else ('flat' if c.trend == 'flat' else 'down') }}">
+        {% if c.trend == 'up' %}▲{% elif c.trend == 'down' %}▼{% else %}▬{% endif %} {{ c.delta_text }}
+      </span>
+      {% endif %}
+      <div class="rep-hist">
+        {% if c.filled %}{{ c.weeks }} из {{ c.weeks_expected }} недель{% if c.sub %} · {{ c.sub }}{% endif %}
+        {% else %}нет данных за месяц{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="rep-card text-center text-muted py-5">
+  <div style="font-size:2rem">📊</div>
+  За {{ anchor_label }} метрики не заполнены — сводить нечего.
+</div>
+{% endfor %}
+
+<!-- ── Готовый текст (он же уходит в Telegram) ────────────────────────────── -->
+<div class="rep-grp no-print">Текст отчёта</div>
+<div class="rep-card no-print">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <span class="text-muted" style="font-size:.78rem">Ровно этот текст уйдёт в Telegram</span>
+    <button class="btn btn-xs btn-outline-secondary" id="copyReport">
+      <i class="bi bi-clipboard me-1"></i>Скопировать
+    </button>
+  </div>
+  <pre class="rep-text" id="reportText">{{ report_text }}</pre>
+</div>
+
+<!-- ── Модалка: отправка отчёта ───────────────────────────────────────────── -->
+<div class="modal fade" id="sendMonthReport" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="/hr/metrics/report/month/telegram"
+            onsubmit="this.querySelector('button[type=submit]').disabled = true; this.querySelector('button[type=submit]').innerHTML = 'Отправляю…';">
+        <input type="hidden" name="month" value="{{ anchor }}">
+        <input type="hidden" name="manager" value="{{ manager_id or '' }}">
+        <div class="modal-header py-2 px-3">
+          <h6 class="modal-title"><i class="bi bi-telegram me-1"></i>Отчёт по метрике за {{ anchor_label }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body px-3">
+          <div class="mb-1">
+            <label class="form-label form-label-sm">Chat ID <span class="text-muted">(через запятую)</span></label>
+            <input type="text" name="chat_ids" class="form-control form-control-sm font-monospace"
+                   placeholder="-1001234567890" value="{{ default_chat_ids }}">
+          </div>
+        </div>
+        <div class="modal-footer py-2 px-3">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
+          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-send me-1"></i>Отправить</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('copyReport').addEventListener('click', function () {
+  var btn = this;
+  navigator.clipboard.writeText(document.getElementById('reportText').textContent).then(function () {
+    btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Скопировано';
+    setTimeout(function () { btn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Скопировать'; }, 1800);
+  });
+});
+</script>
+{% endblock %}
