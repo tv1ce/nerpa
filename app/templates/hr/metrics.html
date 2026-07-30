@@ -305,6 +305,13 @@
               <label class="form-label form-label-sm">Полная формулировка <span class="text-muted">— видна подсказкой в таблице</span></label>
               <textarea name="formula" class="form-control form-control-sm" rows="3"
                         placeholder="Ошибкой считается: несоответствие количества, не тот SKU, неверные реквизиты…"></textarea>
+              <label class="form-label form-label-sm mt-2">Свод месяца <span class="text-muted">— для метрик в штуках/числом</span></label>
+              <select name="month_agg" class="form-select form-select-sm">
+                <option value="sum" selected>Сумма недель — «сколько всего сделано за месяц»</option>
+                <option value="max">Максимум недели — «сколько было в лучшую неделю»</option>
+                <option value="min">Минимум недели — «сколько было в худшую неделю»</option>
+              </select>
+              <div class="form-text" style="font-size:.72rem">Не важно, если у метрики цель в % или ₽ — там месяц считается иначе</div>
             </div>
           </details>
         </div>
@@ -357,6 +364,13 @@
             <div class="mt-2">
               <label class="form-label form-label-sm">Полная формулировка</label>
               <textarea name="formula" class="form-control form-control-sm" rows="3">{{ m.formula or '' }}</textarea>
+              <label class="form-label form-label-sm mt-2">Свод месяца <span class="text-muted">— для метрик в штуках/числом</span></label>
+              <select name="month_agg" class="form-select form-select-sm">
+                <option value="sum" {% if (m.month_agg or 'sum') == 'sum' %}selected{% endif %}>Сумма недель — «сколько всего сделано за месяц»</option>
+                <option value="max" {% if m.month_agg == 'max' %}selected{% endif %}>Максимум недели — «сколько было в лучшую неделю»</option>
+                <option value="min" {% if m.month_agg == 'min' %}selected{% endif %}>Минимум недели — «сколько было в худшую неделю»</option>
+              </select>
+              <div class="form-text" style="font-size:.72rem">Не важно, если у метрики цель в % или ₽ — там месяц считается иначе</div>
               <div class="row g-2 mt-1">
                 <div class="col-6">
                   <label class="form-label form-label-sm">Порядок в таблице</label>

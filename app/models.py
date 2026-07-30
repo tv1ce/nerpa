@@ -1258,6 +1258,13 @@ HR_METRIC_KINDS = ("number", "money", "percent", "ratio")
 # routers.hr_metrics.parse_target.
 HR_METRIC_DIRECTIONS = ("up", "down")
 
+# Как складывать недели kind="number" в число месяца: сумма («сколько всего
+# сделано») — по умолчанию; максимум/минимум — для метрик, где неделя это
+# срез состояния, а не приращение (например, «сколько сотрудников сейчас
+# улучшили показатель» — 3, потом 4, потом снова 2, это не 9, а 4). Только
+# для number — money/percent/ratio считаются иначе (см. routers.hr_metrics._aggregate).
+HR_METRIC_MONTH_AGGS = ("sum", "max", "min")
+
 
 class HrMetric(Base):
     """Определение метрики одного сотрудника: формулировка, тип, цель, направление.
@@ -1276,6 +1283,7 @@ class HrMetric(Base):
     kind = Column(String(10), default="number")   # см. HR_METRIC_KINDS
     unit = Column(String(30))                     # подпись единиц: шт., ₽, %…
     direction = Column(String(4), default="up")   # см. HR_METRIC_DIRECTIONS
+    month_agg = Column(String(10), default="sum") # см. HR_METRIC_MONTH_AGGS — только для kind="number"
     target = Column(Float)                        # целевое значение (может быть пустым)
     label_total = Column(String(40), default="всего")     # legacy, больше не настраивается
     label_bad = Column(String(40), default="с ошибкой")   # legacy, больше не настраивается

@@ -30,6 +30,7 @@ from app.database import get_db
 from app.auth import login_required
 from app.models import (
     HrEmployee, HrMetric, HrMetricValue, HrMetricToken, CompanySettings,
+    HR_METRIC_MONTH_AGGS,
 )
 
 logger = logging.getLogger(__name__)
@@ -430,9 +431,13 @@ def _aggregate(metric: HrMetric, records: list[HrMetricValue]) -> dict | None:
     Сумма недель показывается рядом как объём — она отвечает на другой вопрос
     («сколько всего за месяц») и с целью не сравнивается.
 
-    Исключение — метрики «в штуках» (kind == number): там неделя считает
-    штучный объём, а не показатель, который имеет смысл усреднять, поэтому
-    главное число месяца — сама сумма недель, а не среднее.
+    Исключение — метрики «в штуках» (kind == number): там неделя обычно
+    считает штучный объём, а не показатель, который имеет смысл усреднять,
+    поэтому главное число месяца по умолчанию — сумма недель. Но не всякая
+    number-метрика про объём — «сколько сотрудников сейчас улучшили
+    показатель» это срез состояния (3, потом 4, потом снова 2 — это не 9,
+    а не сложить, а взять максимум/минимум); это настраивается per-метрику
+    через metric.month_agg (см. HR_METRIC_MONTH_AGGS).
 
     Для метрик «в два числа» процент месяца считается по сумме операций, а не
     как среднее недельных процентов: неделя с двумя отгрузками не должна весить
@@ -455,7 +460,13 @@ def _aggregate(metric: HrMetric, records: list[HrMetricValue]) -> dict | None:
     elif metric.kind == "percent":
         total = None
     elif metric.kind == "number":
-        value = total           # штуки — сумма за месяц, а не среднее недельное
+        agg_kind = metric.month_agg if metric.month_agg in HR_METRIC_MONTH_AGGS else "sum"
+        if agg_kind == "max":
+            value = max(values)
+        elif agg_kind == "min":
+            value = min(values)
+        else:
+            value = total       # sum — по умолчанию: сумма за месяц, а не среднее недельное
 
     return {
         "value": value,
@@ -475,7 +486,9 @@ def _agg_sub(metric: HrMetric, agg: dict | None) -> str:
     if metric.kind == "ratio" and agg["volume"]:
         return f"{_plain(agg['volume'])} / {_plain(agg['bad'] or 0)}"
     if metric.kind == "number":
-        return f"{agg['weeks']} нед."
+        agg_kind = metric.month_agg if metric.month_agg in HR_METRIC_MONTH_AGGS else "sum"
+        label = {"max": "макс. · ", "min": "мин. · "}.get(agg_kind, "")
+        return f"{label}{agg['weeks']} нед."
     if agg["total"] is not None:
         return "Σ " + _fmt(agg["total"], metric)
     return f"{agg['weeks']} нед."
@@ -744,6 +757,8 @@ def _metric_from_form(metric: HrMetric, form) -> None:
     metric.direction = parsed["direction"]
     metric.kind = parsed["kind"]
     metric.unit = parsed["unit"]
+    month_agg = (form.get("month_agg") or "").strip()
+    metric.month_agg = month_agg if month_agg in HR_METRIC_MONTH_AGGS else "sum"
     metric.sort_order = int(_num(form.get("sort_order")) or 0)
 
 
