@@ -43,19 +43,53 @@ def parse_chat_ids(raw: str) -> list[int]:
     return result
 
 
+def _pack(units: list[str], sep: str, limit: int) -> list[str]:
+    """Жадно объединяет units в чанки до limit символов, не разрывая ни один
+    отдельный элемент (если он сам длиннее limit — идёт в чанк один)."""
+    parts, buf, length = [], [], 0
+    for u in units:
+        if length + len(u) + len(sep) > limit and buf:
+            parts.append(sep.join(buf))
+            buf, length = [], 0
+        buf.append(u)
+        length += len(u) + len(sep)
+    if buf:
+        parts.append(sep.join(buf))
+    return parts
+
+
+def _hard_slice(s: str, limit: int) -> list[str]:
+    """Режет строку жёстко по limit символов — на случай, если даже одна
+    строка длиннее лимита. Не разрывает экранирующий '\\' от символа."""
+    parts = []
+    while s:
+        cut = limit
+        if cut < len(s) and s[cut - 1] == "\\":
+            cut -= 1
+        parts.append(s[:cut])
+        s = s[cut:]
+    return parts
+
+
 def _split(text: str, limit: int = 3500) -> list[str]:
-    """Режет длинный MarkdownV2-текст по границам пустых строк (не рвёт экранирование)."""
+    """Режет длинный MarkdownV2-текст на чанки до limit символов — сначала по
+    границам пустых строк, затем (если один «абзац» сам длиннее limit —
+    например, блок с длинными ответами по гравитации) по одиночным строкам,
+    и в крайнем случае жёстко по символам. Так ни один чанк не превысит
+    ограничение Telegram (4096) даже при очень длинном абзаце."""
     if len(text) <= limit:
         return [text]
-    parts, buf, length = [], [], 0
-    for para in text.split("\n\n"):
-        if length + len(para) + 2 > limit and buf:
-            parts.append("\n\n".join(buf))
-            buf, length = [], 0
-        buf.append(para)
-        length += len(para) + 2
-    if buf:
-        parts.append("\n\n".join(buf))
+
+    parts = []
+    for para in _pack(text.split("\n\n"), "\n\n", limit):
+        if len(para) <= limit:
+            parts.append(para)
+            continue
+        for chunk in _pack(para.split("\n"), "\n", limit):
+            if len(chunk) <= limit:
+                parts.append(chunk)
+            else:
+                parts.extend(_hard_slice(chunk, limit))
     return parts
 
 
