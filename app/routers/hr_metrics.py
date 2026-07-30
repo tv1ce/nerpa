@@ -430,6 +430,10 @@ def _aggregate(metric: HrMetric, records: list[HrMetricValue]) -> dict | None:
     Сумма недель показывается рядом как объём — она отвечает на другой вопрос
     («сколько всего за месяц») и с целью не сравнивается.
 
+    Исключение — метрики «в штуках» (kind == number): там неделя считает
+    штучный объём, а не показатель, который имеет смысл усреднять, поэтому
+    главное число месяца — сама сумма недель, а не среднее.
+
     Для метрик «в два числа» процент месяца считается по сумме операций, а не
     как среднее недельных процентов: неделя с двумя отгрузками не должна весить
     столько же, сколько неделя с двумя сотнями."""
@@ -450,6 +454,8 @@ def _aggregate(metric: HrMetric, records: list[HrMetricValue]) -> dict | None:
         total = None            # сумма процентов смысла не имеет
     elif metric.kind == "percent":
         total = None
+    elif metric.kind == "number":
+        value = total           # штуки — сумма за месяц, а не среднее недельное
 
     return {
         "value": value,
@@ -468,6 +474,8 @@ def _agg_sub(metric: HrMetric, agg: dict | None) -> str:
         return ""
     if metric.kind == "ratio" and agg["volume"]:
         return f"{_plain(agg['volume'])} / {_plain(agg['bad'] or 0)}"
+    if metric.kind == "number":
+        return f"{agg['weeks']} нед."
     if agg["total"] is not None:
         return "Σ " + _fmt(agg["total"], metric)
     return f"{agg['weeks']} нед."
