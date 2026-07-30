@@ -820,7 +820,7 @@ def _format_enps_managers_report(period_label: str, managers: list[dict]) -> str
             comment = f" — {a['comment']}" if a["comment"] else ""
             lines.append(f"• {a['name']}: {score}{comment}")
             if a["gravity_general"]:
-                lines.append(f"   🧲 {a['gravity_general']}")
+                lines.append(f"   🧲 Общее: {a['gravity_general']}")
             for item in a["gravity_items"]:
                 lines.append(f"   • {item['q']}: {item['a']}")
         lines.append("")
