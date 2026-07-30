@@ -266,8 +266,9 @@ class Order(Base):
     versta_order_number    = Column(String(50))      # номер заказа Versta (V24X-...) — основной ключ трекинга
     versta_tracking_number = Column(String(100))     # номер накладной у самой курьерской службы (опционально)
     versta_status_code     = Column(Integer)          # числовой код статуса из ответа Versta
-    versta_status_name     = Column(String(200))      # человекочитаемое имя статуса
+    versta_status_name     = Column(String(200))      # человекочитаемое имя статуса (из /Get)
     versta_last_event      = Column(String(500))      # текст последнего события трекинга
+    versta_tracking_history = Column(Text)             # JSON: полная история событий /Track
     versta_synced_at       = Column(DateTime)          # когда последний раз опрашивали статус
 
     counterparty = relationship("Counterparty", back_populates="orders", foreign_keys=[counterparty_id])

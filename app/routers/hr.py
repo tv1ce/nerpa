@@ -57,8 +57,8 @@ QUESTIONS = {
 }
 
 # Структурированные вопросы антигравитации (раздел "gravity"): помимо общего
-# свободного текста (text_1), по каждому вопросу собираются оценка 0-10 и
-# комментарий — хранятся JSON-списком в text_2 (см. _gravity_pairs).
+# свободного текста (text_1), по каждому вопросу собирается комментарий —
+# хранится JSON-списком в text_2 (см. _gravity_pairs).
 GRAVITY_QUESTIONS = [
     ("ot_1", "Антигравитация «ОТ»",
      "Когда вы последний раз слышали конкретную обратную связь о качестве именно вашей работы "
@@ -181,7 +181,7 @@ def _personal_qa(employee: HrEmployee, rec: HrRecord | None) -> list[dict]:
 # ── Гравитация/антигравитация: структурированные вопросы (оценка + комментарий) ──
 
 def _gravity_pairs(rec: HrRecord | None) -> list[dict]:
-    """Сырые ответы на вопросы антигравитации из text_2: [{"key","score","comment"}]."""
+    """Сырые ответы на вопросы антигравитации из text_2: [{"key","comment"}]."""
     if rec is None or not rec.text_2:
         return []
     try:
@@ -192,12 +192,12 @@ def _gravity_pairs(rec: HrRecord | None) -> list[dict]:
 
 
 def _gravity_answers_map(rec: HrRecord | None) -> dict[str, dict]:
-    """{"ot_1": {"score":..,"comment":..}, ...} — для предзаполнения формы."""
+    """{"ot_1": {"comment":..}, ...} — для предзаполнения формы."""
     return {a["key"]: a for a in _gravity_pairs(rec) if isinstance(a, dict) and a.get("key")}
 
 
 def _gravity_qa_for_profile(rec: HrRecord | None) -> list[dict]:
-    """[{"q","a"}] с оценкой и комментарием — для истории в профайле сотрудника."""
+    """[{"q","a"}] с комментарием — для истории в профайле сотрудника."""
     lookup = {key: (group, q) for key, group, q in GRAVITY_QUESTIONS}
     out = []
     for ans in _gravity_pairs(rec):
@@ -205,11 +205,10 @@ def _gravity_qa_for_profile(rec: HrRecord | None) -> list[dict]:
         if key not in lookup:
             continue
         group, qtext = lookup[key]
-        score, comment = ans.get("score"), (ans.get("comment") or "").strip()
-        if score is None and not comment:
+        comment = (ans.get("comment") or "").strip()
+        if not comment:
             continue
-        score_str = f"Оценка: {score}/10. " if score is not None else ""
-        out.append({"q": f"{group} — {qtext}", "a": f"{score_str}{comment}".strip()})
+        out.append({"q": f"{group} — {qtext}", "a": comment})
     return out
 
 
@@ -271,10 +270,9 @@ def _save_from_form(db: Session, employee: HrEmployee, period_date: date, form,
     if "gravity" in allowed:
         pairs = []
         for key, _group, _q in GRAVITY_QUESTIONS:
-            score = _score(g(f"gravity_{key}_score"))
             comment = (g(f"gravity_{key}_comment") or "").strip()
-            if score is not None or comment:
-                pairs.append({"key": key, "score": score, "comment": comment})
+            if comment:
+                pairs.append({"key": key, "comment": comment})
         up("gravity", g("gravity_1"), json.dumps(pairs, ensure_ascii=False) if pairs else None)
 
 

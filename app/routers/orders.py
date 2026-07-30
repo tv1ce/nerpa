@@ -613,6 +613,19 @@ async def change_status(request: Request, order_id: int,
     return RedirectResponse(url=target, status_code=302)
 
 
+@router.post("/{order_id}/versta/refresh")
+@login_required
+async def versta_refresh(request: Request, order_id: int, db: Session = Depends(get_db)):
+    """Ручной опрос статуса Versta по этому заказу — не ждать планового поллинга
+    (см. app/services/versta_client.refresh_versta_order)."""
+    from app.services.versta_client import refresh_versta_order
+
+    order = db.query(Order).filter(Order.id == order_id).first()
+    if order:
+        refresh_versta_order(db, order)
+    return RedirectResponse(url=f"/orders/{order_id}/edit", status_code=302)
+
+
 @router.get("/{order_id}/tn", response_class=HTMLResponse)
 @login_required
 async def tn_form(request: Request, order_id: int, db: Session = Depends(get_db)):

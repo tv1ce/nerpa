@@ -114,11 +114,39 @@
                   <input type="text" name="versta_tracking_number" class="form-control form-control-sm"
                          value="{{ order.versta_tracking_number if order and order.versta_tracking_number else '' }}">
                 </div>
-                {% if order and order.versta_status_name or order and order.versta_last_event %}
+                {% if order and (order.versta_status_name or order.versta_last_event) %}
                 <div class="col-12">
-                  <div class="text-muted" style="font-size:.78rem">
-                    <i class="bi bi-clock-history me-1"></i>Статус: {{ order.versta_last_event or order.versta_status_name }}
-                    {% if order.versta_synced_at %}<span class="ms-1">(обновлено {{ order.versta_synced_at.strftime('%d.%m.%Y %H:%M') }})</span>{% endif %}
+                  <div class="d-flex align-items-center justify-content-between flex-wrap" style="gap:.5rem">
+                    <div class="text-muted" style="font-size:.78rem">
+                      <i class="bi bi-clock-history me-1"></i>
+                      Статус: {{ order.versta_status_name or '—' }}{% if order.versta_last_event %} — {{ order.versta_last_event }}{% endif %}
+                      {% if order.versta_synced_at %}<span class="ms-1">(обновлено {{ order.versta_synced_at.strftime('%d.%m.%Y %H:%M') }})</span>{% endif %}
+                    </div>
+                    <button type="submit" form="versta-refresh-form" class="btn btn-sm btn-outline-secondary py-0" style="font-size:.72rem">
+                      <i class="bi bi-arrow-clockwise me-1"></i>Обновить статус
+                    </button>
+                  </div>
+                </div>
+                {% set versta_history = order.versta_tracking_history | from_json %}
+                {% if versta_history %}
+                <div class="col-12">
+                  <ul class="list-unstyled mb-0" style="font-size:.74rem;max-height:160px;overflow-y:auto">
+                    {% for ev in versta_history | sort(attribute='eventDateTime', reverse=True) %}
+                    <li class="text-muted border-top pt-1 mt-1">
+                      <span class="font-monospace">{{ ev.eventDateTime }}</span>
+                      {% if ev.eventSource %}· {{ ev.eventSource }}{% endif %}
+                      — {{ ev.eventText }}
+                    </li>
+                    {% endfor %}
+                  </ul>
+                </div>
+                {% endif %}
+                {% elif order and order.versta_order_number %}
+                <div class="col-12">
+                  <div class="d-flex justify-content-end">
+                    <button type="submit" form="versta-refresh-form" class="btn btn-sm btn-outline-secondary py-0" style="font-size:.72rem">
+                      <i class="bi bi-arrow-clockwise me-1"></i>Обновить статус
+                    </button>
                   </div>
                 </div>
                 {% endif %}
@@ -269,6 +297,10 @@
     </div>
   </div>
 </form>
+
+{% if order %}
+<form id="versta-refresh-form" method="post" action="/orders/{{ order.id }}/versta/refresh" style="display:none"></form>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

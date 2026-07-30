@@ -327,6 +327,7 @@ def _migrate_db():
         ("orders", "versta_status_code",     "INTEGER"),
         ("orders", "versta_status_name",     "TEXT"),
         ("orders", "versta_last_event",      "TEXT"),
+        ("orders", "versta_tracking_history", "TEXT"),
         ("orders", "versta_synced_at",       "TIMESTAMP"),
         ("company_settings", "versta_api_key", "TEXT"),
         ("company_settings", "versta_enabled", "INTEGER DEFAULT 0"),

@@ -488,8 +488,9 @@ def _run_versta_status_job():
     db = SessionLocal()
     try:
         r = poll_versta_statuses(db)
-        if r["updated"]:
-            logger.info("versta статусы: checked=%s updated=%s", r["checked"], r["updated"])
+        if r["updated"] or r["delivered"]:
+            logger.info("versta статусы: checked=%s updated=%s delivered=%s",
+                        r["checked"], r["updated"], r["delivered"])
     except Exception as e:
         logger.error("versta status job error: %s", e)
     finally:
