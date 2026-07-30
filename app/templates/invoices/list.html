@@ -66,6 +66,9 @@
             {% if inv.status == 'issued' and inv.due_date and inv.due_date < today %}
             <span class="badge bg-danger ms-1">!</span>
             {% endif %}
+            {% if inv.paid_date %}
+            <div class="text-success" style="font-size:.75rem">Оплачен: {{ inv.paid_date | date_fmt }}</div>
+            {% endif %}
           </td>
           <td class="text-end fw-semibold">{{ inv.total_amount | money }}</td>
           <td>

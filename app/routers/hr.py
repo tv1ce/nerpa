@@ -750,30 +750,42 @@ async def send_ai_report(
 
 
 def _gather_enps_managers_context(db: Session, period_date: date) -> list[dict]:
-    """Собирает оценки eNPS руководителей за период, сгруппированные по руководителю
-    (HrEmployee.manager_id), на основе ответов раздела «enps_managers» подчинённых.
+    """Собирает по подчинённым — оценку eNPS руководителя и ответы по гравитации/
+    антигравитации за период, сгруппированные по руководителю (HrEmployee.manager_id).
     Каждый подчинённый оценивает и комментирует именно своего непосредственного
-    руководителя — это и связывает ответ с конкретным управленцем."""
+    руководителя — это и связывает ответ с конкретным управленцем; гравитация
+    добавляется тем же подчинённым как дополнительный контекст для руководителя."""
     employees = [e for e in db.query(HrEmployee)
                  .order_by(HrEmployee.full_name).all()
                  if e.visible_in_period(period_date)]
     by_id = {e.id: e for e in employees}
-    records = {r.employee_id: r for r in db.query(HrRecord).filter(
+    enps_records = {r.employee_id: r for r in db.query(HrRecord).filter(
         HrRecord.period == period_date, HrRecord.section == "enps_managers").all()}
+    gravity_records = {r.employee_id: r for r in db.query(HrRecord).filter(
+        HrRecord.period == period_date, HrRecord.section == "gravity").all()}
 
     by_manager: dict[int, list[dict]] = defaultdict(list)
     for e in employees:
         if not e.manager_id or e.manager_id not in by_id:
             continue
-        if "enps_managers" not in e.enabled_sections:
+
+        enps_rec = enps_records.get(e.id) if "enps_managers" in e.enabled_sections else None
+        has_enps = bool(enps_rec and (enps_rec.score is not None or (enps_rec.text_1 or "").strip()))
+
+        gravity_rec = gravity_records.get(e.id) if "gravity" in e.enabled_sections else None
+        gravity_general = (gravity_rec.text_1 or "").strip() if gravity_rec else ""
+        gravity_items = _gravity_qa_for_profile(gravity_rec) if gravity_rec else []
+        has_gravity = bool(gravity_general or gravity_items)
+
+        if not has_enps and not has_gravity:
             continue
-        rec = records.get(e.id)
-        if not rec or (rec.score is None and not (rec.text_1 or "").strip()):
-            continue
+
         by_manager[e.manager_id].append({
             "name": e.full_name,
-            "score": rec.score,
-            "comment": (rec.text_1 or "").strip(),
+            "score": enps_rec.score if enps_rec else None,
+            "comment": (enps_rec.text_1 or "").strip() if enps_rec else "",
+            "gravity_general": gravity_general,
+            "gravity_items": gravity_items,
         })
 
     result = []
@@ -807,6 +819,10 @@ def _format_enps_managers_report(period_label: str, managers: list[dict]) -> str
             score = f"{a['score']}/10" if a["score"] is not None else "—"
             comment = f" — {a['comment']}" if a["comment"] else ""
             lines.append(f"• {a['name']}: {score}{comment}")
+            if a["gravity_general"]:
+                lines.append(f"   🧲 {a['gravity_general']}")
+            for item in a["gravity_items"]:
+                lines.append(f"   • {item['q']}: {item['a']}")
         lines.append("")
 
     return "\n".join(lines).strip()
