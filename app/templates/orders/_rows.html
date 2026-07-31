@@ -18,6 +18,11 @@
   </td>
   <td>{{ o.date | date_fmt }}</td>
   <td>
+    {% if o.dispatch_date %}
+      <span>{{ o.dispatch_date | date_fmt }}</span>
+    {% endif %}
+  </td>
+  <td>
     {% if o.delivery_date %}
       <span {% if is_overdue %}class="text-danger fw-semibold"{% endif %}>{{ o.delivery_date | date_fmt }}</span>
     {% endif %}
@@ -46,5 +51,5 @@
   </td>
 </tr>
 {% else %}
-<tr><td colspan="8" class="text-center py-4 text-muted">Заказов не найдено</td></tr>
+<tr><td colspan="9" class="text-center py-4 text-muted">Заказов не найдено</td></tr>
 {% endfor %}
