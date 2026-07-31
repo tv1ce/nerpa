@@ -542,6 +542,20 @@ AI_HR_SUMMARY_PROMPT = """\
 markdown-обёртки и пояснений — по одному объекту на каждого сотрудника из списка."""
 
 
+AI_GRAVITY_SUMMARY_PROMPT = """\
+Ты — HR-аналитик компании. Тебе дан список сотрудников с их ответами на вопросы
+о гравитации и антигравитации в работе (общий ответ + структурированные вопросы
+«что притягивает / что отталкивает»).
+
+Для КАЖДОГО сотрудника из списка напиши очень короткую (1 предложение, максимум два)
+сводку по-русски: главное, что стоит знать HR — что мотивирует и что раздражает,
+без воды, не выдумывая ничего, чего нет в ответах. Если ответы пустые или
+нейтральные — выведи ровно "без выраженных сигналов."
+
+Верни ТОЛЬКО JSON-массив объектов [{"id": <id сотрудника>, "summary": "..."}], без
+markdown-обёртки и пояснений — по одному объекту на каждого сотрудника из списка."""
+
+
 def _gather_ai_report_context(db: Session, period_date: date) -> dict:
     """Собирает данные всех видимых в периоде сотрудников + вакансий — вход для
     сборки ИИ-отчёта HR (см. _format_hr_report)."""
@@ -560,6 +574,9 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
         achievements_rec = recs.get("achievements")
         enps_rec = recs.get("enps")
         enps_mgr_rec = recs.get("enps_managers")
+        gravity_rec = recs.get("gravity") if "gravity" in enabled else None
+        gravity_general = (gravity_rec.text_1 or "").strip() if gravity_rec else ""
+        gravity_items = _gravity_qa_for_profile(gravity_rec) if gravity_rec else []
         emp_data.append({
             "id": e.id, "name": e.full_name, "position": e.position_title or "—",
             "enabled": enabled,
@@ -570,6 +587,8 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
             "enps_comment": (enps_rec.text_1 or "").strip() if enps_rec else "",
             "enps_mgr_score": enps_mgr_rec.score if enps_mgr_rec else None,
             "enps_mgr_comment": (enps_mgr_rec.text_1 or "").strip() if enps_mgr_rec else "",
+            "gravity_general": gravity_general,
+            "gravity_items": gravity_items,
             # метрика берётся из недельного раздела (HrMetric), а не из текстовых ответов
             "metrics": metric_lines.get(e.id, []),
         })
@@ -623,9 +642,46 @@ async def _ai_personal_summaries(ctx: dict) -> dict[int, str]:
     return out
 
 
-def _format_hr_report(ctx: dict, summaries: dict[int, str]) -> str:
+async def _ai_gravity_summaries(ctx: dict) -> dict[int, str]:
+    """Сжатые сводки «Гравитации и антигравитации» по сотрудникам для общего отчёта —
+    полные ответы остаются только в отчёте «eNPS руководителей», здесь один запрос
+    к ИИ на всех сразу даёт по короткой сводке на сотрудника."""
+    candidates = [e for e in ctx["employees"] if e["gravity_general"] or e["gravity_items"]]
+    if not candidates:
+        return {}
+
+    lines = []
+    for e in candidates:
+        lines.append(f"### id={e['id']}: {e['name']} ({e['position']})")
+        if e["gravity_general"]:
+            lines.append(f"Общее: {e['gravity_general']}")
+        for item in e["gravity_items"]:
+            lines.append(f"{item['q']}: {item['a']}")
+        lines.append("")
+
+    from app.services import openrouter_client
+    try:
+        result = await asyncio.to_thread(
+            openrouter_client.chat_json, AI_GRAVITY_SUMMARY_PROMPT, "\n".join(lines))
+    except Exception:
+        logger.exception("Не удалось получить сводки «Гравитации» для ИИ-отчёта HR")
+        return {}
+
+    out: dict[int, str] = {}
+    if isinstance(result, list):
+        for item in result:
+            if not isinstance(item, dict):
+                continue
+            try:
+                out[int(item.get("id"))] = str(item.get("summary", "")).strip()
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def _format_hr_report(ctx: dict, summaries: dict[int, str], gravity_summaries: dict[int, str]) -> str:
     """Собирает итоговый текст отчёта (с **bold** для Telegram) из данных периода
-    и ИИ-сводок личностного файла."""
+    и ИИ-сводок личностного файла и гравитации/антигравитации."""
     lines = [f"📋 **Отчёт HR — {ctx['period_label']}**", ""]
 
     personal = [e for e in ctx["employees"] if "personal" in e["enabled"] or "complaints" in e["enabled"]]
@@ -636,6 +692,15 @@ def _format_hr_report(ctx: dict, summaries: dict[int, str]) -> str:
             summary = summaries.get(e["id"]) or "без существенных проблем."
             lines.append(f"**{e['name']}** — {summary}")
             lines.append("")
+
+    gravity_emps = [e for e in ctx["employees"] if e["gravity_general"] or e["gravity_items"]]
+    if gravity_emps:
+        lines.append("🧲 **Гравитация и антигравитация**")
+        lines.append("")
+        for e in gravity_emps:
+            summary = gravity_summaries.get(e["id"]) or "без выраженных сигналов."
+            lines.append(f"**{e['name']}** — {summary}")
+        lines.append("")
 
     if ctx["team_achievement"]:
         lines.append("🏅 **Достижения как команда**")
@@ -739,7 +804,8 @@ async def send_ai_report(
     try:
         ctx = _gather_ai_report_context(db, period_date)
         summaries = await _ai_personal_summaries(ctx)
-        text = _format_hr_report(ctx, summaries)
+        gravity_summaries = await _ai_gravity_summaries(ctx)
+        text = _format_hr_report(ctx, summaries, gravity_summaries)
         mdv2 = telegram_send.ai_text_to_mdv2(text)
         await asyncio.to_thread(telegram_send.send_markdown, ids, mdv2, bot_token)
     except Exception:
