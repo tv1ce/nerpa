@@ -128,31 +128,28 @@
     }
 
     /* ── Карточки-метрики ── */
-    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1.3vw;margin-bottom:1.4vh}
-    .stats2{display:grid;grid-template-columns:repeat(2,1fr);gap:1.3vw;margin-bottom:1.4vh}
-    .stat{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
-      padding:1.8vh 1.2vw;text-align:center;box-shadow:var(--shadow);
+    .stats-row1{display:grid;grid-template-columns:repeat(3,1fr);gap:1.3vw;margin-bottom:1.3vh}
+    .stats-row2{display:grid;grid-template-columns:1.15fr .95fr 1.4fr;gap:1.3vw;margin-bottom:1.4vh}
+    .stat-card{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
+      padding:1.7vh 1.5vw;text-align:left;box-shadow:var(--shadow);
       transition:background .5s,border-color .5s;
       display:flex;flex-direction:column;justify-content:center;}
-    .stat .v{font-size:3.2vh;font-weight:800;line-height:1.1}
-    .stat .k{font-size:1.9vh;color:var(--muted);font-weight:600;margin-top:.6vh}
-    .stat .sub{font-size:3.0vh;font-weight:700;margin-top:.3vh}
-    .stat.today .sub,.stat.year .sub,.stat.total .sub,.stat.prev-nuts .sub{color:var(--green)}
-    .stat.cost .sub{font-size:1.7vh;font-weight:600;color:var(--ink)}
-    .stat.today .v{color:var(--purple)}
-    .stat.year  .v{color:var(--lilac)}
-    .stat.total .v{color:var(--ink)}
-    .stat.claims .v{color:var(--green)}
-    .stat.prev-nuts .v{color:var(--purple)}
-    .stat.prev-rev  .v{font-size:3.0vh;color:var(--lilac)}
-    .stat.cost .v{font-size:3.2vh;color:var(--green)}
-    .stat.cost.cost-warn .v{color:var(--orange)}
-    .stat.cost.cost-over .v{color:#E53E3E}
-    .cost-bar-wrap{margin-top:.8vh;height:1.8vh;background:var(--track);border-radius:1vh;overflow:hidden}
+    .card-head{font-size:1.9vh;font-weight:700;color:var(--ink);margin-bottom:.5vh;
+      text-transform:capitalize}
+    .metric-label{font-size:1.6vh;color:var(--muted);font-weight:600;margin-top:.5vh}
+    .metric-value{font-size:2.8vh;font-weight:800;line-height:1.15}
+    .metric-value.qty{color:var(--purple)}
+    .metric-value.money{color:var(--green)}
+    .metric-value.big-green{font-size:3.6vh;color:var(--green);margin-top:.2vh}
+    .cost-card.cost-warn .metric-value.big-green{color:var(--orange)}
+    .cost-card.cost-over .metric-value.big-green{color:#E53E3E}
+    .cost-card .cost-bar-wrap{margin-top:1vh;height:1.8vh;background:var(--track);
+      border-radius:1vh;overflow:hidden}
     .cost-bar{height:100%;border-radius:1vh;transition:width .8s ease,background .4s;
       background:linear-gradient(90deg,var(--green),#a5d96a)}
     .cost-bar.warn{background:linear-gradient(90deg,var(--orange),#f5a85e)}
     .cost-bar.over{background:linear-gradient(90deg,#E53E3E,#f88)}
+    .cost-sub{font-size:1.6vh;font-weight:600;color:var(--ink);margin-top:.7vh}
     @keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
 
     /* ── Музыкальные каналы ── */
@@ -270,42 +267,50 @@
     </div>
   </div>
 
-  <!-- Метрики -->
-  <div class="stats">
-    <div class="stat today">
-      <div class="v" id="m-today">{{ data.shipped_today }} шт</div>
-      <div class="k">собрано сегодня</div>
-      <div class="k" id="m-today-date" style="font-size:1.6vh;margin-top:.1vh"></div>
-      <div class="sub" id="m-today-money">оплачено {{ "{:,}".format(data.shipped_today_money).replace(",", " ") }} ₽</div>
+  <!-- Метрики: сегодня / с начала года / всего за всё время -->
+  <div class="stats-row1">
+    <div class="stat-card">
+      <div class="card-head" id="today-date">Сегодня</div>
+      <div class="metric-label">Собрано</div>
+      <div class="metric-value qty" id="m-today">{{ data.shipped_today }} шт</div>
+      <div class="metric-label">Выручка</div>
+      <div class="metric-value money" id="m-today-money">{{ "{:,}".format(data.shipped_today_money).replace(",", " ") }} ₽</div>
     </div>
-    <div class="stat year">
-      <div class="v" id="m-year">{{ data.shipped_year }} шт</div>
-      <div class="k">с начала года</div>
-      <div class="sub" id="m-year-money">оплачено {{ "{:,}".format(data.shipped_year_money).replace(",", " ") }} ₽</div>
+    <div class="stat-card">
+      <div class="card-head">С начала года</div>
+      <div class="metric-label">Продано</div>
+      <div class="metric-value qty" id="m-year">{{ data.shipped_year }} шт</div>
+      <div class="metric-label">Выручка</div>
+      <div class="metric-value money" id="m-year-money">{{ "{:,}".format(data.shipped_year_money).replace(",", " ") }} ₽</div>
     </div>
-    <div class="stat total">
-      <div class="v" id="m-total">{{ data.shipped_total }} шт</div>
-      <div class="k">всего за всё время</div>
-      <div class="sub" id="m-total-money">оплачено {{ "{:,}".format(data.shipped_total_money).replace(",", " ") }} ₽</div>
-    </div>
-    <div class="stat claims">
-      <div class="v" id="m-claims">—</div>
-      <div class="k" id="m-claims-label">дней без рекламаций</div>
+    <div class="stat-card">
+      <div class="card-head">Всего за всё время</div>
+      <div class="metric-label">Продано</div>
+      <div class="metric-value qty" id="m-total">{{ data.shipped_total }} шт</div>
+      <div class="metric-label">Выручка</div>
+      <div class="metric-value money" id="m-total-money">{{ "{:,}".format(data.shipped_total_money).replace(",", " ") }} ₽</div>
     </div>
   </div>
 
-  <!-- Прошлый месяц + Себестоимость -->
-  <div class="stats2">
-    <div class="stat prev-nuts">
-      <div class="v" id="m-lm-nuts">{{ data.last_month_nuts }} шт</div>
-      <div class="k">{{ data.last_month_name }}</div>
-      <div class="sub" id="m-lm-nuts-money">оплачено {{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
+  <!-- Прошлый месяц / дни без рекламаций / себестоимость -->
+  <div class="stats-row2">
+    <div class="stat-card">
+      <div class="card-head">{{ data.last_month_name }}</div>
+      <div class="metric-label">Продано</div>
+      <div class="metric-value qty" id="m-lm-nuts">{{ data.last_month_nuts }} шт</div>
+      <div class="metric-label">Выручка</div>
+      <div class="metric-value money" id="m-lm-nuts-money">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
     </div>
-    <div class="stat cost" id="stat-cost">
-      <div class="v" id="m-cost">{{ data.cost_pct | round(1) }}%</div>
-      <div class="k">себестоимость</div>
+    <div class="stat-card">
+      <div class="card-head">Дней без рекламаций</div>
+      <div class="metric-value big-green" id="m-claims">—</div>
+      <div class="metric-label" id="m-claims-label">дней подряд</div>
+    </div>
+    <div class="stat-card cost-card" id="stat-cost">
+      <div class="card-head">Себестоимость</div>
+      <div class="metric-value big-green" id="m-cost">{{ data.cost_pct | round(1) }}%</div>
       <div class="cost-bar-wrap"><div class="cost-bar" id="cost-bar" style="width:0%"></div></div>
-      <div class="sub" id="m-cost-sub">норма: {{ data.cost_norm_pct | round(1) }}% &nbsp;|&nbsp; Δ {{ "%+.1f" | format(data.cost_pct - data.cost_norm_pct) }}%</div>
+      <div class="cost-sub" id="m-cost-sub">норма: {{ data.cost_norm_pct | round(1) }}% &nbsp;|&nbsp; Δ {{ "%+.1f" | format(data.cost_pct - data.cost_norm_pct) }}%</div>
     </div>
   </div>
 
@@ -368,9 +373,9 @@
         d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
       document.getElementById('clock-date').textContent =
         d.toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
-      const todayDateEl = document.getElementById('m-today-date');
+      const todayDateEl = document.getElementById('today-date');
       if (todayDateEl) todayDateEl.textContent =
-        d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'});
+        'Сегодня, ' + d.toLocaleDateString('ru-RU');
     }
     tick(); setInterval(tick, 1000);
 
@@ -692,15 +697,15 @@
       document.getElementById('m-revenue-plan').textContent = fmtR(d.revenue_plan);
       document.getElementById('m-pct').textContent          = d.revenue_pct;
       document.getElementById('m-today').textContent        = fmt(d.shipped_today) + ' шт';
-      document.getElementById('m-today-money').textContent   = 'оплачено ' + fmtR(d.shipped_today_money) + ' ₽';
+      document.getElementById('m-today-money').textContent   = fmtR(d.shipped_today_money) + ' ₽';
       document.getElementById('m-year').textContent          = fmt(d.shipped_year) + ' шт';
-      document.getElementById('m-year-money').textContent    = 'оплачено ' + fmtR(d.shipped_year_money)  + ' ₽';
+      document.getElementById('m-year-money').textContent    = fmtR(d.shipped_year_money)  + ' ₽';
       document.getElementById('m-total').textContent         = fmt(d.shipped_total) + ' шт';
-      document.getElementById('m-total-money').textContent   = 'оплачено ' + fmtR(d.shipped_total_money) + ' ₽';
+      document.getElementById('m-total-money').textContent   = fmtR(d.shipped_total_money) + ' ₽';
 
       // Прошлый месяц
       document.getElementById('m-lm-nuts').textContent      = fmt(d.last_month_nuts) + ' шт';
-      document.getElementById('m-lm-nuts-money').textContent = 'оплачено ' + fmtR(d.last_month_revenue) + ' ₽';
+      document.getElementById('m-lm-nuts-money').textContent = fmtR(d.last_month_revenue) + ' ₽';
 
       // Себестоимость
       COST_NORM = d.cost_norm_pct; COST_DEV = d.cost_deviation;
@@ -726,7 +731,7 @@
       if (d.days_without_claims === null || d.days_without_claims === undefined){
         c.textContent = '✓'; cl.textContent = 'рекламаций не было';
       } else {
-        c.textContent = d.days_without_claims; cl.textContent = 'дней без рекламаций';
+        c.textContent = d.days_without_claims; cl.textContent = 'дней подряд';
       }
 
       isRecordToday = !!d.is_record_today;

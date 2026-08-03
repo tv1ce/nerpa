@@ -187,6 +187,32 @@
 {% block scripts %}
 <script>
 const months = {{ months_data | tojson }};
+
+// Подписи сумм прямо над столбцами — чтобы цифры были видны без наведения.
+const barValueLabels = {
+  id: 'barValueLabels',
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, i) => {
+      const meta = chart.getDatasetMeta(i);
+      meta.data.forEach((bar, index) => {
+        const value = dataset.data[index];
+        if (!value) return;
+        // getProps(..., true) — Chart.js хранит анимированные координаты элемента
+        // отдельно от прямых bar.x/bar.y, поэтому нужно резолвить финальную позицию так.
+        const { x, y } = bar.getProps(['x', 'y'], true);
+        ctx.save();
+        ctx.fillStyle = '#2E2C4A';
+        ctx.font = '600 12px "Segoe UI", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(value.toLocaleString('ru-RU'), x, y - 6);
+        ctx.restore();
+      });
+    });
+  }
+};
+
 new Chart(document.getElementById('revenueChart'), {
   type: 'bar',
   data: {
@@ -200,10 +226,19 @@ new Chart(document.getElementById('revenueChart'), {
       borderRadius: 6,
     }]
   },
+  plugins: [barValueLabels],
   options: {
     responsive: true,
+    layout: { padding: { top: 22 } },
     plugins: { legend: { display: false } },
-    scales: { y: { beginAtZero: true, ticks: { callback: v => v.toLocaleString('ru-RU') } } }
+    scales: {
+      y: {
+        beginAtZero: true,
+        // Небольшой запас сверху, чтобы подпись над самым высоким столбцом не обрезалась
+        suggestedMax: Math.max(...months.map(m => m.revenue || 0)) * 1.12 || undefined,
+        ticks: { callback: v => v.toLocaleString('ru-RU') },
+      },
+    },
   }
 });
 
