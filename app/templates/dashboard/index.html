@@ -229,6 +229,10 @@ new Chart(document.getElementById('revenueChart'), {
   plugins: [barValueLabels],
   options: {
     responsive: true,
+    // Chart.js не всегда прогоняет кастомные плагины на последнем кадре
+    // анимации — подписи суммы иногда пропадали после отрисовки. Без анимации
+    // столбцы рисуются одним синхронным проходом, и подписи не мигают/не исчезают.
+    animation: false,
     layout: { padding: { top: 22 } },
     plugins: { legend: { display: false } },
     scales: {

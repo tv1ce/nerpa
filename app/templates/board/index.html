@@ -135,12 +135,13 @@
       transition:background .5s,border-color .5s;
       display:flex;flex-direction:column;justify-content:center;}
     .card-head{font-size:1.9vh;font-weight:700;color:var(--ink);margin-bottom:.5vh;
-      text-transform:capitalize}
+      text-transform:lowercase}
+    .card-head::first-letter{text-transform:uppercase}
     .metric-label{font-size:1.6vh;color:var(--muted);font-weight:600;margin-top:.5vh}
-    .metric-value{font-size:2.8vh;font-weight:800;line-height:1.15}
+    .metric-value{font-size:3.8vh;font-weight:800;line-height:1.15}
     .metric-value.qty{color:var(--purple)}
     .metric-value.money{color:var(--green)}
-    .metric-value.big-green{font-size:3.6vh;color:var(--green);margin-top:.2vh}
+    .metric-value.big-green{font-size:4.6vh;color:var(--green);margin-top:.2vh}
     .cost-card.cost-warn .metric-value.big-green{color:var(--orange)}
     .cost-card.cost-over .metric-value.big-green{color:#E53E3E}
     .cost-card .cost-bar-wrap{margin-top:1vh;height:1.8vh;background:var(--track);
