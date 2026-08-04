@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.tz import now as msk_now
 from app.database import get_db
 from app.auth import login_required
 from app.models import Receipt, ReceiptLine, StockMovement, Notification, User
@@ -132,7 +133,7 @@ async def confirm(request: Request, receipt_id: int, db: Session = Depends(get_d
         # 1С уже создан и проведён технологом+нами выше, повторно пушить не нужно.
         if receipt.external_id_1c:
             mv.external_id_1c = receipt.external_id_1c
-            mv.synced_to_1c_at = datetime.utcnow()
+            mv.synced_to_1c_at = msk_now()
         db.add(mv)
 
     receipt.status = "confirmed"

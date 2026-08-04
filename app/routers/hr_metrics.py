@@ -26,6 +26,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, Stre
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
+from app.tz import now as msk_now
 from app.database import get_db
 from app.auth import login_required
 from app.models import (
@@ -1013,7 +1014,7 @@ async def week_form_save(request: Request, token: str, db: Session = Depends(get
             "comment": form.get(f"m{metric.id}_comment"),
         }, None, author)
 
-    tok.last_used_at = datetime.utcnow()
+    tok.last_used_at = msk_now()
     db.commit()
     return RedirectResponse(url=f"/hr/w/{token}?week={ws.isoformat()}&done=1", status_code=302)
 

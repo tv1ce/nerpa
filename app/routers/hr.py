@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.tz import now as msk_now
 from app.database import get_db
 from app.auth import login_required
 from app.models import (
@@ -1427,7 +1428,7 @@ async def public_survey_submit(request: Request, token: str, db: Session = Depen
     form = await request.form()
     is_first_submit = tok.submitted_at is None
     _save_from_form(db, tok.employee, tok.survey.period, form, set(tok.effective_sections), None)
-    tok.submitted_at = datetime.utcnow()
+    tok.submitted_at = msk_now()
     if is_first_submit:
         _notify_survey_answered(db, tok)
     db.commit()

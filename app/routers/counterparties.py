@@ -4,6 +4,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 import httpx
+from app.tz import now as msk_now
 from app.database import get_db
 from app.auth import login_required, role_required
 from app.models import Counterparty, Claim, Task, Comment, AuditLog, User, ContactPerson, CarrierVehicle
@@ -442,7 +443,7 @@ async def check_egrul(request: Request, cp_id: int, db: Session = Depends(get_db
 
     status_code = suggestions[0]["data"].get("state", {}).get("status", "ACTIVE")
     cp.egrul_status = status_code
-    cp.egrul_checked_at = _dt.utcnow()
+    cp.egrul_checked_at = msk_now()
     db.commit()
 
     return JSONResponse({

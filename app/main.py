@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, warehouse_shipping, warehouse_receiving, warehouse_transfers, warehouse_writeoffs, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, hr, hr_metrics
+from app.routers import auth, dashboard, counterparties, products, orders, invoices, contracts, settings, reports, warehouse, warehouse_shipping, warehouse_receiving, warehouse_transfers, warehouse_writeoffs, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, api_carrier, hr, hr_metrics
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -721,6 +721,7 @@ app.include_router(api_sbis.router)   # СБИС ЭПД/ЭТРН (вариант
 app.include_router(api_saby_tms.router)  # Saby «Управление транспортом» — заказы на перевозку (ЭЗЗ) + ЭТрН
 app.include_router(api_bitrix.router) # Bitrix24 CRM — приём сделок + настройка маппинга
 app.include_router(api_tochka.router) # Банк «Точка» — вебхук/сверка входящих оплат
+app.include_router(api_carrier.router)  # «Помощник логиста» — подтверждение доставки (бот бота не слышит)
 app.include_router(hr.router)         # HR-отчётность (Teamly)
 app.include_router(hr_metrics.router) # Метрика сотрудников — недельный срез
 

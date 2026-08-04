@@ -5,6 +5,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
+from app.tz import now as msk_now      # все метки времени в БД — по Москве, см. app/tz.py
 from app.utils.crypto import EncryptedText
 
 
@@ -19,7 +20,7 @@ class User(Base):
     must_change_password = Column(Boolean, default=False)  # принудительная смена при следующем входе
     birthday = Column(Date)  # день рождения — для поздравлений на табло цеха
     phone = Column(String(50))  # рабочий телефон менеджера — показывается клиенту в трекинге
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     # Bitrix24: если задано — авто-выгруженные лиды этого торгпреда/менеджера
     # назначаются на этого сотрудника Bitrix, а не на глобального bitrix_lead_responsible_id
     bitrix_user_id = Column(String(20))
@@ -48,7 +49,7 @@ class Counterparty(Base):
     bank_corr_account = Column(String(20))
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     # Условия оплаты
     payment_delay_days = Column(Integer, default=2)           # дней отсрочки
     payment_delay_type = Column(String(10), default="banking") # 'banking' или 'calendar'
@@ -98,7 +99,7 @@ class CarrierVehicle(Base):
     driver_license_number = Column(String(20))   # номер вод. удостоверения
     driver_license_date   = Column(Date)         # дата выдачи вод. удостоверения
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     counterparty = relationship("Counterparty", back_populates="vehicles")
 
@@ -117,7 +118,7 @@ class Warehouse(Base):
     # 1С:УНФ
     external_id_1c    = Column(String(36))      # Ref_Key склада/структурной единицы в 1С
     synced_from_1c_at = Column(DateTime)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
 
 class Category(Base):
@@ -133,7 +134,7 @@ class Category(Base):
     # 1С:УНФ
     external_id_1c    = Column(String(36))
     synced_from_1c_at = Column(DateTime)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     parent = relationship("Category", remote_side=[id])
 
@@ -156,7 +157,7 @@ class StockBalance1C(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=False)
     quantity = Column(Float, default=0.0)
-    synced_at = Column(DateTime, server_default=func.now())
+    synced_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     product = relationship("Product")
     warehouse = relationship("Warehouse")
@@ -176,7 +177,7 @@ class Product(Base):
     category = Column(String(100))             # группа для навигации в пикере (Орешки / Упаковка / …)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)  # структурная категория из 1С
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     # Склад
     min_stock = Column(Float, default=0.0)
     initial_stock = Column(Float, default=0.0)
@@ -216,7 +217,7 @@ class Order(Base):
     delivery_address = Column(String(500))
     notes = Column(Text)
     created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     # Момент, когда кладовщик нажал «Собрано» — именно с этого момента заказ
     # считается отгруженным и попадает в табло цеха (орешки + выручка).
     assembled_at = Column(DateTime, nullable=True)
@@ -351,7 +352,7 @@ class Invoice(Base):
     due_date = Column(Date)
     paid_date = Column(Date)
     notes = Column(Text)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     contract_id = Column(Integer, ForeignKey("contracts.id"))
     # 1С:УНФ
@@ -387,7 +388,7 @@ class Payment(Base):
     payer_name = Column(String(200))
     source = Column(String(10), default="tochka")                   # tochka / 1c
     external_id = Column(String(64))                                # paymentId Точки / Ref 1С
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     invoice = relationship("Invoice", back_populates="payments")
     counterparty = relationship("Counterparty")
@@ -427,7 +428,7 @@ class Contract(Base):
     payment_days = Column(Integer)  # дней отсрочки (для шаблонов с отсрочкой)
     file_path = Column(String(500))
     notes = Column(Text)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     external_id_1c = Column(String(36))   # Ref_Key (GUID) ДоговораКонтрагента в 1С
     synced_to_1c_at = Column(DateTime)
 
@@ -443,7 +444,7 @@ class DocumentTemplate(Base):
     file_path = Column(String(500), nullable=False)
     description = Column(Text)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
 
 class CompanySettings(Base):
@@ -574,7 +575,7 @@ class BitrixPipeline(Base):
     stage_paid = Column(String(60))       # STAGE_ID на «Счёт оплачен»
     stage_shipped = Column(String(60))    # STAGE_ID на «Отгрузка»; пусто — заказ на этом и заканчивается
     stage_delivered = Column(String(60))  # STAGE_ID на «Доставлено» (необязательно)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
 
 class BitrixProductLink(Base):
@@ -592,7 +593,7 @@ class BitrixProductLink(Base):
     bitrix_product_id = Column(String(50), unique=True, nullable=False, index=True)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     bitrix_product_name = Column(String(200))  # имя в Bitrix на момент привязки — для истории/отладки
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     product = relationship("Product")
 
@@ -605,8 +606,8 @@ class MonthlyPlan(Base):
     month = Column(Integer, nullable=False)   # 1–12
     plan_amount = Column(Float, nullable=False, default=0.0)
     notes = Column(String(500))
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+    updated_at = Column(DateTime, default=msk_now, server_default=func.now(), onupdate=msk_now)
 
 
 class Task(Base):
@@ -622,7 +623,7 @@ class Task(Base):
     assigned_to_id = Column(Integer, ForeignKey("users.id"))
     created_by_id = Column(Integer, ForeignKey("users.id"))
     due_date = Column(Date)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     created_by  = relationship("User", foreign_keys=[created_by_id])
@@ -636,8 +637,8 @@ class Comment(Base):
     entity_type = Column(String(30))
     entity_id = Column(Integer)
     created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+    updated_at = Column(DateTime, default=msk_now, server_default=func.now(), onupdate=msk_now)
 
     created_by = relationship("User")
 
@@ -654,7 +655,7 @@ class AuditLog(Base):
     new_value = Column(String(500))
     note = Column(Text)
     user_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     user = relationship("User")
 
@@ -673,8 +674,8 @@ class Claim(Base):
     resolution = Column(Text)
     amount = Column(Float)
     created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+    updated_at = Column(DateTime, default=msk_now, server_default=func.now(), onupdate=msk_now)
 
     counterparty = relationship("Counterparty", back_populates="claims")
     order = relationship("Order")
@@ -692,7 +693,7 @@ class Notification(Base):
     # user_id = NULL → системное уведомление, видят все (напр. low_stock склада)
     user_id = Column(Integer, ForeignKey("users.id"))
     is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     # Момент последнего эскалирующего Telegram-напоминания (напр. для bitrix_order,
     # пока уведомление не прочитано). NULL — ещё не эскалировалось.
     escalated_at = Column(DateTime)
@@ -713,7 +714,7 @@ class StockMovement(Base):
     order_id = Column(Integer, ForeignKey("orders.id"))
     notes = Column(Text)
     created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     # Склад движения; для movement_type='transfer' — склад-источник, а
     # to_warehouse_id — склад-назначение (движение сразу отражает оба конца).
     # Nullable ради обратной совместимости со старыми строками (один склад).
@@ -767,7 +768,7 @@ class SalesLead(Base):
     source_file = Column(String(300))
     raw = Column(Text)                                # JSON исходной строки (на всякий случай)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     # ── Разведка / обогащение (ЛПР, реквизиты из открытых источников РФ) ──
     inn = Column(String(12))                          # ИНН организации/ИП
     kpp = Column(String(9))
@@ -803,7 +804,7 @@ class LeadCall(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     status = Column(String(20))        # статус, установленный этим звонком
     comment = Column(Text)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     lead = relationship("SalesLead", back_populates="calls")
     user = relationship("User")
@@ -829,7 +830,7 @@ class ContactPerson(Base):
     is_primary = Column(Boolean, default=False)  # основной контакт точки
     notes = Column(Text)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     lead = relationship("SalesLead", backref="contacts")
     counterparty = relationship("Counterparty")
@@ -860,7 +861,7 @@ class FieldVisit(Base):
     next_step = Column(Text)                                          # договорённость / следующий шаг
     next_visit_at = Column(Date)                                      # когда зайти снова
     photos = Column(Text)                                             # JSON — список путей к фото
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     lead = relationship("SalesLead")
     rep = relationship("User")
@@ -886,7 +887,7 @@ class AttachedFile(Base):
     source = Column(String(20), default="manual")        # manual / 1c — кто прикрепил файл
     external_key = Column(String(80))                    # ключ источника для идемпотентности (1С: «<ref>:<type>»)
     uploaded_by_id = Column(Integer, ForeignKey("users.id"))
-    uploaded_at = Column(DateTime, server_default=func.now())
+    uploaded_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     uploaded_by = relationship("User")
 
@@ -905,7 +906,7 @@ class LogisticsCost(Base):
     # 'pickup' — платный забор за день (общий, order_id пустой), 'other' — прочее.
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)
     cost_type = Column(String(20), default="other")  # delivery / pickup / other
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     # Налог, % — вносится вручную по каждой строке (и для перевоза, и для платного забора).
     # NULL/0 = без налога. Раньше был жёстко зашит блок +6% на все суммы разом.
     tax_rate = Column(Float, default=6.0)
@@ -927,7 +928,7 @@ class StockAdjustment(Base):
     reason = Column(String(200), default="Инвентаризация")
     note = Column(Text)
     created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     created_by = relationship("User")
     lines = relationship("StockAdjustmentLine", back_populates="adjustment",
@@ -969,7 +970,7 @@ class ProcurementCategory(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     vendors = relationship("Vendor", back_populates="category")
     requests = relationship("SourcingRequest", back_populates="category")
@@ -991,7 +992,7 @@ class Vendor(Base):
     notes = Column(Text)
     counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     category = relationship("ProcurementCategory", back_populates="vendors")
     counterparty = relationship("Counterparty", foreign_keys=[counterparty_id])
@@ -1012,7 +1013,7 @@ class SourcingRequest(Base):
     weight_price = Column(Float, default=0.5)
     weight_term = Column(Float, default=0.25)
     weight_quality = Column(Float, default=0.25)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
     created_by_id = Column(Integer, ForeignKey("users.id"))
 
     category = relationship("ProcurementCategory", back_populates="requests")
@@ -1035,7 +1036,7 @@ class VendorQuote(Base):
     min_batch = Column(Integer, nullable=True)
     comment = Column(Text)
     score = Column(Float, default=0.0)             # кэш взвешенного балла 0..10
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     request = relationship("SourcingRequest", back_populates="quotes", foreign_keys=[request_id])
     vendor = relationship("Vendor", back_populates="quotes")
@@ -1079,7 +1080,7 @@ class HrPosition(Base):
     # (в Teamly вопросы подбираются под чувствительности роли: РОПу — про влияние
     # и ресурсы, кондитеру — про процессы). Пусто = общие вопросы по умолчанию.
     personal_questions = Column(Text)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     employees = relationship("HrEmployee", back_populates="position_ref")
 
@@ -1110,7 +1111,7 @@ class HrEmployee(Base):
     # деактивации (обычно это предыдущий месяц, чтобы сотрудник пропадал из текущего
     # сразу же), прошлые периоды при этом по-прежнему его показывают. NULL — не увольнялся.
     deactivated_at = Column(Date)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     records = relationship("HrRecord", back_populates="employee")
     position_ref = relationship("HrPosition", back_populates="employees")
@@ -1148,7 +1149,7 @@ class HrSurvey(Base):
     sections = Column(Text, nullable=False)   # CSV кодов разделов этого раунда
     is_open = Column(Boolean, default=True)   # принимаются ли ещё ответы
     created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     tokens = relationship("HrSurveyToken", back_populates="survey", cascade="all, delete-orphan")
 
@@ -1165,7 +1166,7 @@ class HrSurveyToken(Base):
     employee_id = Column(Integer, ForeignKey("hr_employees.id"), nullable=False)
     token = Column(String(64), unique=True, nullable=False)
     submitted_at = Column(DateTime)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     survey = relationship("HrSurvey", back_populates="tokens")
     employee = relationship("HrEmployee")
@@ -1193,8 +1194,8 @@ class HrRecord(Base):
     text_2 = Column(Text)
     score = Column(Integer)   # eNPS: 0-10
     created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+    updated_at = Column(DateTime, default=msk_now, server_default=func.now(), onupdate=msk_now)
 
     employee = relationship("HrEmployee", back_populates="records")
     author = relationship("User")
@@ -1209,8 +1210,8 @@ class HrTeamAchievement(Base):
     period = Column(Date, nullable=False, unique=True)   # месяц, хранится 1-м числом
     text = Column(Text)
     updated_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+    updated_at = Column(DateTime, default=msk_now, server_default=func.now(), onupdate=msk_now)
 
 
 class HrVacancy(Base):
@@ -1221,7 +1222,7 @@ class HrVacancy(Base):
     opened_at = Column(Date)
     closed_at = Column(Date)
     created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
 
 class HrEmployeeInsight(Base):
@@ -1233,7 +1234,7 @@ class HrEmployeeInsight(Base):
     text = Column(Text, nullable=False)
     model = Column(String(100))     # какая модель сгенерировала
     created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     employee = relationship("HrEmployee")
 
@@ -1290,7 +1291,7 @@ class HrMetric(Base):
     is_active = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
     created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     employee = relationship("HrEmployee", backref="metrics")
     values = relationship("HrMetricValue", back_populates="metric",
@@ -1336,8 +1337,8 @@ class HrMetricValue(Base):
     comment = Column(Text)
     filled_by = Column(Integer, ForeignKey("users.id"))
     filled_by_name = Column(String(200))   # кто заполнил по внешней ссылке (без входа)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+    updated_at = Column(DateTime, default=msk_now, server_default=func.now(), onupdate=msk_now)
 
     metric = relationship("HrMetric", back_populates="values")
 
@@ -1359,7 +1360,7 @@ class HrMetricToken(Base):
     is_active = Column(Boolean, default=True)
     last_used_at = Column(DateTime)
     created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     manager = relationship("HrEmployee")
 
@@ -1383,7 +1384,7 @@ class Receipt(Base):
     synced_from_1c_at  = Column(DateTime)
     confirmed_at    = Column(DateTime)
     confirmed_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     warehouse = relationship("Warehouse")
     supplier = relationship("Counterparty")
@@ -1428,7 +1429,7 @@ class StockTransfer(Base):
     synced_from_1c_at  = Column(DateTime)
     confirmed_at    = Column(DateTime)
     confirmed_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     from_warehouse = relationship("Warehouse", foreign_keys=[from_warehouse_id])
     to_warehouse   = relationship("Warehouse", foreign_keys=[to_warehouse_id])
@@ -1457,7 +1458,7 @@ class WriteOffReason(Base):
     name = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True)
     external_id_1c = Column(String(36))
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
 
 class WriteOff(Base):
@@ -1469,7 +1470,7 @@ class WriteOff(Base):
     reason_id    = Column(Integer, ForeignKey("writeoff_reasons.id"), nullable=True)
     notes = Column(Text)
     created_by_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, server_default=func.now())   # дата/время списания = момент создания
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())   # дата/время списания = момент создания
     # 1С:УНФ
     external_id_1c  = Column(String(36))   # Ref_Key документа списания в 1С
     synced_to_1c_at = Column(DateTime)

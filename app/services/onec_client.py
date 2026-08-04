@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import httpx
 from sqlalchemy.orm import Session
 
+from app.tz import now as msk_now
 from app.models import CompanySettings, Product
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,7 @@ def _client(s: CompanySettings) -> httpx.Client:
 
 def _save_external_id(db: Session, obj, ref_key: str) -> None:
     obj.external_id_1c = ref_key
-    obj.synced_to_1c_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    obj.synced_to_1c_at = msk_now()
     try:
         db.commit()
     except Exception:
@@ -145,7 +146,7 @@ def sync_products_from_1c(db: Session) -> dict:
         return {"created": 0, "updated": 0, "errors": [str(e)]}
 
     unit_names = _fetch_unit_names(s)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = msk_now()
 
     for item in items:
         ref_key = item.get("Ref_Key")
@@ -260,7 +261,7 @@ def sync_warehouses_from_1c(db: Session) -> dict:
         logger.error("sync_warehouses_from_1c: %s", e)
         return {"created": 0, "updated": 0, "errors": [str(e)]}
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = msk_now()
 
     for item in items:
         ref_key = item.get("Ref_Key")
@@ -342,7 +343,7 @@ def sync_categories_from_1c(db: Session) -> dict:
         logger.error("sync_categories_from_1c: %s", e)
         return {"created": 0, "updated": 0, "linked": 0, "errors": [str(e)]}
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = msk_now()
     folders = [i for i in items if i.get("IsFolder")]
     products = [i for i in items if not i.get("IsFolder")]
     root_key = "00000000-0000-0000-0000-000000000000"
@@ -1140,7 +1141,7 @@ def sync_invoices_from_1c(db: Session) -> dict:
 
         # Шапка
         inv.external_id_1c = ref
-        inv.synced_to_1c_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        inv.synced_to_1c_at = msk_now()
         inv.number = number or inv.number
         if inv_date:
             inv.date = inv_date
@@ -1522,7 +1523,7 @@ def sync_receiving_tasks_from_1c(db: Session) -> dict:
         logger.error("sync_receiving_tasks_from_1c: %s", e)
         return {"created": 0, "updated": 0, "removed": 0, "errors": [str(e)]}
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = msk_now()
     removed = 0
 
     # Сверка уже загруженных задач: документ мог быть помечен на удаление в 1С
@@ -1717,7 +1718,7 @@ def sync_transfer_tasks_from_1c(db: Session) -> dict:
         logger.error("sync_transfer_tasks_from_1c: %s", e)
         return {"created": 0, "updated": 0, "removed": 0, "errors": [str(e)]}
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = msk_now()
     removed = 0
 
     by_ref = {d.get("Ref_Key"): d for d in all_docs if d.get("Ref_Key")}
@@ -1952,7 +1953,7 @@ def sync_stock_balances_from_1c(db: Session) -> dict:
         except Exception as e:
             errors.append(f"{prod_key}: {e}")
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = msk_now()
     updated = 0
     existing = {(b.product_id, b.warehouse_id): b for b in db.query(StockBalance1C).all()}
 

@@ -34,6 +34,9 @@ from telegram.request import HTTPXRequest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import SessionLocal
+from app.services.carrier_delivery import (
+    confirm_delivery, find_carrier_by_chat, parse_delivery_confirmation,
+)
 from app.utils import log_action
 from bot.metrics import (
     get_daily_metrics, get_weekly_metrics, get_monthly_metrics,
@@ -590,67 +593,14 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 # ── Синхронизация статуса по подтверждению перевозчика (Telegram) ─────────────
 #
-# В группе перевозчика (Counterparty.tg_chat_id) водитель/диспетчер присылает
-# сообщение вида «✅ Коломяжский пр-кт 17 | 🟢 12-17». Триггер срабатывает
-# всегда, когда в сообщении есть и ✅, и 🟢 — тогда текст между ними считается
-# адресом доставки; в остальных случаях сообщение игнорируется. Группа
-# определяется по tg_chat_id — тому же полю, что уже используется для отправки
-# заказа перевозчику из карточки контрагента.
-
-_ADDR_STOP_TOKENS = {
-    "д", "дом", "ул", "улица", "г", "город", "пр", "пркт", "просп", "проспект",
-    "наб", "набережная", "пер", "переулок", "ш", "шоссе", "лит", "литер",
-    "к", "корп", "корпус", "стр", "строение", "оф", "офис", "пом", "помещение",
-}
-
-
-def _norm_addr(s: str) -> str:
-    """Нормализация адреса для нестрогого сравнения: нижний регистр, ё→е,
-    пунктуация → пробел, схлопывание пробелов."""
-    s = (s or "").lower().replace("ё", "е")
-    s = re.sub(r"[^\w\s]", " ", s, flags=re.UNICODE)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-def _addr_tokens(s: str) -> set[str]:
-    """Значимые токены адреса: числа (номер дома) и слова от 3 букв,
-    без служебных сокращений типа «ул», «д», «пр-кт»."""
-    out = set()
-    for tok in _norm_addr(s).split(" "):
-        if not tok:
-            continue
-        if tok.isdigit() or (len(tok) >= 3 and tok not in _ADDR_STOP_TOKENS):
-            out.add(tok)
-    return out
-
-
-def _parse_delivery_confirmation(text: str) -> str | None:
-    """Возвращает адрес из сообщения «✅ <адрес> | 🟢 <...>», либо None,
-    если в сообщении нет одновременно ✅ и 🟢 — тогда триггер не срабатывает."""
-    if not text or "✅" not in text or "🟢" not in text:
-        return None
-    address = text.split("✅", 1)[1].split("🟢", 1)[0]
-    address = address.replace("|", " ").strip(" \t\n-")
-    return address or None
-
-
-def _address_matches(msg_address: str, order_address: str) -> bool:
-    """Совпадение «нестрогое»: все значимые токены адреса из сообщения
-    должны присутствовать в адресе доставки заказа (порядок не важен,
-    сокращения улиц/домов игнорируются)."""
-    msg_tokens = _addr_tokens(msg_address)
-    if not msg_tokens:
-        return False
-    return msg_tokens.issubset(_addr_tokens(order_address))
-
-
-def _find_carrier_by_chat(db, chat_id: int):
-    """Перевозчик, чья группа Telegram (Counterparty.tg_chat_id, задаётся в
-    карточке контрагента) совпадает с чатом, откуда пришло сообщение."""
-    from app.models import Counterparty
-    return db.query(Counterparty).filter(Counterparty.tg_chat_id == str(chat_id)).first()
-
+# В группе перевозчика (Counterparty.tg_chat_id) диспетчер присылает сообщение
+# вида «✅ Коломяжский пр-кт 17 | 🟢 12-17». Разбор и перевод заказа в
+# «Доставлено» — в app.services.carrier_delivery, общем с HTTP-эндпоинтом
+# /api/carrier/delivery.
+#
+# ВАЖНО: если подтверждения публикует другой БОТ (например «Помощник логиста»),
+# этот обработчик их не увидит — Telegram не отдаёт боту сообщения других ботов.
+# Для таких отправителей есть /api/carrier/delivery (см. app/routers/api_carrier.py).
 
 async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Слушает сообщения во всех чатах — но действует только если чат привязан
@@ -668,7 +618,7 @@ async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFA
     db = SessionLocal()
     try:
         chat_id = update.effective_chat.id
-        carrier = _find_carrier_by_chat(db, chat_id)
+        carrier = find_carrier_by_chat(db, chat_id)
         # Диагностика: без неё «бот молчит» неотличимо от «сообщение не дошло».
         # Пишем в лог каждое сообщение из групп — с признаком, узнан ли перевозчик.
         logger.info(
@@ -679,50 +629,13 @@ async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFA
         if not carrier:
             return  # чат не привязан ни к одному перевозчику — не наша группа
 
-        address = _parse_delivery_confirmation(text)
+        address = parse_delivery_confirmation(text)
         if address is None:
             logger.info("carrier_chat: сообщение без ✅+🟢 — пропускаем")
             return
 
-        from app.models import Order
-        from app.routers.orders import ORDER_STATUSES
-
-        candidates = db.query(Order).filter(
-            Order.carrier_id == carrier.id,
-            Order.status.notin_(["delivered", "cancelled"]),
-            Order.delivery_address.isnot(None),
-            Order.delivery_address != "",
-        ).all()
-        matches = [o for o in candidates if _address_matches(address, o.delivery_address)]
-        logger.info(
-            "carrier_chat: адрес=%r активных заказов=%d совпало=%d",
-            address, len(candidates), len(matches),
-        )
-
-        if not matches:
-            await msg.reply_text(f"⚠️ Не нашёл активный заказ «{carrier.trade_name or carrier.name}» по адресу «{address}» — статус не изменён.")
-            return
-        if len(matches) > 1:
-            nums = ", ".join(f"№{o.number}" for o in matches)
-            await msg.reply_text(f"⚠️ По адресу «{address}» нашлось несколько заказов ({nums}) — уточните статус вручную.")
-            return
-
-        order = matches[0]
-        old_status = order.status
-        order.status = "delivered"
-        log_action(
-            db, "order", order.id, "status_changed", None,
-            f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → Доставлено "
-            f"(авто, подтверждение перевозчика «{carrier.trade_name or carrier.name}» в Telegram)",
-            field="status", old_value=old_status, new_value="delivered",
-        )
-        db.commit()
-
-        if order.bitrix_deal_id:
-            from app.routers.orders import _push_bitrix_event_bg
-            threading.Thread(target=_push_bitrix_event_bg, args=(order.id, "delivered"), daemon=True).start()
-
-        await msg.reply_text(f"✅ Заказ №{order.number} переведён в статус «Доставлено».")
+        result = confirm_delivery(db, carrier, address)
+        await msg.reply_text(result.message)
     except Exception as e:
         db.rollback()
         logger.exception("on_carrier_delivery_confirm: %s", e)

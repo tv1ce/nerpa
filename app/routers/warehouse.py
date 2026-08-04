@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from app.tz import now as msk_now
 from app.database import get_db
 from app.auth import login_required, role_required
 from app.models import Product, StockMovement, Order, StockAdjustment, StockAdjustmentLine, CompanySettings, User
@@ -315,7 +316,7 @@ async def create_movement(
     # Защита от двойной отправки формы (двойной тап на мобильном и т.п.):
     # если точно такое же движение этот же пользователь уже создал за последние
     # несколько секунд — считаем это повторной отправкой и не дублируем запись.
-    dup_cutoff = datetime.utcnow() - timedelta(seconds=10)
+    dup_cutoff = msk_now() - timedelta(seconds=10)
     duplicate = (
         db.query(StockMovement)
         .filter(
