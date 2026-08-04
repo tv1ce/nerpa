@@ -166,6 +166,20 @@
             <div class="form-text">При включении кнопка «Отправить перевозчику» появится в карточке заказа</div>
           </div>
           <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" name="metafora_enabled" id="metafora_enabled"
+                     value="1" {% if cp and cp.metafora_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="metafora_enabled">
+                Заводить заказы через API Метафоры
+              </label>
+            </div>
+            <div class="form-text">
+              По кнопке «Отправить перевозчику» заказ создаётся в системе перевозчика автоматически.
+              Токен API — в Настройках → Интеграции. Статусы «в пути» и «доставлено» перевозчик
+              возвращает вебхуком, заказ меняет статус сам.
+            </div>
+          </div>
+          <div class="col-12">
             <label class="form-label">Telegram Chat ID</label>
             <input type="text" name="tg_chat_id" id="tg_chat_id" class="form-control" placeholder="-1001234567890"
                    value="{{ cp.tg_chat_id if cp and cp.tg_chat_id else '' }}">

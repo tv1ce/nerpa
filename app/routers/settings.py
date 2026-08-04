@@ -415,6 +415,25 @@ async def save_onec(
     return RedirectResponse(url="/settings/?saved=1#onec", status_code=302)
 
 
+@router.post("/metafora")
+@role_required("admin")
+async def save_metafora_api(
+    request: Request,
+    metafora_api_token: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    """Токен API Метафоры — им TMS создаёт заказы в системе перевозчика."""
+    company = db.query(CompanySettings).first()
+    if not company:
+        company = CompanySettings()
+        db.add(company)
+    # Пустое поле не стирает токен — «Сохранить» без повторного ввода безопасно
+    if metafora_api_token.strip():
+        company.metafora_api_token = metafora_api_token.strip()
+    db.commit()
+    return RedirectResponse(url="/settings/?saved=1#metafora", status_code=302)
+
+
 @router.post("/tochka")
 @role_required("admin")
 async def save_tochka(

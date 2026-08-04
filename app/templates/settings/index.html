@@ -533,6 +533,38 @@
     </div>
   </div>
 
+  {# Метафора — API перевозчика #}
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm p-4 mt-0" id="metafora">
+      <div class="form-section-title mb-3">
+        <i class="bi bi-box-seam me-1 text-success"></i>Метафора — заказы перевозчику
+      </div>
+      <form method="post" action="/settings/metafora">
+        <div class="row g-2">
+          <div class="col-12">
+            <div class="alert alert-info py-2 px-3 mb-1" style="font-size:.82rem">
+              Токен выдаёт менеджер Метафоры. С ним кнопка «Отправить перевозчику» заводит заказ
+              в системе курьерской службы автоматически — для перевозчиков, у которых в карточке
+              включено «Заводить заказы через API Метафоры».
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label form-label-sm">API-токен</label>
+            <input type="password" name="metafora_api_token" class="form-control form-control-sm font-monospace"
+                   autocomplete="new-password"
+                   placeholder="{% if company and company.metafora_api_token %}(задан){% endif %}">
+            <div class="form-text" style="font-size:.72rem">Пустое — не менять</div>
+          </div>
+          <div class="col-12 text-end">
+            <button class="btn btn-primary btn-sm" type="submit">
+              <i class="bi bi-save me-1"></i>Сохранить
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   {# Versta24 #}
   <div class="col-lg-8">
     <div class="card border-0 shadow-sm p-4 mt-0" id="versta">

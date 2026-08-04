@@ -360,6 +360,10 @@ def _migrate_db():
         ("hr_metrics", "target_text", "TEXT"),
         # Свод недель месяца для kind="number": сумма/максимум/минимум (см. HR_METRIC_MONTH_AGGS)
         ("hr_metrics", "month_agg", "TEXT DEFAULT 'sum'"),
+        # Метафора: перевозчик принимает заказы через API, токен доступа и отметка отправки
+        ("counterparties", "metafora_enabled", "BOOLEAN DEFAULT 0"),
+        ("company_settings", "metafora_api_token", "TEXT"),
+        ("orders", "metafora_sent_at", "TIMESTAMP"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import uuid as _uuid
@@ -737,7 +738,11 @@ async def generate_tn(
 @router.post("/{order_id}/notify-carrier")
 @role_required("manager")
 async def notify_carrier(request: Request, order_id: int, db: Session = Depends(get_db)):
-    """Отправить заказ перевозчику в Telegram."""
+    """Отправить заказ перевозчику: сообщение в Telegram + заказ в его систему.
+
+    Перевозчикам с флагом metafora_enabled (карточка контрагента) заказ заводится
+    в Метафоре через API — курьерская служба видит его сразу, без ручного ввода.
+    """
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
         return JSONResponse({"ok": False, "error": "Заказ не найден"}, status_code=404)
@@ -745,7 +750,37 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
     carrier = order.carrier
     if not carrier:
         return JSONResponse({"ok": False, "error": "Перевозчик не указан в заказе"}, status_code=400)
+
+    # Метафора: заводим заказ в системе перевозчика. Идемпотентно по номеру
+    # заказа (повтор вернёт duplicate — считается успехом).
+    metafora_result = None
+    if getattr(carrier, "metafora_enabled", False):
+        from app.services.metafora_client import build_order_payload, get_token, push_order as metafora_push
+        from app.tz import now as msk_now
+        # Запрос блокирующий и с таймаутом до 60 с — уводим в поток, чтобы не
+        # держать event loop. В поток идут только готовое тело и токен, без сессии БД.
+        metafora_result = await asyncio.to_thread(
+            metafora_push, build_order_payload(order), get_token(db))
+        if metafora_result.get("ok"):
+            order.metafora_sent_at = msk_now()
+            log_action(db, "order", order_id, "sent_to_metafora",
+                       request.session.get("user_id"),
+                       metafora_result.get("message") or "Заказ передан в Метафору")
+            db.commit()
+        else:
+            log_action(db, "order", order_id, "sent_to_metafora_failed",
+                       request.session.get("user_id"),
+                       f"Метафора не приняла заказ: {metafora_result.get('error')}")
+            db.commit()
+            # Не отправляем в Telegram то, что не завелось у перевозчика:
+            # логист иначе решит, что заказ принят, а его нет в системе.
+            return JSONResponse({"ok": False, "error": metafora_result.get("error")},
+                                status_code=502)
+
     if not carrier.tg_notify_enabled:
+        # Заказ уже в системе перевозчика — Telegram тут не обязателен
+        if metafora_result and metafora_result.get("ok"):
+            return JSONResponse({"ok": True, "message": metafora_result.get("message")})
         return JSONResponse({"ok": False, "error": "У перевозчика отключены Telegram-уведомления"}, status_code=400)
     if not carrier.tg_chat_id:
         return JSONResponse({"ok": False, "error": "У перевозчика не указан Telegram chat ID"}, status_code=400)
@@ -809,6 +844,8 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
                request.session.get("user_id"),
                f"Заказ отправлен перевозчику {carrier.trade_name or carrier.name} в Telegram")
     db.commit()
+    if metafora_result and metafora_result.get("ok"):
+        return JSONResponse({"ok": True, "message": metafora_result.get("message")})
     return JSONResponse({"ok": True})
 
 

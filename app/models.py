@@ -62,6 +62,9 @@ class Counterparty(Base):
     # Telegram-уведомления (для перевозчиков)
     tg_chat_id = Column(String(100))            # ID чата / группы Telegram
     tg_notify_enabled = Column(Boolean, default=False)  # вкл/выкл отправку заказов
+    # Метафора: перевозчик принимает заказы через API (кнопка «Отправить перевозчику»
+    # заводит заказ в его системе автоматически, см. app/services/metafora_client.py)
+    metafora_enabled = Column(Boolean, default=False)
     # ЕГРЮЛ — кэш последней проверки статуса через DaData
     egrul_status = Column(String(30))           # ACTIVE / LIQUIDATING / LIQUIDATED / BANKRUPT / REORGANIZING
     egrul_checked_at = Column(DateTime)
@@ -254,6 +257,8 @@ class Order(Base):
     transport_order_id     = Column(String(100))   # Идентификатор документа TransportOrder в Saby
     transport_order_status = Column(String(50))    # черновик / отправлен / утверждён / отклонён / ошибка
     transport_order_url    = Column(String(500))   # ссылка на документ в кабинете Saby
+    # ── Метафора (курьерская служба перевозчика) ──
+    metafora_sent_at = Column(DateTime)            # когда заказ ушёл в систему перевозчика
     # ── СБИС ЭДО — УПД (формализованный XML из 1С), отправленный в документооборот ──
     upd_sbis_id     = Column(String(100))          # ID документа-УПД в СБИС
     upd_sbis_status = Column(String(50))           # черновик / отправлен / подписан / ошибка
@@ -485,6 +490,9 @@ class CompanySettings(Base):
     metafora_refresh  = Column(EncryptedText)   # Firebase refresh-token (зашифровано)
     metafora_app_id   = Column(String(50))      # Glide appID (автоопределяется)
     metafora_url      = Column(String(500))     # URL выгрузки
+    # Токен API Метафоры (api.damasevich.ru) — им TMS создаёт заказы у перевозчика.
+    # Это не Glide-выгрузка выше, а отдельный API курьерской службы.
+    metafora_api_token = Column(EncryptedText)
     # ── Разведка ЛПР (DaData) ──
     dadata_token  = Column(EncryptedText)       # API-ключ DaData (зашифровано)
     dadata_secret = Column(EncryptedText)       # секретный ключ cleaning API (зашифровано)
