@@ -14,6 +14,7 @@
 """
 import logging
 import os
+import re
 
 import httpx
 from sqlalchemy.orm import Session
@@ -41,7 +42,6 @@ def _phones(order) -> list[str]:
     стоят другие числа («+79117712372 81»), и без этого они приклеивались к
     номеру — курьер получал несуществующий телефон.
     """
-    import re
     out: list[str] = []
     for chunk in re.findall(r"[\d\-\s()+]{10,}", order.delivery_contact or ""):
         digits = re.sub(r"\D", "", chunk)
@@ -54,6 +54,30 @@ def _phones(order) -> list[str]:
                 num = "7" + num[1:]
             out.append("+" + num)
     return out[:2]
+
+
+# Питер в адресе курьеру не нужен — Метафора и так возит по городу. Убираем
+# только сам город: Кронштадт, Пушкин и прочие внутригородские остаются, как и
+# «Ленинградская обл» (это уже область) и улицы вроде «Санкт-Петербургское шоссе»
+# — их защищает граница слова.
+_SPB_RE = re.compile(
+    r"(?:\bг\.?\s*)?\bсанкт[-\s]?петербург\b|\bс[-\s]?петербург\b|\bспб\b",
+    re.IGNORECASE,
+)
+
+
+def strip_city(address: str) -> str:
+    """Убирает Санкт-Петербург из адреса, сохраняя остальные части."""
+    parts = []
+    for chunk in (address or "").split(","):
+        raw = chunk.strip()
+        if not raw:
+            continue
+        cleaned = _SPB_RE.sub("", raw).strip(" .,-")
+        if not cleaned:
+            continue          # сегмент был целиком городом — выбрасываем
+        parts.append(cleaned)
+    return ", ".join(parts)
 
 
 def build_order_payload(order) -> dict:
@@ -71,7 +95,7 @@ def build_order_payload(order) -> dict:
     payload = {
         "external_id": str(order.number),
         "service": "Доставка",
-        "address": (order.delivery_address or "").strip(),
+        "address": strip_city(order.delivery_address or ""),
     }
     if order.delivery_date:
         payload["date"] = order.delivery_date.isoformat()
