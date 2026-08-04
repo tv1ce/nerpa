@@ -1305,7 +1305,12 @@ def sync_shipments_from_1c(db: Session) -> dict:
     """Тянет Document_РасходнаяНакладная из 1С и проставляет заказам shipment_id_1c.
 
     Сопоставление: поле «Заказ» (→ ЗаказПокупателя) либо «ДокументОснование»
-    (→ СчетНаОплату → заказ через счёт в TMS)."""
+    (→ СчетНаОплату → заказ через счёт в TMS).
+
+    Заодно дозаполняет в накладной пустой «Адрес доставки» из заказа TMS: при
+    вводе накладной на основании счёта 1С скопировать его неоткуда — у документа
+    «Счёт на оплату» такого реквизита вообще нет, цепочка адреса рвётся на счёте.
+    """
     s = _get_settings(db)
     if not s or not s.onec_enabled:
         return {"updated": 0, "errors": ["Синхронизация отключена"]}
@@ -1316,37 +1321,59 @@ def sync_shipments_from_1c(db: Session) -> dict:
     inv_by_1c = {i.external_id_1c: i for i in
                  db.query(Invoice).filter(Invoice.external_id_1c.isnot(None)).all()}
     updated = 0
+    addr_filled = 0
     try:
         with _client(s) as c:
             r = c.get("Document_РасходнаяНакладная",
                       params={"$format": "json", "$top": "5000",
                               "$select": "Ref_Key,DeletionMark,Заказ,ДокументОснование,"
-                                         "ДокументОснование_Type,Контрагент_Key,СуммаДокумента"})
-        r.raise_for_status()
-        for d in r.json().get("value", []):
-            ref = d.get("Ref_Key")
-            if not ref or d.get("DeletionMark"):
-                continue
-            order = None
-            zak = d.get("Заказ")
-            if zak and zak != _ZERO_GUID_DOC:
-                order = orders_by_1c.get(zak)
-            if not order:
-                osn = d.get("ДокументОснование")
-                if osn and "СчетНаОплату" in (d.get("ДокументОснование_Type") or ""):
-                    inv = inv_by_1c.get(osn)
-                    if inv and inv.order_id:
-                        order = db.query(Order).filter(Order.id == inv.order_id).first()
-            if order and order.shipment_id_1c != ref:
-                order.shipment_id_1c = ref
-                updated += 1
+                                         "ДокументОснование_Type,Контрагент_Key,СуммаДокумента,"
+                                         "АдресДоставки"})
+            r.raise_for_status()
+            for d in r.json().get("value", []):
+                ref = d.get("Ref_Key")
+                if not ref or d.get("DeletionMark"):
+                    continue
+                order = None
+                zak = d.get("Заказ")
+                if zak and zak != _ZERO_GUID_DOC:
+                    order = orders_by_1c.get(zak)
+                if not order:
+                    osn = d.get("ДокументОснование")
+                    if osn and "СчетНаОплату" in (d.get("ДокументОснование_Type") or ""):
+                        inv = inv_by_1c.get(osn)
+                        if inv and inv.order_id:
+                            order = db.query(Order).filter(Order.id == inv.order_id).first()
+                if not order:
+                    continue
+                if order.shipment_id_1c != ref:
+                    order.shipment_id_1c = ref
+                    updated += 1
+                # Пустой адрес в накладной — дописываем из заказа. Уже заполненный
+                # (в т.ч. правленный руками в 1С) не трогаем.
+                if not (d.get("АдресДоставки") or "").strip():
+                    addr = _delivery_address(order)
+                    if addr:
+                        try:
+                            pr = c.patch(f"Document_РасходнаяНакладная(guid'{ref}')",
+                                         json={_ORDER_DELIVERY_FIELD: addr})
+                            if pr.is_success:
+                                addr_filled += 1
+                            else:
+                                # Обычно проведённый документ — 1С не даёт менять шапку
+                                logger.warning("sync_shipments: адрес в накладную %s не записан "
+                                               "(HTTP %s: %s)", ref, pr.status_code, pr.text[:150])
+                        except Exception as pe:  # noqa: BLE001
+                            logger.warning("sync_shipments: адрес в накладную %s: %s", ref, pe)
         if updated:
             db.commit()
+        if addr_filled:
+            logger.info("sync_shipments_from_1c: адрес доставки записан в %d накладных", addr_filled)
     except Exception as e:
         db.rollback()
         logger.error("sync_shipments_from_1c: %s", e)
         return {"updated": updated, "errors": [str(e)]}
-    return {"updated": updated, "errors": []}
+    return {"updated": updated, "addresses": addr_filled, "errors": []}
 
 
 def sync_documents_from_1c(db: Session) -> dict:

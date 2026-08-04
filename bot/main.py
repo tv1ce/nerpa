@@ -27,7 +27,9 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram import Bot, Update
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import (
+    Application, CommandHandler, ContextTypes, MessageHandler, MessageReactionHandler, filters,
+)
 from telegram.request import HTTPXRequest
 
 # Подключаем корень проекта для импорта app.*
@@ -643,6 +645,90 @@ async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFA
         db.close()
 
 
+# ── Подтверждение доставки реакцией на сообщение бота-помощника ───────────────
+#
+# «Помощник логиста» — тоже бот, а Telegram не отдаёт боту сообщения других
+# ботов. Зато отдаёт РЕАКЦИИ на них: апдейт message_reaction приходит, если наш
+# бот администратор чата (он админ) и message_reaction указан в allowed_updates.
+#
+# В апдейте есть только id сообщения — без текста. Чтобы прочитать текст, бот
+# пересылает сообщение в служебный чат: ответ forwardMessage содержит сам
+# Message с текстом. Пересланное тут же удаляем, чтобы не мусорить.
+#
+# Служебный чат: TMS_SERVICE_CHAT_ID, по умолчанию — первый из TMS_CHAT_IDS.
+
+SERVICE_CHAT_ID = os.getenv("TMS_SERVICE_CHAT_ID", "").strip() or (str(CHAT_IDS[0]) if CHAT_IDS else "")
+
+
+async def _read_message_text(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int) -> str | None:
+    """Текст чужого (в т.ч. ботовского) сообщения — через пересылку в служебный чат.
+
+    Bot API не умеет читать сообщение по id, но forwardMessage возвращает
+    пересланный Message целиком. Копию сразу удаляем."""
+    if not SERVICE_CHAT_ID:
+        logger.error("reaction: не задан TMS_SERVICE_CHAT_ID/TMS_CHAT_IDS — текст сообщения не прочитать")
+        return None
+    fwd = None
+    try:
+        fwd = await context.bot.forward_message(
+            chat_id=SERVICE_CHAT_ID, from_chat_id=chat_id, message_id=message_id,
+            disable_notification=True,
+        )
+        return fwd.text or fwd.caption
+    except Exception as e:  # noqa: BLE001 — напр. в группе включена защита от пересылки
+        logger.error("reaction: не удалось переслать сообщение %s из %s: %s", message_id, chat_id, e)
+        return None
+    finally:
+        if fwd:
+            try:
+                await context.bot.delete_message(chat_id=SERVICE_CHAT_ID, message_id=fwd.message_id)
+            except Exception:  # noqa: BLE001 — копия могла не создаться/уже удалена
+                pass
+
+
+async def on_delivery_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Реакция на сообщение в группе перевозчика = подтверждение доставки.
+
+    Логист ставит любую реакцию на строку «✅ <адрес> | 🟢 <время>» помощника —
+    бот читает текст, находит заказ по адресу и переводит его в «Доставлено».
+    Снятие реакции игнорируем, статус назад не откатываем."""
+    r = update.message_reaction
+    if not r or not r.new_reaction:
+        return  # реакцию сняли — не наш случай
+
+    db = SessionLocal()
+    try:
+        chat_id = r.chat.id
+        carrier = find_carrier_by_chat(db, chat_id)
+        emojis = [getattr(x, "emoji", None) or getattr(x, "custom_emoji_id", "?") for x in r.new_reaction]
+        logger.info("reaction: chat_id=%s msg=%s перевозчик=%s реакции=%s",
+                    chat_id, r.message_id,
+                    (carrier.trade_name or carrier.name) if carrier else "НЕ ПРИВЯЗАН", emojis)
+        if not carrier:
+            return
+
+        text = await _read_message_text(context, chat_id, r.message_id)
+        if not text:
+            await context.bot.send_message(
+                chat_id, "⚠️ Не смог прочитать сообщение по реакции — "
+                         "проверьте, что в группе разрешена пересылка сообщений.")
+            return
+
+        address = parse_delivery_confirmation(text)
+        if address is None:
+            logger.info("reaction: в сообщении нет ✅+🟢 — пропускаем: %r", text[:120])
+            return
+
+        result = confirm_delivery(db, carrier, address)
+        await context.bot.send_message(chat_id, result.message,
+                                       reply_to_message_id=r.message_id)
+    except Exception as e:
+        db.rollback()
+        logger.exception("on_delivery_reaction: %s", e)
+    finally:
+        db.close()
+
+
 # ── Точка входа ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -682,6 +768,10 @@ def main() -> None:
     app.add_handler(MessageHandler(
         (filters.TEXT | filters.CAPTION) & ~filters.COMMAND, on_carrier_delivery_confirm))
 
+    # Подтверждение реакцией — единственный способ подхватить строки бота-помощника:
+    # сами его сообщения Telegram боту не отдаёт, а реакции на них отдаёт (бот админ).
+    app.add_handler(MessageReactionHandler(on_delivery_reaction))
+
     jq = app.job_queue
 
     # Напоминание о перезвонах — каждое утро в CALLBACK_TIME (будни)
@@ -709,7 +799,9 @@ def main() -> None:
         backup_time.strftime("%H:%M"),
     )
 
-    app.run_polling(drop_pending_updates=True)
+    # allowed_updates обязателен: message_reaction в набор по умолчанию НЕ входит,
+    # без него Telegram реакции не пришлёт вообще.
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
