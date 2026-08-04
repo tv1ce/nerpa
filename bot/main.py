@@ -613,8 +613,20 @@ async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFA
     if not msg:
         return
     # Водители часто шлют фото/видео с подписью, а не голый текст — читаем и caption
-    text = msg.text or msg.caption
-    if not text:
+    own_text = msg.text or msg.caption
+
+    # Подтверждение может приехать и ответом на чужое сообщение. Это единственный
+    # способ подхватить строки бота-помощника: сами его сообщения Telegram нашему
+    # боту не отдаёт (и даже переслать их по id не даёт), но текст, который
+    # человек процитировал реплаем, приходит внутри ЕГО сообщения.
+    reply_text = None
+    if msg.reply_to_message:
+        reply_text = msg.reply_to_message.text or msg.reply_to_message.caption
+    quote = getattr(msg, "quote", None)
+    if quote and quote.text:
+        reply_text = quote.text          # выделенный фрагмент точнее целого сообщения
+
+    if not own_text and not reply_text:
         return
 
     db = SessionLocal()
@@ -624,16 +636,17 @@ async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFA
         # Диагностика: без неё «бот молчит» неотличимо от «сообщение не дошло».
         # Пишем в лог каждое сообщение из групп — с признаком, узнан ли перевозчик.
         logger.info(
-            "carrier_chat: chat_id=%s перевозчик=%s ✅=%s 🟢=%s текст=%r",
+            "carrier_chat: chat_id=%s перевозчик=%s текст=%r цитата=%r",
             chat_id, (carrier.trade_name or carrier.name) if carrier else "НЕ ПРИВЯЗАН",
-            "✅" in text, "🟢" in text, text[:120],
+            (own_text or "")[:120], (reply_text or "")[:120],
         )
         if not carrier:
             return  # чат не привязан ни к одному перевозчику — не наша группа
 
-        address = parse_delivery_confirmation(text)
+        # Сначала само сообщение, потом процитированное
+        address = parse_delivery_confirmation(own_text) or parse_delivery_confirmation(reply_text)
         if address is None:
-            logger.info("carrier_chat: сообщение без ✅+🟢 — пропускаем")
+            logger.info("carrier_chat: ни в сообщении, ни в цитате нет ✅+🟢 — пропускаем")
             return
 
         result = confirm_delivery(db, carrier, address)
@@ -709,9 +722,16 @@ async def on_delivery_reaction(update: Update, context: ContextTypes.DEFAULT_TYP
 
         text = await _read_message_text(context, chat_id, r.message_id)
         if not text:
+            # Ожидаемо для сообщений другого бота: Telegram не даёт нашему боту
+            # доступ к ним даже по id («Message to forward not found»).
+            # Рабочий обходной путь — ответ человека с цитатой.
             await context.bot.send_message(
-                chat_id, "⚠️ Не смог прочитать сообщение по реакции — "
-                         "проверьте, что в группе разрешена пересылка сообщений.")
+                chat_id,
+                "⚠️ Сообщение бота мне не видно — Telegram не даёт ботам читать "
+                "чужие сообщения. Ответьте на него реплаем (любой символ, «+») — "
+                "цитату я прочитаю и поставлю статус.",
+                reply_to_message_id=r.message_id,
+            )
             return
 
         address = parse_delivery_confirmation(text)
