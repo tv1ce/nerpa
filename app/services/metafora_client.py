@@ -80,7 +80,20 @@ def strip_city(address: str) -> str:
     return ", ".join(parts)
 
 
-def build_order_payload(order) -> dict:
+def external_id(order, attempt: int | None = None) -> str:
+    """`external_id` для Метафоры: номер заказа, при повторной отправке — «87-2».
+
+    Идентификатор у Метафоры одноразовый: повтор с тем же значением вернёт
+    409 duplicate и заказ не создастся. Если заказ у перевозчика удалили
+    (например тестовый) и его нужно завести заново — берём следующий номер
+    попытки. Обратный вебхук со статусом такой суффикс переживает: заказ
+    ищется по части до дефиса.
+    """
+    n = attempt if attempt is not None else (getattr(order, "metafora_attempt", 0) or 0)
+    return str(order.number) if n < 1 else f"{order.number}-{n + 1}"
+
+
+def build_order_payload(order, attempt: int | None = None) -> dict:
     """Заказ TMS → тело POST /orders (структурная форма).
 
     Курьеру нужен минимум: куда, когда, к какому времени, кому звонить и как
@@ -93,7 +106,7 @@ def build_order_payload(order) -> dict:
     """
     cp = order.counterparty
     payload = {
-        "external_id": str(order.number),
+        "external_id": external_id(order, attempt),
         "service": "Доставка",
         "address": strip_city(order.delivery_address or ""),
     }

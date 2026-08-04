@@ -490,12 +490,20 @@
       {% endif %}
       {% endif %}
 
-      {% if order.carrier_id and order.carrier and order.carrier.tg_notify_enabled and order.carrier.tg_chat_id %}
+      {% if order.carrier_id and order.carrier and ((order.carrier.tg_notify_enabled and order.carrier.tg_chat_id) or order.carrier.metafora_enabled) %}
       <button type="button" class="btn btn-outline-primary btn-sm w-100" id="btn-notify-carrier"
               onclick="sendToCarrier({{ order.id }})">
         <i class="bi bi-telegram me-1"></i>Отправить перевозчику
       </button>
       <div id="notify-carrier-result" class="mt-2" style="font-size:.82rem"></div>
+      {% if order.carrier.metafora_enabled and order.metafora_sent_at %}
+      <button type="button" class="btn btn-link btn-sm w-100 p-0 mt-1 text-muted"
+              style="font-size:.76rem"
+              onclick="sendToCarrier({{ order.id }}, true)"
+              title="Заводит заказ у перевозчика заново, под новым номером — если заказ у них удалили">
+        Отправить повторно, новым заказом
+      </button>
+      {% endif %}
       {% elif order.carrier_id and order.carrier %}
       <button type="button" class="btn btn-outline-secondary btn-sm w-100" disabled
               title="У перевозчика не настроен Telegram — включите в карточке партнёра">
@@ -682,19 +690,26 @@
 
 {% block scripts %}
 <script>
-async function sendToCarrier(orderId) {
+async function sendToCarrier(orderId, force) {
   const btn = document.getElementById('btn-notify-carrier');
   const result = document.getElementById('notify-carrier-result');
+  // Повторная отправка заводит у перевозчика НОВЫЙ заказ — спрашиваем явно
+  if (force && !confirm('Завести заказ у перевозчика заново, новым заказом? Делайте это только если предыдущий у них удалили.')) return;
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Отправка…';
   result.innerHTML = '';
   try {
-    const resp = await fetch(`/orders/${orderId}/notify-carrier`, { method: 'POST' });
+    const url = `/orders/${orderId}/notify-carrier` + (force ? '?force=1' : '');
+    const resp = await fetch(url, { method: 'POST' });
     const data = await resp.json();
     if (data.ok) {
       btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Отправлено';
       btn.classList.replace('btn-outline-primary', 'btn-success');
-      result.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Сообщение отправлено в Telegram</span>';
+      const okSpan = document.createElement('span');
+      okSpan.className = 'text-success';
+      okSpan.textContent = data.message || 'Сообщение отправлено в Telegram';
+      okSpan.prepend(Object.assign(document.createElement('i'), {className:'bi bi-check-circle me-1'}));
+      result.appendChild(okSpan);
     } else {
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-telegram me-1"></i>Отправить перевозчику';

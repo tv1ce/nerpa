@@ -753,14 +753,22 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
 
     # Метафора: заводим заказ в системе перевозчика. Идемпотентно по номеру
     # заказа (повтор вернёт duplicate — считается успехом).
+    # force=1 — завести заказ у перевозчика заново под новым external_id: их
+    # идентификатор одноразовый, и после удаления заказа на их стороне обычная
+    # отправка вернула бы duplicate, ничего не создав.
+    force = (request.query_params.get("force") == "1")
+
     metafora_result = None
     if getattr(carrier, "metafora_enabled", False):
         from app.services.metafora_client import build_order_payload, get_token, push_order as metafora_push
         from app.tz import now as msk_now
+        attempt = (order.metafora_attempt or 0) + 1 if force else (order.metafora_attempt or 0)
         # Запрос блокирующий и с таймаутом до 60 с — уводим в поток, чтобы не
         # держать event loop. В поток идут только готовое тело и токен, без сессии БД.
         metafora_result = await asyncio.to_thread(
-            metafora_push, build_order_payload(order), get_token(db))
+            metafora_push, build_order_payload(order, attempt), get_token(db))
+        if force and metafora_result.get("ok"):
+            order.metafora_attempt = attempt
         if metafora_result.get("ok"):
             order.metafora_sent_at = msk_now()
             log_action(db, "order", order_id, "sent_to_metafora",

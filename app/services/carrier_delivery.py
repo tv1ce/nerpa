@@ -93,9 +93,14 @@ class ConfirmResult:
 
 
 def find_order_by_number(db: Session, number: str):
-    """Заказ по номеру TMS. «№80», «80», «0080» — всё это заказ №80."""
+    """Заказ по номеру TMS. «№80», «80», «0080» — всё это заказ №80.
+
+    «80-2» — тоже заказ №80: суффикс добавляется при повторной отправке в
+    Метафору (их `external_id` одноразовый, см. metafora_client.external_id).
+    """
     from app.models import Order
     num = (str(number or "")).strip().lstrip("#№ ").strip()
+    num = re.split(r"[-/]", num, maxsplit=1)[0].strip() or num
     if not num:
         return None
     order = db.query(Order).filter(Order.number == num).first()

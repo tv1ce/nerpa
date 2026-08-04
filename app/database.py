@@ -364,6 +364,7 @@ def _migrate_db():
         ("counterparties", "metafora_enabled", "BOOLEAN DEFAULT 0"),
         ("company_settings", "metafora_api_token", "TEXT"),
         ("orders", "metafora_sent_at", "TIMESTAMP"),
+        ("orders", "metafora_attempt", "INTEGER DEFAULT 0"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
