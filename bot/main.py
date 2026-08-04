@@ -658,17 +658,31 @@ async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFA
     среди активных заказов этого перевозчика заказ с совпадающим адресом
     доставки и переводит его в статус «Доставлено»."""
     msg = update.effective_message
-    if not msg or not msg.text:
+    if not msg:
         return
-    address = _parse_delivery_confirmation(msg.text)
-    if address is None:
+    # Водители часто шлют фото/видео с подписью, а не голый текст — читаем и caption
+    text = msg.text or msg.caption
+    if not text:
         return
 
     db = SessionLocal()
     try:
-        carrier = _find_carrier_by_chat(db, update.effective_chat.id)
+        chat_id = update.effective_chat.id
+        carrier = _find_carrier_by_chat(db, chat_id)
+        # Диагностика: без неё «бот молчит» неотличимо от «сообщение не дошло».
+        # Пишем в лог каждое сообщение из групп — с признаком, узнан ли перевозчик.
+        logger.info(
+            "carrier_chat: chat_id=%s перевозчик=%s ✅=%s 🟢=%s текст=%r",
+            chat_id, (carrier.trade_name or carrier.name) if carrier else "НЕ ПРИВЯЗАН",
+            "✅" in text, "🟢" in text, text[:120],
+        )
         if not carrier:
             return  # чат не привязан ни к одному перевозчику — не наша группа
+
+        address = _parse_delivery_confirmation(text)
+        if address is None:
+            logger.info("carrier_chat: сообщение без ✅+🟢 — пропускаем")
+            return
 
         from app.models import Order
         from app.routers.orders import ORDER_STATUSES
@@ -680,6 +694,10 @@ async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFA
             Order.delivery_address != "",
         ).all()
         matches = [o for o in candidates if _address_matches(address, o.delivery_address)]
+        logger.info(
+            "carrier_chat: адрес=%r активных заказов=%d совпало=%d",
+            address, len(candidates), len(matches),
+        )
 
         if not matches:
             await msg.reply_text(f"⚠️ Не нашёл активный заказ «{carrier.trade_name or carrier.name}» по адресу «{address}» — статус не изменён.")
@@ -746,8 +764,10 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Document.ALL, on_document))
 
     # Синхронизация статуса «Доставлено» из групп перевозчиков (Counterparty.tg_chat_id)
-    # по сообщениям формата «✅ <адрес> | 🟢 <время>»
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_carrier_delivery_confirm))
+    # по сообщениям формата «✅ <адрес> | 🟢 <время>». CAPTION — потому что водители
+    # часто отправляют фото с подписью, а не текстовое сообщение.
+    app.add_handler(MessageHandler(
+        (filters.TEXT | filters.CAPTION) & ~filters.COMMAND, on_carrier_delivery_confirm))
 
     jq = app.job_queue
 
