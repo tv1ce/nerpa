@@ -18,8 +18,9 @@ from app.database import get_db
 from app.auth import login_required
 from app.models import (
     HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
-    HrEmployeeInsight, HrTeamAchievement, Notification, User, CompanySettings,
+    HrEmployeeInsight, HrTeamAchievement, HrQuestion, Notification, User, CompanySettings,
     HR_SECTIONS, HR_INPUT_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
+    HR_ANSWER_TYPES, HR_ANSWER_TYPE_LABELS, HR_DEFAULT_QUESTIONS,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,50 +38,11 @@ SECTION_META = {
     "gravity":       {"icon": "🧲", "label": "Гравитация и антигравитация"},
 }
 
-# Вопросы «Личностного профиля» по умолчанию — для сотрудников без должности
-# или с должностью без собственного списка вопросов. Для остальных вопросы
-# берутся из должности (HrPosition.personal_questions, по одному на строку).
+# Вопросы «Личностного профиля» на случай, если HR выключил их все в справочнике
+# вопросов, а у должности своего списка нет. По ним же разбираются самые старые
+# записи, сделанные до появления вопросов-по-должностям (см. _parse_personal_answers).
 DEFAULT_PERSONAL_QUESTIONS = [
-    "За прошедший месяц: что из сделанного вами здесь дало ощущение реального результата и ценности для компании?",
-    "Был ли в этом месяце момент, когда вам не хватило коммуникации, обратной связи или решений со стороны руководства?",
-]
-
-# Вопросы остальных разделов — используются и в HR-форме, и в публичном опросе.
-QUESTIONS = {
-    "complaints": "С какой дичью вам приходится сталкиваться каждый день?",
-    "achievements": "Достижения за период (по одному на строку).",
-    "enps_1": "По шкале от 0 до 10, с какой вероятностью вы порекомендуете компанию как отличное место работы?",
-    "enps_2": "Пожалуйста, кратко объясните, почему вы поставили такую оценку.",
-    "enps_mgr_1": "Оцените, насколько вам комфортно работать и коммуницировать со своим руководителем (по шкале от 0 до 10)?",
-    "enps_mgr_2": "Что именно ваш руководитель делает хорошо, а что стоило бы изменить или улучшить в его стиле управления?",
-    "metrics": "Метрика сотрудника за период.",
-    "gravity": "Гравитация и антигравитация — что притягивает и что отталкивает в работе.",
-}
-
-# Структурированные вопросы антигравитации (раздел "gravity"): помимо общего
-# свободного текста (text_1), по каждому вопросу собирается комментарий —
-# хранится JSON-списком в text_2 (см. _gravity_pairs).
-GRAVITY_QUESTIONS = [
-    ("ot_1", "Антигравитация «ОТ»",
-     "Когда вы последний раз слышали конкретную обратную связь о качестве именно вашей работы "
-     "(не о процессе, а о вкладе)?"),
-    ("ot_2", "Антигравитация «ОТ»",
-     "Оцените баланс: сколько вы вкладываете в компанию (время, нервы, идеи) против того, "
-     "что компания вкладывает в вас (обучение, бонусы, забота)?"),
-    ("ot_3", "Антигравитация «ОТ»",
-     "Если вы предлагаете идею, какой процент ваших предложений получает развёрнутый ответ "
-     "с аргументацией «почему нет», вместо тишины или формального «мы подумаем»?"),
-    ("ot_4", "Антигравитация «ОТ»",
-     "Оцените свою загрузку: есть ли у вас регулярные «часы простоя», когда вы ищете, "
-     "чем бы заняться, вместо того чтобы решать боевые задачи?"),
-    ("k_1", "Антигравитация «К»",
-     "Как часто за последние полгода вы получали предложения о работе от рекрутеров, которые "
-     "звучали для вас действительно заманчиво, и насколько вы были близки к тому, чтобы пойти "
-     "на собеседование?"),
-    ("k_2", "Антигравитация «К»",
-     "Вызывают ли у вас рабочие посты или истории коллег из других компаний (командировки, "
-     "бонусы, офисы) чувство упущенных возможностей или раздражение от того, как «скучно» "
-     "выглядит ваша жизнь на их фоне?"),
+    q["text"] for q in HR_DEFAULT_QUESTIONS if q["section"] == "personal"
 ]
 
 
@@ -146,13 +108,30 @@ def _shift_period(d: date, delta: int) -> date:
     return date(year, month, 1)
 
 
+# ── Справочник вопросов (редактируется HR) ───────────────────────────────────
+
+def _questions_map(db: Session, active_only: bool = True) -> dict[str, list[HrQuestion]]:
+    """{код раздела: [вопросы по порядку]}. active_only=False нужен там, где
+    показывается история: ответ на выключенный вопрос должен остаться подписан."""
+    query = db.query(HrQuestion)
+    if active_only:
+        query = query.filter(HrQuestion.is_active == True)
+    rows = query.order_by(HrQuestion.section, HrQuestion.sort_order, HrQuestion.id).all()
+    out: dict[str, list[HrQuestion]] = defaultdict(list)
+    for q in rows:
+        out[q.section].append(q)
+    return out
+
+
 # ── Личностный профиль: вопросы должности и разбор ответов ───────────────────
 
-def _personal_questions(employee: HrEmployee) -> list[str]:
-    """Вопросы личностного профиля для сотрудника — из его должности или общие."""
+def _personal_questions(qmap: dict[str, list[HrQuestion]], employee: HrEmployee) -> list[str]:
+    """Вопросы личностного профиля для сотрудника: свои у должности, иначе общие
+    из справочника вопросов."""
     if employee.position_ref and employee.position_ref.personal_question_list:
         return employee.position_ref.personal_question_list
-    return list(DEFAULT_PERSONAL_QUESTIONS)
+    common = [q.text.strip() for q in qmap.get("personal", []) if (q.text or "").strip()]
+    return common or list(DEFAULT_PERSONAL_QUESTIONS)
 
 
 def _parse_personal_answers(rec: HrRecord | None) -> dict[str, str]:
@@ -173,43 +152,57 @@ def _parse_personal_answers(rec: HrRecord | None) -> dict[str, str]:
     return legacy
 
 
-def _personal_qa(employee: HrEmployee, rec: HrRecord | None) -> list[dict]:
-    """[{"q": вопрос, "a": ответ}] для рендера формы — вопросы должности + ответы записи."""
+def _personal_qa(qmap: dict[str, list[HrQuestion]], employee: HrEmployee,
+                 rec: HrRecord | None) -> list[dict]:
+    """[{"q": вопрос, "a": ответ}] для рендера формы — вопросы сотрудника + ответы записи."""
     answers = _parse_personal_answers(rec)
-    return [{"q": q, "a": answers.get(q, "")} for q in _personal_questions(employee)]
+    return [{"q": q, "a": answers.get(q, "")} for q in _personal_questions(qmap, employee)]
 
 
-# ── Гравитация/антигравитация: структурированные вопросы (оценка + комментарий) ──
+# ── Дополнительные вопросы раздела: ответы JSON-списком в text_2 ─────────────
 
-def _gravity_pairs(rec: HrRecord | None) -> list[dict]:
-    """Сырые ответы на вопросы антигравитации из text_2: [{"key","comment"}]."""
+def _extra_answers(rec: HrRecord | None) -> dict[str, str]:
+    """{"ot_1": "ответ", ...} из text_2. Ключ "comment" — формат ответов
+    антигравитации до появления справочника вопросов."""
     if rec is None or not rec.text_2:
-        return []
+        return {}
     try:
         data = json.loads(rec.text_2)
-        return data if isinstance(data, list) else []
     except (ValueError, TypeError):
-        return []
+        return {}
+    if not isinstance(data, list):
+        return {}
+    out = {}
+    for item in data:
+        if isinstance(item, dict) and item.get("key"):
+            value = item.get("answer")
+            if value is None:
+                value = item.get("comment")
+            out[item["key"]] = (value or "").strip()
+    return out
 
 
-def _gravity_answers_map(rec: HrRecord | None) -> dict[str, dict]:
-    """{"ot_1": {"comment":..}, ...} — для предзаполнения формы."""
-    return {a["key"]: a for a in _gravity_pairs(rec) if isinstance(a, dict) and a.get("key")}
+def _extra_answers_map(records: dict[str, HrRecord]) -> dict[str, dict[str, str]]:
+    """{раздел: {ключ вопроса: ответ}} — для предзаполнения формы."""
+    return {code: _extra_answers(rec) for code, rec in records.items()}
 
 
-def _gravity_qa_for_profile(rec: HrRecord | None) -> list[dict]:
-    """[{"q","a"}] с комментарием — для истории в профайле сотрудника."""
-    lookup = {key: (group, q) for key, group, q in GRAVITY_QUESTIONS}
+def _extra_qa(qmap: dict[str, list[HrQuestion]], section: str,
+              rec: HrRecord | None) -> list[dict]:
+    """[{"q","a"}] по дополнительным вопросам раздела — для истории и отчётов.
+    Ответы на удалённые вопросы не прячем: без формулировки, но с текстом."""
+    lookup = {q.key: q for q in qmap.get(section, [])}
     out = []
-    for ans in _gravity_pairs(rec):
-        key = ans.get("key")
-        if key not in lookup:
+    for key, answer in _extra_answers(rec).items():
+        if not answer:
             continue
-        group, qtext = lookup[key]
-        comment = (ans.get("comment") or "").strip()
-        if not comment:
-            continue
-        out.append({"q": f"{group} — {qtext}", "a": comment})
+        q = lookup.get(key)
+        if q is None:
+            out.append({"q": "Удалённый вопрос", "a": answer})
+        elif q.group_title:
+            out.append({"q": f"{q.group_title} — {q.text}", "a": answer})
+        else:
+            out.append({"q": q.text, "a": answer})
     return out
 
 
@@ -246,35 +239,41 @@ def _upsert_record(db: Session, employee_id: int, section: str, period_date: dat
 
 def _save_from_form(db: Session, employee: HrEmployee, period_date: date, form,
                     allowed: set[str], user_id: int | None) -> None:
-    """Сохраняет только разрешённые (allowed) разделы из тела формы.
-    Личностный профиль хранится JSON-парами «вопрос-ответ» (вопросы зависят от
-    должности); метрика — двумя записями за полумесяцы (h1/h2), остальное — за месяц."""
-    def g(name):
-        return form.get(name, "")
+    """Сохраняет только разрешённые (allowed) разделы из тела формы. Состав полей
+    задаёт справочник вопросов (HrQuestion): каждый вопрос знает, куда ложится его
+    ответ — text_1, score или JSON-список дополнительных ответов в text_2.
+    Личностный профиль хранится JSON-парами «вопрос-ответ», т.к. его вопросы
+    зависят от должности сотрудника."""
+    qmap = _questions_map(db)
 
-    def up(section, t1, t2=None, sc=None, kind="month"):
-        _upsert_record(db, employee.id, section, period_date, kind, t1, t2, sc, user_id)
+    for section in HR_INPUT_SECTIONS:
+        if section not in allowed:
+            continue
 
-    if "personal" in allowed:
-        pairs = [{"q": q, "a": (g(f"personal_q{i}") or "").strip()}
-                 for i, q in enumerate(_personal_questions(employee))]
-        if any(p["a"] for p in pairs):
-            up("personal", json.dumps(pairs, ensure_ascii=False))
-    if "complaints" in allowed:
-        up("complaints", g("complaints_1"))
-    if "achievements" in allowed:
-        up("achievements", g("achievements_1"))
-    if "enps" in allowed:
-        up("enps", g("enps_comment"), sc=_score(g("enps_score")))
-    if "enps_managers" in allowed:
-        up("enps_managers", g("enps_managers_comment"), sc=_score(g("enps_managers_score")))
-    if "gravity" in allowed:
-        pairs = []
-        for key, _group, _q in GRAVITY_QUESTIONS:
-            comment = (g(f"gravity_{key}_comment") or "").strip()
-            if comment:
-                pairs.append({"key": key, "comment": comment})
-        up("gravity", g("gravity_1"), json.dumps(pairs, ensure_ascii=False) if pairs else None)
+        if section == "personal":
+            pairs = [{"q": q, "a": (form.get(f"personal_q{i}") or "").strip()}
+                     for i, q in enumerate(_personal_questions(qmap, employee))]
+            if any(p["a"] for p in pairs):
+                _upsert_record(db, employee.id, "personal", period_date, "month",
+                               json.dumps(pairs, ensure_ascii=False), None, None, user_id)
+            continue
+
+        text_1 = None
+        score = None
+        extras = []
+        for q in qmap.get(section, []):
+            raw = form.get(q.field_name, "")
+            if q.slot == "score":
+                score = _score(raw)
+            elif q.slot == "text_1":
+                text_1 = raw
+            else:
+                answer = (raw or "").strip()
+                if answer:
+                    extras.append({"key": q.key, "answer": answer})
+        _upsert_record(db, employee.id, section, period_date, "month", text_1,
+                       json.dumps(extras, ensure_ascii=False) if extras else None,
+                       score, user_id)
 
 
 def _records_map(db: Session, employee_id: int, period_date: date) -> dict:
@@ -294,11 +293,11 @@ def _records_map(db: Session, employee_id: int, period_date: date) -> dict:
     return out
 
 
-def _section_ctx() -> dict:
+def _section_ctx(db: Session) -> dict:
     return {
-        "section_meta": SECTION_META, "questions": QUESTIONS, "all_sections": list(HR_INPUT_SECTIONS),
+        "section_meta": SECTION_META, "all_sections": list(HR_INPUT_SECTIONS),
         "period_kinds": list(HR_PERIOD_KINDS), "period_kind_labels": HR_PERIOD_KIND_LABELS,
-        "gravity_questions": GRAVITY_QUESTIONS,
+        "section_questions": _questions_map(db),
     }
 
 
@@ -449,9 +448,13 @@ async def save_team_achievement(
 
 # ── Профайл сотрудника: история ответов + ИИ-анализ динамики ─────────────────
 
-def _profile_months(employee: HrEmployee, rows: list[HrRecord]) -> list[dict]:
+def _profile_months(qmap: dict[str, list[HrQuestion]], employee: HrEmployee,
+                    rows: list[HrRecord]) -> list[dict]:
     """Группирует записи по месяцам (свежие сверху) в готовую для шаблона структуру:
-    [{"label", "sections": [{"icon", "label", "rows": [{"q","a"} | {"text","score","half"}]}]}]"""
+    [{"label", "sections": [{"icon", "label", "rows": [{"q","a"} | {"text","score","half"}]}]}]
+
+    qmap — справочник вопросов со всеми, включая выключенные: иначе ответ на
+    снятый с публикации вопрос остался бы в истории без формулировки."""
     by_period: dict[date, list[HrRecord]] = {}
     for r in rows:
         by_period.setdefault(r.period, []).append(r)
@@ -473,17 +476,22 @@ def _profile_months(employee: HrEmployee, rows: list[HrRecord]) -> list[dict]:
                     rec = recs.get(("metrics", kind))
                     if rec and rec.text_1:
                         entries.append({"text": rec.text_1, "half": half})
-            elif code == "gravity":
-                rec = recs.get(("gravity", "month"))
-                if rec:
-                    if rec.text_1:
-                        entries.append({"q": "Общее", "a": rec.text_1})
-                    entries.extend(_gravity_qa_for_profile(rec))
             else:
                 rec = recs.get((code, "month")) or next(
                     (r for (s, _k), r in recs.items() if s == code), None)
-                if rec and (rec.text_1 or rec.score is not None):
-                    entries.append({"text": rec.text_1 or "", "score": rec.score})
+                if rec:
+                    # основной текст подписываем его вопросом — кроме разделов с
+                    # оценкой (там строка рендерится вместе с бейджем eNPS) и
+                    # случая, когда вопрос дословно повторяет заголовок раздела
+                    main_q = next((q for q in qmap.get(code, []) if q.slot == "text_1"), None)
+                    if main_q and main_q.text.strip() == SECTION_META[code]["label"]:
+                        main_q = None
+                    has_score = any(q.slot == "score" for q in qmap.get(code, []))
+                    if rec.text_1 and main_q and not has_score:
+                        entries.append({"q": main_q.text, "a": rec.text_1})
+                    elif rec.text_1 or rec.score is not None:
+                        entries.append({"text": rec.text_1 or "", "score": rec.score})
+                    entries.extend(_extra_qa(qmap, code, rec))
             if entries:
                 sections.append({"code": code, "icon": SECTION_META[code]["icon"],
                                  "label": SECTION_META[code]["label"], "rows": entries})
@@ -578,6 +586,7 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
                  .order_by(HrEmployee.is_active.desc(), HrEmployee.full_name).all()
                  if e.visible_in_period(period_date)]
     metric_lines = month_metric_lines(db, period_date)
+    qmap = _questions_map(db, active_only=False)
     emp_data = []
     for e in employees:
         recs = _records_map(db, e.id, period_date)
@@ -589,7 +598,14 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
         enps_mgr_rec = recs.get("enps_managers")
         gravity_rec = recs.get("gravity") if "gravity" in enabled else None
         gravity_general = (gravity_rec.text_1 or "").strip() if gravity_rec else ""
-        gravity_items = _gravity_qa_for_profile(gravity_rec) if gravity_rec else []
+        gravity_items = _extra_qa(qmap, "gravity", gravity_rec) if gravity_rec else []
+        # ответы на вопросы, которые HR добавил сам: у них нет своего места в
+        # структуре отчёта, поэтому идут отдельным блоком в конце
+        extra_items = []
+        for code in HR_INPUT_SECTIONS:
+            if code in ("gravity", "personal") or code not in enabled:
+                continue
+            extra_items.extend(_extra_qa(qmap, code, recs.get(code)))
         emp_data.append({
             "id": e.id, "name": e.full_name, "position": e.position_title or "—",
             "enabled": enabled,
@@ -602,6 +618,7 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
             "enps_mgr_comment": (enps_mgr_rec.text_1 or "").strip() if enps_mgr_rec else "",
             "gravity_general": gravity_general,
             "gravity_items": gravity_items,
+            "extra_items": extra_items,
             # метрика берётся из недельного раздела (HrMetric), а не из текстовых ответов
             "metrics": metric_lines.get(e.id, []),
         })
@@ -766,6 +783,17 @@ def _format_hr_report(ctx: dict, summaries: dict[int, str], gravity_summaries: d
     _enps_block("eNPS (сотрудники)", "enps_score", "enps_comment", "enps")
     _enps_block("eNPS (руководители)", "enps_mgr_score", "enps_mgr_comment", "enps_managers")
 
+    extra_emps = [e for e in ctx["employees"] if e.get("extra_items")]
+    if extra_emps:
+        lines.append("💬 **Дополнительные вопросы**")
+        lines.append("")
+        for e in extra_emps:
+            lines.append(f"{e['name']} - {e['position']}")
+            for item in e["extra_items"]:
+                lines.append(f"{item['q']}")
+                lines.append(item["a"])
+            lines.append("")
+
     metrics_emps = [e for e in ctx["employees"] if e["metrics"]]
     if metrics_emps:
         lines.append("📈 **Метрики за месяц**")
@@ -850,6 +878,7 @@ def _gather_enps_managers_context(db: Session, period_date: date) -> list[dict]:
         HrRecord.period == period_date, HrRecord.section == "enps_managers").all()}
     gravity_records = {r.employee_id: r for r in db.query(HrRecord).filter(
         HrRecord.period == period_date, HrRecord.section == "gravity").all()}
+    qmap = _questions_map(db, active_only=False)
 
     by_manager: dict[int, list[dict]] = defaultdict(list)
     for e in employees:
@@ -861,7 +890,7 @@ def _gather_enps_managers_context(db: Session, period_date: date) -> list[dict]:
 
         gravity_rec = gravity_records.get(e.id) if "gravity" in e.enabled_sections else None
         gravity_general = (gravity_rec.text_1 or "").strip() if gravity_rec else ""
-        gravity_items = _gravity_qa_for_profile(gravity_rec) if gravity_rec else []
+        gravity_items = _extra_qa(qmap, "gravity", gravity_rec) if gravity_rec else []
         has_gravity = bool(gravity_general or gravity_items)
 
         if not has_enps and not has_gravity:
@@ -969,7 +998,7 @@ async def employee_profile(request: Request, employee_id: int, db: Session = Dep
         return RedirectResponse(url="/hr/", status_code=302)
 
     rows = db.query(HrRecord).filter(HrRecord.employee_id == employee_id).all()
-    months = _profile_months(employee, rows)
+    months = _profile_months(_questions_map(db, active_only=False), employee, rows)
     insights = (db.query(HrEmployeeInsight)
                 .filter(HrEmployeeInsight.employee_id == employee_id)
                 .order_by(HrEmployeeInsight.created_at.desc()).limit(5).all())
@@ -1005,7 +1034,7 @@ async def employee_analyze(request: Request, employee_id: int, db: Session = Dep
         return RedirectResponse(url="/hr/", status_code=302)
 
     rows = db.query(HrRecord).filter(HrRecord.employee_id == employee_id).all()
-    months = _profile_months(employee, rows)
+    months = _profile_months(_questions_map(db, active_only=False), employee, rows)
     if not months:
         return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?error=no_data", status_code=302)
 
@@ -1080,7 +1109,7 @@ async def positions_list(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "hr/positions.html", {
         "positions": positions,
         "emp_counts": counts,
-        **_section_ctx(),
+        **_section_ctx(db),
     })
 
 
@@ -1130,6 +1159,139 @@ async def delete_position(request: Request, position_id: int, db: Session = Depe
     db.delete(pos)
     db.commit()
     return RedirectResponse(url="/hr/positions", status_code=302)
+
+
+# ── Вопросы опросника (справочник, редактирует HR) ───────────────────────────
+
+def _next_question_key(db: Session, section: str) -> str:
+    """Свободный ключ для нового вопроса раздела. Ключ — то, чем подписан ответ
+    в JSON, поэтому он не переиспользуется после удаления вопроса: берём номер
+    больше любого уже встречавшегося."""
+    used = {k for (k,) in db.query(HrQuestion.key).filter(HrQuestion.section == section).all()}
+    n = 1
+    while f"c{n}" in used:
+        n += 1
+    return f"c{n}"
+
+
+@router.get("/questions", response_class=HTMLResponse)
+@login_required
+async def questions_list(request: Request, db: Session = Depends(get_db)):
+    """Справочник вопросов: HR правит формулировки и добавляет свои вопросы —
+    они сразу появляются и в форме ручного ввода, и в ссылках опроса."""
+    qmap = _questions_map(db, active_only=False)
+    return templates.TemplateResponse(request, "hr/questions.html", {
+        "questions_by_section": qmap,
+        "answer_types": list(HR_ANSWER_TYPES),
+        "answer_type_labels": HR_ANSWER_TYPE_LABELS,
+        "saved": request.query_params.get("saved"),
+        "error": request.query_params.get("error"),
+        **_section_ctx(db),
+    })
+
+
+@router.post("/questions")
+@login_required
+async def create_question(request: Request, db: Session = Depends(get_db)):
+    form = await request.form()
+    section = (form.get("section") or "").strip()
+    text = (form.get("text") or "").strip()
+    if section not in HR_INPUT_SECTIONS or not text:
+        return RedirectResponse(url="/hr/questions?error=empty", status_code=302)
+
+    answer_type = form.get("answer_type")
+    if answer_type not in HR_ANSWER_TYPES:
+        answer_type = "text"
+    # Личностный профиль хранит ответы парами «вопрос-ответ» (его вопросы могут
+    # переопределяться должностью), поэтому новые вопросы этого раздела —
+    # всегда текстовые и с тем же слотом хранения.
+    if section == "personal":
+        slot, answer_type = "personal", "text"
+    else:
+        slot = "extra"
+
+    last = db.query(func.max(HrQuestion.sort_order)).filter(
+        HrQuestion.section == section).scalar()
+    db.add(HrQuestion(
+        section=section,
+        key=_next_question_key(db, section),
+        slot=slot,
+        answer_type=answer_type,
+        group_title=(form.get("group_title") or "").strip() or None,
+        text=text,
+        hint=(form.get("hint") or "").strip() or None,
+        sort_order=(last or 0) + 10,
+        is_active=True,
+        is_builtin=False,
+    ))
+    db.commit()
+    return RedirectResponse(url="/hr/questions?saved=1", status_code=302)
+
+
+@router.post("/questions/{question_id}/edit")
+@login_required
+async def edit_question(request: Request, question_id: int, db: Session = Depends(get_db)):
+    """Правка вопроса. Раздел и слот хранения не меняются: к ним привязаны уже
+    собранные ответы, и переезд вопроса оставил бы историю без подписи."""
+    form = await request.form()
+    q = db.query(HrQuestion).filter(HrQuestion.id == question_id).first()
+    if not q:
+        return RedirectResponse(url="/hr/questions?error=not_found", status_code=302)
+
+    text = (form.get("text") or "").strip()
+    if not text:
+        return RedirectResponse(url="/hr/questions?error=empty", status_code=302)
+    q.text = text
+    q.group_title = (form.get("group_title") or "").strip() or None
+    q.hint = (form.get("hint") or "").strip() or None
+    q.is_active = bool(form.get("is_active"))
+    if q.slot == "extra":
+        answer_type = form.get("answer_type")
+        if answer_type in HR_ANSWER_TYPES:
+            q.answer_type = answer_type
+    db.commit()
+    return RedirectResponse(url="/hr/questions?saved=1", status_code=302)
+
+
+@router.post("/questions/{question_id}/move")
+@login_required
+async def move_question(request: Request, question_id: int, db: Session = Depends(get_db)):
+    """Переставляет вопрос выше/ниже внутри раздела — меняется порядок в форме."""
+    form = await request.form()
+    direction = form.get("dir")
+    q = db.query(HrQuestion).filter(HrQuestion.id == question_id).first()
+    if not q or direction not in ("up", "down"):
+        return RedirectResponse(url="/hr/questions", status_code=302)
+
+    siblings = db.query(HrQuestion).filter(HrQuestion.section == q.section).order_by(
+        HrQuestion.sort_order, HrQuestion.id).all()
+    idx = next((i for i, s in enumerate(siblings) if s.id == q.id), None)
+    swap_idx = idx - 1 if direction == "up" else idx + 1
+    if idx is None or not (0 <= swap_idx < len(siblings)):
+        return RedirectResponse(url="/hr/questions", status_code=302)
+
+    other = siblings[swap_idx]
+    # порядковые номера могли совпасть (или быть пустыми) — перенумеровываем раздел
+    for i, s in enumerate(siblings):
+        s.sort_order = (i + 1) * 10
+    q.sort_order, other.sort_order = other.sort_order, q.sort_order
+    db.commit()
+    return RedirectResponse(url="/hr/questions?saved=1", status_code=302)
+
+
+@router.post("/questions/{question_id}/delete")
+@login_required
+async def delete_question(request: Request, question_id: int, db: Session = Depends(get_db)):
+    """Удаляет вопрос, добавленный HR. Базовые вопросы удалять нельзя — на их
+    слоты опираются сводки eNPS и ИИ-отчёт; их можно только выключить."""
+    q = db.query(HrQuestion).filter(HrQuestion.id == question_id).first()
+    if not q:
+        return RedirectResponse(url="/hr/questions", status_code=302)
+    if q.is_builtin:
+        return RedirectResponse(url="/hr/questions?error=builtin", status_code=302)
+    db.delete(q)
+    db.commit()
+    return RedirectResponse(url="/hr/questions?saved=1", status_code=302)
 
 
 # ── Вакансии ──────────────────────────────────────────────────────────────────
@@ -1230,19 +1392,20 @@ async def hr_entry_form(request: Request, employee_id: int, period: str = "",
 
     period_date = _period_from_str(period)
     records = _records_map(db, employee_id, period_date)
+    qmap = _questions_map(db)
 
     return templates.TemplateResponse(request, "hr/entry.html", {
         "employee": employee,
         "records": records,
         "sections": employee.enabled_sections,
-        "personal_qa": _personal_qa(employee, records.get("personal")),
-        "gravity_answers": _gravity_answers_map(records.get("gravity")),
+        "personal_qa": _personal_qa(qmap, employee, records.get("personal")),
+        "extra_answers": _extra_answers_map(records),
         "period": _period_str(period_date),
         "period_label": _period_label(period_date),
         "prev_period": _period_str(_shift_period(period_date, -1)),
         "next_period": _period_str(_shift_period(period_date, 1)),
         "saved": request.query_params.get("saved"),
-        **_section_ctx(),
+        **_section_ctx(db),
     })
 
 
@@ -1274,7 +1437,7 @@ async def surveys_list(request: Request, db: Session = Depends(get_db)):
         "employees": employees,
         "today_period": _period_str(date.today()),
         "period_label_fn": _period_full_label,
-        **_section_ctx(),
+        **_section_ctx(db),
     })
 
 
@@ -1322,7 +1485,7 @@ async def survey_detail(request: Request, survey_id: int, db: Session = Depends(
         "survey": survey,
         "period_label": _period_full_label(survey.period, survey.period_kind or "month"),
         "base_url": base_url,
-        **_section_ctx(),
+        **_section_ctx(db),
     })
 
 
@@ -1398,6 +1561,7 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
     survey = tok.survey
     sections = tok.effective_sections
     records = _records_map(db, tok.employee_id, survey.period)
+    qmap = _questions_map(db)
     return templates.TemplateResponse(request, "hr/survey_public.html", {
         "invalid": False,
         "token": token,
@@ -1405,13 +1569,13 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
         "survey": survey,
         "sections": sections,
         "records": records,
-        "personal_qa": _personal_qa(tok.employee, records.get("personal")),
-        "gravity_answers": _gravity_answers_map(records.get("gravity")),
+        "personal_qa": _personal_qa(qmap, tok.employee, records.get("personal")),
+        "extra_answers": _extra_answers_map(records),
         "period_label": _period_label(survey.period),
         "closed": not survey.is_open,
         "submitted": tok.submitted_at is not None,
         "done": request.query_params.get("done"),
-        **_section_ctx(),
+        **_section_ctx(db),
     })
 
 

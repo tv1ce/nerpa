@@ -1,54 +1,43 @@
-{# Поля одного раздела HR-учёта. Ожидает: code, records (dict), questions,
-   для personal — personal_qa (список {"q","a"} по вопросам должности).
-   Имена полей совпадают с тем, что читает _save_from_form в routers/hr.py. #}
+{# Поля одного раздела HR-учёта. Ожидает: code, records (dict), section_questions
+   (справочник вопросов по разделам), extra_answers (ответы на доп. вопросы),
+   для personal — personal_qa (список {"q","a"} по вопросам сотрудника).
+   Имена полей задаёт сам вопрос (HrQuestion.field_name) — их же читает
+   _save_from_form в routers/hr.py. #}
 {% set rec = records.get(code) %}
 
 {% if code == 'personal' %}
   {% for qa in personal_qa %}
   <label class="form-label form-label-sm text-muted">{{ qa.q }}</label>
   <textarea name="personal_q{{ loop.index0 }}" class="form-control {% if not loop.last %}mb-3{% endif %}" rows="3">{{ qa.a }}</textarea>
+  {% else %}
+  <div class="text-muted" style="font-size:.85rem">Вопросы этого раздела не заданы.</div>
   {% endfor %}
 
-{% elif code == 'complaints' %}
-  <textarea name="complaints_1" class="form-control" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
-
-{% elif code == 'achievements' %}
-  <textarea name="achievements_1" class="form-control" rows="4" placeholder="По одному достижению на строку">{{ rec.text_1 if rec else '' }}</textarea>
-
-{% elif code == 'enps' %}
-  <label class="form-label form-label-sm text-muted">{{ questions.enps_1 }}</label>
-  <select name="enps_score" class="form-select form-select-sm mb-3" style="max-width:120px">
-    <option value="">—</option>
-    {% for i in range(0, 11) %}
-    <option value="{{ i }}" {% if rec and rec.score == i %}selected{% endif %}>{{ i }}</option>
-    {% endfor %}
-  </select>
-  <label class="form-label form-label-sm text-muted">{{ questions.enps_2 }}</label>
-  <textarea name="enps_comment" class="form-control" rows="2">{{ rec.text_1 if rec else '' }}</textarea>
-
-{% elif code == 'enps_managers' %}
-  <label class="form-label form-label-sm text-muted">{{ questions.enps_mgr_1 }}</label>
-  <select name="enps_managers_score" class="form-select form-select-sm mb-3" style="max-width:120px">
-    <option value="">—</option>
-    {% for i in range(0, 11) %}
-    <option value="{{ i }}" {% if rec and rec.score == i %}selected{% endif %}>{{ i }}</option>
-    {% endfor %}
-  </select>
-  <label class="form-label form-label-sm text-muted">{{ questions.enps_mgr_2 }}</label>
-  <textarea name="enps_managers_comment" class="form-control" rows="2">{{ rec.text_1 if rec else '' }}</textarea>
-
-{% elif code == 'gravity' %}
-  <label class="form-label form-label-sm text-muted">Что притягивает и держит в компании — общими словами</label>
-  <textarea name="gravity_1" class="form-control mb-3" rows="3">{{ rec.text_1 if rec else '' }}</textarea>
-
+{% else %}
+  {% set extras = extra_answers.get(code, {}) %}
   {% set ns = namespace(group="") %}
-  {% for key, group, q in gravity_questions %}
-    {% if group != ns.group %}
-      {% set ns.group = group %}
-      <div class="fw-semibold {% if not loop.first %}mt-3{% endif %} mb-2" style="font-size:.88rem">{{ group }}</div>
+  {% for q in section_questions.get(code, []) %}
+    {% if q.group_title and q.group_title != ns.group %}
+      {% set ns.group = q.group_title %}
+      <div class="fw-semibold {% if not loop.first %}mt-3{% endif %} mb-2" style="font-size:.88rem">{{ q.group_title }}</div>
     {% endif %}
-    {% set ans = gravity_answers.get(key, {}) %}
-    <label class="form-label form-label-sm text-muted">{{ q }}</label>
-    <textarea name="gravity_{{ key }}_comment" class="form-control form-control-sm mb-3" rows="2" placeholder="Комментарий">{{ ans.get('comment', '') }}</textarea>
+    <label class="form-label form-label-sm text-muted">{{ q.text }}</label>
+    {% if q.is_score %}
+      {% set current = rec.score if (q.slot == 'score' and rec) else extras.get(q.key, '') %}
+      <select name="{{ q.field_name }}" class="form-select form-select-sm mb-3" style="max-width:120px">
+        <option value="">—</option>
+        {% for i in range(0, 11) %}
+        <option value="{{ i }}" {% if current not in (none, '') and current|string == i|string %}selected{% endif %}>{{ i }}</option>
+        {% endfor %}
+      </select>
+    {% elif q.slot == 'text_1' %}
+      <textarea name="{{ q.field_name }}" class="form-control mb-3" rows="3"
+                placeholder="{{ q.hint or '' }}">{{ rec.text_1 if rec else '' }}</textarea>
+    {% else %}
+      <textarea name="{{ q.field_name }}" class="form-control form-control-sm mb-3" rows="2"
+                placeholder="{{ q.hint or '' }}">{{ extras.get(q.key, '') }}</textarea>
+    {% endif %}
+  {% else %}
+  <div class="text-muted" style="font-size:.85rem">Вопросы этого раздела не заданы.</div>
   {% endfor %}
 {% endif %}

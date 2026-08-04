@@ -1075,6 +1075,112 @@ HR_INPUT_SECTIONS = tuple(s for s in HR_SECTIONS if s != "metrics")
 HR_PERIOD_KINDS = ("month", "h1", "h2")
 HR_PERIOD_KIND_LABELS = {"month": "весь месяц", "h1": "1–15", "h2": "16–конец"}
 
+# Куда ложится ответ на вопрос внутри HrRecord — вопрос сам знает своё хранилище:
+#   text_1   — основной текст раздела (не больше одного вопроса на раздел)
+#   score    — оценка 0–10 (не больше одной на раздел; по ней считается средний eNPS)
+#   extra    — дополнительный вопрос; ответы лежат JSON-списком [{"key","answer"}] в text_2
+#   personal — вопрос личностного профиля; ответы лежат JSON-парами [{"q","a"}] в text_1
+HR_QUESTION_SLOTS = ("text_1", "score", "extra", "personal")
+HR_ANSWER_TYPES = ("text", "score")
+HR_ANSWER_TYPE_LABELS = {"text": "текст", "score": "оценка 0–10"}
+
+
+class HrQuestion(Base):
+    """Вопрос опросника — редактируется HR на вкладке «Вопросы».
+
+    Раньше формулировки были константами в коде, и поменять их мог только
+    разработчик. Теперь они лежат в БД: HR переписывает вопросы под себя и
+    добавляет свои. Базовые вопросы (is_builtin) нельзя удалить — только
+    выключить или переформулировать, иначе развалились бы eNPS-сводки и
+    ИИ-отчёт, которые опираются на их слоты хранения."""
+    __tablename__ = "hr_questions"
+    id = Column(Integer, primary_key=True)
+    section = Column(String(20), nullable=False)      # код раздела, см. HR_SECTIONS
+    key = Column(String(32), nullable=False)          # стабильный ключ ответа внутри раздела
+    slot = Column(String(10), nullable=False, default="extra")   # см. HR_QUESTION_SLOTS
+    answer_type = Column(String(8), default="text")   # text / score — как отвечать (для slot=extra)
+    group_title = Column(String(120))                 # подзаголовок группы («Антигравитация «ОТ»»)
+    text = Column(Text, nullable=False)
+    hint = Column(String(200))                        # подсказка-плейсхолдер в поле ответа
+    sort_order = Column(Integer, default=100)
+    is_active = Column(Boolean, default=True)
+    is_builtin = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("section", "key", name="uq_hr_question_section_key"),)
+
+    @property
+    def field_name(self) -> str:
+        """Имя поля в HTML-форме опроса."""
+        return f"q{self.id}"
+
+    @property
+    def is_score(self) -> bool:
+        return self.slot == "score" or (self.slot == "extra" and self.answer_type == "score")
+
+
+# Базовый набор вопросов — переносится в hr_questions при первом запуске (см.
+# database._seed_defaults). Правки HR остаются нетронутыми: сидер добавляет
+# только те пары (раздел, ключ), которых в базе ещё нет.
+HR_DEFAULT_QUESTIONS = [
+    dict(section="personal", key="p1", slot="personal", sort_order=10,
+         text="За прошедший месяц: что из сделанного вами здесь дало ощущение "
+              "реального результата и ценности для компании?"),
+    dict(section="personal", key="p2", slot="personal", sort_order=20,
+         text="Был ли в этом месяце момент, когда вам не хватило коммуникации, "
+              "обратной связи или решений со стороны руководства?"),
+
+    dict(section="complaints", key="main", slot="text_1", sort_order=10,
+         text="С какой дичью вам приходится сталкиваться каждый день?"),
+
+    dict(section="achievements", key="main", slot="text_1", sort_order=10,
+         text="Достижения за период (по одному на строку).",
+         hint="По одному достижению на строку"),
+
+    dict(section="enps", key="score", slot="score", sort_order=10,
+         text="По шкале от 0 до 10, с какой вероятностью вы порекомендуете компанию "
+              "как отличное место работы?"),
+    dict(section="enps", key="comment", slot="text_1", sort_order=20,
+         text="Пожалуйста, кратко объясните, почему вы поставили такую оценку."),
+
+    dict(section="enps_managers", key="score", slot="score", sort_order=10,
+         text="Оцените, насколько вам комфортно работать и коммуницировать со своим "
+              "руководителем (по шкале от 0 до 10)?"),
+    dict(section="enps_managers", key="comment", slot="text_1", sort_order=20,
+         text="Что именно ваш руководитель делает хорошо, а что стоило бы изменить "
+              "или улучшить в его стиле управления?"),
+
+    dict(section="gravity", key="main", slot="text_1", sort_order=10,
+         text="Что притягивает и держит в компании — общими словами"),
+    dict(section="gravity", key="ot_1", slot="extra", sort_order=20,
+         group_title="Антигравитация «ОТ»", hint="Комментарий",
+         text="Когда вы последний раз слышали конкретную обратную связь о качестве "
+              "именно вашей работы (не о процессе, а о вкладе)?"),
+    dict(section="gravity", key="ot_2", slot="extra", sort_order=30,
+         group_title="Антигравитация «ОТ»", hint="Комментарий",
+         text="Оцените баланс: сколько вы вкладываете в компанию (время, нервы, идеи) "
+              "против того, что компания вкладывает в вас (обучение, бонусы, забота)?"),
+    dict(section="gravity", key="ot_3", slot="extra", sort_order=40,
+         group_title="Антигравитация «ОТ»", hint="Комментарий",
+         text="Если вы предлагаете идею, какой процент ваших предложений получает "
+              "развёрнутый ответ с аргументацией «почему нет», вместо тишины или "
+              "формального «мы подумаем»?"),
+    dict(section="gravity", key="ot_4", slot="extra", sort_order=50,
+         group_title="Антигравитация «ОТ»", hint="Комментарий",
+         text="Оцените свою загрузку: есть ли у вас регулярные «часы простоя», когда вы "
+              "ищете, чем бы заняться, вместо того чтобы решать боевые задачи?"),
+    dict(section="gravity", key="k_1", slot="extra", sort_order=60,
+         group_title="Антигравитация «К»", hint="Комментарий",
+         text="Как часто за последние полгода вы получали предложения о работе от "
+              "рекрутеров, которые звучали для вас действительно заманчиво, и насколько "
+              "вы были близки к тому, чтобы пойти на собеседование?"),
+    dict(section="gravity", key="k_2", slot="extra", sort_order=70,
+         group_title="Антигравитация «К»", hint="Комментарий",
+         text="Вызывают ли у вас рабочие посты или истории коллег из других компаний "
+              "(командировки, бонусы, офисы) чувство упущенных возможностей или "
+              "раздражение от того, как «скучно» выглядит ваша жизнь на их фоне?"),
+]
+
 
 class HrPosition(Base):
     """Должность (справочник). Позволяет отключить отдельные разделы отчёта для

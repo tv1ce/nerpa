@@ -35,34 +35,43 @@ def get_token(db: Session) -> str:
 
 
 def _phones(order) -> list[str]:
-    """Телефоны из «телефон + имя получателя» («79119244416 Ольга» → 79119244416)."""
+    """Телефоны из поля «телефон + имя получателя».
+
+    Режем по длине номера, а не «до конца цифр»: в поле рядом с телефоном часто
+    стоят другие числа («+79117712372 81»), и без этого они приклеивались к
+    номеру — курьер получал несуществующий телефон.
+    """
     import re
-    raw = (order.delivery_contact or "")
-    found = re.findall(r"\+?\d[\d\-\s()]{9,}", raw)
-    return [re.sub(r"[^\d+]", "", f) for f in found][:2]
-
-
-def _what_to_carry(order) -> str:
-    """Что везём: явное имя груза, иначе состав заказа коротко."""
-    if order.cargo_name:
-        return order.cargo_name.strip()
-    names = []
-    for it in order.items:
-        nm = it.product.name if it.product else None
-        if nm:
-            names.append(f"{nm} × {it.quantity:g}")
-    text = "; ".join(names)
-    return text[:300]
+    out: list[str] = []
+    for chunk in re.findall(r"[\d\-\s()+]{10,}", order.delivery_contact or ""):
+        digits = re.sub(r"\D", "", chunk)
+        while len(digits) >= 10:
+            take = 11 if digits[0] in "78" and len(digits) >= 11 else 10
+            num, digits = digits[:take], digits[take:]
+            if len(num) == 10:          # номер без кода страны
+                num = "7" + num
+            elif num.startswith("8"):   # 8XXXXXXXXXX → +7XXXXXXXXXX
+                num = "7" + num[1:]
+            out.append("+" + num)
+    return out[:2]
 
 
 def build_order_payload(order) -> dict:
-    """Заказ TMS → тело POST /orders (структурная форма)."""
+    """Заказ TMS → тело POST /orders (структурная форма).
+
+    Курьеру нужен минимум: куда, когда, к какому времени, кому звонить и как
+    найти точку. Название заведения идёт в `how_to_find` — в карточке у
+    перевозчика это поле под 🔍, именно там его ищет логист.
+
+    Намеренно НЕ отправляем: `order_number` (наш номер курьеру не нужен,
+    идемпотентность и так держится на `external_id`), `what_to_carry` (состав
+    заказа) и `comment` (примечания) — карточка от них только разбухает.
+    """
     cp = order.counterparty
     payload = {
         "external_id": str(order.number),
         "service": "Доставка",
         "address": (order.delivery_address or "").strip(),
-        "order_number": str(order.number),
     }
     if order.delivery_date:
         payload["date"] = order.delivery_date.isoformat()
@@ -75,28 +84,11 @@ def build_order_payload(order) -> dict:
     if len(phones) > 1:
         payload["phone_2"] = phones[1]
 
-    what = _what_to_carry(order)
-    if what:
-        payload["what_to_carry"] = what
-    if order.cargo_places:
-        payload["comment"] = f"Мест: {order.cargo_places}"
-    if order.cargo_pallets:
-        payload["comment"] = ((payload.get("comment", "") + ", ") if payload.get("comment") else "") \
-                             + f"паллет: {order.cargo_pallets}"
-
-    # Кому везём — логисту перевозчика это нужнее номера заказа
+    # Название заведения — под 🔍
     if cp:
-        payload["important"] = (cp.trade_name or cp.name or "").strip()[:200]
-    # Имя получателя из «телефон + имя» — как найти на месте
-    contact = (order.delivery_contact or "").strip()
-    if contact:
-        import re
-        name_part = re.sub(r"\+?\d[\d\-\s()]{9,}", "", contact).strip(" ,;")
-        if name_part:
-            payload["how_to_find"] = name_part[:200]
-    if order.notes:
-        payload["comment"] = ((payload.get("comment", "") + ". ") if payload.get("comment") else "") \
-                             + order.notes.strip()[:300]
+        venue = (cp.trade_name or cp.name or "").strip()
+        if venue:
+            payload["how_to_find"] = venue[:200]
     return payload
 
 

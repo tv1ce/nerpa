@@ -521,7 +521,10 @@ def _seed_defaults():
     _log = _logging.getLogger(__name__)
     db = SessionLocal()
     try:
-        from app.models import User, CompanySettings, Warehouse, StockMovement, WriteOffReason
+        from app.models import (
+            User, CompanySettings, Warehouse, StockMovement, WriteOffReason,
+            HrQuestion, HR_DEFAULT_QUESTIONS,
+        )
         if not db.query(User).first():
             admin = User(
                 username="admin",
@@ -553,6 +556,13 @@ def _seed_defaults():
         if not db.query(WriteOffReason).first():
             for name in ["Порча", "Брак", "Недостача", "Собственное потребление", "Прочее"]:
                 db.add(WriteOffReason(name=name))
+
+        # Базовые вопросы HR-опросника. Добавляем только недостающие пары
+        # (раздел, ключ) — переформулировки и выключения, сделанные HR, не трогаем.
+        existing_q = {(s, k) for s, k in db.query(HrQuestion.section, HrQuestion.key).all()}
+        for seed in HR_DEFAULT_QUESTIONS:
+            if (seed["section"], seed["key"]) not in existing_q:
+                db.add(HrQuestion(is_builtin=True, **seed))
 
         db.commit()
     finally:
