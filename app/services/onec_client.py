@@ -711,88 +711,41 @@ _ORDER_UNIT_KEY      = "a8db4701-3b08-11f1-a504-8aba90adaa03"  # единица 
 _ORDER_NDS_KEY       = "a8db4750-3b08-11f1-a504-8aba90adaa03"  # ставка НДС «Без НДС»
 
 
-# ── Поле «Доставка» в шапке заказа 1С ────────────────────────────────────────
-# В него пишем адреса грузополучателя и грузоотправителя, чтобы логистика в 1С
-# видела маршрут без захода в TMS. Имя строкового реквизита доставки в сборках
-# УНФ отличается — определяем по факту из реального документа базы (один запрос
-# на процесс). Кандидаты проверяем и по типу значения: одноимённый булев
-# реквизит («доставлять / не доставлять») под текст не годится.
-_DELIVERY_FIELD_CANDIDATES = ("АдресДоставки", "Доставка", "АдресДоставкиПредставление")
-_delivery_field_cache: str | None = None      # None — ещё не определяли, "" — писать некуда
+# ── Адрес доставки в шапке заказа 1С ─────────────────────────────────────────
+# Реквизит «Адрес доставки» (строка) — проверен по метаданным этой базы.
+# Пишем в него ТОЛЬКО адрес доставки, без подписей: грузоотправителя 1С
+# подставляет сама, это поле не трогаем.
+_ORDER_DELIVERY_FIELD = "АдресДоставки"
+_delivery_field_enabled = True      # снимается, если 1С отказалась принимать реквизит
 
 
-def _get_delivery_field(c) -> str | None:
-    """Имя строкового реквизита доставки в Document_ЗаказПокупателя (или None)."""
-    global _delivery_field_cache
-    if _delivery_field_cache is not None:
-        return _delivery_field_cache or None
-    try:
-        r = c.get("Document_ЗаказПокупателя", params={"$format": "json", "$top": "1"})
-        sample = (r.json().get("value") or [{}])[0] if r.is_success else {}
-    except Exception as e:  # noqa: BLE001
-        logger.warning("_get_delivery_field: %s", e)
-        sample = {}
-    found = ""
-    for name in _DELIVERY_FIELD_CANDIDATES:
-        if isinstance(sample.get(name), str):
-            found = name
-            break
-    if not found and not sample:
-        # В базе ещё нет заказов — пробуем самый частый вариант, ошибку словим
-        # на записи и отключим поле (см. _send_order_doc).
-        found = _DELIVERY_FIELD_CANDIDATES[0]
-    if not found:
-        logger.warning("_get_delivery_field: реквизит доставки не найден, адреса не пишем")
-    _delivery_field_cache = found
-    return found or None
-
-
-def _delivery_text(order, s: CompanySettings) -> str:
-    """«Грузополучатель: … | Грузоотправитель: …» — то, что уходит в поле доставки.
-
-    Грузополучатель — адрес доставки заказа (фолбэк: адрес контрагента),
-    грузоотправитель — адрес забора (фолбэк: адрес нашей компании), как в ТН/ЭТрН.
-    """
+def _delivery_address(order) -> str:
+    """Адрес доставки заказа для 1С (фолбэк — адрес контрагента, как в ТН)."""
     cp = getattr(order, "counterparty", None)
-    to_addr = (order.delivery_address
-               or (cp.actual_address or cp.legal_address if cp else "")
-               or "").strip()
-
-    from_addr = (order.pickup_address or "").strip()
-    city = (order.pickup_city or "").strip()
-    if from_addr and city and city.lower() not in from_addr.lower():
-        from_addr = f"{city}, {from_addr}"
-    if not from_addr:
-        from_addr = (city or s.actual_address or s.legal_address or "").strip()
-
-    parts = []
-    if to_addr:
-        parts.append(f"Грузополучатель: {to_addr}")
-    if from_addr:
-        parts.append(f"Грузоотправитель: {from_addr}")
-    return " | ".join(parts)
+    return (order.delivery_address
+            or (cp.actual_address or cp.legal_address if cp else "")
+            or "").strip()
 
 
-def _send_order_doc(c, method: str, url: str, payload: dict, delivery_field: str | None):
-    """POST/PATCH документа заказа с деградацией по полю доставки.
+def _send_order_doc(c, method: str, url: str, payload: dict):
+    """POST/PATCH документа заказа с деградацией по адресу доставки.
 
-    Если 1С не приняла реквизит доставки (другое имя/тип в этой конфигурации) —
-    повторяем запрос без него и больше не пытаемся: адрес важен, но срывать
-    из-за него выгрузку заказа нельзя.
+    Если 1С не приняла реквизит адреса — повторяем запрос без него и больше не
+    пытаемся: адрес важен, но срывать из-за него выгрузку заказа нельзя.
     """
-    global _delivery_field_cache
+    global _delivery_field_enabled
     send = c.post if method == "POST" else c.patch
     r = send(url, json=payload)
-    if not r.is_success and delivery_field and delivery_field in payload:
+    if not r.is_success and _ORDER_DELIVERY_FIELD in payload:
         logger.warning("push_order: 1С не приняла запрос с полем «%s» (HTTP %s: %s) — повтор без него",
-                       delivery_field, r.status_code, r.text[:200])
-        payload.pop(delivery_field)
+                       _ORDER_DELIVERY_FIELD, r.status_code, r.text[:200])
+        payload.pop(_ORDER_DELIVERY_FIELD)
         r = send(url, json=payload)
         # Дело действительно в реквизите — больше его не отправляем (до рестарта)
         if r.is_success:
-            _delivery_field_cache = ""
-            logger.error("push_order: реквизит «%s» не пишется в этой 1С — адреса "
-                         "грузополучателя/грузоотправителя не выгружаются", delivery_field)
+            _delivery_field_enabled = False
+            logger.error("push_order: реквизит «%s» не пишется в этой 1С — "
+                         "адрес доставки не выгружается", _ORDER_DELIVERY_FIELD)
     return r
 
 
@@ -874,13 +827,11 @@ def push_order(order, db: Session) -> str | None:
     # Дата отгрузки
     ship_iso = order.delivery_date.isoformat() + "T00:00:00" if getattr(order, "delivery_date", None) else None
 
-    # Адреса грузополучателя/грузоотправителя — в поле доставки шапки
-    delivery = _delivery_text(order, s)
+    # Адрес доставки — в одноимённый реквизит шапки
+    delivery = _delivery_address(order)
 
     try:
         with _client(s) as c:
-            delivery_field = _get_delivery_field(c) if delivery else None
-
             # PATCH существующего: только шапка. Табличную часть НЕ трогаем —
             # проведённый документ её менять не даёт (500), плюс операторы могли
             # вручную скорректировать строки/скидки в 1С.
@@ -889,11 +840,11 @@ def push_order(order, db: Session) -> str | None:
                     "Date": order.date.isoformat() if order.date else None,
                     "Комментарий": comment,
                 }
-                if delivery_field:
-                    patch_payload[delivery_field] = delivery
+                if delivery and _delivery_field_enabled:
+                    patch_payload[_ORDER_DELIVERY_FIELD] = delivery
                 r = _send_order_doc(
                     c, "PATCH", f"Document_ЗаказПокупателя(guid'{order.external_id_1c}')",
-                    patch_payload, delivery_field,
+                    patch_payload,
                 )
                 r.raise_for_status()
                 _save_external_id(db, order, order.external_id_1c)
@@ -920,11 +871,11 @@ def push_order(order, db: Session) -> str | None:
                 payload["Договор_Key"] = contract_key
             if ship_iso:
                 payload["ДатаОтгрузки"] = ship_iso
-            if delivery_field:
-                payload[delivery_field] = delivery
+            if delivery and _delivery_field_enabled:
+                payload[_ORDER_DELIVERY_FIELD] = delivery
             if zapasy:
                 payload["Запасы"] = zapasy
-            r = _send_order_doc(c, "POST", "Document_ЗаказПокупателя", payload, delivery_field)
+            r = _send_order_doc(c, "POST", "Document_ЗаказПокупателя", payload)
             r.raise_for_status()
             ref_key = r.json().get("Ref_Key")
             if ref_key:
