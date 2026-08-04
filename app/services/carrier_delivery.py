@@ -92,27 +92,73 @@ class ConfirmResult:
     order_id: int | None = None
 
 
+def find_order_by_number(db: Session, number: str):
+    """Заказ по номеру TMS. «№80», «80», «0080» — всё это заказ №80."""
+    from app.models import Order
+    num = (str(number or "")).strip().lstrip("#№ ").strip()
+    if not num:
+        return None
+    order = db.query(Order).filter(Order.number == num).first()
+    if order:
+        return order
+    # номер мог приехать с ведущими нулями или как число
+    digits = re.sub(r"\D", "", num)
+    if not digits:
+        return None
+    for o in db.query(Order).all():
+        if re.sub(r"\D", "", o.number or "") == digits.lstrip("0").rjust(1, "0"):
+            return o
+    return None
+
+
+def apply_status(db: Session, order, new_status: str, source: str) -> str:
+    """Меняет статус заказа так же, как это делает карточка заказа в интерфейсе:
+    проставляет отметки времени, пишет в журнал и толкает событие в Bitrix24.
+
+    `source` — человекочитаемое «откуда» для журнала («перевозчик «…»», «Метафора»).
+    Возвращает текст для ответа вызывающей стороне.
+    """
+    from app.routers.orders import ORDER_STATUSES
+    from app.tz import now as msk_now
+    from app.utils import log_action
+
+    old_status = order.status
+    if old_status == new_status:
+        return f"Заказ №{order.number} уже в статусе «{ORDER_STATUSES.get(new_status, new_status)}»."
+
+    order.status = new_status
+    # Те же отметки времени, что и при ручной смене статуса: на них завязаны
+    # табло цеха (assembled_at) и дата отгрузки в отчётах (handed_at).
+    if new_status == "assembled" and order.assembled_at is None:
+        order.assembled_at = msk_now()
+    if new_status == "handed" and order.handed_at is None:
+        order.handed_at = msk_now()
+
+    log_action(
+        db, "order", order.id, "status_changed", None,
+        f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → "
+        f"{ORDER_STATUSES.get(new_status, new_status)} (авто, {source})",
+        field="status", old_value=old_status, new_value=new_status,
+    )
+    db.commit()
+
+    if new_status in ("assembled", "delivered") and order.bitrix_deal_id:
+        from app.routers.orders import _push_bitrix_event_bg
+        threading.Thread(target=_push_bitrix_event_bg, args=(order.id, new_status), daemon=True).start()
+
+    logger.info("apply_status: заказ %s %s → %s (%s)", order.number, old_status, new_status, source)
+    return (f"Заказ №{order.number}: {ORDER_STATUSES.get(old_status, old_status)} → "
+            f"{ORDER_STATUSES.get(new_status, new_status)}.")
+
+
 def confirm_delivery(db: Session, carrier, address: str) -> ConfirmResult:
     """Находит активный заказ перевозчика по адресу и переводит его в «Доставлено».
 
     Заказ должен быть единственным: если по адресу подходит несколько активных
     заказов — статус не меняем, это решает человек.
     """
-    from app.models import Order
-    from app.routers.orders import ORDER_STATUSES
-    from app.utils import log_action
-
     carrier_name = carrier.trade_name or carrier.name
-
-    candidates = db.query(Order).filter(
-        Order.carrier_id == carrier.id,
-        Order.status.notin_(["delivered", "cancelled"]),
-        Order.delivery_address.isnot(None),
-        Order.delivery_address != "",
-    ).all()
-    matches = [o for o in candidates if address_matches(address, o.delivery_address)]
-    logger.info("confirm_delivery: перевозчик=%s адрес=%r активных=%d совпало=%d",
-                carrier_name, address, len(candidates), len(matches))
+    matches = find_orders_by_address(db, address, carrier=carrier)
 
     if not matches:
         return ConfirmResult(
@@ -127,22 +173,31 @@ def confirm_delivery(db: Session, carrier, address: str) -> ConfirmResult:
         )
 
     order = matches[0]
-    old_status = order.status
-    order.status = "delivered"
-    log_action(
-        db, "order", order.id, "status_changed", None,
-        f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → Доставлено "
-        f"(авто, подтверждение перевозчика «{carrier_name}»)",
-        field="status", old_value=old_status, new_value="delivered",
-    )
-    db.commit()
-
-    if order.bitrix_deal_id:
-        from app.routers.orders import _push_bitrix_event_bg
-        threading.Thread(target=_push_bitrix_event_bg, args=(order.id, "delivered"), daemon=True).start()
-
+    apply_status(db, order, "delivered", f"подтверждение перевозчика «{carrier_name}»")
     return ConfirmResult(
         True, "ok",
         f"✅ Заказ №{order.number} переведён в статус «Доставлено».",
         order_number=order.number, order_id=order.id,
     )
+
+
+def find_orders_by_address(db: Session, address: str, carrier=None) -> list:
+    """Активные заказы, чей адрес доставки совпадает с присланным.
+
+    Если перевозчик известен — ищем только среди его заказов; иначе по всем
+    активным (номер заказа надёжнее, адрес — фолбэк)."""
+    from app.models import Order
+
+    q = db.query(Order).filter(
+        Order.status.notin_(["delivered", "cancelled"]),
+        Order.delivery_address.isnot(None),
+        Order.delivery_address != "",
+    )
+    if carrier is not None:
+        q = q.filter(Order.carrier_id == carrier.id)
+    candidates = q.all()
+    matches = [o for o in candidates if address_matches(address, o.delivery_address)]
+    logger.info("find_orders_by_address: перевозчик=%s адрес=%r активных=%d совпало=%d",
+                (carrier.trade_name or carrier.name) if carrier else "любой",
+                address, len(candidates), len(matches))
+    return matches
