@@ -1,17 +1,18 @@
 """
-Тесты справочника вопросов опросника (/hr/questions):
+Тесты вопросов опроса (/hr/questions):
   - базовые вопросы заводятся сидером и правятся, а не хардкодятся
   - изменённая формулировка видна и в форме HR, и в публичной ссылке опроса
   - добавленный HR вопрос собирает ответ и попадает в профайл сотрудника
-  - выключенный вопрос исчезает из формы, но ответ на него остаётся в истории
-  - базовый вопрос нельзя удалить (на его слот опираются сводки), только выключить
+  - свои вопросы должности заменяют общие, и их можно вернуть обратно
+  - убранный базовый вопрос прячется (не удаляется) и возвращается кнопкой
+  - старые вопросы личностного профиля из карточки должности переехали в справочник
 """
 import json
 import re
 from datetime import date
 
 from app.database import SessionLocal
-from app.models import HrEmployee, HrQuestion, HrRecord, HrSurvey, HrSurveyToken
+from app.models import HrEmployee, HrPosition, HrQuestion, HrRecord, HrSurveyToken
 
 
 def _csrf(client) -> str:
@@ -19,21 +20,36 @@ def _csrf(client) -> str:
     return m.group(1) if m else ""
 
 
-def _question(section: str, key: str) -> HrQuestion:
+def _rows(section: str, position_id=None) -> list[HrQuestion]:
     db = SessionLocal()
     try:
-        q = db.query(HrQuestion).filter(
-            HrQuestion.section == section, HrQuestion.key == key).first()
-        db.expunge(q)
-        return q
+        rows = db.query(HrQuestion).filter(
+            HrQuestion.section == section,
+            HrQuestion.position_id == position_id,
+        ).order_by(HrQuestion.sort_order, HrQuestion.id).all()
+        for r in rows:
+            db.expunge(r)
+        return rows
     finally:
         db.close()
 
 
-def _make_employee(name: str) -> int:
+def _save_section(client, section: str, questions: list[tuple], position_id=None):
+    """Отправляет раздел целиком, как это делает форма: [(qid, текст, тип), ...]."""
+    data = {
+        "csrf_token": _csrf(client),
+        "position_id": str(position_id or ""),
+        "qid": [str(qid or "") for qid, _t, _a in questions],
+        "text": [text for _q, text, _a in questions],
+        "answer_type": [answer_type for _q, _t, answer_type in questions],
+    }
+    return client.post(f"/hr/questions/{section}", data=data, follow_redirects=False)
+
+
+def _make_employee(name: str, position_id=None) -> int:
     db = SessionLocal()
     try:
-        emp = HrEmployee(full_name=name)
+        emp = HrEmployee(full_name=name, position_id=position_id)
         db.add(emp)
         db.commit()
         return emp.id
@@ -41,26 +57,34 @@ def _make_employee(name: str) -> int:
         db.close()
 
 
+def _make_position(title: str) -> int:
+    db = SessionLocal()
+    try:
+        pos = HrPosition(title=title, is_active=True)
+        db.add(pos)
+        db.commit()
+        return pos.id
+    finally:
+        db.close()
+
+
 def _survey_token(admin_client, employee_id: int, sections: list[str]) -> str:
-    """Создаёт раунд опроса через UI и возвращает персональную ссылку сотрудника."""
     data = {"period": "2026-08", "employee_ids": str(employee_id), "csrf_token": _csrf(admin_client)}
     for code in sections:
         data[f"sec_{code}"] = "1"
     r = admin_client.post("/hr/surveys", data=data, follow_redirects=False)
     assert r.status_code == 302, r.text
     survey_id = int(r.headers["location"].rsplit("/", 1)[1])
-
     db = SessionLocal()
     try:
-        tok = db.query(HrSurveyToken).filter(
+        return db.query(HrSurveyToken).filter(
             HrSurveyToken.survey_id == survey_id,
-            HrSurveyToken.employee_id == employee_id).first()
-        return tok.token
+            HrSurveyToken.employee_id == employee_id).first().token
     finally:
         db.close()
 
 
-# ── Справочник ────────────────────────────────────────────────────────────────
+# ── Общие вопросы ─────────────────────────────────────────────────────────────
 
 def test_builtin_questions_are_seeded(admin_client):
     """Формулировки живут в БД, а не в коде: сидер завёл базовый набор."""
@@ -68,173 +92,170 @@ def test_builtin_questions_are_seeded(admin_client):
     assert r.status_code == 200
     assert "С какой дичью вам приходится сталкиваться каждый день?" in r.text
 
-    enps = _question("enps", "score")
-    assert enps.is_builtin and enps.slot == "score"
-
-
-def test_builtin_question_cannot_be_deleted_but_can_be_hidden(admin_client):
-    """Удаление базового вопроса развалило бы сводку eNPS — разрешено только выключение."""
-    q = _question("enps", "score")
-    r = admin_client.post(f"/hr/questions/{q.id}/delete",
-                          data={"csrf_token": _csrf(admin_client)}, follow_redirects=False)
-    assert r.status_code == 302
-    assert "error=builtin" in r.headers["location"]
-
-    db = SessionLocal()
-    try:
-        assert db.query(HrQuestion).filter(HrQuestion.id == q.id).first() is not None
-    finally:
-        db.close()
+    enps = _rows("enps")
+    assert [q.slot for q in enps] == ["score", "text_1"]
+    assert all(q.is_builtin and q.position_id is None for q in enps)
 
 
 def test_edited_wording_reaches_hr_form_and_public_survey(admin_client):
     """HR переформулировал вопрос — сотрудник видит новую формулировку."""
     emp_id = _make_employee("Вопросов Иван Иванович")
-    q = _question("complaints", "main")
+    q = _rows("complaints")[0]
     new_text = "Что мешало вам работать в этом месяце?"
 
-    r = admin_client.post(f"/hr/questions/{q.id}/edit", data={
-        "text": new_text, "is_active": "1", "csrf_token": _csrf(admin_client),
-    }, follow_redirects=False)
-    assert r.status_code == 302
+    assert _save_section(admin_client, "complaints", [(q.id, new_text, "text")]).status_code == 302
 
-    form = admin_client.get(f"/hr/entry/{emp_id}?period=2026-08")
-    assert new_text in form.text
-
+    assert new_text in admin_client.get(f"/hr/entry/{emp_id}?period=2026-08").text
     token = _survey_token(admin_client, emp_id, ["complaints"])
-    public = admin_client.get(f"/hr/s/{token}")
-    assert public.status_code == 200
-    assert new_text in public.text
+    assert new_text in admin_client.get(f"/hr/s/{token}").text
 
 
-def test_custom_question_collects_answer_and_shows_in_profile(admin_client):
+def test_added_question_collects_answer_and_shows_in_profile(admin_client):
     """Свой вопрос HR: попадает в опрос, ответ сохраняется и виден в профайле."""
     emp_id = _make_employee("Дополнов Пётр Петрович")
     text = "Чего вам не хватает для работы?"
-    r = admin_client.post("/hr/questions", data={
-        "section": "complaints", "text": text, "answer_type": "text",
-        "hint": "Коротко", "csrf_token": _csrf(admin_client),
-    }, follow_redirects=False)
-    assert r.status_code == 302
+    existing = _rows("achievements")
 
-    db = SessionLocal()
-    try:
-        q = db.query(HrQuestion).filter(HrQuestion.text == text).first()
-        assert q is not None and not q.is_builtin and q.slot == "extra"
-        field, key, qid = q.field_name, q.key, q.id
-    finally:
-        db.close()
+    assert _save_section(
+        admin_client, "achievements",
+        [(q.id, q.text, "text") for q in existing] + [(None, text, "text")],
+    ).status_code == 302
 
-    token = _survey_token(admin_client, emp_id, ["complaints"])
+    added = [q for q in _rows("achievements") if q.text == text]
+    assert len(added) == 1 and not added[0].is_builtin and added[0].slot == "extra"
+
+    token = _survey_token(admin_client, emp_id, ["achievements"])
     assert text in admin_client.get(f"/hr/s/{token}").text
 
-    saved = admin_client.post(f"/hr/s/{token}", data={
-        field: "Второго монитора", "csrf_token": _csrf(admin_client),
-    }, follow_redirects=False)
-    assert saved.status_code == 302
+    assert admin_client.post(f"/hr/s/{token}", data={
+        added[0].field_name: "Второго монитора", "csrf_token": _csrf(admin_client),
+    }, follow_redirects=False).status_code == 302
 
     db = SessionLocal()
     try:
         rec = db.query(HrRecord).filter(
-            HrRecord.employee_id == emp_id, HrRecord.section == "complaints").first()
-        assert rec is not None
-        assert key in rec.text_2 and "Второго монитора" in rec.text_2
+            HrRecord.employee_id == emp_id, HrRecord.section == "achievements").first()
+        assert added[0].key in rec.text_2 and "Второго монитора" in rec.text_2
     finally:
         db.close()
 
-    profile = admin_client.get(f"/hr/employees/{emp_id}/profile")
-    assert text in profile.text
-    assert "Второго монитора" in profile.text
-
-    # выключенный вопрос уходит из формы, но ответ на него остаётся подписан в истории
-    admin_client.post(f"/hr/questions/{qid}/edit", data={
-        "text": text, "csrf_token": _csrf(admin_client),   # без is_active
-    }, follow_redirects=False)
-    token2 = _survey_token(admin_client, emp_id, ["complaints"])
-    assert text not in admin_client.get(f"/hr/s/{token2}").text
     profile = admin_client.get(f"/hr/employees/{emp_id}/profile")
     assert text in profile.text and "Второго монитора" in profile.text
 
 
-def test_custom_personal_question_is_asked_and_saved(admin_client):
-    """Личностный профиль хранит пары «вопрос-ответ» — новый общий вопрос
-    подхватывается сотрудниками без своей должности."""
-    emp_id = _make_employee("Личностный Сергей Сергеевич")
-    text = "Что бы вы поменяли в своей роли?"
-    admin_client.post("/hr/questions", data={
-        "section": "personal", "text": text, "csrf_token": _csrf(admin_client),
-    }, follow_redirects=False)
+def test_removed_builtin_is_hidden_and_restorable(admin_client):
+    """Базовый вопрос убирается из формы, но не удаляется — его слот держит на
+    себе сводки eNPS, поэтому его можно вернуть кнопкой."""
+    score_q, comment_q = _rows("enps")
+    assert _save_section(admin_client, "enps",
+                         [(comment_q.id, comment_q.text, "text")]).status_code == 302
 
     db = SessionLocal()
     try:
-        q = db.query(HrQuestion).filter(HrQuestion.text == text).first()
-        assert q.slot == "personal"   # ответы хранятся парами, а не в JSON доп. вопросов
+        assert db.query(HrQuestion).filter(HrQuestion.id == score_q.id).first().is_active is False
     finally:
         db.close()
 
-    token = _survey_token(admin_client, emp_id, ["personal"])
-    page = admin_client.get(f"/hr/s/{token}")
-    assert text in page.text
-    # вопрос добавлен последним → у него последний индекс среди полей раздела
-    idx = len(re.findall(r'name="personal_q\d+"', page.text)) - 1
+    page = admin_client.get("/hr/questions")
+    assert "вернуть стандартные вопросы" in page.text
 
+    assert admin_client.post("/hr/questions/enps/reset",
+                             data={"csrf_token": _csrf(admin_client)},
+                             follow_redirects=False).status_code == 302
+    assert [q.slot for q in _rows("enps")] == ["score", "text_1"]
+
+
+# ── Вопросы должности ─────────────────────────────────────────────────────────
+
+def test_position_questions_replace_common_ones(admin_client):
+    """У должности свой набор — он заменяет общие вопросы раздела, а остальные
+    сотрудники продолжают отвечать на общие."""
+    pos_id = _make_position("Кондитер-тестовый")
+    cook_id = _make_employee("Кондитеров Кондрат", position_id=pos_id)
+    other_id = _make_employee("Общий Олег")
+
+    # копируем общие вопросы раздела должности и переписываем их своими
+    assert admin_client.post("/hr/questions/complaints/customize", data={
+        "position_id": str(pos_id), "csrf_token": _csrf(admin_client),
+    }, follow_redirects=False).status_code == 302
+    own = _rows("complaints", pos_id)
+    assert len(own) == 1, "должны скопироваться общие вопросы, а не пустой список"
+
+    own_text = "Что в цеху мешает больше всего?"
+    assert _save_section(admin_client, "complaints", [(own[0].id, own_text, "text")],
+                         position_id=pos_id).status_code == 302
+
+    common_text = _rows("complaints")[0].text
+    cook_form = admin_client.get(f"/hr/entry/{cook_id}?period=2026-08").text
+    assert own_text in cook_form and common_text not in cook_form
+
+    other_form = admin_client.get(f"/hr/entry/{other_id}?period=2026-08").text
+    assert common_text in other_form and own_text not in other_form
+
+
+def test_position_answers_are_saved_and_reset_returns_common(admin_client):
+    """Ответ на должностной вопрос сохраняется; «вернуть общие» убирает набор."""
+    pos_id = _make_position("Кладовщик-тестовый")
+    emp_id = _make_employee("Кладовщиков Клим", position_id=pos_id)
+
+    admin_client.post("/hr/questions/personal/customize", data={
+        "position_id": str(pos_id), "csrf_token": _csrf(admin_client)}, follow_redirects=False)
+    own_text = "Что бы вы поменяли на складе?"
+    _save_section(admin_client, "personal", [(None, own_text, "text")], position_id=pos_id)
+
+    token = _survey_token(admin_client, emp_id, ["personal"])
+    page = admin_client.get(f"/hr/s/{token}").text
+    assert own_text in page
+    idx = len(re.findall(r'name="personal_q\d+"', page)) - 1
     admin_client.post(f"/hr/s/{token}", data={
-        f"personal_q{idx}": "Больше влияния на процесс",
-        "csrf_token": _csrf(admin_client),
+        f"personal_q{idx}": "Стеллажи по зонам", "csrf_token": _csrf(admin_client),
     }, follow_redirects=False)
 
     profile = admin_client.get(f"/hr/employees/{emp_id}/profile")
-    assert text in profile.text
-    assert "Больше влияния на процесс" in profile.text
+    assert own_text in profile.text and "Стеллажи по зонам" in profile.text
+
+    assert admin_client.post("/hr/questions/personal/reset", data={
+        "position_id": str(pos_id), "csrf_token": _csrf(admin_client),
+    }, follow_redirects=False).status_code == 302
+    assert _rows("personal", pos_id) == []
+    # ответ остаётся в истории, даже когда должностного вопроса уже нет
+    assert "Стеллажи по зонам" in admin_client.get(f"/hr/employees/{emp_id}/profile").text
 
 
-def test_custom_question_can_be_deleted(admin_client):
-    """Свой вопрос удаляется целиком — базовые остаются на месте."""
-    text = "Временный вопрос"
-    admin_client.post("/hr/questions", data={
-        "section": "achievements", "text": text, "csrf_token": _csrf(admin_client),
-    }, follow_redirects=False)
-
-    db = SessionLocal()
-    try:
-        qid = db.query(HrQuestion).filter(HrQuestion.text == text).first().id
-    finally:
-        db.close()
-
-    r = admin_client.post(f"/hr/questions/{qid}/delete",
-                          data={"csrf_token": _csrf(admin_client)}, follow_redirects=False)
-    assert r.status_code == 302 and "error" not in r.headers["location"]
+def test_legacy_position_questions_are_migrated(admin_client):
+    """Вопросы личностного профиля из карточки должности переезжают в справочник
+    вопросов и продолжают работать как «свои вопросы должности»."""
+    from app.database import _migrate_db
 
     db = SessionLocal()
     try:
-        assert db.query(HrQuestion).filter(HrQuestion.id == qid).first() is None
+        pos = HrPosition(title="Легаси-должность", is_active=True,
+                         personal_questions="Первый вопрос роли\nВторой вопрос роли")
+        db.add(pos)
+        db.commit()
+        pos_id = pos.id
     finally:
         db.close()
 
+    _migrate_db()
 
-def test_move_reorders_questions_inside_section(admin_client):
-    """Порядок вопросов раздела задаётся стрелками и виден в форме опроса."""
-    first, second = _question("enps", "score"), _question("enps", "comment")
-    r = admin_client.post(f"/hr/questions/{second.id}/move",
-                          data={"dir": "up", "csrf_token": _csrf(admin_client)},
-                          follow_redirects=False)
-    assert r.status_code == 302
+    migrated = _rows("personal", pos_id)
+    assert [q.text for q in migrated] == ["Первый вопрос роли", "Второй вопрос роли"]
+    assert all(q.slot == "personal" and not q.is_builtin for q in migrated)
 
     db = SessionLocal()
     try:
-        a = db.query(HrQuestion).filter(HrQuestion.id == first.id).first()
-        b = db.query(HrQuestion).filter(HrQuestion.id == second.id).first()
-        assert b.sort_order < a.sort_order
+        # перенос, а не копия: повторный запуск не воскресит удалённые вопросы
+        assert db.query(HrPosition).filter(HrPosition.id == pos_id).first().personal_questions is None
     finally:
         db.close()
 
-    # возвращаем исходный порядок, чтобы не влиять на другие тесты
-    admin_client.post(f"/hr/questions/{second.id}/move",
-                      data={"dir": "down", "csrf_token": _csrf(admin_client)},
-                      follow_redirects=False)
+    emp_id = _make_employee("Легасин Лев", position_id=pos_id)
+    form = admin_client.get(f"/hr/entry/{emp_id}?period=2026-08").text
+    assert "Первый вопрос роли" in form and "Второй вопрос роли" in form
 
 
-def test_survey_with_gravity_keeps_legacy_answers_readable(admin_client):
+def test_legacy_gravity_answers_stay_readable(admin_client):
     """Ответы антигравитации, записанные до справочника (ключ «comment»),
     по-прежнему подписываются вопросом в профайле."""
     emp_id = _make_employee("Легаси Олег Олегович")

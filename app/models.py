@@ -1093,13 +1093,18 @@ class HrQuestion(Base):
 
     Раньше формулировки были константами в коде, и поменять их мог только
     разработчик. Теперь они лежат в БД: HR переписывает вопросы под себя и
-    добавляет свои. Базовые вопросы (is_builtin) нельзя удалить — только
-    выключить или переформулировать, иначе развалились бы eNPS-сводки и
-    ИИ-отчёт, которые опираются на их слоты хранения."""
+    добавляет свои.
+
+    position_id делит вопросы на два набора: общие (NULL — их видят все) и
+    вопросы конкретной должности. Если у должности есть свои вопросы в разделе,
+    она отвечает только на них — общие вопросы этого раздела ей не показываются
+    (так же вели себя вопросы личностного профиля в карточке должности, откуда
+    этот механизм и вырос)."""
     __tablename__ = "hr_questions"
     id = Column(Integer, primary_key=True)
     section = Column(String(20), nullable=False)      # код раздела, см. HR_SECTIONS
     key = Column(String(32), nullable=False)          # стабильный ключ ответа внутри раздела
+    position_id = Column(Integer, ForeignKey("hr_positions.id"))  # NULL — вопрос для всех
     slot = Column(String(10), nullable=False, default="extra")   # см. HR_QUESTION_SLOTS
     answer_type = Column(String(8), default="text")   # text / score — как отвечать (для slot=extra)
     group_title = Column(String(120))                 # подзаголовок группы («Антигравитация «ОТ»»)
@@ -1111,6 +1116,8 @@ class HrQuestion(Base):
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     __table_args__ = (UniqueConstraint("section", "key", name="uq_hr_question_section_key"),)
+
+    position = relationship("HrPosition")
 
     @property
     def field_name(self) -> str:
@@ -1193,9 +1200,9 @@ class HrPosition(Base):
     title = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True)
     disabled_sections = Column(Text)  # CSV кодов разделов, выключенных для должности
-    # Вопросы «Личностного профиля» именно для этой должности — по одному на строку
-    # (в Teamly вопросы подбираются под чувствительности роли: РОПу — про влияние
-    # и ресурсы, кондитеру — про процессы). Пусто = общие вопросы по умолчанию.
+    # Legacy: вопросы «Личностного профиля» должности по одному на строку. Переехали
+    # в hr_questions (position_id), где под должность настраивается любой раздел, —
+    # колонка остаётся только как след переноса, код её больше не читает.
     personal_questions = Column(Text)
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
@@ -1209,10 +1216,6 @@ class HrPosition(Base):
     def enabled_sections(self) -> list[str]:
         off = self.disabled_set
         return [s for s in HR_INPUT_SECTIONS if s not in off]
-
-    @property
-    def personal_question_list(self) -> list[str]:
-        return [q.strip() for q in (self.personal_questions or "").splitlines() if q.strip()]
 
 
 class HrEmployee(Base):

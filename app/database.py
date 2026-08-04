@@ -288,6 +288,8 @@ def _migrate_db():
         ("hr_surveys", "period_kind", "TEXT DEFAULT 'month'"),
         ("hr_employees", "deactivated_at", "DATE"),
         ("hr_positions", "personal_questions", "TEXT"),
+        # Вопрос опросника адресуется должности (NULL — вопрос для всех)
+        ("hr_questions", "position_id", "INTEGER REFERENCES hr_positions(id)"),
         # ── Bitrix24: авто-выгрузка лидов «Прозвон»/«Поле» при статусе «Договор/продажа» ──
         ("company_settings", "bitrix_lead_responsible_id", "TEXT"),
         ("company_settings", "bitrix_lead_export_enabled", "INTEGER DEFAULT 0"),
@@ -383,6 +385,35 @@ def _migrate_db():
         existing = [row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()]
         if column not in existing:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")
+
+    # Вопросы личностного профиля должности переезжают из hr_positions в hr_questions:
+    # там под должность настраивается любой раздел, а не только личностный профиль.
+    # Перенос — именно перенос: исходная колонка обнуляется, поэтому повторный запуск
+    # не воскресит вопросы, которые HR потом удалил.
+    _pos_cols = {row[1] for row in cur.execute("PRAGMA table_info(hr_positions)").fetchall()}
+    _q_cols = {row[1] for row in cur.execute("PRAGMA table_info(hr_questions)").fetchall()}
+    if "personal_questions" in _pos_cols and "position_id" in _q_cols:
+        rows = cur.execute(
+            "SELECT id, personal_questions FROM hr_positions "
+            "WHERE personal_questions IS NOT NULL AND TRIM(personal_questions) <> ''"
+        ).fetchall()
+        for pos_id, raw in rows:
+            questions = [q.strip() for q in (raw or "").splitlines() if q.strip()]
+            for i, text in enumerate(questions, start=1):
+                key = f"p{pos_id}_{i}"
+                exists = cur.execute(
+                    "SELECT 1 FROM hr_questions WHERE section='personal' AND key=?", (key,)
+                ).fetchone()
+                if exists:
+                    continue
+                cur.execute(
+                    "INSERT INTO hr_questions "
+                    "(section, key, position_id, slot, answer_type, text, sort_order, "
+                    " is_active, is_builtin, created_at) "
+                    "VALUES ('personal', ?, ?, 'personal', 'text', ?, ?, 1, 0, CURRENT_TIMESTAMP)",
+                    (key, pos_id, text, i * 10),
+                )
+            cur.execute("UPDATE hr_positions SET personal_questions=NULL WHERE id=?", (pos_id,))
 
     # Перевод орешков с «Коробки» на «шт»
     cur.execute("UPDATE products SET unit='шт', sale_unit=NULL, units_per_box=1 WHERE unit='Коробки'")

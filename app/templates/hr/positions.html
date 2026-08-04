@@ -97,11 +97,9 @@
             </label>
           </div>
           {% endfor %}
-          <div class="mt-3">
-            <label class="form-label form-label-sm">Вопросы личностного профиля <span class="text-muted">(по одному на строку)</span></label>
-            <textarea name="personal_questions" class="form-control form-control-sm" rows="4"
-                      placeholder="Пусто — общие вопросы по умолчанию"></textarea>
-            <div class="form-text">Вопросы подбираются под роль: РОПу — про влияние и ресурсы, кондитеру — про процессы и т.п.</div>
+          <div class="form-text mt-3">
+            Свои вопросы для должности задаются на вкладке
+            <a href="/hr/questions">«Вопросы»</a> — там же, где общие.
           </div>
         </div>
         <div class="modal-footer py-2 px-3">
@@ -138,10 +136,9 @@
             </label>
           </div>
           {% endfor %}
-          <div class="mt-3">
-            <label class="form-label form-label-sm">Вопросы личностного профиля <span class="text-muted">(по одному на строку)</span></label>
-            <textarea name="personal_questions" class="form-control form-control-sm" rows="4"
-                      placeholder="Пусто — общие вопросы по умолчанию">{{ p.personal_questions or '' }}</textarea>
+          <div class="form-text mt-3">
+            Свои вопросы для этой должности —
+            <a href="/hr/questions?position={{ p.id }}">вкладка «Вопросы»</a>.
           </div>
           <div class="form-check mt-3 border-top pt-2">
             <input type="checkbox" name="is_active" value="1" class="form-check-input" id="p{{ p.id }}_active" {% if p.is_active %}checked{% endif %}>

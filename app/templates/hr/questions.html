@@ -1,222 +1,126 @@
 {% extends "base.html" %}
 {% block title %}Вопросы — HR{% endblock %}
-{% block page_title %}Вопросы опросника{% endblock %}
-{% block topbar_actions %}
-<div class="d-flex align-items-center gap-2">
-  <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#addQuestion">
-    <i class="bi bi-plus-lg me-1"></i>Добавить вопрос
-  </button>
-</div>
-{% endblock %}
+{% block page_title %}Вопросы опроса{% endblock %}
 
 {% block content %}
 {% include "hr/_tabs.html" %}
 
 {% if saved %}
-<div class="alert alert-success py-2">Сохранено. Изменения уже действуют в форме HR и в открытых ссылках опроса.</div>
-{% elif error == 'empty' %}
-<div class="alert alert-warning py-2">Выберите раздел и напишите текст вопроса.</div>
-{% elif error == 'builtin' %}
-<div class="alert alert-warning py-2">
-  Базовый вопрос удалить нельзя — на него опираются сводки eNPS и ИИ-отчёт.
-  Снимите галочку «Показывать в опросе», если он больше не нужен.
-</div>
-{% elif error == 'not_found' %}
-<div class="alert alert-warning py-2">Вопрос не найден — возможно, его уже удалили.</div>
+<div class="alert alert-success py-2">Сохранено.</div>
 {% endif %}
 
-<p class="text-muted mb-3" style="font-size:.9rem">
-  Здесь задаются вопросы, которые видят сотрудники в опросе и HR в форме ручного
-  ввода. Формулировку любого вопроса можно переписать, а свои вопросы — добавить
-  в любой раздел. Уже собранные ответы при этом сохраняются: они привязаны к
-  вопросу, а не к его тексту.
-</p>
-
-{% for code in all_sections %}
-{% set items = questions_by_section.get(code, []) %}
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body pb-2">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <div class="fw-semibold">{{ section_meta[code].icon }} {{ section_meta[code].label }}</div>
-      <button class="btn btn-sm btn-link p-0 text-decoration-none"
-              data-bs-toggle="modal" data-bs-target="#addQuestion"
-              onclick="document.querySelector('#addQuestion select[name=section]').value = '{{ code }}';
-                       document.getElementById('newAnswerTypeWrap').style.display = '{{ 'none' if code == 'personal' else '' }}';">
-        <i class="bi bi-plus-lg"></i> вопрос
-      </button>
-    </div>
-
-    {% if code == 'personal' %}
-    <div class="text-muted mb-2" style="font-size:.8rem">
-      Это общие вопросы личностного профиля. Если у должности заполнен свой список
-      вопросов (вкладка «Должности»), для её сотрудников используется он.
-    </div>
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+  <span class="text-muted">Вопросы для:</span>
+  <select class="form-select form-select-sm" style="max-width:320px"
+          onchange="location.href = this.value">
+    <option value="/hr/questions" {% if not position_id %}selected{% endif %}>Всех сотрудников</option>
+    {% for p in positions %}
+    <option value="/hr/questions?position={{ p.id }}" {% if position_id == p.id %}selected{% endif %}>
+      Должности «{{ p.title }}»
+    </option>
+    {% endfor %}
+  </select>
+  <span class="text-muted" style="font-size:.85rem">
+    {% if position_id %}
+      Заданные здесь вопросы заменяют общие — {{ position_title }} отвечает только на них.
+    {% else %}
+      Эти вопросы получают все, у кого нет своих вопросов по должности.
     {% endif %}
-
-    <div class="table-responsive">
-      <table class="table table-sm tms-table mb-0" style="font-size:.88rem">
-        <tbody>
-          {% for q in items %}
-          <tr class="{% if not q.is_active %}text-muted{% endif %}">
-            <td class="ps-3" style="width:70px">
-              <form method="post" action="/hr/questions/{{ q.id }}/move" class="d-inline">
-                <input type="hidden" name="dir" value="up">
-                <button class="btn btn-sm btn-link p-0 text-secondary" {% if loop.first %}disabled{% endif %}
-                        title="Выше"><i class="bi bi-arrow-up"></i></button>
-              </form>
-              <form method="post" action="/hr/questions/{{ q.id }}/move" class="d-inline ms-1">
-                <input type="hidden" name="dir" value="down">
-                <button class="btn btn-sm btn-link p-0 text-secondary" {% if loop.last %}disabled{% endif %}
-                        title="Ниже"><i class="bi bi-arrow-down"></i></button>
-              </form>
-            </td>
-            <td>
-              {% if q.group_title %}
-              <div class="text-muted" style="font-size:.75rem">{{ q.group_title }}</div>
-              {% endif %}
-              <div style="white-space:pre-wrap">{{ q.text }}</div>
-              {% if q.hint %}
-              <div class="text-muted" style="font-size:.75rem">подсказка: {{ q.hint }}</div>
-              {% endif %}
-            </td>
-            <td style="width:190px">
-              <span class="badge bg-light text-dark border">{{ answer_type_labels[q.answer_type or 'text'] if not q.is_score else answer_type_labels['score'] }}</span>
-              {% if q.is_builtin %}
-              <span class="badge bg-light text-dark border" title="Из базовой поставки: можно переформулировать и выключить, но не удалить">базовый</span>
-              {% endif %}
-              {% if not q.is_active %}
-              <span class="badge bg-secondary">скрыт</span>
-              {% endif %}
-            </td>
-            <td class="pe-3 text-end" style="width:90px">
-              <button class="btn btn-sm btn-outline-secondary border-0"
-                      data-bs-toggle="modal" data-bs-target="#editQuestion{{ q.id }}">
-                <i class="bi bi-pencil"></i>
-              </button>
-              {% if q.is_builtin %}
-              <button class="btn btn-sm btn-outline-secondary border-0" disabled
-                      title="Базовый вопрос можно только выключить"><i class="bi bi-trash"></i></button>
-              {% else %}
-              <form method="post" action="/hr/questions/{{ q.id }}/delete" class="d-inline"
-                    data-confirm="Удалить вопрос? Он исчезнет из формы и опросов; уже собранные ответы останутся в профайлах сотрудников.">
-                <button class="btn btn-sm btn-outline-danger border-0"><i class="bi bi-trash"></i></button>
-              </form>
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td class="text-muted py-3 ps-3">Вопросов нет — раздел не будет показан в опросе.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+  </span>
 </div>
-{% endfor %}
 
-{# ── Модалка: новый вопрос ── #}
-<div class="modal fade" id="addQuestion" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form method="post" action="/hr/questions">
-        <div class="modal-header py-2 px-3">
-          <h6 class="modal-title">Новый вопрос</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body px-3">
-          <div class="mb-3">
-            <label class="form-label form-label-sm">Раздел</label>
-            <select name="section" class="form-select form-select-sm"
-                    onchange="document.getElementById('newAnswerTypeWrap').style.display = this.value === 'personal' ? 'none' : '';">
-              {% for code in all_sections %}
-              <option value="{{ code }}">{{ section_meta[code].icon }} {{ section_meta[code].label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label form-label-sm">Текст вопроса</label>
-            <textarea name="text" class="form-control form-control-sm" rows="3" required></textarea>
-          </div>
-          <div class="mb-3" id="newAnswerTypeWrap">
-            <label class="form-label form-label-sm">Формат ответа</label>
-            <select name="answer_type" class="form-select form-select-sm">
-              {% for t in answer_types %}
-              <option value="{{ t }}">{{ answer_type_labels[t] }}</option>
-              {% endfor %}
-            </select>
-            <div class="form-text">
-              Оценки по своим вопросам видны в профайле сотрудника; в сводный средний
-              балл eNPS попадает только базовый вопрос-оценка раздела.
-            </div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label form-label-sm">Группа <span class="text-muted">(необязательно)</span></label>
-            <input type="text" name="group_title" class="form-control form-control-sm"
-                   placeholder="напр. Антигравитация «ОТ»">
-            <div class="form-text">Подзаголовок над вопросом — им объединяются вопросы одной темы.</div>
-          </div>
-          <div>
-            <label class="form-label form-label-sm">Подсказка в поле ответа <span class="text-muted">(необязательно)</span></label>
-            <input type="text" name="hint" class="form-control form-control-sm" placeholder="напр. Комментарий">
-          </div>
-        </div>
-        <div class="modal-footer py-2 px-3">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
-          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Добавить</button>
-        </div>
+{% for sec in sections %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <div class="fw-semibold">{{ section_meta[sec.code].icon }} {{ section_meta[sec.code].label }}</div>
+      {% if position_id and sec.is_own %}
+      <form method="post" action="/hr/questions/{{ sec.code }}/reset"
+            data-confirm="Вернуть общие вопросы? Свои вопросы этой должности будут удалены, уже собранные ответы останутся.">
+        <input type="hidden" name="position_id" value="{{ position_id }}">
+        <button class="btn btn-sm btn-link text-secondary p-0 text-decoration-none">вернуть общие</button>
       </form>
+      {% elif not position_id and sec.code in hidden_builtin %}
+      <form method="post" action="/hr/questions/{{ sec.code }}/reset">
+        <button class="btn btn-sm btn-link text-secondary p-0 text-decoration-none">вернуть стандартные вопросы</button>
+      </form>
+      {% endif %}
     </div>
-  </div>
-</div>
 
-{# ── Модалки: правка вопроса ── #}
-{% for code in all_sections %}
-{% for q in questions_by_section.get(code, []) %}
-<div class="modal fade" id="editQuestion{{ q.id }}" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form method="post" action="/hr/questions/{{ q.id }}/edit">
-        <div class="modal-header py-2 px-3">
-          <h6 class="modal-title">{{ section_meta[code].icon }} {{ section_meta[code].label }}</h6>
-          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body px-3">
-          <div class="mb-3">
-            <label class="form-label form-label-sm">Текст вопроса</label>
-            <textarea name="text" class="form-control form-control-sm" rows="3" required>{{ q.text }}</textarea>
-          </div>
-          {% if q.slot == 'extra' %}
-          <div class="mb-3">
-            <label class="form-label form-label-sm">Формат ответа</label>
-            <select name="answer_type" class="form-select form-select-sm">
-              {% for t in answer_types %}
-              <option value="{{ t }}" {% if (q.answer_type or 'text') == t %}selected{% endif %}>{{ answer_type_labels[t] }}</option>
-              {% endfor %}
-            </select>
-          </div>
+    {% if position_id and not sec.is_own %}
+      {# у должности нет своих вопросов — показываем общие и предлагаем их переписать #}
+      {% if sec.questions %}
+      <ol class="text-muted mb-2 ps-3" style="font-size:.88rem">
+        {% for q in sec.questions %}<li>{{ q.text }}</li>{% endfor %}
+      </ol>
+      {% else %}
+      <div class="text-muted mb-2" style="font-size:.88rem">Вопросов нет.</div>
+      {% endif %}
+      <form method="post" action="/hr/questions/{{ sec.code }}/customize">
+        <input type="hidden" name="position_id" value="{{ position_id }}">
+        <button class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-pencil me-1"></i>Свои вопросы для этой должности
+        </button>
+      </form>
+
+    {% else %}
+    <form method="post" action="/hr/questions/{{ sec.code }}" class="q-form">
+      <input type="hidden" name="position_id" value="{{ position_id or '' }}">
+      <div class="q-list">
+        {% for q in sec.questions %}
+        <div class="q-row d-flex gap-2 align-items-start mb-2">
+          <input type="hidden" name="qid" value="{{ q.id }}">
+          <textarea name="text" class="form-control form-control-sm" rows="2">{{ q.text }}</textarea>
+          <select name="answer_type" class="form-select form-select-sm" style="max-width:130px"
+                  {% if q.slot in ('text_1', 'score') %}disabled{% endif %}>
+            <option value="text" {% if not q.is_score %}selected{% endif %}>текст</option>
+            <option value="score" {% if q.is_score %}selected{% endif %}>оценка 0–10</option>
+          </select>
+          {# у полей с фиксированным типом select выключен — значение шлём скрытым #}
+          {% if q.slot in ('text_1', 'score') %}
+          <input type="hidden" name="answer_type" value="{{ 'score' if q.is_score else 'text' }}">
           {% endif %}
-          <div class="mb-3">
-            <label class="form-label form-label-sm">Группа <span class="text-muted">(необязательно)</span></label>
-            <input type="text" name="group_title" class="form-control form-control-sm" value="{{ q.group_title or '' }}">
-          </div>
-          <div>
-            <label class="form-label form-label-sm">Подсказка в поле ответа <span class="text-muted">(необязательно)</span></label>
-            <input type="text" name="hint" class="form-control form-control-sm" value="{{ q.hint or '' }}">
-          </div>
-          <div class="form-check mt-3 border-top pt-2">
-            <input type="checkbox" name="is_active" value="1" class="form-check-input" id="q{{ q.id }}_active"
-                   {% if q.is_active %}checked{% endif %}>
-            <label class="form-check-label" for="q{{ q.id }}_active">Показывать в опросе</label>
-          </div>
+          <button type="button" class="btn btn-sm btn-link text-danger px-1" title="Убрать вопрос"
+                  onclick="this.closest('.q-row').remove()"><i class="bi bi-x-lg"></i></button>
         </div>
-        <div class="modal-footer py-2 px-3">
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Отмена</button>
-          <button type="submit" class="btn btn-sm btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
-        </div>
-      </form>
-    </div>
+        {% endfor %}
+      </div>
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none q-add">
+          <i class="bi bi-plus-lg"></i> Добавить вопрос
+        </button>
+        <button type="submit" class="btn btn-sm btn-accent">Сохранить</button>
+      </div>
+    </form>
+    {% endif %}
   </div>
 </div>
 {% endfor %}
-{% endfor %}
+
+<template id="qRowTemplate">
+  <div class="q-row d-flex gap-2 align-items-start mb-2">
+    <input type="hidden" name="qid" value="">
+    <textarea name="text" class="form-control form-control-sm" rows="2" placeholder="Текст вопроса"></textarea>
+    <select name="answer_type" class="form-select form-select-sm" style="max-width:130px">
+      <option value="text">текст</option>
+      <option value="score">оценка 0–10</option>
+    </select>
+    <button type="button" class="btn btn-sm btn-link text-danger px-1" title="Убрать вопрос"
+            onclick="this.closest('.q-row').remove()"><i class="bi bi-x-lg"></i></button>
+  </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.q-add').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var form = btn.closest('.q-form');
+    var row = document.getElementById('qRowTemplate').content.cloneNode(true);
+    form.querySelector('.q-list').appendChild(row);
+    var added = form.querySelectorAll('.q-row textarea');
+    added[added.length - 1].focus();
+  });
+});
+</script>
 {% endblock %}

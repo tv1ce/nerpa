@@ -20,7 +20,7 @@ from app.models import (
     HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
     HrEmployeeInsight, HrTeamAchievement, HrQuestion, Notification, User, CompanySettings,
     HR_SECTIONS, HR_INPUT_SECTIONS, HR_PERIOD_KINDS, HR_PERIOD_KIND_LABELS,
-    HR_ANSWER_TYPES, HR_ANSWER_TYPE_LABELS, HR_DEFAULT_QUESTIONS,
+    HR_ANSWER_TYPES, HR_DEFAULT_QUESTIONS,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,9 +110,10 @@ def _shift_period(d: date, delta: int) -> date:
 
 # ── Справочник вопросов (редактируется HR) ───────────────────────────────────
 
-def _questions_map(db: Session, active_only: bool = True) -> dict[str, list[HrQuestion]]:
-    """{код раздела: [вопросы по порядку]}. active_only=False нужен там, где
-    показывается история: ответ на выключенный вопрос должен остаться подписан."""
+def _all_questions(db: Session, active_only: bool = True) -> dict[str, list[HrQuestion]]:
+    """{код раздела: [вопросы по порядку]} — и общие, и должностные вместе.
+    Нужен там, где подписываются уже собранные ответы: в истории должен остаться
+    подписан и выключенный вопрос, и вопрос чужой должности."""
     query = db.query(HrQuestion)
     if active_only:
         query = query.filter(HrQuestion.is_active == True)
@@ -123,15 +124,37 @@ def _questions_map(db: Session, active_only: bool = True) -> dict[str, list[HrQu
     return out
 
 
-# ── Личностный профиль: вопросы должности и разбор ответов ───────────────────
+def _section_questions(db: Session, position_id: int | None = None,
+                       own_only: bool = False) -> dict[str, list[HrQuestion]]:
+    """Вопросы по разделам для конкретной должности (или общие, если её нет).
 
-def _personal_questions(qmap: dict[str, list[HrQuestion]], employee: HrEmployee) -> list[str]:
-    """Вопросы личностного профиля для сотрудника: свои у должности, иначе общие
-    из справочника вопросов."""
-    if employee.position_ref and employee.position_ref.personal_question_list:
-        return employee.position_ref.personal_question_list
-    common = [q.text.strip() for q in qmap.get("personal", []) if (q.text or "").strip()]
-    return common or list(DEFAULT_PERSONAL_QUESTIONS)
+    Правило одно: есть у должности свои вопросы в разделе — задаём только их,
+    нет — задаём общие. own_only=True отдаёт только собственные вопросы должности
+    (нужно странице настройки, чтобы отличить «свой набор» от «как у всех»)."""
+    rows = db.query(HrQuestion).filter(HrQuestion.is_active == True).order_by(
+        HrQuestion.sort_order, HrQuestion.id).all()
+
+    own: dict[str, list[HrQuestion]] = defaultdict(list)
+    common: dict[str, list[HrQuestion]] = defaultdict(list)
+    for q in rows:
+        if q.position_id is None:
+            common[q.section].append(q)
+        elif position_id and q.position_id == position_id:
+            own[q.section].append(q)
+
+    if own_only:
+        return own
+    out: dict[str, list[HrQuestion]] = defaultdict(list)
+    for section in set(common) | set(own):
+        out[section] = own[section] if section in own else common[section]
+    return out
+
+
+# ── Личностный профиль: вопросы сотрудника и разбор ответов ──────────────────
+
+def _personal_questions(qmap: dict[str, list[HrQuestion]]) -> list[str]:
+    """Вопросы личностного профиля (qmap уже разрешён под должность сотрудника)."""
+    return [q.text.strip() for q in qmap.get("personal", []) if (q.text or "").strip()]
 
 
 def _parse_personal_answers(rec: HrRecord | None) -> dict[str, str]:
@@ -152,11 +175,10 @@ def _parse_personal_answers(rec: HrRecord | None) -> dict[str, str]:
     return legacy
 
 
-def _personal_qa(qmap: dict[str, list[HrQuestion]], employee: HrEmployee,
-                 rec: HrRecord | None) -> list[dict]:
+def _personal_qa(qmap: dict[str, list[HrQuestion]], rec: HrRecord | None) -> list[dict]:
     """[{"q": вопрос, "a": ответ}] для рендера формы — вопросы сотрудника + ответы записи."""
     answers = _parse_personal_answers(rec)
-    return [{"q": q, "a": answers.get(q, "")} for q in _personal_questions(qmap, employee)]
+    return [{"q": q, "a": answers.get(q, "")} for q in _personal_questions(qmap)]
 
 
 # ── Дополнительные вопросы раздела: ответы JSON-списком в text_2 ─────────────
@@ -244,7 +266,7 @@ def _save_from_form(db: Session, employee: HrEmployee, period_date: date, form,
     ответ — text_1, score или JSON-список дополнительных ответов в text_2.
     Личностный профиль хранится JSON-парами «вопрос-ответ», т.к. его вопросы
     зависят от должности сотрудника."""
-    qmap = _questions_map(db)
+    qmap = _section_questions(db, employee.position_id)
 
     for section in HR_INPUT_SECTIONS:
         if section not in allowed:
@@ -252,7 +274,7 @@ def _save_from_form(db: Session, employee: HrEmployee, period_date: date, form,
 
         if section == "personal":
             pairs = [{"q": q, "a": (form.get(f"personal_q{i}") or "").strip()}
-                     for i, q in enumerate(_personal_questions(qmap, employee))]
+                     for i, q in enumerate(_personal_questions(qmap))]
             if any(p["a"] for p in pairs):
                 _upsert_record(db, employee.id, "personal", period_date, "month",
                                json.dumps(pairs, ensure_ascii=False), None, None, user_id)
@@ -293,11 +315,10 @@ def _records_map(db: Session, employee_id: int, period_date: date) -> dict:
     return out
 
 
-def _section_ctx(db: Session) -> dict:
+def _section_ctx() -> dict:
     return {
         "section_meta": SECTION_META, "all_sections": list(HR_INPUT_SECTIONS),
         "period_kinds": list(HR_PERIOD_KINDS), "period_kind_labels": HR_PERIOD_KIND_LABELS,
-        "section_questions": _questions_map(db),
     }
 
 
@@ -586,7 +607,7 @@ def _gather_ai_report_context(db: Session, period_date: date) -> dict:
                  .order_by(HrEmployee.is_active.desc(), HrEmployee.full_name).all()
                  if e.visible_in_period(period_date)]
     metric_lines = month_metric_lines(db, period_date)
-    qmap = _questions_map(db, active_only=False)
+    qmap = _all_questions(db, active_only=False)
     emp_data = []
     for e in employees:
         recs = _records_map(db, e.id, period_date)
@@ -878,7 +899,7 @@ def _gather_enps_managers_context(db: Session, period_date: date) -> list[dict]:
         HrRecord.period == period_date, HrRecord.section == "enps_managers").all()}
     gravity_records = {r.employee_id: r for r in db.query(HrRecord).filter(
         HrRecord.period == period_date, HrRecord.section == "gravity").all()}
-    qmap = _questions_map(db, active_only=False)
+    qmap = _all_questions(db, active_only=False)
 
     by_manager: dict[int, list[dict]] = defaultdict(list)
     for e in employees:
@@ -998,7 +1019,7 @@ async def employee_profile(request: Request, employee_id: int, db: Session = Dep
         return RedirectResponse(url="/hr/", status_code=302)
 
     rows = db.query(HrRecord).filter(HrRecord.employee_id == employee_id).all()
-    months = _profile_months(_questions_map(db, active_only=False), employee, rows)
+    months = _profile_months(_all_questions(db, active_only=False), employee, rows)
     insights = (db.query(HrEmployeeInsight)
                 .filter(HrEmployeeInsight.employee_id == employee_id)
                 .order_by(HrEmployeeInsight.created_at.desc()).limit(5).all())
@@ -1034,7 +1055,7 @@ async def employee_analyze(request: Request, employee_id: int, db: Session = Dep
         return RedirectResponse(url="/hr/", status_code=302)
 
     rows = db.query(HrRecord).filter(HrRecord.employee_id == employee_id).all()
-    months = _profile_months(_questions_map(db, active_only=False), employee, rows)
+    months = _profile_months(_all_questions(db, active_only=False), employee, rows)
     if not months:
         return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?error=no_data", status_code=302)
 
@@ -1109,7 +1130,7 @@ async def positions_list(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "hr/positions.html", {
         "positions": positions,
         "emp_counts": counts,
-        **_section_ctx(db),
+        **_section_ctx(),
     })
 
 
@@ -1120,11 +1141,7 @@ async def create_position(request: Request, db: Session = Depends(get_db)):
     title = (form.get("title") or "").strip()
     if title:
         disabled = [s for s in HR_INPUT_SECTIONS if not form.get(f"sec_{s}")]
-        db.add(HrPosition(
-            title=title,
-            disabled_sections=",".join(disabled),
-            personal_questions=(form.get("personal_questions") or "").strip() or None,
-        ))
+        db.add(HrPosition(title=title, disabled_sections=",".join(disabled)))
         db.commit()
     return RedirectResponse(url="/hr/positions", status_code=302)
 
@@ -1139,7 +1156,6 @@ async def edit_position(request: Request, position_id: int, db: Session = Depend
         pos.is_active = bool(form.get("is_active"))
         disabled = [s for s in HR_INPUT_SECTIONS if not form.get(f"sec_{s}")]
         pos.disabled_sections = ",".join(disabled)
-        pos.personal_questions = (form.get("personal_questions") or "").strip() or None
         db.commit()
     return RedirectResponse(url="/hr/positions", status_code=302)
 
@@ -1174,124 +1190,165 @@ def _next_question_key(db: Session, section: str) -> str:
     return f"c{n}"
 
 
+def _questions_url(position_id: int | None, suffix: str = "") -> str:
+    base = "/hr/questions" + (f"?position={position_id}" if position_id else "")
+    if not suffix:
+        return base
+    return base + ("&" if position_id else "?") + suffix
+
+
 @router.get("/questions", response_class=HTMLResponse)
 @login_required
-async def questions_list(request: Request, db: Session = Depends(get_db)):
-    """Справочник вопросов: HR правит формулировки и добавляет свои вопросы —
-    они сразу появляются и в форме ручного ввода, и в ссылках опроса."""
-    qmap = _questions_map(db, active_only=False)
+async def questions_list(request: Request, position: str = "", db: Session = Depends(get_db)):
+    """Вопросы опроса — общие или конкретной должности. Правки сразу действуют
+    и в форме ручного ввода, и в уже разосланных ссылках опроса."""
+    positions = db.query(HrPosition).filter(HrPosition.is_active == True).order_by(
+        HrPosition.title).all()
+    position_id = int(position) if position.isdigit() else None
+    if position_id and not any(p.id == position_id for p in positions):
+        position_id = None
+
+    common = _section_questions(db, None)
+    own = _section_questions(db, position_id, own_only=True) if position_id else {}
+
+    sections = []
+    for code in HR_INPUT_SECTIONS:
+        has_own = position_id is not None and code in own
+        sections.append({
+            "code": code,
+            "questions": own[code] if has_own else common.get(code, []),
+            # у должности либо свой набор (редактируем), либо «как у всех» (только показываем)
+            "is_own": has_own,
+            "common_count": len(common.get(code, [])),
+        })
+
     return templates.TemplateResponse(request, "hr/questions.html", {
-        "questions_by_section": qmap,
-        "answer_types": list(HR_ANSWER_TYPES),
-        "answer_type_labels": HR_ANSWER_TYPE_LABELS,
+        "sections": sections,
+        "positions": positions,
+        "position_id": position_id,
+        "position_title": next((p.title for p in positions if p.id == position_id), ""),
+        "hidden_builtin": {
+            code for (code,) in db.query(HrQuestion.section).filter(
+                HrQuestion.is_builtin == True, HrQuestion.is_active == False).distinct().all()
+        } if position_id is None else set(),
         "saved": request.query_params.get("saved"),
-        "error": request.query_params.get("error"),
-        **_section_ctx(db),
+        **_section_ctx(),
     })
 
 
-@router.post("/questions")
+@router.post("/questions/{section}")
 @login_required
-async def create_question(request: Request, db: Session = Depends(get_db)):
-    form = await request.form()
-    section = (form.get("section") or "").strip()
-    text = (form.get("text") or "").strip()
-    if section not in HR_INPUT_SECTIONS or not text:
-        return RedirectResponse(url="/hr/questions?error=empty", status_code=302)
+async def save_section_questions(request: Request, section: str, db: Session = Depends(get_db)):
+    """Сохраняет раздел целиком: тексты, порядок (по порядку строк формы) и удаление.
+    Одна форма на раздел — так HR не нужно открывать окно ради каждой строки."""
+    if section not in HR_INPUT_SECTIONS:
+        return RedirectResponse(url="/hr/questions", status_code=302)
 
-    answer_type = form.get("answer_type")
-    if answer_type not in HR_ANSWER_TYPES:
-        answer_type = "text"
-    # Личностный профиль хранит ответы парами «вопрос-ответ» (его вопросы могут
-    # переопределяться должностью), поэтому новые вопросы этого раздела —
-    # всегда текстовые и с тем же слотом хранения.
-    if section == "personal":
-        slot, answer_type = "personal", "text"
+    form = await request.form()
+    position_id = int(form["position_id"]) if (form.get("position_id") or "").isdigit() else None
+    ids = form.getlist("qid")
+    texts = form.getlist("text")
+    types = form.getlist("answer_type")
+
+    existing = {q.id: q for q in db.query(HrQuestion).filter(
+        HrQuestion.section == section,
+        HrQuestion.position_id == position_id,
+    ).all()}
+    kept = set()
+
+    for i, (raw_id, text) in enumerate(zip(ids, texts)):
+        text = (text or "").strip()
+        answer_type = types[i] if i < len(types) and types[i] in HR_ANSWER_TYPES else "text"
+        q = existing.get(int(raw_id)) if raw_id.isdigit() else None
+        if not text:
+            continue                      # пустую строку считаем незаполненной, а не вопросом
+        if q is None:
+            q = HrQuestion(
+                section=section,
+                key=_next_question_key(db, section),
+                position_id=position_id,
+                # личностный профиль хранит ответы парами «вопрос-ответ», остальные
+                # свои вопросы — JSON-списком в text_2 (слот extra)
+                slot="personal" if section == "personal" else "extra",
+                is_builtin=False,
+            )
+            db.add(q)
+        q.text = text
+        q.sort_order = (i + 1) * 10
+        q.is_active = True
+        if q.slot in ("extra", "personal"):
+            q.answer_type = "text" if section == "personal" else answer_type
+        if q.id:
+            kept.add(q.id)
+
+    # строки, которых в форме не осталось: свои удаляем, базовые прячем — их
+    # слоты (оценка eNPS, основной текст) держат на себе сводки и ИИ-отчёт
+    for q in existing.values():
+        if q.id in kept:
+            continue
+        if q.is_builtin:
+            q.is_active = False
+        else:
+            db.delete(q)
+
+    db.commit()
+    return RedirectResponse(url=_questions_url(position_id, "saved=1"), status_code=302)
+
+
+@router.post("/questions/{section}/customize")
+@login_required
+async def customize_section(request: Request, section: str, db: Session = Depends(get_db)):
+    """«Задать свои вопросы для должности» — копирует общие вопросы раздела
+    должности, чтобы HR правил их, а не начинал с чистого листа."""
+    form = await request.form()
+    position_id = int(form["position_id"]) if (form.get("position_id") or "").isdigit() else None
+    if section not in HR_INPUT_SECTIONS or not position_id:
+        return RedirectResponse(url="/hr/questions", status_code=302)
+
+    already = db.query(HrQuestion).filter(
+        HrQuestion.section == section, HrQuestion.position_id == position_id).count()
+    if not already:
+        for i, src in enumerate(_section_questions(db, None).get(section, [])):
+            db.add(HrQuestion(
+                section=section,
+                # ключ должностной копии свой: по нему подписывается ответ, а пара
+                # (раздел, ключ) в справочнике уникальна
+                key=f"p{position_id}_{src.key}"[:32],
+                position_id=position_id,
+                slot=src.slot,
+                answer_type=src.answer_type,
+                group_title=src.group_title,
+                text=src.text,
+                hint=src.hint,
+                sort_order=(i + 1) * 10,
+                is_active=True,
+                is_builtin=False,
+            ))
+        db.commit()
+    return RedirectResponse(url=_questions_url(position_id, "saved=1"), status_code=302)
+
+
+@router.post("/questions/{section}/reset")
+@login_required
+async def reset_section(request: Request, section: str, db: Session = Depends(get_db)):
+    """Возврат раздела к общим вопросам: у должности — удаляем её набор,
+    у общих — возвращаем спрятанные базовые вопросы."""
+    form = await request.form()
+    position_id = int(form["position_id"]) if (form.get("position_id") or "").isdigit() else None
+    if section not in HR_INPUT_SECTIONS:
+        return RedirectResponse(url="/hr/questions", status_code=302)
+
+    if position_id:
+        for q in db.query(HrQuestion).filter(
+                HrQuestion.section == section, HrQuestion.position_id == position_id).all():
+            db.delete(q)
     else:
-        slot = "extra"
-
-    last = db.query(func.max(HrQuestion.sort_order)).filter(
-        HrQuestion.section == section).scalar()
-    db.add(HrQuestion(
-        section=section,
-        key=_next_question_key(db, section),
-        slot=slot,
-        answer_type=answer_type,
-        group_title=(form.get("group_title") or "").strip() or None,
-        text=text,
-        hint=(form.get("hint") or "").strip() or None,
-        sort_order=(last or 0) + 10,
-        is_active=True,
-        is_builtin=False,
-    ))
+        for q in db.query(HrQuestion).filter(
+                HrQuestion.section == section, HrQuestion.position_id.is_(None),
+                HrQuestion.is_builtin == True).all():
+            q.is_active = True
     db.commit()
-    return RedirectResponse(url="/hr/questions?saved=1", status_code=302)
-
-
-@router.post("/questions/{question_id}/edit")
-@login_required
-async def edit_question(request: Request, question_id: int, db: Session = Depends(get_db)):
-    """Правка вопроса. Раздел и слот хранения не меняются: к ним привязаны уже
-    собранные ответы, и переезд вопроса оставил бы историю без подписи."""
-    form = await request.form()
-    q = db.query(HrQuestion).filter(HrQuestion.id == question_id).first()
-    if not q:
-        return RedirectResponse(url="/hr/questions?error=not_found", status_code=302)
-
-    text = (form.get("text") or "").strip()
-    if not text:
-        return RedirectResponse(url="/hr/questions?error=empty", status_code=302)
-    q.text = text
-    q.group_title = (form.get("group_title") or "").strip() or None
-    q.hint = (form.get("hint") or "").strip() or None
-    q.is_active = bool(form.get("is_active"))
-    if q.slot == "extra":
-        answer_type = form.get("answer_type")
-        if answer_type in HR_ANSWER_TYPES:
-            q.answer_type = answer_type
-    db.commit()
-    return RedirectResponse(url="/hr/questions?saved=1", status_code=302)
-
-
-@router.post("/questions/{question_id}/move")
-@login_required
-async def move_question(request: Request, question_id: int, db: Session = Depends(get_db)):
-    """Переставляет вопрос выше/ниже внутри раздела — меняется порядок в форме."""
-    form = await request.form()
-    direction = form.get("dir")
-    q = db.query(HrQuestion).filter(HrQuestion.id == question_id).first()
-    if not q or direction not in ("up", "down"):
-        return RedirectResponse(url="/hr/questions", status_code=302)
-
-    siblings = db.query(HrQuestion).filter(HrQuestion.section == q.section).order_by(
-        HrQuestion.sort_order, HrQuestion.id).all()
-    idx = next((i for i, s in enumerate(siblings) if s.id == q.id), None)
-    swap_idx = idx - 1 if direction == "up" else idx + 1
-    if idx is None or not (0 <= swap_idx < len(siblings)):
-        return RedirectResponse(url="/hr/questions", status_code=302)
-
-    other = siblings[swap_idx]
-    # порядковые номера могли совпасть (или быть пустыми) — перенумеровываем раздел
-    for i, s in enumerate(siblings):
-        s.sort_order = (i + 1) * 10
-    q.sort_order, other.sort_order = other.sort_order, q.sort_order
-    db.commit()
-    return RedirectResponse(url="/hr/questions?saved=1", status_code=302)
-
-
-@router.post("/questions/{question_id}/delete")
-@login_required
-async def delete_question(request: Request, question_id: int, db: Session = Depends(get_db)):
-    """Удаляет вопрос, добавленный HR. Базовые вопросы удалять нельзя — на их
-    слоты опираются сводки eNPS и ИИ-отчёт; их можно только выключить."""
-    q = db.query(HrQuestion).filter(HrQuestion.id == question_id).first()
-    if not q:
-        return RedirectResponse(url="/hr/questions", status_code=302)
-    if q.is_builtin:
-        return RedirectResponse(url="/hr/questions?error=builtin", status_code=302)
-    db.delete(q)
-    db.commit()
-    return RedirectResponse(url="/hr/questions?saved=1", status_code=302)
+    return RedirectResponse(url=_questions_url(position_id, "saved=1"), status_code=302)
 
 
 # ── Вакансии ──────────────────────────────────────────────────────────────────
@@ -1392,20 +1449,21 @@ async def hr_entry_form(request: Request, employee_id: int, period: str = "",
 
     period_date = _period_from_str(period)
     records = _records_map(db, employee_id, period_date)
-    qmap = _questions_map(db)
+    qmap = _section_questions(db, employee.position_id)
 
     return templates.TemplateResponse(request, "hr/entry.html", {
         "employee": employee,
         "records": records,
         "sections": employee.enabled_sections,
-        "personal_qa": _personal_qa(qmap, employee, records.get("personal")),
+        "section_questions": qmap,
+        "personal_qa": _personal_qa(qmap, records.get("personal")),
         "extra_answers": _extra_answers_map(records),
         "period": _period_str(period_date),
         "period_label": _period_label(period_date),
         "prev_period": _period_str(_shift_period(period_date, -1)),
         "next_period": _period_str(_shift_period(period_date, 1)),
         "saved": request.query_params.get("saved"),
-        **_section_ctx(db),
+        **_section_ctx(),
     })
 
 
@@ -1437,7 +1495,7 @@ async def surveys_list(request: Request, db: Session = Depends(get_db)):
         "employees": employees,
         "today_period": _period_str(date.today()),
         "period_label_fn": _period_full_label,
-        **_section_ctx(db),
+        **_section_ctx(),
     })
 
 
@@ -1485,7 +1543,7 @@ async def survey_detail(request: Request, survey_id: int, db: Session = Depends(
         "survey": survey,
         "period_label": _period_full_label(survey.period, survey.period_kind or "month"),
         "base_url": base_url,
-        **_section_ctx(db),
+        **_section_ctx(),
     })
 
 
@@ -1561,7 +1619,7 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
     survey = tok.survey
     sections = tok.effective_sections
     records = _records_map(db, tok.employee_id, survey.period)
-    qmap = _questions_map(db)
+    qmap = _section_questions(db, tok.employee.position_id)
     return templates.TemplateResponse(request, "hr/survey_public.html", {
         "invalid": False,
         "token": token,
@@ -1569,13 +1627,14 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
         "survey": survey,
         "sections": sections,
         "records": records,
-        "personal_qa": _personal_qa(qmap, tok.employee, records.get("personal")),
+        "section_questions": qmap,
+        "personal_qa": _personal_qa(qmap, records.get("personal")),
         "extra_answers": _extra_answers_map(records),
         "period_label": _period_label(survey.period),
         "closed": not survey.is_open,
         "submitted": tok.submitted_at is not None,
         "done": request.query_params.get("done"),
-        **_section_ctx(db),
+        **_section_ctx(),
     })
 
 
