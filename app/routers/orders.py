@@ -828,6 +828,7 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
     text = "\n".join(lines)
 
     proxy_url = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080") or None
+    tg_error = None
     try:
         async with httpx.AsyncClient(timeout=10.0, proxy=proxy_url) as client:
             resp = await client.post(
@@ -836,9 +837,25 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
             )
         data = resp.json()
         if not data.get("ok"):
-            return JSONResponse({"ok": False, "error": data.get("description", "Ошибка Telegram")}, status_code=502)
+            tg_error = data.get("description", "Ошибка Telegram")
     except Exception as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
+        tg_error = str(e)
+
+    if tg_error:
+        # Заказ уже заведён у перевозчика — это главное. Про Telegram сообщаем
+        # предупреждением, а не ошибкой: иначе логист жмёт кнопку повторно,
+        # думая, что ничего не ушло (в Метафоре это ловится как duplicate).
+        if metafora_result and metafora_result.get("ok"):
+            log_action(db, "order", order_id, "notified_carrier",
+                       request.session.get("user_id"),
+                       f"Заказ передан в Метафору, сообщение в Telegram не отправлено: {tg_error}")
+            db.commit()
+            return JSONResponse({
+                "ok": True,
+                "message": (metafora_result.get("message") or "Заказ передан перевозчику")
+                           + f". Сообщение в Telegram не ушло: {tg_error}",
+            })
+        return JSONResponse({"ok": False, "error": tg_error}, status_code=502)
 
     log_action(db, "order", order_id, "notified_carrier",
                request.session.get("user_id"),
