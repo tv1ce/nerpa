@@ -147,9 +147,36 @@ def _resolve_payment_type(db: Session, contract_id: int, fallback: str) -> str:
     return fallback if fallback in ("prepay", "deferred") else "prepay"
 
 
+# Сортировки списка заказов: значение параметра ?sort= → колонка.
+# Пустые даты всегда в конце — заказ без даты отгрузки не должен вытеснять
+# наверх те, по которым дата проставлена.
+_ORDER_SORTS = {
+    "date":     Order.date,
+    "dispatch": Order.dispatch_date,   # «Дата отгрузки» в таблице
+    "delivery": Order.delivery_date,   # «Дата выгрузки»
+    "number":   Order.number,
+}
+_DEFAULT_SORT = "date_desc"
+
+
+def _order_sorting(sort: str):
+    """«dispatch_asc» → критерии для order_by. Неизвестное значение → по дате, новые сверху."""
+    key, _, direction = (sort or "").rpartition("_")
+    col = _ORDER_SORTS.get(key)
+    if col is None:
+        return [Order.date.desc(), Order.id.desc()]
+    asc = direction == "asc"
+    return [
+        col.is_(None),                       # NULL-даты — всегда в хвосте
+        col.asc() if asc else col.desc(),
+        Order.id.desc(),
+    ]
+
+
 def _filtered_orders(
     db: Session, q: str, status: str, date_from: str, date_to: str,
     counterparty_id: int, carrier_id: int, payment_type: str, overdue: str,
+    sort: str = "",
 ):
     today = date.today()
     query = db.query(Order).join(Counterparty, Order.counterparty_id == Counterparty.id)
@@ -184,7 +211,7 @@ def _filtered_orders(
             Order.status.notin_(["delivered", "cancelled"]),
             Order.delivery_date.isnot(None),
         )
-    return query.order_by(Order.date.desc(), Order.id.desc()).all()
+    return query.order_by(*_order_sorting(sort)).all()
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -199,11 +226,13 @@ async def list_orders(
     carrier_id: int = 0,
     payment_type: str = "",
     overdue: str = "",
+    sort: str = "",
     db: Session = Depends(get_db),
 ):
     today = date.today()
     orders = _filtered_orders(
         db, q, status, date_from, date_to, counterparty_id, carrier_id, payment_type, overdue,
+        sort,
     )
     counterparties = db.query(Counterparty).filter(
         Counterparty.is_active == True, Counterparty.type.in_(["client", "both"])
@@ -216,6 +245,7 @@ async def list_orders(
         "date_from": date_from, "date_to": date_to,
         "counterparty_id": counterparty_id, "carrier_id": carrier_id,
         "payment_type": payment_type, "overdue": overdue,
+        "sort": sort or _DEFAULT_SORT,
         "counterparties": counterparties, "carriers": carriers,
         "payment_types": PAYMENT_TYPES, "today": today,
         "assembly_queue_count": _assembly_queue_count(db),
@@ -234,6 +264,7 @@ async def search_orders(
     carrier_id: int = 0,
     payment_type: str = "",
     overdue: str = "",
+    sort: str = "",
     db: Session = Depends(get_db),
 ):
     """Живой поиск/фильтр — возвращает только карточки/строки списка (без каркаса
@@ -241,6 +272,7 @@ async def search_orders(
     today = date.today()
     orders = _filtered_orders(
         db, q, status, date_from, date_to, counterparty_id, carrier_id, payment_type, overdue,
+        sort,
     )
     _role = request.session.get("user_role")
     _wview = request.session.get("warehouse_view", "mobile")

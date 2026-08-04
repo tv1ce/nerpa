@@ -102,12 +102,22 @@
     <table class="table tms-table mb-0">
       <thead>
         <tr>
-          <th class="ps-3">№ заказа</th>
+          {#- Сортируемые колонки: клик по заголовку переключает asc/desc (см. JS ниже) -#}
+          {% macro sort_th(key, label, cls='') %}
+            {% set is_active = sort.startswith(key ~ '_') %}
+            {% set next_dir = 'asc' if (is_active and sort.endswith('_desc')) else ('desc' if is_active else 'asc') %}
+            <th class="{{ cls }}">
+              <a href="#" class="o-sort text-decoration-none {{ 'fw-semibold text-body' if is_active else 'text-muted' }}"
+                 data-sort="{{ key }}_{{ next_dir }}">{{ label }}<i class="bi bi-caret-{{ 'up' if sort.endswith('_asc') else 'down' }}-fill ms-1
+                 {{ '' if is_active else 'invisible' }}" style="font-size:.7em"></i></a>
+            </th>
+          {% endmacro %}
+          {{ sort_th('number', '№ заказа', 'ps-3') }}
           <th>Клиент</th>
           <th>Адрес</th>
-          <th>Дата</th>
-          <th>Дата отгрузки</th>
-          <th>Дата выгрузки</th>
+          {{ sort_th('date', 'Дата') }}
+          {{ sort_th('dispatch', 'Дата отгрузки') }}
+          {{ sort_th('delivery', 'Дата выгрузки') }}
           <th class="text-end">Сумма, ₽</th>
           <th>Статус</th>
           <th></th>
@@ -197,6 +207,7 @@
     var oForm = document.getElementById('oFilterForm');
     var oRows = document.getElementById('oRows');
     var oResetBtn = document.getElementById('oResetBtn');
+    var oSort = '{{ sort }}';   // текущая сортировка, напр. dispatch_asc
 
     function runSearch() {
       var params = new URLSearchParams();
@@ -209,8 +220,37 @@
       if (oDateFrom.value) params.set('date_from', oDateFrom.value);
       if (oDateTo.value) params.set('date_to', oDateTo.value);
       if (oOverdue.checked) params.set('overdue', '1');
+      if (oSort && oSort !== 'date_desc') params.set('sort', oSort);
       fetchAndReplace(params, oRows);
     }
+
+    // Сортировка по клику на заголовок: строки перерисовываем тем же живым
+    // поиском, а стрелку и следующее направление переставляем на месте —
+    // без перезагрузки страницы.
+    document.querySelectorAll('a.o-sort').forEach(function(a) {
+      a.addEventListener('click', function(e) {
+        e.preventDefault();
+        oSort = a.dataset.sort;                       // напр. dispatch_asc
+        var key = oSort.replace(/_(asc|desc)$/, '');
+        var isAsc = oSort.endsWith('_asc');
+        document.querySelectorAll('a.o-sort').forEach(function(other) {
+          var active = other === a;
+          var otherKey = other.dataset.sort.replace(/_(asc|desc)$/, '');
+          other.classList.toggle('fw-semibold', active);
+          other.classList.toggle('text-body', active);
+          other.classList.toggle('text-muted', !active);
+          // следующий клик по активной колонке — обратное направление
+          other.dataset.sort = otherKey + (active ? (isAsc ? '_desc' : '_asc') : '_asc');
+          var icon = other.querySelector('i');
+          if (icon) {
+            icon.classList.toggle('invisible', !active);
+            icon.classList.toggle('bi-caret-up-fill', active && isAsc);
+            icon.classList.toggle('bi-caret-down-fill', !(active && isAsc));
+          }
+        });
+        runSearch();
+      });
+    });
 
     oSearch.addEventListener('input', function() {
       clearTimeout(debounceTimer);
