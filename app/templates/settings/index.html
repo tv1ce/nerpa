@@ -852,6 +852,46 @@
         <hr class="my-3">
 
         <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label form-label-sm mb-0"><i class="bi bi-graph-up-arrow me-1"></i>Метрика: напоминание руководителям <span class="text-muted">(пятница 12:00)</span></label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="hr_metric_remind_enabled" value="1" id="hrMetricRemindEnabled"
+                   {% if company and company.hr_metric_remind_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="hrMetricRemindEnabled" style="font-size:.82rem">Вкл</label>
+          </div>
+        </div>
+        <div class="mb-3">
+          <input type="text" name="hr_metric_remind_chat_ids" class="form-control form-control-sm font-monospace"
+                 placeholder="-1001234567890"
+                 value="{{ company.hr_metric_remind_chat_ids if company and company.hr_metric_remind_chat_ids else '' }}">
+          <div class="form-text" style="font-size:.72rem">
+            Напоминание сдать метрики по своим сотрудникам: у кого сколько показателей осталось.
+            Личные ссылки на форму недели в чат не уходят — их выдаёт HR с доски метрик. Пусто — в чат ИИ-отчёта HR
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label form-label-sm mb-0"><i class="bi bi-clipboard-check me-1"></i>Метрика: кто не сдал <span class="text-muted">(пятница 17:30)</span></label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="hr_metric_check_enabled" value="1" id="hrMetricCheckEnabled"
+                   {% if company and company.hr_metric_check_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="hrMetricCheckEnabled" style="font-size:.82rem">Вкл</label>
+          </div>
+        </div>
+        <div class="mb-3">
+          <input type="text" name="hr_metric_check_chat_ids" class="form-control form-control-sm font-monospace"
+                 placeholder="-1001234567890"
+                 value="{{ company.hr_metric_check_chat_ids if company and company.hr_metric_check_chat_ids else '' }}">
+          <div class="form-text" style="font-size:.72rem">
+            Вечерняя сводка для HR: кто из руководителей ещё не внёс метрику и по кому именно нет данных.
+            Со ссылкой на доску метрик («Публичный адрес TMS» во вкладке «Компания»). Пусто — в чат ИИ-отчёта HR
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="d-flex align-items-center justify-content-between mb-2">
           <label class="form-label form-label-sm mb-0"><i class="bi bi-telephone me-1"></i>Напоминания о прозвонах</label>
           <div class="form-check form-switch mb-0">
             <input class="form-check-input" type="checkbox" role="switch"

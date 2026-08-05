@@ -512,6 +512,11 @@ class CompanySettings(Base):
     tg_warehouse_topic_receiving = Column(String(20))  # message_thread_id топика «Поступления сырья»
     tg_warehouse_topic_assembled = Column(String(20))  # message_thread_id топика «Собранные заказы»
     tg_warehouse_topic_shipped   = Column(String(20))  # message_thread_id топика «Отгрузки»
+    # ── Метрика сотрудников: пятничные уведомления (см. services/hr_metric_reminder.py) ──
+    hr_metric_remind_enabled  = Column(Boolean, default=False)  # пт 12:00 — руководителям «сдайте метрику»
+    hr_metric_remind_chat_ids = Column(Text)    # chat_id напоминания; пусто — как чат HR-отчёта
+    hr_metric_check_enabled   = Column(Boolean, default=False)  # пт 17:30 — HR: кто ещё не сдал
+    hr_metric_check_chat_ids  = Column(Text)    # chat_id сводки; пусто — как чат HR-отчёта
     # ── KPI-фильтр продукта (дашборд и отчёты) ──
     kpi_product_filter = Column(String(100), default="орешк")  # ilike-подстрока для фильтра KPI
     # ── Saby «Управление транспортом»: наименование груза по умолчанию для заявок/ЭТрН ──

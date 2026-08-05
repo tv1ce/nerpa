@@ -367,6 +367,12 @@ def _migrate_db():
         ("company_settings", "metafora_api_token", "TEXT"),
         ("orders", "metafora_sent_at", "TIMESTAMP"),
         ("orders", "metafora_attempt", "INTEGER DEFAULT 0"),
+        # Пятничные уведомления по метрике сотрудников: напоминание руководителям
+        # (12:00) и сводка «кто не сдал» для HR (17:30) — каждое со своим чатом
+        ("company_settings", "hr_metric_remind_enabled",  "INTEGER DEFAULT 0"),
+        ("company_settings", "hr_metric_remind_chat_ids", "TEXT"),
+        ("company_settings", "hr_metric_check_enabled",   "INTEGER DEFAULT 0"),
+        ("company_settings", "hr_metric_check_chat_ids",  "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

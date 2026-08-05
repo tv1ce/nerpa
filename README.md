@@ -178,7 +178,9 @@ cd /opt/tms && .venv/bin/python bot/main.py
 # заменив ExecStart на: /opt/tms/.venv/bin/python bot/main.py
 ```
 
-Команды бота: `/daily`, `/weekly`, `/monthly`, `/callbacks`, `/status`
+Команды бота: `/daily`, `/weekly`, `/monthly`, `/callbacks`, `/status`,
+`/metrics_remind` и `/metrics_pending` (пятничные уведомления по метрике
+сотрудников — прогнать вручную, не дожидаясь пятницы)
 
 ---
 
@@ -247,6 +249,8 @@ tms/
 | `TMS_WEEKLY_TIME` | Нет | Время пятничного отчёта (HH:MM) |
 | `TMS_MONTHLY_TIME` | Нет | Время месячного отчёта (HH:MM) |
 | `TMS_CALLBACK_TIME` | Нет | Время напоминания о перезвонах (HH:MM) |
+| `TMS_HR_METRIC_REMIND_TIME` | Нет | Пятничное напоминание руководителям о метрике (HH:MM, по умолч. 12:00) |
+| `TMS_HR_METRIC_CHECK_TIME` | Нет | Пятничная сводка «кто не сдал метрику» (HH:MM, по умолч. 17:30) |
 | `TMS_TZ` | Нет | Часовой пояс бота (по умолч. Europe/Moscow) |
 | `GLIDE_FB_KEY` | Нет | Firebase API-ключ интеграции с Метафорой |
 | `GLIDE_APP_ID` | Нет | ID приложения Glide |

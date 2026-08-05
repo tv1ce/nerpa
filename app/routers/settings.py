@@ -206,6 +206,10 @@ async def save_telegram(
     tg_warehouse_topic_receiving: str = Form(default=""),
     tg_warehouse_topic_assembled: str = Form(default=""),
     tg_warehouse_topic_shipped: str = Form(default=""),
+    hr_metric_remind_enabled: str = Form(default=""),
+    hr_metric_remind_chat_ids: str = Form(default=""),
+    hr_metric_check_enabled: str = Form(default=""),
+    hr_metric_check_chat_ids: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -225,6 +229,10 @@ async def save_telegram(
     company.tg_warehouse_topic_receiving = tg_warehouse_topic_receiving.strip() or None
     company.tg_warehouse_topic_assembled = tg_warehouse_topic_assembled.strip() or None
     company.tg_warehouse_topic_shipped = tg_warehouse_topic_shipped.strip() or None
+    company.hr_metric_remind_enabled = (hr_metric_remind_enabled == "1")
+    company.hr_metric_remind_chat_ids = _normalize_chat_ids(hr_metric_remind_chat_ids)
+    company.hr_metric_check_enabled = (hr_metric_check_enabled == "1")
+    company.hr_metric_check_chat_ids = _normalize_chat_ids(hr_metric_check_chat_ids)
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 

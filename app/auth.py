@@ -65,6 +65,19 @@ HR_ALLOWED_PREFIXES = (
     "/sw.js",
 )
 
+# Разделы, закрытые для всех ролей, кроме перечисленных. Кадровые данные —
+# зарплатные вилки, оценки, eNPS, метрика по людям — не должны быть видны
+# менеджеру или «просмотру» только потому, что он залогинен.
+#
+# Проверка живёт в login_required/role_required, поэтому распространяется на
+# любой новый роут раздела автоматически. Публичные ссылки по токену
+# (/hr/w/{token} — форма недели руководителя, /hr/s/{token} — анкета опроса)
+# декораторов не имеют и работают по-прежнему: они и рассчитаны на человека
+# без логина в TMS.
+SECTION_ROLES = {
+    "/hr": ("admin", "hr"),
+}
+
 _DEMO_403_HTML = (
     '<div style="font-family:\'Fira Sans\',sans-serif;display:flex;align-items:center;'
     'justify-content:center;height:100vh;flex-direction:column;gap:12px">'
@@ -133,6 +146,16 @@ def _hr_check(request: Request):
     return None
 
 
+def _section_check(request: Request):
+    """403, если роль не допущена в закрытый раздел (см. SECTION_ROLES)."""
+    role = request.session.get("user_role", "viewer")
+    path = request.url.path
+    for prefix, roles in SECTION_ROLES.items():
+        if (path == prefix or path.startswith(prefix + "/")) and role not in roles:
+            return HTMLResponse(_403_HTML, status_code=403)
+    return None
+
+
 async def _verify_csrf(request: Request) -> bool:
     """Проверяет CSRF-токен для POST-запросов.
     Принимает токен из тела формы (csrf_token) или заголовка X-CSRF-Token."""
@@ -188,7 +211,8 @@ def login_required(func):
         if getattr(user, "must_change_password", False):
             if not request.url.path.startswith(_CHANGE_PWD_PATH):
                 return RedirectResponse(url=_CHANGE_PWD_PATH, status_code=302)
-        denied = _demo_check(request) or _warehouse_check(request) or _field_check(request) or _hr_check(request)
+        denied = (_demo_check(request) or _warehouse_check(request) or _field_check(request)
+                  or _hr_check(request) or _section_check(request))
         if denied:
             return denied
         # CSRF-проверка для изменяющих запросов
@@ -214,7 +238,8 @@ def role_required(min_role: str = "viewer"):
             if not user:
                 request.session.clear()
                 return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
-            denied = _demo_check(request) or _warehouse_check(request) or _field_check(request) or _hr_check(request)
+            denied = (_demo_check(request) or _warehouse_check(request) or _field_check(request)
+                  or _hr_check(request) or _section_check(request))
             if denied:
                 return denied
             role = user.role  # берём роль из БД, не из сессии

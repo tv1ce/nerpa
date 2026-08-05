@@ -11,6 +11,8 @@ TMS Telegram Bot — ежедневные/еженедельные/ежемес�
     TMS_WEEKLY_TIME — время пятничного отчёта, формат HH:MM (по умолчанию 18:00)
     TMS_MONTHLY_TIME— время отчёта в последний день месяца (по умолчанию 20:00)
     TMS_TZ          — временная зона (по умолчанию Europe/Moscow)
+    TMS_HR_METRIC_REMIND_TIME — пятничное напоминание руководителям о метрике (12:00)
+    TMS_HR_METRIC_CHECK_TIME  — пятничная сводка «кто не сдал метрику» (17:30)
 """
 from __future__ import annotations
 
@@ -102,6 +104,10 @@ DAILY_TIME    = _parse_time("TMS_DAILY_TIME",    "20:00")
 WEEKLY_TIME   = _parse_time("TMS_WEEKLY_TIME",   "18:00")
 MONTHLY_TIME  = _parse_time("TMS_MONTHLY_TIME",  "20:00")
 CALLBACK_TIME = _parse_time("TMS_CALLBACK_TIME", "09:30")
+# Метрика сотрудников (пятница): напоминание руководителям и вечерняя сводка
+# «кто не сдал» для HR. Включаются в «Настройки → Telegram», см. cb_hr_metric_*.
+HR_METRIC_REMIND_TIME = _parse_time("TMS_HR_METRIC_REMIND_TIME", "12:00")
+HR_METRIC_CHECK_TIME  = _parse_time("TMS_HR_METRIC_CHECK_TIME",  "17:30")
 
 
 # ── Отправка сообщения всем подписчикам ───────────────────────────────────────
@@ -176,6 +182,19 @@ async def broadcast_callbacks(bot: Bot, text: str) -> None:
             )
         except Exception as e:
             logger.error("Ошибка отправки прозвонов в chat_id=%s: %s", chat_id, e)
+
+
+async def _send_plain(bot: Bot, chat_ids: list[int], text: str) -> None:
+    """Отправка без разметки: в тексте ФИО и ссылки, которые в MarkdownV2
+    пришлось бы экранировать — ошибка экранирования отменяет всё сообщение."""
+    for chat_id in chat_ids:
+        try:
+            await bot.send_message(
+                chat_id=chat_id, text=text,
+                read_timeout=20, write_timeout=20, connect_timeout=10,
+            )
+        except Exception as e:
+            logger.error("Ошибка отправки в chat_id=%s: %s", chat_id, e)
 
 
 def _authorized(update: Update) -> bool:
@@ -311,6 +330,45 @@ async def cb_callbacks(context: ContextTypes.DEFAULT_TYPE) -> None:
     await broadcast_callbacks(context.bot, _callbacks_text())
 
 
+async def _hr_metric_notify(bot: Bot, kind: str, force: bool = False) -> tuple[str | None, int]:
+    """Собирает и рассылает уведомление по метрике (kind: remind / check).
+    Возвращает (текст, в сколько чатов ушло) — для ответа на ручную команду."""
+    from app.services import hr_metric_reminder
+
+    chat_ids, text = await asyncio.to_thread(hr_metric_reminder.compose, kind, None, force)
+    if not text:
+        return None, 0
+    if not chat_ids:
+        logger.warning("Метрика (%s): чат не задан — уведомление никуда не ушло", kind)
+        return text, 0
+    await _send_plain(bot, chat_ids, text)
+    return text, len(chat_ids)
+
+
+async def cb_hr_metric_remind(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Пятница 12:00 — руководителям: внести метрики по своим сотрудникам."""
+    from datetime import datetime
+    if datetime.now(tz=TZ).weekday() != 4:   # 4 = пятница
+        return
+    logger.info("Метрика: напоминание руководителям")
+    try:
+        await _hr_metric_notify(context.bot, "remind")
+    except Exception as e:
+        logger.exception("Не удалось отправить напоминание по метрике: %s", e)
+
+
+async def cb_hr_metric_check(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Пятница 17:30 — HR: кто из руководителей ещё не сдал метрику."""
+    from datetime import datetime
+    if datetime.now(tz=TZ).weekday() != 4:
+        return
+    logger.info("Метрика: сводка «кто не сдал»")
+    try:
+        await _hr_metric_notify(context.bot, "check")
+    except Exception as e:
+        logger.exception("Не удалось отправить сводку по метрике: %s", e)
+
+
 async def cb_monthly_check(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Запускается каждый день в MONTHLY_TIME; отправляет отчёт только в последний день месяца."""
     from datetime import datetime
@@ -369,6 +427,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/weekly — отчёт за текущую неделю\n"
         "/monthly — отчёт за текущий месяц\n"
         "/callbacks — перезвоны на сегодня\n"
+        "/metrics\\_remind — напоминание руководителям о метрике\n"
+        "/metrics\\_pending — кто не сдал метрику за неделю\n"
         "/status — статус бота и расписание\n\n"
         "📎 Пришлите файл \\(Счёт/УПД/XML\\) — приложу к заказу по номеру в имени файла "
         "\\(или укажите номер в подписи\\)\\.",
@@ -413,6 +473,34 @@ async def cmd_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     await _safe_reply(update, _callbacks_text)
 
 
+async def _metric_command(update: Update, context: ContextTypes.DEFAULT_TYPE, kind: str) -> None:
+    """Ручной прогон пятничного уведомления — проверить настройки, не дожидаясь
+    пятницы. Флаг «Вкл» при этом не смотрим (force): команду даёт человек."""
+    if not _authorized(update):
+        return await _deny(update)
+    try:
+        text, sent = await _hr_metric_notify(context.bot, kind, force=True)
+    except Exception as e:
+        logger.exception("Ручная отправка уведомления по метрике (%s): %s", kind, e)
+        await update.message.reply_text("⚠️ Не удалось собрать уведомление по метрике.")
+        return
+    if not text:
+        await update.message.reply_text("Активных метрик нет — напоминать не о чем.")
+    elif sent:
+        await update.message.reply_text(f"✅ Отправлено в чат уведомлений ({sent}).")
+    else:
+        await update.message.reply_text(
+            "⚠️ Чат уведомления не задан (Настройки → Telegram). Текст, который уйдёт:\n\n" + text)
+
+
+async def cmd_metrics_remind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _metric_command(update, context, "remind")
+
+
+async def cmd_metrics_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _metric_command(update, context, "check")
+
+
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         return await _deny(update)
@@ -425,6 +513,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         f"⏰ *Расписание:*\n"
         f"  Ежедневно: `{DAILY_TIME.strftime('%H:%M')}`\n"
         f"  По пятницам (недельный): `{WEEKLY_TIME.strftime('%H:%M')}`\n"
+        f"  По пятницам (метрика: напоминание): `{HR_METRIC_REMIND_TIME.strftime('%H:%M')}`\n"
+        f"  По пятницам (метрика: кто не сдал): `{HR_METRIC_CHECK_TIME.strftime('%H:%M')}`\n"
         f"  Последний день месяца (сейчас {today.day}/{last_day}): `{MONTHLY_TIME.strftime('%H:%M')}`"
     )
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
@@ -777,6 +867,8 @@ def main() -> None:
     app.add_handler(CommandHandler("weekly",  cmd_weekly))
     app.add_handler(CommandHandler("monthly", cmd_monthly))
     app.add_handler(CommandHandler("callbacks", cmd_callbacks))
+    app.add_handler(CommandHandler("metrics_remind",  cmd_metrics_remind))
+    app.add_handler(CommandHandler("metrics_pending", cmd_metrics_pending))
     app.add_handler(CommandHandler("status",  cmd_status))
 
     # Приём документов из 1С (Счёт/УПД/XML) — кидаешь файл боту, он цепляет к заказу
@@ -803,6 +895,14 @@ def main() -> None:
 
     # Еженедельный отчёт — каждую пятницу в WEEKLY_TIME (5 = пятница в нумерации PTB 0=вс)
     jq.run_daily(cb_weekly, time=WEEKLY_TIME, days=(5,), name="weekly_report")
+
+    # Метрика сотрудников по пятницам: напоминание руководителям и вечерняя
+    # сводка «кто не сдал». Сами задачи проверяют флаг включения в настройках,
+    # поэтому расписание ставится всегда (выключено — просто ничего не уходит).
+    jq.run_daily(cb_hr_metric_remind, time=HR_METRIC_REMIND_TIME, days=(5,),
+                 name="hr_metric_remind")
+    jq.run_daily(cb_hr_metric_check, time=HR_METRIC_CHECK_TIME, days=(5,),
+                 name="hr_metric_check")
 
     # Ежемесячный: проверяем каждый день в MONTHLY_TIME, шлём только в последний день месяца
     jq.run_daily(cb_monthly_check, time=MONTHLY_TIME, name="monthly_check")
