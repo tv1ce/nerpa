@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block title %}Анализ ИИ — HR{% endblock %}
+{% block page_title %}Анализ динамики — все сотрудники{% endblock %}
+{% block topbar_actions %}
+<div class="d-flex align-items-center gap-2">
+  <span id="runProgress" class="text-muted" style="font-size:.8rem"></span>
+  <button class="btn btn-sm btn-accent" id="runAll">
+    <i class="bi bi-stars me-1"></i>Собрать анализ по всем
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" id="runMissing"
+          title="Только те, у кого анализа ещё нет">
+    <i class="bi bi-plus-slash-minus me-1"></i>Только новые
+  </button>
+</div>
+{% endblock %}
+
+{% block content %}
+
+{% include "hr/_tabs.html" %}
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2 d-flex flex-wrap align-items-center gap-3" style="font-size:.85rem">
+    <span class="text-muted">
+      Сотрудников: <b class="text-body">{{ rows | length }}</b> ·
+      с анализом: <b class="text-body">{{ ready }}</b>
+    </span>
+    <span class="text-muted">
+      Анализ строится по всем месяцам ответов сотрудника — тот же, что в его профайле,
+      и там же остаётся в истории.
+    </span>
+  </div>
+</div>
+
+{% if not rows %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body text-center text-muted py-5">
+    Активных сотрудников нет — добавьте их на вкладке «Сотрудники».
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3" id="insightCards">
+  {% for r in rows %}
+  <div class="col-xl-6">
+    <div class="card border-0 shadow-sm h-100" data-id="{{ r.employee.id }}"
+         data-has-data="{{ 1 if r.has_data else 0 }}"
+         data-has-insight="{{ 1 if r.insight else 0 }}">
+      <div class="card-body pb-2">
+
+        <div class="d-flex align-items-start justify-content-between gap-2">
+          <div>
+            <a href="/hr/employees/{{ r.employee.id }}/profile"
+               class="fw-semibold text-decoration-none text-reset">{{ r.employee.full_name }}</a>
+            <div class="text-muted" style="font-size:.78rem">
+              {{ r.employee.position_title or 'должность не задана' }}
+              {%- if r.employee.manager %} · рук.: {{ r.employee.manager.full_name }}{% endif %}
+            </div>
+          </div>
+          <div class="text-end">
+            {% if r.enps_last is not none %}
+            <span class="badge {% if r.enps_last >= 8 %}bg-success{% elif r.enps_last >= 6 %}bg-warning text-dark{% else %}bg-danger{% endif %}"
+                  title="Последняя оценка eNPS">eNPS {{ r.enps_last }}/10</span>
+            {% if r.enps_delta %}
+            <span class="ms-1 {% if r.enps_delta > 0 %}text-success{% else %}text-danger{% endif %}"
+                  style="font-size:.75rem" title="Изменение к прошлой оценке">
+              {{ '↑' if r.enps_delta > 0 else '↓' }}{{ r.enps_delta | abs }}
+            </span>
+            {% endif %}
+            {% endif %}
+            {% if r.enps | length > 1 %}
+            <div class="text-muted font-monospace" style="font-size:.7rem">
+              {{ r.enps | join(' → ') }}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 mt-2 mb-1">
+          <span class="text-muted made-at" style="font-size:.72rem">
+            {% if r.insight %}Анализ от {{ r.made_at }}{% elif r.has_data %}Анализ ещё не собирали{% else %}Нет ответов за месяцы{% endif %}
+          </span>
+          <button class="btn btn-sm btn-outline-secondary border-0 py-0 px-1 ms-auto run-one"
+                  {% if not r.has_data %}disabled{% endif %}
+                  title="Пересобрать анализ по этому сотруднику">
+            <i class="bi bi-arrow-repeat"></i>
+          </button>
+        </div>
+
+        <div class="insight-text" style="font-size:.85rem;white-space:pre-wrap;line-height:1.45;
+                    max-height:340px;overflow:auto">{{ r.text }}</div>
+        {% if not r.text %}
+        <div class="text-muted insight-empty" style="font-size:.82rem">
+          {% if r.has_data %}Нажмите «Собрать анализ по всем» — или значок обновления в этой карточке.
+          {% else %}Сотрудник ещё не отвечал ни за один месяц: анализировать нечего.{% endif %}
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<script>
+// Очередь на стороне браузера: анализ каждого сотрудника — отдельный запрос.
+// Так карточки заполняются по мере готовности (видно прогресс), а длинный
+// общий запрос не упирается в таймаут прокси.
+(function () {
+  var container = document.getElementById('insightCards');
+  var progress = document.getElementById('runProgress');
+  if (!container) return;
+
+  var PARALLEL = 2;          // два потока: заметно быстрее, но не долбит OpenRouter
+  var running = false;
+
+  function cards(onlyMissing) {
+    return Array.prototype.filter.call(
+      container.querySelectorAll('.card[data-id]'),
+      function (card) {
+        if (card.dataset.hasData !== '1') return false;
+        return !onlyMissing || card.dataset.hasInsight !== '1';
+      });
+  }
+
+  function setBusy(card, busy) {
+    card.style.opacity = busy ? '.55' : '';
+    var btn = card.querySelector('.run-one i');
+    if (btn) btn.classList.toggle('spin', busy);
+  }
+
+  function fill(card, data) {
+    var box = card.querySelector('.insight-text');
+    var empty = card.querySelector('.insight-empty');
+    box.textContent = data.text;
+    if (empty) empty.remove();
+    card.querySelector('.made-at').textContent = 'Анализ от ' + data.made_at;
+    card.dataset.hasInsight = '1';
+  }
+
+  function fail(card, message) {
+    var at = card.querySelector('.made-at');
+    at.textContent = message;
+    at.classList.add('text-danger');
+  }
+
+  function analyze(card) {
+    setBusy(card, true);
+    return fetch('/hr/insights/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: Number(card.dataset.id) })
+    })
+      .then(function (r) { return r.json().catch(function () { return { ok: false }; }); })
+      .then(function (data) {
+        if (data.ok) fill(card, data);
+        else fail(card, data.error || 'Не удалось собрать анализ');
+      })
+      .catch(function () { fail(card, 'Сеть недоступна — попробуйте ещё раз'); })
+      .then(function () { setBusy(card, false); });
+  }
+
+  function run(onlyMissing) {
+    if (running) return;
+    var queue = cards(onlyMissing);
+    if (!queue.length) {
+      progress.textContent = onlyMissing ? 'Новых сотрудников нет' : 'Некого анализировать';
+      setTimeout(function () { progress.textContent = ''; }, 2500);
+      return;
+    }
+    running = true;
+    var total = queue.length, done = 0;
+    progress.textContent = 'Собираю: 0 из ' + total;
+
+    function next() {
+      var card = queue.shift();
+      if (!card) return Promise.resolve();
+      return analyze(card).then(function () {
+        done += 1;
+        progress.textContent = 'Собираю: ' + done + ' из ' + total;
+        return next();
+      });
+    }
+
+    var threads = [];
+    for (var i = 0; i < Math.min(PARALLEL, total); i++) threads.push(next());
+    Promise.all(threads).then(function () {
+      running = false;
+      progress.textContent = 'Готово: ' + done + ' из ' + total;
+      setTimeout(function () { progress.textContent = ''; }, 4000);
+    });
+  }
+
+  document.getElementById('runAll').addEventListener('click', function () { run(false); });
+  document.getElementById('runMissing').addEventListener('click', function () { run(true); });
+
+  container.addEventListener('click', function (e) {
+    var btn = e.target.closest('.run-one');
+    if (!btn || running) return;
+    analyze(btn.closest('.card[data-id]'));
+  });
+})();
+</script>
+
+<style>
+  .spin { animation: hr-spin 1s linear infinite; display: inline-block; }
+  @keyframes hr-spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}

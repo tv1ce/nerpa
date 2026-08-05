@@ -373,6 +373,8 @@ def _migrate_db():
         ("company_settings", "hr_metric_remind_chat_ids", "TEXT"),
         ("company_settings", "hr_metric_check_enabled",   "INTEGER DEFAULT 0"),
         ("company_settings", "hr_metric_check_chat_ids",  "TEXT"),
+        # Порядок сотрудников в списке HR-учёта (перетаскивание строк)
+        ("hr_employees", "sort_order", "INTEGER DEFAULT 0"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

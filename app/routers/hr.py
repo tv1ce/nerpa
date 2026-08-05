@@ -8,7 +8,7 @@ from collections import defaultdict
 from datetime import date, datetime
 
 from fastapi import APIRouter, Request, Depends, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -338,7 +338,11 @@ def _period_full_label(d: date, kind: str) -> str:
 async def hr_home(request: Request, period: str = "", db: Session = Depends(get_db)):
     period_date = _period_from_str(period)
 
-    all_employees = db.query(HrEmployee).order_by(HrEmployee.is_active.desc(), HrEmployee.full_name).all()
+    # Порядок: сначала как расставил HR перетаскиванием (sort_order), внутри
+    # одинаковых значений — по алфавиту. Пока никого не двигали, у всех 0 и
+    # список выглядит ровно как раньше. Уволенные всегда в конце.
+    all_employees = db.query(HrEmployee).order_by(
+        HrEmployee.is_active.desc(), HrEmployee.sort_order, HrEmployee.full_name).all()
     # уволенные не показываются в периодах после месяца увольнения — история за прошлые
     # месяцы при этом сохраняется, чтобы старые отчёты не «теряли» человека задним числом
     employees = [e for e in all_employees if e.visible_in_period(period_date)]
@@ -406,6 +410,29 @@ async def create_employee(
     ))
     db.commit()
     return RedirectResponse(url="/hr/", status_code=302)
+
+
+@router.post("/employees/order")
+@login_required
+async def reorder_employees(request: Request, db: Session = Depends(get_db)):
+    """Новый порядок списка после перетаскивания строки.
+
+    Приходит весь видимый список целиком, поэтому просто нумеруем по позиции —
+    дырок и одинаковых номеров не остаётся, а параллельная правка соседа не
+    может «размазать» порядок наполовину."""
+    payload = await request.json()
+    raw = payload.get("ids") or []
+    ids = [int(x) for x in raw if str(x).strip().isdigit()]
+    if not ids:
+        return JSONResponse({"ok": False, "error": "Пустой список"}, status_code=400)
+
+    employees = {e.id: e for e in db.query(HrEmployee).filter(HrEmployee.id.in_(ids)).all()}
+    for position, employee_id in enumerate(ids, start=1):
+        employee = employees.get(employee_id)
+        if employee:
+            employee.sort_order = position
+    db.commit()
+    return JSONResponse({"ok": True, "count": len(employees)})
 
 
 @router.post("/employees/{employee_id}/edit")
@@ -1046,6 +1073,30 @@ async def employee_profile(request: Request, employee_id: int, db: Session = Dep
     })
 
 
+async def _analyze_employee(db: Session, employee: HrEmployee,
+                            user_id: int | None) -> HrEmployeeInsight | None:
+    """ИИ-анализ динамики одного сотрудника + сохранение в историю.
+    None — анализировать нечего: за сотрудником нет ни одного месяца ответов."""
+    rows = db.query(HrRecord).filter(HrRecord.employee_id == employee.id).all()
+    months = _profile_months(_all_questions(db, active_only=False), employee, rows)
+    if not months:
+        return None
+
+    from app.services import openrouter_client
+    history = _history_text_for_ai(employee, months)
+    text = await asyncio.to_thread(openrouter_client.chat, AI_PROFILE_PROMPT, history)
+
+    insight = HrEmployeeInsight(
+        employee_id=employee.id,
+        text=text.strip(),
+        model=openrouter_client.MODEL,
+        created_by=user_id,
+    )
+    db.add(insight)
+    db.commit()
+    return insight
+
+
 @router.post("/employees/{employee_id}/analyze")
 @login_required
 async def employee_analyze(request: Request, employee_id: int, db: Session = Depends(get_db)):
@@ -1054,27 +1105,103 @@ async def employee_analyze(request: Request, employee_id: int, db: Session = Dep
     if not employee:
         return RedirectResponse(url="/hr/", status_code=302)
 
-    rows = db.query(HrRecord).filter(HrRecord.employee_id == employee_id).all()
-    months = _profile_months(_all_questions(db, active_only=False), employee, rows)
-    if not months:
-        return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?error=no_data", status_code=302)
-
-    from app.services import openrouter_client
-    history = _history_text_for_ai(employee, months)
     try:
-        text = await asyncio.to_thread(openrouter_client.chat, AI_PROFILE_PROMPT, history)
+        insight = await _analyze_employee(db, employee, request.session.get("user_id"))
     except Exception as e:
         logger.exception("ИИ-анализ профайла не удался: %s", e)
         return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?error=ai", status_code=302)
+    if not insight:
+        return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?error=no_data", status_code=302)
 
-    db.add(HrEmployeeInsight(
-        employee_id=employee_id,
-        text=text.strip(),
-        model=openrouter_client.MODEL,
-        created_by=request.session.get("user_id"),
-    ))
-    db.commit()
     return RedirectResponse(url=f"/hr/employees/{employee_id}/profile?analyzed=1", status_code=302)
+
+
+# ── Единый экран ИИ-анализа по всем сотрудникам ──────────────────────────────
+# Читать динамику по одному профайлу — это заход в карточку и отдельная кнопка
+# на каждого. Здесь то же самое, но списком: одна кнопка собирает анализ на всех
+# и всё читается подряд на одном экране. Хранилище общее с профайлом
+# (HrEmployeeInsight), поэтому собранное здесь сразу видно в карточке сотрудника
+# и наоборот — двух «правд» про одного человека не появляется.
+
+@router.get("/insights", response_class=HTMLResponse)
+@login_required
+async def insights_board(request: Request, db: Session = Depends(get_db)):
+    employees = (db.query(HrEmployee)
+                 .filter(HrEmployee.is_active == True)
+                 .order_by(HrEmployee.sort_order, HrEmployee.full_name).all())
+
+    # последний анализ по каждому: записей немного, дешевле пройти по порядку,
+    # чем собирать коррелированный подзапрос
+    latest: dict[int, HrEmployeeInsight] = {}
+    for ins in db.query(HrEmployeeInsight).order_by(HrEmployeeInsight.created_at).all():
+        latest[ins.employee_id] = ins
+
+    records = db.query(HrRecord).all()
+    with_data: set[int] = set()
+    enps: dict[int, list] = defaultdict(list)
+    for r in records:
+        with_data.add(r.employee_id)
+        if r.section == "enps" and r.score is not None:
+            enps[r.employee_id].append((r.period, r.score))
+
+    rows = []
+    for e in employees:
+        scores = [s for _p, s in sorted(enps.get(e.id, []))]
+        ins = latest.get(e.id)
+        rows.append({
+            "employee": e,
+            "insight": ins,
+            "text": ins.text if ins else "",
+            "made_at": ins.created_at.strftime("%d.%m.%Y %H:%M") if ins else "",
+            "has_data": e.id in with_data,
+            # хвост оценок eNPS — короткий контекст рядом с выводами ИИ
+            "enps": scores[-6:],
+            "enps_last": scores[-1] if scores else None,
+            "enps_delta": (scores[-1] - scores[-2]) if len(scores) > 1 else None,
+        })
+
+    return templates.TemplateResponse(request, "hr/insights.html", {
+        "rows": rows,
+        "ready": sum(1 for r in rows if r["insight"]),
+        "analyzable": [r["employee"].id for r in rows if r["has_data"]],
+        "today_period": _period_str(date.today()),
+    })
+
+
+@router.post("/insights/run")
+@login_required
+async def insights_run(request: Request, db: Session = Depends(get_db)):
+    """Анализ одного сотрудника — страница вызывает это по очереди для каждого.
+
+    Очередь на стороне браузера, а не один долгий запрос: так HR видит прогресс
+    по мере готовности, а не ждёт минуту в пустоту, и таймаут nginx не рубит
+    сборку на середине."""
+    payload = await request.json()
+    try:
+        employee_id = int(payload.get("employee_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "Не указан сотрудник"}, status_code=400)
+
+    employee = db.query(HrEmployee).filter(HrEmployee.id == employee_id).first()
+    if not employee:
+        return JSONResponse({"ok": False, "error": "Сотрудник не найден"}, status_code=404)
+
+    try:
+        insight = await _analyze_employee(db, employee, request.session.get("user_id"))
+    except Exception as e:
+        logger.exception("ИИ-анализ (общий экран) не удался для %s: %s", employee.full_name, e)
+        return JSONResponse({"ok": False, "error": "ИИ не ответил — проверьте ключ OpenRouter"},
+                            status_code=502)
+
+    if not insight:
+        return JSONResponse({"ok": False, "skipped": True,
+                             "error": "Нет ответов за месяцы — анализировать нечего"})
+    return JSONResponse({
+        "ok": True,
+        "text": insight.text,
+        "made_at": insight.created_at.strftime("%d.%m.%Y %H:%M"),
+        "model": insight.model or "",
+    })
 
 
 @router.post("/employees/{employee_id}/records/delete")

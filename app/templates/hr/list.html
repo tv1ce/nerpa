@@ -40,7 +40,10 @@
   <div class="col-lg-8">
     <div class="card border-0 shadow-sm">
       <div class="card-body d-flex align-items-center justify-content-between pb-2">
-        <div class="fw-semibold">Сотрудники</div>
+        <div class="d-flex align-items-center gap-2">
+          <div class="fw-semibold">Сотрудники</div>
+          <span id="orderStatus" class="text-muted" style="font-size:.75rem"></span>
+        </div>
         <button class="btn btn-sm btn-accent" data-bs-toggle="modal" data-bs-target="#addEmployee">
           <i class="bi bi-person-plus me-1"></i>Добавить сотрудника
         </button>
@@ -49,6 +52,7 @@
         <table class="table tms-table mb-0">
           <thead>
             <tr>
+              <th style="width:28px"></th>
               <th class="ps-3">Сотрудник</th>
               <th>Должность</th>
               <th>Руководитель</th>
@@ -57,9 +61,13 @@
               <th class="pe-3"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="employeeRows">
             {% for e in employees %}
-            <tr class="{% if not e.is_active %}text-muted{% endif %}">
+            <tr data-id="{{ e.id }}" class="{% if not e.is_active %}text-muted{% endif %}">
+              <td class="text-center px-0 text-muted drag-handle" style="cursor:grab"
+                  title="Перетащите, чтобы изменить порядок">
+                <i class="bi bi-grip-vertical"></i>
+              </td>
               <td class="ps-3 fw-semibold">
                 <a href="/hr/employees/{{ e.id }}/profile" class="text-decoration-none text-reset" title="Профайл сотрудника">{{ e.full_name }}</a>
                 {% if not e.is_active %}<span class="badge bg-secondary ms-1" style="font-size:.65rem">неактивен</span>{% endif %}
@@ -95,7 +103,7 @@
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="6" class="text-center py-4 text-muted">
+            <tr><td colspan="7" class="text-center py-4 text-muted">
               Сотрудников пока нет. Добавьте первого, чтобы начать вести учёт.
             </td></tr>
             {% endfor %}
@@ -453,6 +461,83 @@
   </div>
 </div>
 {% endfor %}
+
+<style>
+  #employeeRows tr.dragging { opacity: .45; }
+  #employeeRows tr.drop-target td { border-top: 2px solid var(--bs-primary, #2563eb); }
+</style>
+
+<script>
+// Перетаскивание строк: HR расставляет сотрудников в том порядке, в каком ему
+// удобно вести учёт (по отделам, по значимости), а не только по алфавиту.
+// Порядок сохраняется сразу после броска — отдельной кнопки «Сохранить» нет.
+(function () {
+  var tbody = document.getElementById('employeeRows');
+  var status = document.getElementById('orderStatus');
+  if (!tbody) return;
+  var dragged = null;
+
+  function setStatus(text, cls) {
+    status.textContent = text;
+    status.className = (cls || 'text-muted');
+    status.style.fontSize = '.75rem';
+  }
+
+  // draggable включаем только на время удержания ручки — иначе браузер начинает
+  // тащить строку при выделении текста и клике по ссылкам внутри неё
+  tbody.querySelectorAll('.drag-handle').forEach(function (handle) {
+    var row = handle.closest('tr');
+    handle.addEventListener('mousedown', function () { row.draggable = true; });
+    document.addEventListener('mouseup', function () { row.draggable = false; });
+  });
+
+  tbody.addEventListener('dragstart', function (e) {
+    var row = e.target.closest('tr[data-id]');
+    if (!row) return;
+    dragged = row;
+    row.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', row.dataset.id);   // без данных Firefox не начинает drag
+  });
+
+  tbody.addEventListener('dragover', function (e) {
+    if (!dragged) return;
+    e.preventDefault();
+    var row = e.target.closest('tr[data-id]');
+    if (!row || row === dragged) return;
+    var box = row.getBoundingClientRect();
+    var below = (e.clientY - box.top) > box.height / 2;
+    tbody.insertBefore(dragged, below ? row.nextSibling : row);
+  });
+
+  tbody.addEventListener('dragend', function () {
+    if (!dragged) return;
+    dragged.classList.remove('dragging');
+    dragged.draggable = false;
+    dragged = null;
+    save();
+  });
+
+  function save() {
+    var ids = Array.prototype.map.call(
+      tbody.querySelectorAll('tr[data-id]'), function (row) { return Number(row.dataset.id); });
+    setStatus('Сохраняю порядок…');
+    fetch('/hr/employees/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: ids })
+    })
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function () {
+        setStatus('Порядок сохранён', 'text-success');
+        setTimeout(function () { setStatus(''); }, 2000);
+      })
+      .catch(function () {
+        setStatus('Не удалось сохранить порядок — обновите страницу', 'text-danger');
+      });
+  }
+})();
+</script>
 
 <script>
 (function () {
