@@ -1,3 +1,4 @@
+import asyncio
 import os
 from fastapi import APIRouter, Request, Depends, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
@@ -571,9 +572,17 @@ async def bitrix_stock_push(request: Request, db: Session = Depends(get_db)):
     """Ручная выгрузка остатков в каталог Bitrix24.
 
     Обход каталога форсируем: кнопкой обычно пользуются как раз после того, как
-    в CRM завели новые товары и их надо сопоставить с номенклатурой TMS."""
+    в CRM завели новые товары и их надо сопоставить с номенклатурой TMS.
+
+    push_stock_to_bitrix — синхронная функция с блокирующими HTTP-вызовами к
+    Bitrix24 (httpx.Client, не async). Вызванная напрямую из async-хендлера,
+    она замораживает единственный event loop uvicorn на всё время работы —
+    именно так один клик по этой кнопке 06.08.2026 положил весь TMS на
+    несколько минут. asyncio.to_thread уводит блокирующий вызов в отдельный
+    поток, чтобы event loop продолжал обслуживать остальные запросы."""
     from app.services.bitrix_client import push_stock_to_bitrix
-    return JSONResponse(push_stock_to_bitrix(db, force_rescan=True))
+    result = await asyncio.to_thread(push_stock_to_bitrix, db, force_rescan=True)
+    return JSONResponse(result)
 
 
 @router.get("/bitrix/users", response_class=JSONResponse)

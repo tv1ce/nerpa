@@ -127,17 +127,44 @@ class BitrixClient:
         return self.call("crm.product.get", id=product_id) or {}
 
     # ── Каталог товаров (выгрузка остатков TMS → Bitrix24) ───────────────────
+    #
+    # На этом портале старый CRM-каталог (crm.product.*) — кладбище «призрачных»
+    # записей NAME='Удален' (crm.product.get/update на реальный товар отвечает
+    # «Product is not found»). Настоящие товары и их свойства живут в Universal
+    # Catalog (catalog.product.*), выяснено вручную перебором на боевом портале:
+    #   - catalog.catalog.list → iblockId=17 «Товарный каталог CRM» (сам)
+    #     и iblockId=21 «…(предложения)» — SKU-варианты, потомки iblockId=17
+    #     через parentId.
+    #   - Свойство «Остаток» (crm.product.property.list) — ID=119, IBLOCK_ID=17,
+    #     тип N (число). У SKU-потомков (iblockId=21) этого свойства просто нет
+    #     в схеме — писать нужно на РОДИТЕЛЬСКИЙ товар (iblockId=17, type=3).
+    #   - xmlId родителя — чистый GUID 1С, совпадает с Product.external_id_1c.
+    #     У SKU-потомка xmlId составной: «<родительский GUID>#<суффикс>».
+    #   - Формат записи: catalog.product.update(id=<parent_id>,
+    #     fields={"property119": {"value": ...}}) — именно вложенным словарём;
+    #     тот же ключ строчными буквами и скаляром API проглатывает молча,
+    #     ничего не записывая (без ошибки — только по этому и поймали).
+    STOCK_IBLOCK_ID = 17
+    STOCK_PRODUCT_TYPE = 3
 
-    def list_products(self, select: list = None) -> list:
-        """Весь каталог товаров постранично (crm.product.list отдаёт по 50).
+    def list_catalog_products(self, iblock_id: int, product_type: int,
+                              select: list = None) -> list:
+        """Товары каталога (Universal Catalog) постранично, по 50 за раз.
 
-        Нужен, чтобы один раз сопоставить каталог CRM с номенклатурой TMS и
-        дальше писать остаток по запомненным привязкам."""
-        select = select or ["ID", "NAME", "XML_ID"]
+        Живые «Удален»-призраки отфильтрованы условием !name — без него первые
+        страницы почти целиком состоят из них и поиск реальных товаров занимает
+        сотни лишних вызовов."""
+        select = list(select or []) + ["id", "name", "xmlId", "iblockId"]
+        select = list(dict.fromkeys(select))   # без дублей, порядок не важен
         rows, start = [], 0
         while True:
-            batch = self.call("crm.product.list", select=select,
-                              filter={"ACTIVE": "Y"}, start=start) or []
+            resp = self.call(
+                "catalog.product.list", select=select,
+                filter={"iblockId": iblock_id, "type": product_type, "!name": "Удален"},
+                start=start,
+            ) or {}
+            batch = resp.get("products") if isinstance(resp, dict) else resp
+            batch = batch or []
             rows.extend(batch)
             if len(batch) < 50:
                 break
@@ -147,20 +174,13 @@ class BitrixClient:
                 break
         return rows
 
-    def update_product_field(self, product_id, field: str, value) -> None:
-        """Пишет значение свойства товара каталога.
+    def get_catalog_product(self, product_id) -> dict:
+        return (self.call("catalog.product.get", id=product_id) or {}).get("product") or {}
 
-        Формат значения у crm.product.update зависит от типа свойства: скаляр
-        подходит для строкового/числового, но часть порталов принимает только
-        развёрнутую форму {'value': ...}. Пробуем скаляр, при отказе — развёрнутую,
-        чтобы интеграция не требовала подгонки под конкретный портал вручную."""
-        try:
-            self.call("crm.product.update", id=product_id, fields={field: value})
-        except BitrixError as scalar_error:
-            try:
-                self.call("crm.product.update", id=product_id, fields={field: {"value": value}})
-            except BitrixError:
-                raise scalar_error
+    def update_product_field(self, product_id, field: str, value) -> None:
+        """Пишет значение свойства товара каталога — см. комментарий к классу
+        выше про обязательный вложенный формат {'value': ...}."""
+        self.call("catalog.product.update", id=product_id, fields={field: {"value": value}})
 
     def deal_uf_codes(self) -> dict:
         """Карта {ключ TMS: код UF-поля сделки}, найденная по подписям полей.
@@ -745,14 +765,24 @@ def push_order_event(order, company, event: str, db=None) -> bool:
 
 
 # ── TMS → Bitrix24: остаток товара в свойство каталога ──────────────────────
-# Остаток в карточке товара CRM живёт в пользовательском свойстве каталога
-# (на текущем портале — PROPERTY_119 «Остаток»). Значение приезжает следом за
-# синхронизацией остатков из 1С: TMS не считает остаток сам, а берёт кэш
-# StockBalance1C — тот же, что показывает кладовщику (см. get_1c_balances).
+# Остаток в карточке товара живёт в свойстве «Остаток» (id=119, IBLOCK_ID=17)
+# Universal Catalog — см. развёрнутый комментарий у BitrixClient.list_catalog_products.
+# Значение приезжает следом за синхронизацией остатков из 1С: TMS не считает
+# остаток сам, а берёт кэш StockBalance1C — тот же, что показывает кладовщику
+# (см. get_1c_balances).
 
-DEFAULT_STOCK_FIELD = "PROPERTY_119"
+DEFAULT_STOCK_FIELD = "property119"
 
-# Каталог CRM обходим не чаще раза в час: привязка товар Bitrix ↔ товар TMS
+# Строки bitrix_product_links для остатка (товар TMS → РОДИТЕЛЬСКИЙ товар
+# каталога) держим с этим префиксом — иначе они пересекутся по смыслу со
+# строками, которые создаёт приём сделок (api_bitrix._match_bitrix_product):
+# та таблица уже используется для сопоставления SKU-офера сделки с товаром
+# TMS, там bitrix_product_id — голый числовой ID офера. Остаток пишется на
+# СОВСЕМ другой ID (родителя), поэтому смешивать их в одном пространстве id
+# нельзя — префикс разводит два назначения одной таблицы.
+CATALOG_LINK_PREFIX = "cat:"
+
+# Каталог обходим не чаще раза в час: привязка товар Bitrix ↔ товар TMS
 # запоминается в bitrix_product_links, а синхронизация остатков идёт раз в
 # минуту — сканировать каталог на каждый прогон незачем.
 _CATALOG_SCAN_TTL_SEC = 3600
@@ -779,24 +809,22 @@ def _fmt_stock(value: float) -> str:
 
 
 def _scan_bitrix_catalog(client, db, field: str) -> dict:
-    """Сопоставляет каталог Bitrix24 с номенклатурой TMS, создаёт недостающие
-    привязки в bitrix_product_links. Возвращает {bitrix_product_id: текущее
+    """Сопоставляет РОДИТЕЛЬСКИЕ товары каталога (iblockId=17, type=3) с
+    номенклатурой TMS, создаёт недостающие привязки в bitrix_product_links
+    (с префиксом CATALOG_LINK_PREFIX). Возвращает {bitrix_product_id: текущее
     значение свойства остатка} — чтобы не переписывать то, что уже совпадает.
 
-    Порядок сопоставления тот же, что при приёме сделки: XML_ID против
-    external_id_1c/артикула, затем точное совпадение нормализованного имени.
+    xmlId родителя — чистый GUID 1С, поэтому основной способ сопоставления —
+    прямое совпадение с Product.external_id_1c; имя — запасной вариант для
+    товаров без GUID (заведённых в Bitrix вручную).
     """
     from app.models import BitrixProductLink, Product
 
-    rows = client.list_products(select=["ID", "NAME", "XML_ID", field])
+    rows = client.list_catalog_products(
+        BitrixClient.STOCK_IBLOCK_ID, BitrixClient.STOCK_PRODUCT_TYPE, select=[field])
 
     products = db.query(Product).filter(Product.is_active == True).all()
-    by_code: dict[str, Product] = {}
-    for p in products:
-        for code in (p.external_id_1c, p.article):
-            code = (code or "").strip()
-            if code:
-                by_code.setdefault(code, p)
+    by_xml_id = {p.external_id_1c.strip(): p for p in products if (p.external_id_1c or "").strip()}
     # Неоднозначные имена (одно нормализованное имя на два товара) не матчим —
     # лучше не выгрузить остаток, чем записать его не тому товару.
     by_name: dict[str, Optional[Product]] = {}
@@ -804,20 +832,22 @@ def _scan_bitrix_catalog(client, db, field: str) -> dict:
         key = normalize_product_name(p.name)
         by_name[key] = None if key in by_name else p
 
-    known = {l.bitrix_product_id for l in db.query(BitrixProductLink).all()}
+    known = {l.bitrix_product_id for l in db.query(BitrixProductLink)
+             .filter(BitrixProductLink.bitrix_product_id.like(f"{CATALOG_LINK_PREFIX}%")).all()}
     remote: dict[str, str] = {}
     linked = 0
 
     for row in rows:
-        bid = str(row.get("ID") or "").strip()
-        if not bid:
+        raw_id = row.get("id")
+        if raw_id is None:
             continue
+        bid = f"{CATALOG_LINK_PREFIX}{raw_id}"
         remote[bid] = _read_property(row.get(field))
         if bid in known:
             continue
-        name = (row.get("NAME") or "").strip()
-        xml_id = (row.get("XML_ID") or "").strip()
-        product = by_code.get(xml_id) if xml_id else None
+        name = (row.get("name") or "").strip()
+        xml_id = (row.get("xmlId") or "").strip()
+        product = by_xml_id.get(xml_id) if xml_id else None
         if not product:
             product = by_name.get(normalize_product_name(name))
         if product:
@@ -837,7 +867,7 @@ def _scan_bitrix_catalog(client, db, field: str) -> dict:
 
 
 def _read_property(raw) -> str:
-    """Значение свойства из ответа crm.product.*: приходит либо скаляром, либо
+    """Значение свойства из ответа catalog.product.*: приходит либо None, либо
     {'value': ..., 'valueId': ...}, либо списком таких словарей."""
     if raw is None:
         return ""
@@ -884,7 +914,9 @@ def push_stock_to_bitrix(db, force_rescan: bool = False) -> dict:
 
     try:
         with client:
-            links = db.query(BitrixProductLink).all()
+            links = (db.query(BitrixProductLink)
+                     .filter(BitrixProductLink.bitrix_product_id.like(f"{CATALOG_LINK_PREFIX}%"))
+                     .all())
             linked_pids = {l.product_id for l in links}
             # Каталог обходим, когда есть товары с остатком, но без привязки к
             # CRM (или по явной кнопке), и не чаще раза в час.
@@ -895,7 +927,9 @@ def push_stock_to_bitrix(db, force_rescan: bool = False) -> dict:
                 before = len(links)
                 remote = _scan_bitrix_catalog(client, db, field)
                 _last_catalog_scan = time.monotonic()
-                links = db.query(BitrixProductLink).all()
+                links = (db.query(BitrixProductLink)
+                         .filter(BitrixProductLink.bitrix_product_id.like(f"{CATALOG_LINK_PREFIX}%"))
+                         .all())
                 result["linked"] = len(links) - before
 
             now = datetime.now()
@@ -915,13 +949,14 @@ def push_stock_to_bitrix(db, force_rescan: bool = False) -> dict:
                     link.stock_pushed_at = now
                     result["skipped"] += 1
                     continue
+                catalog_id = link.bitrix_product_id[len(CATALOG_LINK_PREFIX):]
                 try:
-                    client.update_product_field(link.bitrix_product_id, field, value)
+                    client.update_product_field(catalog_id, field, value)
                     link.last_stock_pushed = float(qty)
                     link.stock_pushed_at = now
                     result["pushed"] += 1
                 except BitrixError as e:
-                    result["errors"].append(f"товар {link.bitrix_product_id}: {e}")
+                    result["errors"].append(f"товар {catalog_id}: {e}")
                     if len(result["errors"]) >= 10:
                         result["errors"].append("…дальнейшие ошибки не показаны")
                         break

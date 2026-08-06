@@ -118,6 +118,18 @@ async def sync_transfers(request: Request, db: Session = Depends(get_db)):
     return JSONResponse(result)
 
 
+def _sync_balances_and_push(db: Session) -> dict:
+    """Синхронная часть: 1С → StockBalance1C → Bitrix24. Вызывается через
+    asyncio.to_thread (см. ниже) — оба шага делают блокирующие HTTP-запросы,
+    и Bitrix24 07.08.2026 доказал, что зависший внешний API замораживает
+    event loop uvicorn целиком, если дёрнуть его прямо из async-хендлера."""
+    from app.services.bitrix_client import push_stock_to_bitrix
+    result = sync_stock_balances_from_1c(db)
+    result["bitrix"] = push_stock_to_bitrix(db)
+    result["errors"] = result.get("errors", []) + result["bitrix"].get("errors", [])
+    return result
+
+
 @router.post("/balances")
 @role_required("admin")
 async def sync_balances(request: Request, db: Session = Depends(get_db)):
@@ -126,10 +138,8 @@ async def sync_balances(request: Request, db: Session = Depends(get_db)):
     Следом остаток уезжает в свойство товара каталога Bitrix24 — тем же
     порядком, что и в фоновой синхронизации, чтобы ручной прогон давал
     ровно тот же результат."""
-    from app.services.bitrix_client import push_stock_to_bitrix
-    result = sync_stock_balances_from_1c(db)
-    result["bitrix"] = push_stock_to_bitrix(db)
-    result["errors"] = result.get("errors", []) + result["bitrix"].get("errors", [])
+    import asyncio
+    result = await asyncio.to_thread(_sync_balances_and_push, db)
     _audit_sync(db, "sync_balances", result)
     return JSONResponse(result)
 
@@ -183,10 +193,10 @@ async def push_stock(movement_id: int, request: Request, db: Session = Depends(g
     return JSONResponse({"ok": bool(ref_key), "ref_key": ref_key})
 
 
-@router.post("/run-all")
-@role_required("admin")
-async def run_all(request: Request, db: Session = Depends(get_db)):
-    """Полный цикл синхронизации: справочники + номенклатура + счета + расходные/документы + оплаты + приёмка."""
+def _run_all_sync(db: Session) -> dict:
+    """Синхронная часть run-all — блокирующие HTTP-запросы к 1С и Bitrix24,
+    вызывается через asyncio.to_thread (см. ниже), чтобы медленный/зависший
+    внешний API не замораживал event loop uvicorn целиком."""
     rw = sync_warehouses_from_1c(db)
     rc = sync_categories_from_1c(db)
     r1 = sync_products_from_1c(db)
@@ -199,7 +209,7 @@ async def run_all(request: Request, db: Session = Depends(get_db)):
     rb = sync_stock_balances_from_1c(db)
     from app.services.bitrix_client import push_stock_to_bitrix
     rbx = push_stock_to_bitrix(db)
-    result = {
+    return {
         "warehouses": rw,
         "categories": rc,
         "products": r1,
@@ -210,11 +220,20 @@ async def run_all(request: Request, db: Session = Depends(get_db)):
         "receiving": rr,
         "transfers": rtr,
         "balances": rb,
+        "bitrix": rbx,
         "errors": (rw.get("errors", []) + rc.get("errors", []) + r1.get("errors", [])
                    + r3.get("errors", []) + rs.get("errors", [])
                    + rd.get("errors", []) + r2.get("errors", []) + rr.get("errors", [])
-                   + rtr.get("errors", []) + rb.get("errors", [])),
+                   + rtr.get("errors", []) + rb.get("errors", []) + rbx.get("errors", [])),
     }
+
+
+@router.post("/run-all")
+@role_required("admin")
+async def run_all(request: Request, db: Session = Depends(get_db)):
+    """Полный цикл синхронизации: справочники + номенклатура + счета + расходные/документы + оплаты + приёмка."""
+    import asyncio
+    result = await asyncio.to_thread(_run_all_sync, db)
     _audit_sync(db, "run_all", result)
     return JSONResponse(result)
 
