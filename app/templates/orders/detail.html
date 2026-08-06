@@ -32,6 +32,24 @@
    МОБИЛЬНАЯ КАРТОЧКА ЗАКАЗА ДЛЯ КЛАДОВЩИКА
    ═══════════════════════════════════════════════════════════════ #}
 
+{# Нерешённая рекламация клиента — кладовщику важно знать до сборки
+   (например, в прошлый раз был пересорт или брак у этого же клиента) #}
+{% if open_claims %}
+<div class="wm-alert wm-alert-warn" style="margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:6px">
+  <div style="display:flex;align-items:center;gap:8px">
+    <i class="bi bi-exclamation-triangle-fill"></i>
+    <span>Нерешённая рекламация по клиенту{% if open_claims | length > 1 %} — {{ open_claims | length }}{% endif %}</span>
+  </div>
+  {% for c in open_claims %}
+  <div style="font-weight:500;font-size:.82rem;line-height:1.35">
+    {{ c.number }} · {{ claim_types.get(c.type, c.type) }}
+    {%- if c.order %} · заказ {{ c.order.number }}{% endif %}
+    {% if c.description %}<div style="opacity:.85">{{ c.description }}</div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {# Баннер «На сборку» — если заказ ждёт кладовщика #}
 {% if order.ready_for_assembly %}
 <div class="wm-alert wm-alert-info" style="margin-bottom:12px">
@@ -143,6 +161,12 @@
 {# ═══════════════════════════════════════════════════════════════
    ДЕСКТОП-ИНТЕРФЕЙС (оригинальный)
    ═══════════════════════════════════════════════════════════════ #}
+
+{# Нерешённая рекламация клиента: висит в каждом следующем его заказе, пока
+   не проставят «Решена»/«Отклонена» — чтобы отгружать дальше с открытым
+   вопросом было невозможно «не заметив». #}
+{% include "orders/_claim_reminder.html" %}
+
 <div class="row g-3">
   <!-- Основная информация -->
   <div class="col-lg-8">

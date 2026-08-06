@@ -375,6 +375,11 @@ def _migrate_db():
         ("company_settings", "hr_metric_check_chat_ids",  "TEXT"),
         # Порядок сотрудников в списке HR-учёта (перетаскивание строк)
         ("hr_employees", "sort_order", "INTEGER DEFAULT 0"),
+        # Выгрузка остатков в свойство товара каталога Bitrix24 (PROPERTY_119)
+        ("company_settings", "bitrix_stock_enabled", "INTEGER DEFAULT 0"),
+        ("company_settings", "bitrix_stock_field",   "TEXT"),
+        ("bitrix_product_links", "last_stock_pushed", "REAL"),
+        ("bitrix_product_links", "stock_pushed_at",   "TIMESTAMP"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

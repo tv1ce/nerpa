@@ -1,0 +1,336 @@
+{# ── Мобильный каркас HR-кабинета ────────────────────────────────────────────
+   Аналог base_warehouse.html, но поверх Bootstrap: HR-разделы держатся на
+   модалках и формах, переписывать их с нуля дороже, чем дать им мобильную
+   шкуру (hr_mobile.css). Тема переключается на <html> двумя атрибутами:
+   data-theme — наши токены, data-bs-theme — компоненты Bootstrap 5.3. #}
+<!doctype html>
+<html lang="ru" data-theme="light" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="TMS HR">
+  <meta name="theme-color" content="#1E1B40" id="metaThemeColor">
+  <title>{% block title %}HR{% endblock %} — TMS</title>
+
+  {# Тему ставим до отрисовки — иначе тёмный экран моргнёт белым #}
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('tms-theme');
+        if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.setAttribute('data-bs-theme', t);
+      } catch (e) {}
+    })();
+  </script>
+
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/static/css/hr_mobile.css?v=5">
+</head>
+<body>
+
+<!-- ── Шапка ── -->
+<header class="hr-header">
+  <div class="hr-header-title">
+    <span class="hr-logo" aria-hidden="true"><i class="bi bi-people-fill"></i></span>
+    <span class="hr-title-text">{% block page_title %}HR{% endblock %}</span>
+  </div>
+  <div class="hr-header-right">
+    {% block header_actions %}{% endblock %}
+    <button type="button" class="hr-icon-btn" id="themeToggle"
+            aria-label="Переключить тёмную тему" title="Светлая / тёмная тема">
+      <i class="bi bi-moon-stars icon-light" aria-hidden="true"></i>
+      <i class="bi bi-sun icon-dark" aria-hidden="true"></i>
+    </button>
+    <button type="button" class="hr-icon-btn" id="notif-bell" onclick="toggleNotifDrawer()"
+            aria-label="Уведомления" title="Уведомления" style="display:none">
+      <i class="bi bi-bell" aria-hidden="true"></i>
+      <span id="notif-badge" class="hr-badge" style="display:none"></span>
+    </button>
+    <button type="button" class="hr-icon-btn" onclick="hrMore.open()"
+            aria-label="Ещё разделы" title="Ещё">
+      <i class="bi bi-list" aria-hidden="true"></i>
+    </button>
+  </div>
+</header>
+
+<!-- ── Контент ── -->
+<main class="hr-content">
+  {% block content %}{% endblock %}
+</main>
+
+<!-- ── Нижний таббар: четыре основных контура HR ── -->
+{% set _p = request.url.path %}
+<nav class="hr-tabbar" aria-label="Разделы HR">
+  <a href="/hr/" class="hr-tab {% if _p == '/hr/' or _p == '/hr' or '/hr/entry' in _p or '/hr/employees' in _p %}active{% endif %}">
+    <i class="bi bi-people" aria-hidden="true"></i><span>Сотрудники</span>
+  </a>
+  <a href="/hr/metrics" class="hr-tab {% if _p.startswith('/hr/metrics') and '/month' not in _p %}active{% endif %}">
+    <i class="bi bi-graph-up-arrow" aria-hidden="true"></i><span>Неделя</span>
+  </a>
+  <a href="/hr/metrics/month" class="hr-tab {% if '/hr/metrics/month' in _p %}active{% endif %}">
+    <i class="bi bi-calendar3" aria-hidden="true"></i><span>Месяц</span>
+  </a>
+  <a href="/hr/insights" class="hr-tab {% if '/hr/insights' in _p %}active{% endif %}">
+    <i class="bi bi-stars" aria-hidden="true"></i><span>Анализ ИИ</span>
+  </a>
+  <button type="button" class="hr-tab {% if '/hr/surveys' in _p or '/hr/questions' in _p or '/hr/positions' in _p %}active{% endif %}"
+          onclick="hrMore.open()">
+    <i class="bi bi-three-dots" aria-hidden="true"></i><span>Ещё</span>
+  </button>
+</nav>
+
+<!-- ── Лист «Ещё» ── -->
+<div class="hr-sheet-overlay" id="moreOverlay" onclick="hrMore.close()"></div>
+<div class="hr-sheet" id="moreSheet" role="dialog" aria-label="Ещё разделы">
+  <div class="hr-sheet-handle"></div>
+  <div class="hr-sheet-title">Разделы</div>
+  <a href="/hr/surveys" class="hr-sheet-link {% if '/hr/surveys' in _p %}active{% endif %}">
+    <i class="bi bi-send" aria-hidden="true"></i>
+    <span>Опросы<small>Рассылки и персональные ссылки</small></span>
+    <i class="bi bi-chevron-right chev" aria-hidden="true"></i>
+  </a>
+  <a href="/hr/questions" class="hr-sheet-link {% if '/hr/questions' in _p %}active{% endif %}">
+    <i class="bi bi-patch-question" aria-hidden="true"></i>
+    <span>Вопросы<small>Что спрашиваем в каждом разделе</small></span>
+    <i class="bi bi-chevron-right chev" aria-hidden="true"></i>
+  </a>
+  <a href="/hr/positions" class="hr-sheet-link {% if '/hr/positions' in _p %}active{% endif %}">
+    <i class="bi bi-diagram-3" aria-hidden="true"></i>
+    <span>Должности<small>Какие разделы заполнять кому</small></span>
+    <i class="bi bi-chevron-right chev" aria-hidden="true"></i>
+  </a>
+
+  <div class="hr-sheet-title">Приложение</div>
+  <button type="button" class="hr-sheet-link" onclick="hrTheme.toggle()">
+    <i class="bi bi-circle-half" aria-hidden="true"></i>
+    <span>Тема оформления<small id="themeLabel">Светлая</small></span>
+    <i class="bi bi-chevron-right chev" aria-hidden="true"></i>
+  </button>
+  <form method="post" action="/hr/toggle-view" style="display:contents">
+    <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <button type="submit" class="hr-sheet-link">
+      <i class="bi bi-display" aria-hidden="true"></i>
+      <span>Десктоп-вид<small>Полные таблицы, как на компьютере</small></span>
+      <i class="bi bi-chevron-right chev" aria-hidden="true"></i>
+    </button>
+  </form>
+  <a href="/notifications/" class="hr-sheet-link">
+    <i class="bi bi-bell" aria-hidden="true"></i>
+    <span>Уведомления<small>Все события</small></span>
+    <i class="bi bi-chevron-right chev" aria-hidden="true"></i>
+  </a>
+  <form method="post" action="/auth/logout" style="display:contents">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <button type="submit" class="hr-sheet-link danger">
+      <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+      <span>Выйти<small>{{ request.session.get('user_name', 'Пользователь') }}</small></span>
+    </button>
+  </form>
+</div>
+
+<!-- ── Уведомления ── -->
+<div id="notif-overlay" style="position:fixed;inset:0;background:rgba(9,10,22,.42);z-index:1048;opacity:0;visibility:hidden;transition:opacity .22s,visibility .22s"></div>
+<div id="notif-drawer" role="dialog" aria-label="Уведомления"
+     style="position:fixed;right:0;width:min(340px,100vw);box-shadow:-6px 0 36px rgba(0,0,0,.28);z-index:1049;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .26s cubic-bezier(.4,0,.2,1)">
+  <div style="padding:14px 16px;background:linear-gradient(135deg,var(--hr-header-bg),var(--hr-header-bg-2));color:#fff;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <span style="font-weight:600;font-size:.95rem;display:flex;align-items:center;gap:8px">
+      <i class="bi bi-bell-fill"></i> Уведомления
+      <span id="nd-unread-badge" style="background:#ef4444;color:#fff;font-size:.65rem;font-weight:700;border-radius:99px;padding:1px 7px;display:none"></span>
+    </span>
+    <button onclick="closeNotifDrawer()" aria-label="Закрыть"
+            style="background:none;border:none;color:rgba(255,255,255,.65);font-size:1.4rem;cursor:pointer;line-height:1;padding:2px 6px">&times;</button>
+  </div>
+  <div id="notif-list" style="flex:1;overflow-y:auto">
+    <div class="hr-empty"><i class="bi bi-arrow-clockwise"></i><p>Загрузка…</p></div>
+  </div>
+  <div id="nd-footer" style="padding:10px 16px;border-top:1px solid var(--hr-border);background:var(--hr-surface-2);flex-shrink:0">
+    <a href="/notifications/" style="display:block;text-align:right;font-size:.82rem">Все уведомления →</a>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+<script>
+// ── CSRF: скрытое поле во все POST-формы + заголовок в fetch ────────────────
+(function () {
+  var CSRF = {{ csrf_token(request) | tojson }};
+  document.querySelectorAll('form[method="post"], form[method="POST"]').forEach(function (f) {
+    if (!f.querySelector('[name="csrf_token"]')) {
+      var inp = document.createElement('input');
+      inp.type = 'hidden'; inp.name = 'csrf_token'; inp.value = CSRF;
+      f.appendChild(inp);
+    }
+  });
+  var _origFetch = window.fetch;
+  window.fetch = function (url, opts) {
+    opts = opts || {};
+    if (opts.method && opts.method.toUpperCase() !== 'GET') {
+      opts.headers = Object.assign({ 'X-CSRF-Token': CSRF }, opts.headers || {});
+    }
+    return _origFetch.call(this, url, opts);
+  };
+  window._CSRF = CSRF;
+})();
+</script>
+
+<script>
+// ── Тема ────────────────────────────────────────────────────────────────────
+// Выбор живёт в localStorage, а не в сессии: переключение мгновенное, без
+// перезагрузки страницы и без потери введённых, но не сохранённых данных.
+var hrTheme = (function () {
+  var LIGHT_BAR = '#1E1B40', DARK_BAR = '#13152A';
+
+  function current() {
+    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+  }
+  function apply(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-bs-theme', theme);
+    var meta = document.getElementById('metaThemeColor');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? DARK_BAR : LIGHT_BAR);
+    var label = document.getElementById('themeLabel');
+    if (label) label.textContent = theme === 'dark' ? 'Тёмная' : 'Светлая';
+    var btn = document.getElementById('themeToggle');
+    if (btn) btn.setAttribute('aria-label', theme === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему');
+  }
+  function toggle() {
+    var next = current() === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('tms-theme', next); } catch (e) {}
+    apply(next);
+  }
+
+  apply(current());
+  document.getElementById('themeToggle').addEventListener('click', toggle);
+  return { toggle: toggle, current: current };
+})();
+
+// ── Лист «Ещё» ──────────────────────────────────────────────────────────────
+var hrMore = (function () {
+  var sheet = document.getElementById('moreSheet');
+  var overlay = document.getElementById('moreOverlay');
+  function open() { sheet.classList.add('open'); overlay.classList.add('open'); }
+  function close() { sheet.classList.remove('open'); overlay.classList.remove('open'); }
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') close();
+  });
+  return { open: open, close: close };
+})();
+
+// ── Подтверждения (data-confirm на форме) ───────────────────────────────────
+document.querySelectorAll('form[data-confirm]').forEach(function (f) {
+  f.addEventListener('submit', function (e) {
+    if (!confirm(f.dataset.confirm)) e.preventDefault();
+  });
+});
+
+// Крестики закрытия у модалок приходят из общей с десктопом разметки и не имеют
+// текста — озвучиваем их скринридеру здесь, чтобы не дублировать атрибут в
+// каждой модалке HR-раздела.
+document.querySelectorAll('.btn-close:not([aria-label])').forEach(function (b) {
+  b.setAttribute('aria-label', 'Закрыть');
+});
+</script>
+
+<script>
+// ── Уведомления ─────────────────────────────────────────────────────────────
+(function () {
+  var _open = false;
+
+  function _esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  function updateBadge(count) {
+    var bell = document.getElementById('notif-bell');
+    var badge = document.getElementById('notif-badge');
+    var ndBadge = document.getElementById('nd-unread-badge');
+    bell.style.display = '';
+    if (count > 0) {
+      var label = count > 99 ? '99+' : count;
+      badge.textContent = label; badge.style.display = '';
+      ndBadge.textContent = label; ndBadge.style.display = '';
+    } else {
+      badge.style.display = 'none'; ndBadge.style.display = 'none';
+    }
+  }
+
+  function renderList(data) {
+    var list = document.getElementById('notif-list');
+    if (!data.items.length) {
+      list.innerHTML = '<div class="hr-empty"><i class="bi bi-bell-slash"></i><p>Нет уведомлений</p></div>';
+      return;
+    }
+    list.innerHTML = data.items.map(function (n) {
+      return '<div class="nd-row" style="display:flex;gap:10px;padding:12px 16px' + (n.is_read ? '' : ';background:var(--hr-brand-soft)') + '">'
+        + '<i class="bi bi-bell-fill" style="color:var(--hr-brand);flex-shrink:0"></i>'
+        + '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:700;font-size:.85rem;color:var(--hr-text)">' + _esc(n.title) + '</div>'
+          + (n.body ? '<div style="font-size:.78rem;color:var(--hr-muted);margin-top:2px">' + _esc(n.body) + '</div>' : '')
+          + '<div style="font-size:.72rem;color:var(--hr-faint);margin-top:3px">' + _esc(n.time) + '</div>'
+        + '</div></div>';
+    }).join('');
+  }
+
+  function fetchRecent() {
+    fetch('/notifications/recent')
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (data) { renderList(data); updateBadge(data.unread); })
+      .catch(function () {
+        document.getElementById('notif-list').innerHTML =
+          '<div class="hr-empty"><i class="bi bi-exclamation-triangle"></i><p>Ошибка загрузки</p></div>';
+      });
+  }
+
+  function openDrawer() {
+    document.getElementById('notif-drawer').style.transform = 'translateX(0)';
+    var ov = document.getElementById('notif-overlay');
+    ov.style.opacity = '1'; ov.style.visibility = 'visible';
+    _open = true; fetchRecent();
+  }
+  function closeNotifDrawer() {
+    document.getElementById('notif-drawer').style.transform = 'translateX(100%)';
+    var ov = document.getElementById('notif-overlay');
+    ov.style.opacity = '0'; ov.style.visibility = 'hidden';
+    _open = false;
+  }
+
+  fetch('/notifications/count')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { if (d) updateBadge(d.count); })
+    .catch(function () {});
+
+  window.toggleNotifDrawer = function () { _open ? closeNotifDrawer() : openDrawer(); };
+  window.closeNotifDrawer = closeNotifDrawer;
+  document.getElementById('notif-overlay').addEventListener('click', closeNotifDrawer);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && _open) closeNotifDrawer(); });
+})();
+
+// ── Service worker (PWA) ────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' })
+      .then(function (reg) { reg.update(); })
+      .catch(function () {});
+  });
+  var _swReloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function () {
+    if (_swReloaded) return;
+    _swReloaded = true;
+    location.reload();
+  });
+}
+</script>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

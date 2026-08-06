@@ -1,30 +1,15 @@
 from datetime import date
 from fastapi import APIRouter, Request, Depends, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Claim, Counterparty, Order
+from app.models import Claim, Counterparty, Order, CLAIM_TYPES, CLAIM_STATUSES
 from app.utils import log_action
 
 router = APIRouter(prefix="/claims", tags=["claims"])
 templates = Jinja2Templates(directory="app/templates")
-
-CLAIM_TYPES = {
-    "quality":   "Качество",
-    "delivery":  "Доставка",
-    "quantity":  "Количество",
-    "documents": "Документы",
-    "other":     "Прочее",
-}
-
-CLAIM_STATUSES = {
-    "new":         "Новая",
-    "in_progress": "В работе",
-    "resolved":    "Решена",
-    "rejected":    "Отклонена",
-}
 
 STATUS_COLORS = {
     "new":         "info",
@@ -69,6 +54,25 @@ async def list_claims(
         "filter_status": status,
         "filter_type": ctype,
     })
+
+
+@router.get("/open", response_class=JSONResponse)
+@login_required
+async def open_claims_json(request: Request, counterparty_id: int = 0, db: Session = Depends(get_db)):
+    """Нерешённые рекламации клиента — для напоминания в форме заказа, где
+    клиента выбирают на лету и перерисовать баннер на сервере нечем."""
+    from app.utils import open_claims_for_counterparty
+    claims = open_claims_for_counterparty(db, counterparty_id)
+    return JSONResponse({"items": [{
+        "id": c.id,
+        "number": c.number,
+        "status": CLAIM_STATUSES.get(c.status, c.status),
+        "type": CLAIM_TYPES.get(c.type, c.type),
+        "date": c.date.strftime("%d.%m.%Y") if c.date else "",
+        "description": c.description or "",
+        "order_id": c.order_id,
+        "order_number": c.order.number if c.order else "",
+    } for c in claims]})
 
 
 @router.get("/new", response_class=HTMLResponse)

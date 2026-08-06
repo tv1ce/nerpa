@@ -87,8 +87,14 @@
         </select>
       </div>
       <div class="col-12 col-md-auto d-flex align-items-center gap-2 flex-wrap">
-        <input type="date" name="date_from" id="oDateFrom" class="form-control form-control-sm" style="width:140px" value="{{ date_from }}" title="Дата с">
-        <input type="date" name="date_to" id="oDateTo" class="form-control form-control-sm" style="width:140px" value="{{ date_to }}" title="Дата по">
+        <span class="text-muted" style="font-size:.78rem">Дата заказа</span>
+        <input type="date" name="date_from" id="oDateFrom" class="form-control form-control-sm" style="width:140px" value="{{ date_from }}" title="Дата заказа с">
+        <input type="date" name="date_to" id="oDateTo" class="form-control form-control-sm" style="width:140px" value="{{ date_to }}" title="Дата заказа по">
+        {# Дата загрузки — отдельный период: логисту важно, что грузится в конкретные дни,
+           а не когда заказ оформили. Заказы без даты загрузки под этот фильтр не попадают. #}
+        <span class="text-muted" style="font-size:.78rem">Дата загрузки</span>
+        <input type="date" name="dispatch_from" id="oDispatchFrom" class="form-control form-control-sm" style="width:140px" value="{{ dispatch_from }}" title="Дата загрузки с">
+        <input type="date" name="dispatch_to" id="oDispatchTo" class="form-control form-control-sm" style="width:140px" value="{{ dispatch_to }}" title="Дата загрузки по">
         <div class="form-check form-check-inline mb-0">
           <input class="form-check-input" type="checkbox" name="overdue" id="oOverdue" value="1" {% if overdue %}checked{% endif %}>
           <label class="form-check-label text-danger fw-semibold" for="oOverdue" style="font-size:.82rem">Просроченные</label>
@@ -203,6 +209,8 @@
     var oCarrier = document.getElementById('oCarrier');
     var oDateFrom = document.getElementById('oDateFrom');
     var oDateTo = document.getElementById('oDateTo');
+    var oDispatchFrom = document.getElementById('oDispatchFrom');
+    var oDispatchTo = document.getElementById('oDispatchTo');
     var oOverdue = document.getElementById('oOverdue');
     var oForm = document.getElementById('oFilterForm');
     var oRows = document.getElementById('oRows');
@@ -219,6 +227,8 @@
       if (oCarrier.value && oCarrier.value !== '0') params.set('carrier_id', oCarrier.value);
       if (oDateFrom.value) params.set('date_from', oDateFrom.value);
       if (oDateTo.value) params.set('date_to', oDateTo.value);
+      if (oDispatchFrom.value) params.set('dispatch_from', oDispatchFrom.value);
+      if (oDispatchTo.value) params.set('dispatch_to', oDispatchTo.value);
       if (oOverdue.checked) params.set('overdue', '1');
       if (oSort && oSort !== 'date_desc') params.set('sort', oSort);
       fetchAndReplace(params, oRows);
@@ -259,7 +269,8 @@
       debounceTimer = setTimeout(runSearch, 300);
     });
 
-    [oStatus, oPaymentType, oCounterparty, oCarrier, oDateFrom, oDateTo, oOverdue].forEach(function(el) {
+    [oStatus, oPaymentType, oCounterparty, oCarrier, oDateFrom, oDateTo,
+     oDispatchFrom, oDispatchTo, oOverdue].forEach(function(el) {
       el.addEventListener('change', runSearch);
     });
 
@@ -278,6 +289,8 @@
       oCarrier.value = '0';
       oDateFrom.value = '';
       oDateTo.value = '';
+      oDispatchFrom.value = '';
+      oDispatchTo.value = '';
       oOverdue.checked = false;
       runSearch();
     });

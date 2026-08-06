@@ -1,14 +1,41 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}Вопросы — HR{% endblock %}
 {% block page_title %}Вопросы опроса{% endblock %}
 
 {% block content %}
-{% include "hr/_tabs.html" %}
+{% if not _hrmob %}{% include "hr/_tabs.html" %}{% endif %}
 
 {% if saved %}
-<div class="alert alert-success py-2">Сохранено.</div>
+  {% if _hrmob %}
+  <div class="hr-alert hr-alert-success"><i class="bi bi-check-circle-fill"></i>Сохранено</div>
+  {% else %}
+  <div class="alert alert-success py-2">Сохранено.</div>
+  {% endif %}
 {% endif %}
 
+{% if _hrmob %}
+<div class="hr-card">
+  <div class="hr-card-body">
+    <label class="form-label" for="qScope">Вопросы для</label>
+    <select id="qScope" class="hr-select" style="width:100%" onchange="location.href = this.value">
+      <option value="/hr/questions" {% if not position_id %}selected{% endif %}>Всех сотрудников</option>
+      {% for p in positions %}
+      <option value="/hr/questions?position={{ p.id }}" {% if position_id == p.id %}selected{% endif %}>
+        Должности «{{ p.title }}»
+      </option>
+      {% endfor %}
+    </select>
+    <p class="hr-hint" style="margin:9px 0 0">
+      {% if position_id %}
+        Заданные здесь вопросы заменяют общие — {{ position_title }} отвечает только на них.
+      {% else %}
+        Эти вопросы получают все, у кого нет своих вопросов по должности.
+      {% endif %}
+    </p>
+  </div>
+</div>
+{% else %}
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
   <span class="text-muted">Вопросы для:</span>
   <select class="form-select form-select-sm" style="max-width:320px"
@@ -28,10 +55,11 @@
     {% endif %}
   </span>
 </div>
+{% endif %}
 
 {% for sec in sections %}
-<div class="card border-0 shadow-sm mb-3">
-  <div class="card-body">
+<div class="{% if _hrmob %}hr-card{% else %}card border-0 shadow-sm mb-3{% endif %}">
+  <div class="{% if _hrmob %}hr-card-body{% else %}card-body{% endif %}">
     <div class="d-flex justify-content-between align-items-center mb-2">
       <div class="fw-semibold">{{ section_meta[sec.code].icon }} {{ section_meta[sec.code].label }}</div>
       {% if position_id and sec.is_own %}

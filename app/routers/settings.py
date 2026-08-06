@@ -538,6 +538,8 @@ async def save_bitrix(
     bitrix_notify_user_ids: list[str] = Form(default=[]),
     bitrix_lead_export_enabled: str = Form(default=""),
     bitrix_lead_responsible_id: str = Form(default=""),
+    bitrix_stock_enabled: str = Form(default=""),
+    bitrix_stock_field: str = Form(default=""),
     public_url: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
@@ -557,8 +559,21 @@ async def save_bitrix(
     company.bitrix_notify_user_ids = ",".join(selected) or None
     company.bitrix_lead_export_enabled = (bitrix_lead_export_enabled == "1")
     company.bitrix_lead_responsible_id = bitrix_lead_responsible_id.strip() or None
+    company.bitrix_stock_enabled = (bitrix_stock_enabled == "1")
+    company.bitrix_stock_field = bitrix_stock_field.strip() or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1&tab=integrations#bitrix", status_code=302)
+
+
+@router.post("/bitrix/stock-push", response_class=JSONResponse)
+@role_required("admin")
+async def bitrix_stock_push(request: Request, db: Session = Depends(get_db)):
+    """Ручная выгрузка остатков в каталог Bitrix24.
+
+    Обход каталога форсируем: кнопкой обычно пользуются как раз после того, как
+    в CRM завели новые товары и их надо сопоставить с номенклатурой TMS."""
+    from app.services.bitrix_client import push_stock_to_bitrix
+    return JSONResponse(push_stock_to_bitrix(db, force_rescan=True))
 
 
 @router.get("/bitrix/users", response_class=JSONResponse)

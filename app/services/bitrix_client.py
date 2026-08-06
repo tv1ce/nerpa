@@ -16,6 +16,8 @@ Bitrix24 CRM — интеграция через входящий вебхук (
 Docs: https://apidocs.bitrix24.ru/api-reference/
 """
 import logging
+import re
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -123,6 +125,42 @@ class BitrixClient:
         номенклатуры из 1С, если каталог заведён через штатную выгрузку), чтобы
         сопоставлять товарные позиции сделки с TMS не только по названию."""
         return self.call("crm.product.get", id=product_id) or {}
+
+    # ── Каталог товаров (выгрузка остатков TMS → Bitrix24) ───────────────────
+
+    def list_products(self, select: list = None) -> list:
+        """Весь каталог товаров постранично (crm.product.list отдаёт по 50).
+
+        Нужен, чтобы один раз сопоставить каталог CRM с номенклатурой TMS и
+        дальше писать остаток по запомненным привязкам."""
+        select = select or ["ID", "NAME", "XML_ID"]
+        rows, start = [], 0
+        while True:
+            batch = self.call("crm.product.list", select=select,
+                              filter={"ACTIVE": "Y"}, start=start) or []
+            rows.extend(batch)
+            if len(batch) < 50:
+                break
+            start += 50
+            if start > 20000:      # предохранитель от бесконечного цикла
+                logger.warning("Bitrix24: каталог длиннее 20000 позиций, обрываю обход")
+                break
+        return rows
+
+    def update_product_field(self, product_id, field: str, value) -> None:
+        """Пишет значение свойства товара каталога.
+
+        Формат значения у crm.product.update зависит от типа свойства: скаляр
+        подходит для строкового/числового, но часть порталов принимает только
+        развёрнутую форму {'value': ...}. Пробуем скаляр, при отказе — развёрнутую,
+        чтобы интеграция не требовала подгонки под конкретный портал вручную."""
+        try:
+            self.call("crm.product.update", id=product_id, fields={field: value})
+        except BitrixError as scalar_error:
+            try:
+                self.call("crm.product.update", id=product_id, fields={field: {"value": value}})
+            except BitrixError:
+                raise scalar_error
 
     def deal_uf_codes(self) -> dict:
         """Карта {ключ TMS: код UF-поля сделки}, найденная по подписям полей.
@@ -704,6 +742,205 @@ def push_order_event(order, company, event: str, db=None) -> bool:
         logger.error("Bitrix24 push (%s) заказ #%s сделка %s: %s",
                      event, order.number, order.bitrix_deal_id, e)
         return False
+
+
+# ── TMS → Bitrix24: остаток товара в свойство каталога ──────────────────────
+# Остаток в карточке товара CRM живёт в пользовательском свойстве каталога
+# (на текущем портале — PROPERTY_119 «Остаток»). Значение приезжает следом за
+# синхронизацией остатков из 1С: TMS не считает остаток сам, а берёт кэш
+# StockBalance1C — тот же, что показывает кладовщику (см. get_1c_balances).
+
+DEFAULT_STOCK_FIELD = "PROPERTY_119"
+
+# Каталог CRM обходим не чаще раза в час: привязка товар Bitrix ↔ товар TMS
+# запоминается в bitrix_product_links, а синхронизация остатков идёт раз в
+# минуту — сканировать каталог на каждый прогон незачем.
+_CATALOG_SCAN_TTL_SEC = 3600
+_last_catalog_scan = 0.0
+
+_NAME_PUNCT_RE = re.compile(r"[,.;:!?\"'()«»]")
+_NAME_SPACE_RE = re.compile(r"\s+")
+
+
+def normalize_product_name(name: str) -> str:
+    """Имя товара к сравнимому виду: регистр, «ё», пунктуация, лишние пробелы.
+
+    Общая для приёма сделки (api_bitrix) и выгрузки остатков: товар должен
+    сопоставляться одинаково независимо от того, откуда пришёл."""
+    s = (name or "").strip().lower().replace("ё", "е")
+    s = _NAME_PUNCT_RE.sub(" ", s)
+    return _NAME_SPACE_RE.sub(" ", s).strip()
+
+
+def _fmt_stock(value: float) -> str:
+    """Остаток строкой для свойства каталога: целое — без хвоста «.0»."""
+    v = round(float(value or 0), 3)
+    return str(int(v)) if v == int(v) else f"{v:g}"
+
+
+def _scan_bitrix_catalog(client, db, field: str) -> dict:
+    """Сопоставляет каталог Bitrix24 с номенклатурой TMS, создаёт недостающие
+    привязки в bitrix_product_links. Возвращает {bitrix_product_id: текущее
+    значение свойства остатка} — чтобы не переписывать то, что уже совпадает.
+
+    Порядок сопоставления тот же, что при приёме сделки: XML_ID против
+    external_id_1c/артикула, затем точное совпадение нормализованного имени.
+    """
+    from app.models import BitrixProductLink, Product
+
+    rows = client.list_products(select=["ID", "NAME", "XML_ID", field])
+
+    products = db.query(Product).filter(Product.is_active == True).all()
+    by_code: dict[str, Product] = {}
+    for p in products:
+        for code in (p.external_id_1c, p.article):
+            code = (code or "").strip()
+            if code:
+                by_code.setdefault(code, p)
+    # Неоднозначные имена (одно нормализованное имя на два товара) не матчим —
+    # лучше не выгрузить остаток, чем записать его не тому товару.
+    by_name: dict[str, Optional[Product]] = {}
+    for p in products:
+        key = normalize_product_name(p.name)
+        by_name[key] = None if key in by_name else p
+
+    known = {l.bitrix_product_id for l in db.query(BitrixProductLink).all()}
+    remote: dict[str, str] = {}
+    linked = 0
+
+    for row in rows:
+        bid = str(row.get("ID") or "").strip()
+        if not bid:
+            continue
+        remote[bid] = _read_property(row.get(field))
+        if bid in known:
+            continue
+        name = (row.get("NAME") or "").strip()
+        xml_id = (row.get("XML_ID") or "").strip()
+        product = by_code.get(xml_id) if xml_id else None
+        if not product:
+            product = by_name.get(normalize_product_name(name))
+        if product:
+            db.add(BitrixProductLink(bitrix_product_id=bid, product_id=product.id,
+                                     bitrix_product_name=name))
+            linked += 1
+
+    if linked:
+        try:
+            db.commit()
+            logger.info("Bitrix24: сопоставлено новых товаров каталога — %d", linked)
+        except Exception as e:
+            db.rollback()
+            logger.error("Bitrix24: не удалось сохранить привязки товаров: %s", e)
+
+    return remote
+
+
+def _read_property(raw) -> str:
+    """Значение свойства из ответа crm.product.*: приходит либо скаляром, либо
+    {'value': ..., 'valueId': ...}, либо списком таких словарей."""
+    if raw is None:
+        return ""
+    if isinstance(raw, dict):
+        return str(raw.get("value", "") or "")
+    if isinstance(raw, list):
+        return _read_property(raw[0]) if raw else ""
+    return str(raw)
+
+
+def push_stock_to_bitrix(db, force_rescan: bool = False) -> dict:
+    """Выгружает остатки TMS/1С в свойство товара каталога Bitrix24.
+
+    Вызывается сразу после sync_stock_balances_from_1c — то есть остаток в CRM
+    обновляется тем же тактом, что и на складе в TMS. Пишем только изменившиеся
+    значения (см. BitrixProductLink.last_stock_pushed), поэтому обычный прогон
+    раз в минуту почти всегда не делает ни одного вызова Bitrix24.
+
+    Товары, по которым 1С ни разу не отдавала остаток, пропускаются: у них нет
+    строки в StockBalance1C, и записать им 0 значило бы затереть значение,
+    которое в CRM могли проставить руками.
+
+    Наружу не бросает — сбой CRM не должен ронять синхронизацию с 1С.
+    """
+    global _last_catalog_scan
+    from app.models import BitrixProductLink, CompanySettings
+    from app.services.onec_client import get_1c_balances
+
+    result = {"pushed": 0, "skipped": 0, "linked": 0, "errors": []}
+
+    company = db.query(CompanySettings).first()
+    if not company or not company.bitrix_stock_enabled:
+        return result
+    client = get_bitrix_client(company)
+    if not client:
+        result["errors"].append("Bitrix24 не настроен или синхронизация выключена")
+        return result
+
+    field = (company.bitrix_stock_field or DEFAULT_STOCK_FIELD).strip()
+    balances = get_1c_balances(db)
+    if not balances:
+        result["errors"].append("Остатки из 1С ещё не синхронизированы — выгружать нечего")
+        return result
+
+    try:
+        with client:
+            links = db.query(BitrixProductLink).all()
+            linked_pids = {l.product_id for l in links}
+            # Каталог обходим, когда есть товары с остатком, но без привязки к
+            # CRM (или по явной кнопке), и не чаще раза в час.
+            unlinked = any(pid not in linked_pids for pid in balances)
+            stale = (time.monotonic() - _last_catalog_scan) > _CATALOG_SCAN_TTL_SEC
+            remote = {}
+            if force_rescan or (unlinked and stale):
+                before = len(links)
+                remote = _scan_bitrix_catalog(client, db, field)
+                _last_catalog_scan = time.monotonic()
+                links = db.query(BitrixProductLink).all()
+                result["linked"] = len(links) - before
+
+            now = datetime.now()
+            for link in links:
+                qty = balances.get(link.product_id)
+                if qty is None:
+                    continue
+                value = _fmt_stock(qty)
+                # Уже отправляли ровно это значение — в CRM оно и лежит
+                if link.last_stock_pushed is not None and _fmt_stock(link.last_stock_pushed) == value:
+                    result["skipped"] += 1
+                    continue
+                # После обхода каталога знаем и фактическое значение в CRM:
+                # совпало — значит писать нечего, только отмечаем у себя
+                if link.bitrix_product_id in remote and remote[link.bitrix_product_id] == value:
+                    link.last_stock_pushed = float(qty)
+                    link.stock_pushed_at = now
+                    result["skipped"] += 1
+                    continue
+                try:
+                    client.update_product_field(link.bitrix_product_id, field, value)
+                    link.last_stock_pushed = float(qty)
+                    link.stock_pushed_at = now
+                    result["pushed"] += 1
+                except BitrixError as e:
+                    result["errors"].append(f"товар {link.bitrix_product_id}: {e}")
+                    if len(result["errors"]) >= 10:
+                        result["errors"].append("…дальнейшие ошибки не показаны")
+                        break
+    except BitrixError as e:
+        result["errors"].append(str(e))
+    except Exception as e:                       # noqa: BLE001 — сбой CRM не роняет синк 1С
+        logger.error("push_stock_to_bitrix: %s", e)
+        result["errors"].append(str(e))
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        result["errors"].append(f"commit: {e}")
+
+    if result["pushed"] or result["errors"]:
+        logger.info("Bitrix24 остатки: отправлено %d, без изменений %d, привязано %d, ошибок %d",
+                    result["pushed"], result["skipped"], result["linked"], len(result["errors"]))
+    return result
 
 
 # ── TMS → Bitrix24: авто-выгрузка лидов «Прозвон»/«Поле» в статусе «deal» ────

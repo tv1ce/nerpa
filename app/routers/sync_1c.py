@@ -121,8 +121,15 @@ async def sync_transfers(request: Request, db: Session = Depends(get_db)):
 @router.post("/balances")
 @role_required("admin")
 async def sync_balances(request: Request, db: Session = Depends(get_db)):
-    """Ручной запуск синхронизации остатков по складам из 1С."""
+    """Ручной запуск синхронизации остатков по складам из 1С.
+
+    Следом остаток уезжает в свойство товара каталога Bitrix24 — тем же
+    порядком, что и в фоновой синхронизации, чтобы ручной прогон давал
+    ровно тот же результат."""
+    from app.services.bitrix_client import push_stock_to_bitrix
     result = sync_stock_balances_from_1c(db)
+    result["bitrix"] = push_stock_to_bitrix(db)
+    result["errors"] = result.get("errors", []) + result["bitrix"].get("errors", [])
     _audit_sync(db, "sync_balances", result)
     return JSONResponse(result)
 
@@ -190,6 +197,8 @@ async def run_all(request: Request, db: Session = Depends(get_db)):
     rr = sync_receiving_tasks_from_1c(db)
     rtr = sync_transfer_tasks_from_1c(db)
     rb = sync_stock_balances_from_1c(db)
+    from app.services.bitrix_client import push_stock_to_bitrix
+    rbx = push_stock_to_bitrix(db)
     result = {
         "warehouses": rw,
         "categories": rc,

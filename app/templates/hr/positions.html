@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}Должности — HR{% endblock %}
 {% block page_title %}Должности{% endblock %}
 {% block topbar_actions %}
@@ -10,6 +11,64 @@
 {% endblock %}
 
 {% block content %}
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+{% if request.query_params.get('error') == 'in_use' %}
+<div class="hr-alert hr-alert-warn">
+  <i class="bi bi-exclamation-triangle-fill"></i>
+  Нельзя удалить должность, пока к ней привязаны сотрудники — переназначьте их или снимите галочку «Активна».
+</div>
+{% endif %}
+
+<p class="hr-hint" style="padding:0 4px 12px">
+  Должность определяет, какие разделы отчёта нужно заполнять по сотруднику.
+  Отключённые разделы не показываются ни в форме HR, ни в опросах.
+</p>
+
+{% for p in positions %}
+<div class="hr-card">
+  <div class="hr-card-body">
+    <div class="hr-between" style="align-items:flex-start">
+      <div style="min-width:0">
+        <div class="hr-row-title">
+          {{ p.title }}
+          {% if not p.is_active %}<span class="hr-pill hr-pill-muted" style="font-size:.62rem">неактивна</span>{% endif %}
+        </div>
+        <div class="hr-row-sub">{{ emp_counts.get(p.id, 0) }} сотр. · {{ p.enabled_sections | length }} разд.</div>
+      </div>
+      <button type="button" class="hr-btn hr-btn-outline hr-btn-sm hr-btn-icon"
+              data-bs-toggle="modal" data-bs-target="#editPosition{{ p.id }}"
+              aria-label="Изменить должность"><i class="bi bi-pencil"></i></button>
+    </div>
+    <div class="hr-chips" style="margin-top:9px">
+      {% for code in all_sections %}{% if code in p.enabled_sections %}
+      <span class="hr-pill hr-pill-muted">{{ section_meta[code].icon }} {{ section_meta[code].label | truncate(20) }}</span>
+      {% endif %}{% endfor %}
+    </div>
+    {% if emp_counts.get(p.id, 0) == 0 %}
+    <form method="post" action="/hr/positions/{{ p.id }}/delete" style="margin-top:10px"
+          data-confirm="Удалить должность «{{ p.title }}»?">
+      <button class="hr-btn hr-btn-danger hr-btn-sm hr-btn-block"><i class="bi bi-trash"></i>Удалить</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-diagram-3"></i>
+    <p>Должностей пока нет</p>
+    <p>Добавьте первую кнопкой внизу справа.</p>
+  </div>
+</div>
+{% endfor %}
+
+<button type="button" class="hr-fab" data-bs-toggle="modal" data-bs-target="#addPosition"
+        aria-label="Добавить должность"><i class="bi bi-plus-lg"></i></button>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 {% include "hr/_tabs.html" %}
 {% if request.query_params.get('error') == 'in_use' %}
 <div class="alert alert-warning py-2">
@@ -73,7 +132,9 @@
     </table>
   </div>
 </div>
+{% endif %}
 
+{# ── Модалки — общие для обоих видов ── #}
 {# ── Модалка: добавить должность ── #}
 <div class="modal fade" id="addPosition" tabindex="-1">
   <div class="modal-dialog">

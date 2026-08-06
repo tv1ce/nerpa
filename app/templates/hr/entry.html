@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}{{ employee.full_name }} — HR-учёт{% endblock %}
 {% block page_title %}{{ employee.full_name }}{% endblock %}
 {% block topbar_actions %}
@@ -11,7 +12,66 @@
 </div>
 {% endblock %}
 
+{% block header_actions %}
+<a href="/hr/employees/{{ employee.id }}/profile" class="hr-icon-btn" title="Профайл сотрудника" aria-label="Профайл сотрудника">
+  <i class="bi bi-person-lines-fill"></i>
+</a>
+{% endblock %}
+
 {% block content %}
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+<div class="hr-period">
+  <a href="/hr/entry/{{ employee.id }}?period={{ prev_period }}" class="hr-period-btn" aria-label="Предыдущий месяц"><i class="bi bi-chevron-left"></i></a>
+  <div class="hr-period-label">{{ period_label }}<small>{{ employee.position_title or 'должность не задана' }}</small></div>
+  <a href="/hr/entry/{{ employee.id }}?period={{ next_period }}" class="hr-period-btn" aria-label="Следующий месяц"><i class="bi bi-chevron-right"></i></a>
+</div>
+
+{% if saved %}<div class="hr-alert hr-alert-success"><i class="bi bi-check-circle-fill"></i>Сохранено</div>{% endif %}
+
+<form method="post" action="/hr/entry/{{ employee.id }}">
+  <input type="hidden" name="period" value="{{ period }}">
+
+  {% for code in sections %}
+  <div class="hr-acc {% if loop.first %}open{% endif %}">
+    <button type="button" class="hr-acc-head" onclick="hrAcc(this)"
+            aria-expanded="{{ 'true' if loop.first else 'false' }}">
+      <span class="ic" aria-hidden="true">{{ section_meta[code].icon }}</span>
+      <span class="tx">{{ section_meta[code].label }}</span>
+      <i class="bi bi-chevron-down chev" aria-hidden="true"></i>
+    </button>
+    <div class="hr-acc-body">
+      {% include "hr/_section_fields.html" %}
+    </div>
+  </div>
+  {% endfor %}
+
+  <button type="submit" class="hr-btn hr-btn-cta hr-btn-block" style="margin:14px 0 4px">
+    <i class="bi bi-check-lg"></i>Сохранить
+  </button>
+  <a href="/hr/" class="hr-btn hr-btn-outline hr-btn-block">← Ко всем сотрудникам</a>
+</form>
+
+<script>
+// Аккордеон разделов: открыт всегда один — на телефоне длинная простыня полей
+// без сворачивания читается плохо.
+function hrAcc(btn) {
+  var item = btn.closest('.hr-acc');
+  var wasOpen = item.classList.contains('open');
+  document.querySelectorAll('.hr-acc.open').forEach(function (el) {
+    el.classList.remove('open');
+    el.querySelector('.hr-acc-head').setAttribute('aria-expanded', 'false');
+  });
+  if (!wasOpen) {
+    item.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+  }
+}
+</script>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 {% if saved %}
 <div class="alert alert-success py-2">Сохранено.</div>
 {% endif %}
@@ -42,4 +102,5 @@
   <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
 </div>
 </form>
+{% endif %}
 {% endblock %}

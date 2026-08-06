@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}Опросы — HR{% endblock %}
 {% block page_title %}Опросы (рассылки){% endblock %}
 {% block topbar_actions %}
@@ -10,6 +11,72 @@
 {% endblock %}
 
 {% block content %}
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+{% if request.query_params.get('error') == 'empty' %}
+<div class="hr-alert hr-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i>Выберите хотя бы один раздел и одного сотрудника</div>
+{% endif %}
+
+<p class="hr-hint" style="padding:0 4px 12px">
+  Раунд — рассылка опроса за месяц. Выбираете разделы и сотрудников, система выдаёт
+  персональные ссылки: каждый отвечает по своей, без входа в TMS.
+</p>
+
+{% for s in surveys %}
+{% set answered = s.tokens | selectattr('submitted_at') | list | length %}
+{% set totaltok = s.tokens | length %}
+<div class="hr-card">
+  <a href="/hr/surveys/{{ s.id }}" class="hr-card-link">
+    <div class="hr-card-body">
+      <div class="hr-between" style="align-items:flex-start">
+        <div style="min-width:0">
+          <div class="hr-row-title">{{ s.title or 'Опрос' }}</div>
+          <div class="hr-row-sub">{{ period_label_fn(s.period, s.period_kind or 'month') }}</div>
+        </div>
+        {% if s.is_open %}
+        <span class="hr-pill hr-pill-success">Открыт</span>
+        {% else %}
+        <span class="hr-pill hr-pill-muted">Закрыт</span>
+        {% endif %}
+      </div>
+      <div class="hr-emp-fill">
+        <span>Ответили {{ answered }} из {{ totaltok }}</span>
+        <span>{{ s.section_list | length }} разд.</span>
+      </div>
+      <div class="hr-progress">
+        <span class="{% if totaltok and answered == totaltok %}full{% elif answered %}part{% else %}none{% endif %}"
+              style="width:{{ (answered / totaltok * 100) | round if totaltok else 0 }}%"></span>
+      </div>
+    </div>
+  </a>
+  <div class="hr-emp-actions">
+    <a href="/hr/surveys/{{ s.id }}" class="hr-btn hr-btn-soft hr-btn-sm" style="flex:1">
+      <i class="bi bi-link-45deg"></i>Ссылки
+    </a>
+    <form method="post" action="/hr/surveys/{{ s.id }}/delete" style="margin:0"
+          data-confirm="Удалить опрос «{{ s.title or 'Опрос' }}»? Ссылки перестанут работать, собранные ответы останутся.">
+      <button class="hr-btn hr-btn-danger hr-btn-sm hr-btn-icon" aria-label="Удалить опрос">
+        <i class="bi bi-trash"></i>
+      </button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-send"></i>
+    <p>Опросов пока нет</p>
+    <p>Создайте раунд кнопкой внизу справа — система выдаст персональные ссылки.</p>
+  </div>
+</div>
+{% endfor %}
+
+<button type="button" class="hr-fab" data-bs-toggle="modal" data-bs-target="#newSurvey"
+        aria-label="Новый раунд опроса"><i class="bi bi-plus-lg"></i></button>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 {% include "hr/_tabs.html" %}
 {% if request.query_params.get('error') == 'empty' %}
 <div class="alert alert-warning py-2">Выберите хотя бы один раздел и одного сотрудника.</div>
@@ -68,8 +135,9 @@
     </table>
   </div>
 </div>
+{% endif %}
 
-{# ── Модалка: новый раунд ── #}
+{# ── Модалка: новый раунд — общая для обоих видов ── #}
 <div class="modal fade" id="newSurvey" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">

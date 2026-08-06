@@ -348,3 +348,50 @@ def maybe_notify_low_stock(db: Session, product_id: int) -> None:
             Notification.type == "low_stock",
             Notification.is_read == False,
         ).update({"is_read": True})
+
+
+# ── Открытые рекламации: напоминание в последующих заказах ───────────────────
+# Рекламация не должна теряться после того, как её завели: пока она не решена,
+# менеджер обязан видеть её в КАЖДОМ следующем заказе этого клиента — иначе
+# «в работе» тихо висит месяцами, а клиенту отгружают дальше как ни в чём
+# не бывало.
+#
+# Открытой считаем и «Новую», и «В работе»: обе означают «не решена», а
+# закрывают напоминание «Решена» и «Отклонена».
+OPEN_CLAIM_STATUSES = ("new", "in_progress")
+
+
+def open_claims_for_counterparty(db: Session, counterparty_id: int, before=None,
+                                 exclude_order_id: int = None) -> list:
+    """Нерешённые рекламации клиента — для напоминания в карточке заказа.
+
+    before — момент создания заказа: показываем только те рекламации, которые
+    появились раньше него («последующие заказы»). None (новый заказ, ещё не
+    сохранён) — значит все открытые.
+    exclude_order_id — заказ, из которого рекламация и была заведена: в нём
+    самом напоминание не нужно, оно там и так на виду.
+    """
+    from app.models import Claim
+
+    if not counterparty_id:
+        return []
+    q = db.query(Claim).filter(
+        Claim.counterparty_id == counterparty_id,
+        Claim.status.in_(OPEN_CLAIM_STATUSES),
+    )
+    if exclude_order_id:
+        q = q.filter((Claim.order_id.is_(None)) | (Claim.order_id != exclude_order_id))
+    if before is not None:
+        q = q.filter(Claim.created_at <= before)
+    return q.order_by(Claim.date.desc(), Claim.id.desc()).all()
+
+
+def counterparties_with_open_claims(db: Session, counterparty_ids=None) -> set:
+    """{counterparty_id} с нерешёнными рекламациями — чтобы пометить строки
+    списка заказов одним запросом, без выборки рекламаций на каждый заказ."""
+    from app.models import Claim
+
+    q = db.query(Claim.counterparty_id).filter(Claim.status.in_(OPEN_CLAIM_STATUSES))
+    if counterparty_ids:
+        q = q.filter(Claim.counterparty_id.in_(list(counterparty_ids)))
+    return {cp_id for (cp_id,) in q.distinct().all()}

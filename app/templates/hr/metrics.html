@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}Метрика сотрудников{% endblock %}
 {% block page_title %}Метрика сотрудников{% endblock %}
 
@@ -32,6 +33,158 @@
 {% endblock %}
 
 {% block content %}
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+<div class="hr-period">
+  <a href="/hr/metrics?week={{ prev_anchor }}&weeks={{ week_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="hr-period-btn" aria-label="На 4 недели назад"><i class="bi bi-chevron-left"></i></a>
+  <div class="hr-period-label">
+    {{ weeks[0].short if weeks else '' }} — {{ weeks[-1].short if weeks else '' }}
+    {% if anchor != this_week %}
+    <small><a href="/hr/metrics?weeks={{ week_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">вернуться к текущей неделе</a></small>
+    {% else %}
+    <small>по текущую неделю</small>
+    {% endif %}
+  </div>
+  <a href="/hr/metrics?week={{ next_anchor }}&weeks={{ week_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="hr-period-btn" aria-label="На 4 недели вперёд"><i class="bi bi-chevron-right"></i></a>
+</div>
+
+{% if saved == 'error' %}
+<div class="hr-alert hr-alert-danger"><i class="bi bi-x-octagon-fill"></i>Не удалось сохранить: заполните сотрудника и название метрики</div>
+{% elif saved %}
+<div class="hr-alert hr-alert-success"><i class="bi bi-check-circle-fill"></i>Сохранено</div>
+{% endif %}
+{% if report == 'ok' %}
+<div class="hr-alert hr-alert-success"><i class="bi bi-send-check-fill"></i>Отчёт по метрикам отправлен в Telegram</div>
+{% elif report == 'nochat' %}
+<div class="hr-alert hr-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i>Не задан chat_id — укажите его в форме отправки</div>
+{% elif report == 'notoken' %}
+<div class="hr-alert hr-alert-danger"><i class="bi bi-x-octagon-fill"></i>Токен Telegram-бота не настроен (Настройки → Telegram-бот)</div>
+{% elif report == 'error' %}
+<div class="hr-alert hr-alert-danger"><i class="bi bi-x-octagon-fill"></i>Не удалось отправить отчёт. Проверьте токен Telegram-бота</div>
+{% endif %}
+
+<div class="hr-kpi-grid">
+  <div class="hr-kpi hero">
+    <div class="hr-kpi-label">Метрика растёт у</div>
+    <div class="hr-kpi-val">{{ kpi.growing }} <span class="of">/ {{ kpi.compared }}</span></div>
+    <div class="hr-kpi-sub">{{ kpi.growing_pct }}% · по двум последним заполненным неделям</div>
+  </div>
+  <div class="hr-kpi">
+    <div class="hr-kpi-label">Заполнено за неделю</div>
+    <div class="hr-kpi-val">{{ kpi.filled_now }} <span class="of">/ {{ kpi.expected_now }}</span></div>
+    <div class="hr-progress">
+      <span class="{% if kpi.filled_pct == 100 %}full{% elif kpi.filled_pct > 0 %}part{% else %}none{% endif %}"
+            style="width:{{ kpi.filled_pct }}%"></span>
+    </div>
+  </div>
+</div>
+
+<form method="get" action="/hr/metrics" class="hr-filter-row">
+  <input type="hidden" name="week" value="{{ anchor }}">
+  <select name="manager" class="hr-select" onchange="this.form.submit()" aria-label="Подразделение">
+    <option value="">Все подразделения</option>
+    {% for m in managers %}
+    <option value="{{ m.id }}" {% if manager_id == m.id %}selected{% endif %}>{{ m.full_name }}</option>
+    {% endfor %}
+  </select>
+  <select name="weeks" class="hr-select" style="max-width:130px" onchange="this.form.submit()" aria-label="Сколько недель">
+    {% for n, label in week_options %}
+    <option value="{{ n }}" {% if week_count == n %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<p class="hr-hint" style="padding:0 4px 10px">
+  <i class="bi bi-info-circle"></i> Значение сохраняется само, как только уходите из поля.
+  Лента недель прокручивается вбок.
+</p>
+
+{% for group_name, group_rows in groups %}
+<div class="hr-section-title"><span>{{ group_name }}</span></div>
+  {% for r in group_rows %}{% set m = r.metric %}
+  <div class="hr-card">
+    <div class="hr-metric-head">
+      <div style="min-width:0">
+        <a href="/hr/employees/{{ r.employee.id }}/profile" class="hr-metric-emp">{{ r.employee.full_name }}</a>
+        <div class="hr-metric-title">{{ m.title }}</div>
+        <div class="hr-metric-sub">
+          {% if r.target_text %}цель {{ r.target_text }}{% if not m.better_higher %} и ниже{% endif %}{% else %}без цели{% endif %}
+        </div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        {% if r.delta is not none %}
+        <div class="hr-trend {{ 'up' if r.growing else ('flat' if r.trend in ('flat', 'none') else 'down') }}">
+          {% if r.trend == 'up' %}▲{% elif r.trend == 'down' %}▼{% else %}▬{% endif %} {{ r.delta_text }}
+        </div>
+        {% endif %}
+        <button type="button" class="hr-btn hr-btn-outline hr-btn-sm hr-btn-icon" style="margin-top:6px"
+                data-bs-toggle="modal" data-bs-target="#editMetric{{ m.id }}"
+                aria-label="Настроить метрику"><i class="bi bi-gear"></i></button>
+      </div>
+    </div>
+
+    <div class="hr-weeks">
+      {% for c in r.cells %}{% set w = weeks[loop.index0] %}
+      <div class="hr-week mcell st-{{ c.status }} {% if m.kind == 'ratio' %}ratio{% endif %} {% if w.is_current %}cur{% endif %}"
+           data-metric="{{ m.id }}" data-week="{{ c.iso }}"
+           {% if c.comment %}title="{{ c.comment }}{% if c.author %} — {{ c.author }}{% endif %}"{% endif %}>
+        <div class="hr-week-label">{{ w.short }}</div>
+        {% if m.kind == 'ratio' %}
+        <div class="hr-week-pair">
+          <input type="text" inputmode="decimal" class="hr-week-input mv-total" placeholder="всё"
+                 aria-label="Сколько всего за неделю {{ w.label }}" value="{{ c.total_input }}">
+          <span class="sep">/</span>
+          <input type="text" inputmode="decimal" class="hr-week-input mv-bad" placeholder="ош."
+                 aria-label="Сколько с ошибкой за неделю {{ w.label }}" value="{{ c.bad_input }}">
+        </div>
+        {% else %}
+        <input type="text" inputmode="decimal" class="hr-week-input mv-value"
+               aria-label="Значение за неделю {{ w.label }}" value="{{ c.input }}">
+        {% endif %}
+        <span class="calc hr-week-calc">{{ c.text }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-graph-up-arrow"></i>
+    <p>Метрик пока нет</p>
+    <p>Нажмите «+» внизу, чтобы задать первую — после этого руководители смогут заполнять её каждую неделю.</p>
+  </div>
+</div>
+{% endfor %}
+
+<div class="hr-section-title"><span>Выгрузки и отчёты</span></div>
+<div class="hr-card">
+  <div class="hr-card-body hr-stack">
+    <button type="button" class="hr-btn hr-btn-outline hr-btn-block"
+            data-bs-toggle="modal" data-bs-target="#sendMetricsReport">
+      <i class="bi bi-telegram"></i>Отчёт недели в Telegram
+    </button>
+    <a class="hr-btn hr-btn-outline hr-btn-block"
+       href="/hr/metrics/month/report?month={{ anchor_month }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+      <i class="bi bi-file-earmark-text"></i>Отчёт за месяц
+    </a>
+    <a class="hr-btn hr-btn-outline hr-btn-block"
+       href="/hr/metrics/export.csv?week={{ anchor }}&weeks={{ week_count }}">
+      <i class="bi bi-download"></i>Выгрузить CSV
+    </a>
+  </div>
+</div>
+
+<button type="button" class="hr-fab" data-bs-toggle="modal" data-bs-target="#addMetric"
+        aria-label="Новая метрика"><i class="bi bi-plus-lg"></i></button>
+
+<div class="hr-toast" id="savingDot">Сохранено ✓</div>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 <style>
   /* ── Таблица метрик: липкие первые колонки, компактные ячейки ── */
   .mgrid-wrap { overflow-x: auto; }
@@ -107,6 +260,7 @@
                 border-radius: 999px; font-size: .78rem; opacity: 0;
                 transition: opacity .18s ease; pointer-events: none; }
   .saving-dot.on { opacity: .92; }
+  .saving-dot.bad { background: #dc2626; }
 </style>
 
 {% include "hr/_tabs.html" %}
@@ -251,6 +405,9 @@
 </div>
 
 <div class="saving-dot" id="savingDot">Сохранено ✓</div>
+{% endif %}
+
+{# ── Модалки — общие для обоих видов ── #}
 
 <!-- ── Модалка: новая метрика ─────────────────────────────────────────────── -->
 <div class="modal fade" id="addMetric" tabindex="-1">
@@ -481,7 +638,7 @@
   var dotTimer = null;
   function flash(text, bad) {
     dot.textContent = text;
-    dot.style.background = bad ? '#dc2626' : 'var(--text)';
+    dot.classList.toggle('bad', !!bad);
     dot.classList.add('on');
     clearTimeout(dotTimer);
     dotTimer = setTimeout(function () { dot.classList.remove('on'); }, 1600);
@@ -492,7 +649,8 @@
     return { value: get('.mv-value'), raw_total: get('.mv-total'), raw_bad: get('.mv-bad') };
   }
 
-  document.querySelectorAll('td.mcell').forEach(function (cell) {
+  // .mcell — ячейка недели: на десктопе это <td>, на телефоне карточка ленты
+  document.querySelectorAll('.mcell').forEach(function (cell) {
     cell.dataset.snap = JSON.stringify(snapshot(cell));
 
     cell.querySelectorAll('input').forEach(function (input) {

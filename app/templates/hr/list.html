@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}HR-учёт{% endblock %}
 {% block page_title %}HR-учёт{% endblock %}
 {% block topbar_actions %}
@@ -20,6 +21,206 @@
 {% endblock %}
 
 {% block content %}
+
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+<div class="hr-period">
+  <a href="/hr/?period={{ prev_period }}" class="hr-period-btn" aria-label="Предыдущий месяц"><i class="bi bi-chevron-left"></i></a>
+  <div class="hr-period-label">
+    {{ period_label }}
+    {% if period != today_period %}<small>не текущий месяц</small>{% endif %}
+  </div>
+  <a href="/hr/?period={{ next_period }}" class="hr-period-btn" aria-label="Следующий месяц"><i class="bi bi-chevron-right"></i></a>
+</div>
+
+{% if saved %}<div class="hr-alert hr-alert-success"><i class="bi bi-check-circle-fill"></i>Сохранено</div>{% endif %}
+{% if report == 'ok' %}
+<div class="hr-alert hr-alert-success"><i class="bi bi-send-check-fill"></i>ИИ-отчёт отправлен в Telegram</div>
+{% elif report == 'nochat' %}
+<div class="hr-alert hr-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i>Не задан chat_id — укажите его в форме отправки</div>
+{% elif report == 'notoken' %}
+<div class="hr-alert hr-alert-danger"><i class="bi bi-x-octagon-fill"></i>Токен Telegram-бота не настроен (Настройки → Telegram-бот)</div>
+{% elif report == 'error' %}
+<div class="hr-alert hr-alert-danger"><i class="bi bi-x-octagon-fill"></i>Не удалось отправить отчёт. Проверьте ключ OpenRouter и токен бота</div>
+{% endif %}
+
+{# Сводка: сколько сотрудников закрыли месяц полностью и что с вакансиями #}
+{% set ns = namespace(full=0) %}
+{% for e in employees %}
+  {% set _en = e.enabled_sections %}
+  {% set _done = (filled_sections.get(e.id, []) | select('in', _en) | list) | length %}
+  {% if _en | length and _done == _en | length %}{% set ns.full = ns.full + 1 %}{% endif %}
+{% endfor %}
+<div class="hr-kpi-grid">
+  <div class="hr-kpi hero">
+    <div class="hr-kpi-label">Заполнено полностью</div>
+    <div class="hr-kpi-val">{{ ns.full }} <span class="of">/ {{ employees | length }}</span></div>
+    <div class="hr-progress">
+      <span style="width:{{ (ns.full / employees|length * 100) | round if employees else 0 }}%"></span>
+    </div>
+    <div class="hr-kpi-sub">все разделы за {{ period_label }}</div>
+  </div>
+  <div class="hr-kpi">
+    <div class="hr-kpi-label">Вакансии</div>
+    <div class="hr-kpi-val">{{ vacancy_stats.open or 0 }}</div>
+    <div class="hr-kpi-sub">
+      {% if vacancy_stats.avg %}закрываем за {{ vacancy_stats.avg_text }}{% else %}закрытых пока нет{% endif %}
+    </div>
+  </div>
+</div>
+
+{# ── Сотрудники ── #}
+<div class="hr-section-title">
+  <span>Сотрудники{% if employees %}<span class="hr-count-badge">{{ employees | length }}</span>{% endif %}</span>
+</div>
+
+{% for e in employees %}
+{% set parts = e.full_name.split() %}
+{% set enabled = e.enabled_sections %}
+{% set total = enabled | length %}
+{% set done = (filled_sections.get(e.id, []) | select('in', enabled) | list) | length %}
+<div class="hr-card">
+  <a href="/hr/employees/{{ e.id }}/profile" class="hr-card-link">
+    <div class="hr-emp">
+      <div class="hr-avatar {% if not e.is_active %}off{% endif %}" aria-hidden="true">
+        {{ parts[0][0] if parts else '?' }}{{ parts[1][0] if parts | length > 1 else '' }}
+      </div>
+      <div class="hr-emp-body">
+        <div class="hr-emp-name">
+          {{ e.full_name }}
+          {% if not e.is_active %}<span class="hr-pill hr-pill-muted" style="font-size:.62rem">неактивен</span>{% endif %}
+        </div>
+        <div class="hr-emp-meta">
+          {{ e.position_title or 'должность не задана' }}
+          {%- if e.manager %} · рук.: {{ e.manager.full_name }}{% endif %}
+        </div>
+        <div class="hr-emp-fill">
+          <span>{{ done }} из {{ total }} разделов</span>
+          {% if total and done == total %}
+          <span class="hr-pill hr-pill-success"><i class="bi bi-check-lg"></i>готово</span>
+          {% elif done %}
+          <span class="hr-pill hr-pill-warn">в работе</span>
+          {% else %}
+          <span class="hr-pill hr-pill-muted">не начато</span>
+          {% endif %}
+        </div>
+        <div class="hr-progress">
+          <span class="{% if total and done == total %}full{% elif done %}part{% else %}none{% endif %}"
+                style="width:{{ (done / total * 100) | round if total else 0 }}%"></span>
+        </div>
+      </div>
+    </div>
+  </a>
+  <div class="hr-emp-actions">
+    <a href="/hr/entry/{{ e.id }}?period={{ period }}" class="hr-btn hr-btn-soft hr-btn-sm" style="flex:1">
+      <i class="bi bi-pencil-square"></i>Заполнить
+    </a>
+    {% if e.id in link_ids %}
+    <button type="button" class="hr-btn hr-btn-outline hr-btn-sm hr-btn-icon metric-link" data-id="{{ e.id }}"
+            aria-label="Ссылка на форму метрик" title="Ссылка на еженедельную форму метрик">
+      <i class="bi bi-link-45deg"></i>
+    </button>
+    {% endif %}
+    <button type="button" class="hr-btn hr-btn-outline hr-btn-sm hr-btn-icon"
+            data-bs-toggle="modal" data-bs-target="#editEmployee{{ e.id }}"
+            aria-label="Изменить карточку сотрудника">
+      <i class="bi bi-three-dots"></i>
+    </button>
+  </div>
+</div>
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-person-plus"></i>
+    <p>Сотрудников пока нет</p>
+    <p>Добавьте первого кнопкой внизу справа — и можно вести учёт.</p>
+  </div>
+</div>
+{% endfor %}
+
+{# ── Достижения команды ── #}
+<div class="hr-section-title"><span>🏅 Достижения как команда</span></div>
+<div class="hr-card">
+  <div class="hr-card-body">
+    <p class="hr-hint" style="margin:0 0 9px">
+      Что получилось у команды в целом за {{ period_label }}. Попадёт в ИИ-отчёт в Telegram.
+    </p>
+    <form method="post" action="/hr/team-achievement">
+      <input type="hidden" name="period" value="{{ period }}">
+      <textarea name="text" class="form-control" rows="4"
+                placeholder="Например: команда работает как живой организм — без торможения и сбоев, даже когда меня нет на связи.">{{ team_achievement }}</textarea>
+      <button class="hr-btn hr-btn-cta hr-btn-block hr-btn-sm" style="margin-top:10px">
+        <i class="bi bi-check-lg"></i>Сохранить
+      </button>
+    </form>
+  </div>
+</div>
+
+{# ── Вакансии ── #}
+<div class="hr-section-title">
+  <span>📆 Вакансии</span>
+  <button type="button" class="linkish" data-bs-toggle="modal" data-bs-target="#addVacancy">
+    <i class="bi bi-plus-lg"></i> Добавить
+  </button>
+</div>
+<div class="hr-card">
+  {% for row in vacancies %}{% set v = row.v %}
+  <div class="hr-row">
+    <div class="hr-row-body">
+      <div class="hr-row-title">{{ v.title }}</div>
+      <div class="hr-row-sub">
+        {{ v.opened_at.strftime('%d.%m.%Y') if v.opened_at else '—' }}
+        {%- if row.is_closed %} → {{ v.closed_at.strftime('%d.%m.%Y') }}{% endif %}
+      </div>
+      <div style="margin-top:6px">
+        {% if row.is_closed %}
+        <span class="hr-pill hr-pill-success">закрыта за {{ row.days_text }}</span>
+        {% else %}
+        <span class="hr-pill hr-pill-warn">в работе {{ row.days_text }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="hr-row-side hr-stack">
+      {% if not row.is_closed %}
+      <form method="post" action="/hr/vacancies/{{ v.id }}/close" style="margin:0">
+        <button class="hr-btn hr-btn-soft hr-btn-sm">Закрыть</button>
+      </form>
+      {% endif %}
+      <button type="button" class="hr-btn hr-btn-outline hr-btn-sm hr-btn-icon"
+              data-bs-toggle="modal" data-bs-target="#editVacancy{{ v.id }}"
+              aria-label="Изменить вакансию"><i class="bi bi-three-dots"></i></button>
+    </div>
+  </div>
+  {% else %}
+  <div class="hr-empty">
+    <i class="bi bi-briefcase"></i>
+    <p>Вакансий нет</p>
+    <p>Добавьте открытую — система посчитает, за сколько дней её закрыли.</p>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── Отчёты ── #}
+<div class="hr-section-title"><span>Отчёты в Telegram</span></div>
+<div class="hr-card">
+  <div class="hr-card-body hr-stack">
+    <button type="button" class="hr-btn hr-btn-cta hr-btn-block"
+            data-bs-toggle="modal" data-bs-target="#sendAiReport">
+      <i class="bi bi-stars"></i>ИИ-отчёт за {{ period_label }}
+    </button>
+    <button type="button" class="hr-btn hr-btn-outline hr-btn-block"
+            data-bs-toggle="modal" data-bs-target="#sendEnpsManagersReport">
+      <i class="bi bi-megaphone"></i>eNPS руководителей
+    </button>
+  </div>
+</div>
+
+<button type="button" class="hr-fab" data-bs-toggle="modal" data-bs-target="#addEmployee"
+        aria-label="Добавить сотрудника"><i class="bi bi-person-plus"></i></button>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 
 {% include "hr/_tabs.html" %}
 
@@ -189,6 +390,10 @@
     </div>
   </div>
 </div>
+{% endif %}
+
+{# ── Модалки — общие для обоих видов; на телефоне hr_mobile.css превращает
+      их в нижние листы ── #}
 
 <!-- Ссылка руководителя на недельную форму метрик: создаётся по первому клику -->
 <div class="modal fade" id="metricLink" tabindex="-1">

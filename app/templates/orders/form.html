@@ -7,6 +7,10 @@
 {% endblock %}
 
 {% block content %}
+{# Нерешённые рекламации выбранного клиента: подгружаются под выбор в селекте,
+   чтобы менеджер увидел открытый вопрос ДО того, как оформит новый заказ. #}
+<div id="claimReminder"></div>
+
 <form method="post" action="{{ '/orders/new' if is_new else '/orders/' + order.id|string + '/edit' }}" id="order-form">
   <input type="hidden" name="items_json" id="items_json" value="[]">
 
@@ -464,6 +468,58 @@ document.addEventListener('DOMContentLoaded', function() {
     if (disc > 0 && hint) { hint.style.display = ''; val.textContent = disc; }
   }
 });
+
+// ── Напоминание о нерешённых рекламациях клиента ───────────────────────────
+// Рекламация «Новая»/«В работе» должна быть видна в каждом следующем заказе
+// этого клиента, пока её не закроют, — поэтому баннер перерисовывается при
+// каждой смене клиента в селекте, а не только при загрузке страницы.
+(function () {
+  const box = document.getElementById('claimReminder');
+  const cpSel = document.getElementById('counterparty_id');
+  if (!box || !cpSel) return;
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function render(items) {
+    if (!items.length) { box.innerHTML = ''; return; }
+    const rows = items.map(function (c) {
+      const src = c.order_id
+        ? ' · по заказу <a href="/orders/' + c.order_id + '" class="text-decoration-none">' + esc(c.order_number) + '</a>'
+        : ' · без привязки к заказу';
+      return '<div class="mt-1" style="font-size:.86rem">'
+        + '<a href="/claims/' + c.id + '" class="fw-semibold text-decoration-none">' + esc(c.number) + '</a>'
+        + ' <span class="badge bg-warning text-dark">' + esc(c.status) + '</span> '
+        + '<span class="text-muted">' + esc(c.type) + ' · от ' + esc(c.date) + src + '</span>'
+        + (c.description ? '<div style="white-space:pre-wrap">' + esc(c.description) + '</div>' : '')
+        + '</div>';
+    }).join('');
+    box.innerHTML =
+      '<div class="alert alert-warning border-0 shadow-sm d-flex gap-2 align-items-start">'
+      + '<i class="bi bi-exclamation-triangle-fill fs-5 lh-1 mt-1"></i>'
+      + '<div class="flex-grow-1" style="min-width:0">'
+      + '<div class="fw-semibold">' + (items.length === 1
+          ? 'По клиенту есть нерешённая рекламация'
+          : 'По клиенту есть нерешённые рекламации — ' + items.length) + '</div>'
+      + rows
+      + '<div class="text-muted mt-1" style="font-size:.78rem">Напоминание пропадёт, когда рекламации проставят статус «Решена» или «Отклонена».</div>'
+      + '</div></div>';
+  }
+
+  function refresh() {
+    const id = cpSel.value;
+    if (!id) { box.innerHTML = ''; return; }
+    fetch('/claims/open?counterparty_id=' + encodeURIComponent(id))
+      .then(function (r) { return r.ok ? r.json() : { items: [] }; })
+      .then(function (d) { render(d.items || []); })
+      .catch(function () { /* напоминание не критично — молча пропускаем */ });
+  }
+
+  cpSel.addEventListener('change', refresh);
+  refresh();
+})();
 
 // Валидация перед отправкой формы
 document.getElementById('order-form').addEventListener('submit', function(e) {

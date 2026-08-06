@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}{{ survey.title or 'Опрос' }} — HR{% endblock %}
 {% block page_title %}{{ survey.title or 'Опрос' }}{% endblock %}
 {% block topbar_actions %}
@@ -19,6 +20,85 @@
 {% endblock %}
 
 {% block content %}
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+<div class="hr-card">
+  <div class="hr-card-body">
+    <div class="hr-between" style="align-items:flex-start">
+      <div style="min-width:0">
+        <div class="hr-row-title">{{ survey.title or 'Опрос' }}</div>
+        <div class="hr-row-sub">{{ period_label }}</div>
+      </div>
+      {% if survey.is_open %}
+      <span class="hr-pill hr-pill-success">Открыт</span>
+      {% else %}
+      <span class="hr-pill hr-pill-muted">Закрыт</span>
+      {% endif %}
+    </div>
+    <div class="hr-chips" style="margin-top:9px">
+      {% for code in survey.section_list %}
+      <span class="hr-pill hr-pill-muted">{{ section_meta[code].icon }} {{ section_meta[code].label | truncate(20) }}</span>
+      {% endfor %}
+    </div>
+    <div class="hr-stack" style="margin-top:12px">
+      <form method="post" action="/hr/surveys/{{ survey.id }}/toggle" style="margin:0">
+        {% if survey.is_open %}
+        <button class="hr-btn hr-btn-outline hr-btn-block"><i class="bi bi-pause-circle"></i>Закрыть приём ответов</button>
+        {% else %}
+        <button class="hr-btn hr-btn-success hr-btn-block"><i class="bi bi-play-circle"></i>Открыть приём ответов</button>
+        {% endif %}
+      </form>
+      <button type="button" class="hr-btn hr-btn-soft hr-btn-block" onclick="copyAll()">
+        <i class="bi bi-clipboard"></i>Скопировать все ссылки
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="hr-section-title"><span>Персональные ссылки</span></div>
+{% for t in survey.tokens %}
+{% set link = base_url ~ '/hr/s/' ~ t.token %}
+<div class="hr-card">
+  <div class="hr-card-body">
+    <div class="hr-between" style="align-items:flex-start">
+      <div style="min-width:0">
+        <div class="hr-row-title">{{ t.employee.full_name }}</div>
+        <div class="hr-row-sub">{{ t.employee.position_title or 'без должности' }}</div>
+      </div>
+      {% if t.submitted_at %}
+      <span class="hr-pill hr-pill-success hr-nowrap">Ответил {{ t.submitted_at.strftime('%d.%m') }}</span>
+      {% else %}
+      <span class="hr-pill hr-pill-muted">Ожидает</span>
+      {% endif %}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <input type="text" readonly value="{{ link }}" class="form-control link-input"
+             style="font-size:.78rem;min-width:0" onclick="this.select()"
+             aria-label="Ссылка для {{ t.employee.full_name }}">
+      <button type="button" class="hr-btn hr-btn-soft hr-btn-icon" onclick="copyOne(this)" data-link="{{ link }}"
+              aria-label="Скопировать ссылку"><i class="bi bi-clipboard"></i></button>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-link-45deg"></i>
+    <p>Нет получателей</p>
+    <p>Возможно, у выбранных сотрудников должность не включает разделы этого раунда.</p>
+  </div>
+</div>
+{% endfor %}
+
+<form method="post" action="/hr/surveys/{{ survey.id }}/delete" style="margin-top:12px"
+      data-confirm="Удалить опрос «{{ survey.title or 'Опрос' }}»? Ссылки перестанут работать, собранные ответы останутся.">
+  <button class="hr-btn hr-btn-danger hr-btn-block"><i class="bi bi-trash"></i>Удалить опрос</button>
+</form>
+<a href="/hr/surveys" class="hr-btn hr-btn-outline hr-btn-block" style="margin-top:8px">← Ко всем опросам</a>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 <div class="mb-3">
   <span class="text-muted">Период:</span> <b>{{ period_label }}</b>
   <span class="mx-2">·</span>
@@ -79,6 +159,7 @@
     </table>
   </div>
 </div>
+{% endif %}
 
 <script>
 function copyOne(btn) {

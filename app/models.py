@@ -563,6 +563,10 @@ class CompanySettings(Base):
     bitrix_field_delivered = Column(String(60))     # код UF-поля «Доставлено» (плашка), автосоздаётся
     bitrix_alert_chat_ids = Column(Text)            # Telegram chat_id для громкого уведомления о новом заказе, через запятую
     bitrix_notify_user_ids = Column(Text)           # ID пользователей TMS для уведомления о новом заказе (через запятую); пусто = все
+    # Выгрузка остатков TMS/1С в свойство товара каталога Bitrix24 (по умолчанию
+    # PROPERTY_119 — «Остаток»). Идёт следом за синхронизацией остатков из 1С.
+    bitrix_stock_enabled  = Column(Boolean, default=False)
+    bitrix_stock_field    = Column(String(60))      # код свойства товара, напр. PROPERTY_119
     # Авто-выгрузка лидов «Прозвон»/«Поле» в Bitrix24 при статусе «Договор/продажа»
     bitrix_lead_export_enabled = Column(Boolean, default=False)
     bitrix_lead_responsible_id = Column(String(20))  # ID пользователя Bitrix24 — ASSIGNED_BY_ID нового CRM-лида, если у торгпреда нет своего User.bitrix_user_id
@@ -610,6 +614,11 @@ class BitrixProductLink(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     bitrix_product_name = Column(String(200))  # имя в Bitrix на момент привязки — для истории/отладки
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
+    # Последний остаток, отправленный в свойство товара Bitrix24, и когда.
+    # Синхронизация остатков идёт раз в минуту — без этой отметки каждый прогон
+    # переписывал бы весь каталог, даже когда ничего не изменилось.
+    last_stock_pushed = Column(Float)
+    stock_pushed_at   = Column(DateTime)
 
     product = relationship("Product")
 
@@ -674,6 +683,24 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     user = relationship("User")
+
+
+# Справочники рекламаций живут в моделях: их читает и раздел «Рекламации»,
+# и карточка заказа (напоминание о нерешённой рекламации клиента).
+CLAIM_TYPES = {
+    "quality":   "Качество",
+    "delivery":  "Доставка",
+    "quantity":  "Количество",
+    "documents": "Документы",
+    "other":     "Прочее",
+}
+
+CLAIM_STATUSES = {
+    "new":         "Новая",
+    "in_progress": "В работе",
+    "resolved":    "Решена",
+    "rejected":    "Отклонена",
+}
 
 
 class Claim(Base):

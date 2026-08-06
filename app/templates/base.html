@@ -169,6 +169,19 @@
     {% endif %}
   </div>
 
+  {# HR-раздел умеет мобильный вид — кнопка видна только внутри него #}
+  {% if '/hr' in request.url.path %}
+  <form method="post" action="/hr/toggle-view" style="padding:8px 12px 0">
+    <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <button type="submit" class="nav-link w-100 text-start border-0 bg-transparent"
+            style="color:rgba(255,255,255,.72);cursor:pointer;gap:11px;display:flex;align-items:center">
+      <i class="bi bi-phone" style="width:18px;text-align:center;font-size:1rem;opacity:.9"></i>
+      <span>Мобильный вид</span>
+    </button>
+  </form>
+  {% endif %}
+
   {% if request.session.get('user_role') == 'warehouse' %}
   <form method="post" action="/warehouse/toggle-view" style="padding:8px 12px 0">
     <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">

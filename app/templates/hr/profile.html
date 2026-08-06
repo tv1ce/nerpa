@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}{{ employee.full_name }} — профайл{% endblock %}
 {% block page_title %}{{ employee.full_name }}{% endblock %}
 {% block topbar_actions %}
@@ -10,7 +11,177 @@
 </div>
 {% endblock %}
 
+{% block header_actions %}
+<a href="/hr/entry/{{ employee.id }}?period={{ today_period }}" class="hr-icon-btn"
+   title="Заполнить текущий месяц" aria-label="Заполнить текущий месяц">
+  <i class="bi bi-pencil-square"></i>
+</a>
+{% endblock %}
+
 {% block content %}
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+{% if analyzed %}
+<div class="hr-alert hr-alert-success"><i class="bi bi-check-circle-fill"></i>Анализ готов — свежий вывод ниже</div>
+{% elif error == 'no_data' %}
+<div class="hr-alert hr-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i>Пока нет ни одного ответа — анализировать нечего</div>
+{% elif error == 'ai' %}
+<div class="hr-alert hr-alert-danger"><i class="bi bi-x-octagon-fill"></i>Не удалось получить ответ от ИИ. Проверьте ключ OpenRouter</div>
+{% elif deleted == 'records' %}
+<div class="hr-alert hr-alert-success"><i class="bi bi-check-circle-fill"></i>Ответы раздела удалены</div>
+{% elif deleted == 'insight' %}
+<div class="hr-alert hr-alert-success"><i class="bi bi-check-circle-fill"></i>ИИ-отчёт удалён</div>
+{% endif %}
+
+{% set parts = employee.full_name.split() %}
+<div class="hr-card">
+  <div class="hr-emp">
+    <div class="hr-avatar {% if not employee.is_active %}off{% endif %}" aria-hidden="true">
+      {{ parts[0][0] if parts else '?' }}{{ parts[1][0] if parts | length > 1 else '' }}
+    </div>
+    <div class="hr-emp-body">
+      <div class="hr-emp-name">{{ employee.full_name }}</div>
+      <div class="hr-emp-meta">{{ employee.position_title or 'должность не указана' }}</div>
+      {% if enps_trend %}
+      <div class="hr-chips" style="margin-top:8px">
+        <span class="hr-faint hr-sm hr-nowrap" style="align-self:center">eNPS:</span>
+        {% for p in enps_trend %}
+        <span class="hr-pill {% if p.score >= 9 %}hr-pill-success{% elif p.score >= 7 %}hr-pill-warn{% else %}hr-pill-danger{% endif %}"
+              title="{{ p.label }}">{{ p.score }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  <div class="hr-emp-actions">
+    <a href="/hr/entry/{{ employee.id }}?period={{ today_period }}" class="hr-btn hr-btn-soft hr-btn-sm" style="flex:1">
+      <i class="bi bi-pencil-square"></i>Заполнить месяц
+    </a>
+    <form method="post" action="/hr/employees/{{ employee.id }}/analyze" style="flex:1;margin:0"
+          onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').innerHTML = 'Анализирую…';">
+      <button class="hr-btn hr-btn-cta hr-btn-sm hr-btn-block"><i class="bi bi-stars"></i>ИИ-анализ</button>
+    </form>
+  </div>
+</div>
+
+{% if metric_history.rows %}
+<div class="hr-section-title">
+  <span>📈 Метрика по неделям</span>
+  <a href="/hr/metrics">вся таблица →</a>
+</div>
+{% for r in metric_history.rows %}
+<div class="hr-card">
+  <div class="hr-metric-head">
+    <div style="min-width:0">
+      <div class="hr-metric-title">{{ r.metric.title }}</div>
+      <div class="hr-metric-sub">
+        {% if r.target_text %}цель {{ r.target_text }}{% else %}без цели{% endif %}
+        {%- if not r.metric.is_active %} · не активна{% endif %}
+      </div>
+    </div>
+    {% if r.delta is not none %}
+    <div class="hr-trend {{ 'up' if r.growing else ('flat' if r.trend not in ('up','down') else 'down') }}">
+      {% if r.trend == 'up' %}▲{% elif r.trend == 'down' %}▼{% endif %} {{ r.delta_text }}
+    </div>
+    {% endif %}
+  </div>
+  <div class="hr-weeks">
+    {% for c in r.cells %}{% set w = metric_history.weeks[loop.index0] %}
+    <div class="hr-week st-{{ c.status }}" {% if c.comment %}title="{{ c.comment }}"{% endif %}>
+      <div class="hr-week-label">{{ w.short }}</div>
+      <div class="hr-week-val">{{ c.text or '·' }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<div class="hr-section-title"><span><i class="bi bi-stars"></i> ИИ-анализ динамики</span></div>
+{% for ins in insights %}
+<div class="hr-card">
+  <div class="hr-card-body">
+    <div class="hr-between" style="margin-bottom:7px">
+      <span class="hr-faint hr-sm">{{ ins.created_at.strftime('%d.%m.%Y %H:%M') }} · {{ ins.model or 'ИИ' }}</span>
+      <form method="post" action="/hr/employees/{{ employee.id }}/insights/{{ ins.id }}/delete" style="margin:0"
+            data-confirm="Удалить этот ИИ-отчёт? Действие необратимо.">
+        <button class="hr-btn hr-btn-danger hr-btn-sm hr-btn-icon" aria-label="Удалить отчёт">
+          <i class="bi bi-trash"></i>
+        </button>
+      </form>
+    </div>
+    <div class="hr-ai-text">{{ ins.text }}</div>
+  </div>
+</div>
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-stars"></i>
+    <p>Анализов ещё не было</p>
+    <p>Нажмите «ИИ-анализ» — модель просмотрит все ответы по месяцам и опишет, как меняется состояние сотрудника.</p>
+  </div>
+</div>
+{% endfor %}
+
+<div class="hr-section-title"><span>История по месяцам</span></div>
+{% for m in months %}
+<div class="hr-acc">
+  <button type="button" class="hr-acc-head" onclick="hrAcc(this)" aria-expanded="false">
+    <span class="ic" aria-hidden="true"><i class="bi bi-calendar3"></i></span>
+    <span class="tx">{{ m.label }}<small class="hr-faint" style="display:block;font-size:.74rem;font-weight:400">{{ m.sections | length }} разд.</small></span>
+    <i class="bi bi-chevron-down chev" aria-hidden="true"></i>
+  </button>
+  <div class="hr-acc-body">
+    {% for sec in m.sections %}
+    <div style="padding-top:12px">
+      <div class="hr-between" style="margin-bottom:6px">
+        <span class="hr-faint hr-sm hr-bold">{{ sec.icon }} {{ sec.label }}</span>
+        <form method="post" action="/hr/employees/{{ employee.id }}/records/delete" style="margin:0"
+              data-confirm="Удалить ответы раздела «{{ sec.label }}» за {{ m.label }}? Действие необратимо.">
+          <input type="hidden" name="period" value="{{ m.period }}">
+          <input type="hidden" name="section" value="{{ sec.code }}">
+          <button class="hr-btn hr-btn-danger hr-btn-sm hr-btn-icon" aria-label="Удалить эти записи">
+            <i class="bi bi-trash"></i>
+          </button>
+        </form>
+      </div>
+      {% for row in sec.rows %}
+      <div class="hr-qa">
+        {% if row.q %}<div class="hr-qa-q">{{ row.q }}</div>{% endif %}
+        <div class="hr-qa-a">
+          {%- if row.half %}<span class="hr-pill hr-pill-muted">{{ row.half }}</span> {% endif -%}
+          {%- if row.score is defined and row.score is not none %}<span class="hr-pill {% if row.score >= 9 %}hr-pill-success{% elif row.score >= 7 %}hr-pill-warn{% else %}hr-pill-danger{% endif %}">{{ row.score }}/10</span> {% endif -%}
+          {{ row.a if row.q else row.text }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-inbox"></i>
+    <p>Ответов пока нет</p>
+    <p>Заполните форму или отправьте сотруднику ссылку опроса.</p>
+  </div>
+</div>
+{% endfor %}
+
+<a href="/hr/" class="hr-btn hr-btn-outline hr-btn-block" style="margin-top:12px">← Ко всем сотрудникам</a>
+
+<script>
+function hrAcc(btn) {
+  var item = btn.closest('.hr-acc');
+  var open = item.classList.toggle('open');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+</script>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 {% if analyzed %}
 <div class="alert alert-success py-2">Анализ готов — свежий вывод ниже в блоке «ИИ-анализ динамики».</div>
 {% elif error == 'no_data' %}
@@ -157,4 +328,5 @@
     {% endfor %}
   </div>
 </div>
+{% endif %}
 {% endblock %}

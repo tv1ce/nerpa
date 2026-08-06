@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}Отчёт по метрике — {{ anchor_label }}{% endblock %}
 {% block page_title %}Отчёт по метрике за {{ anchor_label }}{% endblock %}
 
@@ -22,6 +23,127 @@
 {% endblock %}
 
 {% block content %}
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+{% if report == 'ok' %}
+<div class="hr-alert hr-alert-success"><i class="bi bi-send-check-fill"></i>Отчёт отправлен в Telegram</div>
+{% elif report == 'nochat' %}
+<div class="hr-alert hr-alert-warn"><i class="bi bi-exclamation-triangle-fill"></i>Не задан chat_id — укажите его в форме отправки</div>
+{% elif report == 'notoken' %}
+<div class="hr-alert hr-alert-danger"><i class="bi bi-x-octagon-fill"></i>Токен Telegram-бота не настроен (Настройки → Telegram-бот)</div>
+{% elif report == 'error' %}
+<div class="hr-alert hr-alert-danger"><i class="bi bi-x-octagon-fill"></i>Не удалось отправить отчёт. Проверьте токен Telegram-бота</div>
+{% endif %}
+
+<div class="hr-card">
+  <div class="hr-card-body">
+    <div class="hr-kpi-label">Метрика сотрудников за месяц</div>
+    <div class="hr-emp-name" style="font-size:1.15rem;margin-top:2px">{{ anchor_label }}</div>
+    <div class="hr-hint">{{ scope }} · собран {{ generated_at }} · в месяце {{ weeks_expected_text }}</div>
+  </div>
+</div>
+
+<div class="hr-kpi-grid">
+  <div class="hr-kpi hero">
+    <div class="hr-kpi-label">Растут</div>
+    <div class="hr-kpi-val">{{ kpi.growing }} <span class="of">/ {{ kpi.compared }}</span></div>
+    <div class="hr-kpi-sub">{{ kpi.growing_pct }}%</div>
+  </div>
+  <div class="hr-kpi">
+    <div class="hr-kpi-label">Падают</div>
+    <div class="hr-kpi-val">{{ kpi.falling }}</div>
+    <div class="hr-kpi-sub">к прошлому месяцу</div>
+  </div>
+  <div class="hr-kpi">
+    <div class="hr-kpi-label">На цели</div>
+    <div class="hr-kpi-val">{{ kpi.on_target }} <span class="of">/ {{ kpi.targeted }}</span></div>
+    <div class="hr-kpi-sub">{{ kpi.on_target_pct }}%</div>
+  </div>
+  <div class="hr-kpi">
+    <div class="hr-kpi-label">Заполнено недель</div>
+    <div class="hr-kpi-val">{{ kpi.weeks_filled }} <span class="of">/ {{ kpi.weeks_expected }}</span></div>
+    <div class="hr-progress">
+      <span class="{% if kpi.weeks_pct >= 100 %}full{% elif kpi.weeks_pct > 0 %}part{% else %}none{% endif %}"
+            style="width:{{ kpi.weeks_pct if kpi.weeks_pct < 100 else 100 }}%"></span>
+    </div>
+  </div>
+</div>
+
+{% for group_name, group_rows in groups %}
+<div class="hr-section-title"><span>{{ group_name }}</span></div>
+<div class="hr-card">
+  {% for r in group_rows %}{% set c = r.current %}
+  <div class="hr-row">
+    <div class="hr-row-body">
+      <div class="hr-row-title">
+        {% if not c.filled %}▫️
+        {% elif c.status == 'ok' %}✅
+        {% elif c.status == 'warn' %}🟡
+        {% elif c.status == 'bad' %}🔴
+        {% elif c.growing %}📈
+        {% elif c.trend in ('flat', 'none') %}▪️
+        {% else %}📉{% endif %}
+        {{ r.employee.full_name }}
+      </div>
+      <div class="hr-row-sub">{{ r.metric.title }}</div>
+      <div class="hr-row-sub hr-faint">
+        {% if c.filled %}{{ c.weeks }} из {{ c.weeks_expected }} недель{% if c.sub %} · {{ c.sub }}{% endif %}
+        {% else %}нет данных за месяц{% endif %}
+        {%- if r.target_text %} · цель {{ r.target_text }}{% if not r.metric.better_higher %} и ниже{% endif %}{% endif %}
+      </div>
+    </div>
+    <div class="hr-row-side">
+      <div class="hr-bold" style="font-size:1.05rem;font-variant-numeric:tabular-nums">{{ c.text or '—' }}</div>
+      {% if c.delta is not none %}
+      <div class="hr-trend {{ 'up' if c.growing else ('flat' if c.trend == 'flat' else 'down') }}">
+        {% if c.trend == 'up' %}▲{% elif c.trend == 'down' %}▼{% else %}▬{% endif %} {{ c.delta_text }}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-clipboard-data"></i>
+    <p>За {{ anchor_label }} метрики не заполнены</p>
+    <p>Сводить нечего — заполните недели во вкладке «Неделя».</p>
+  </div>
+</div>
+{% endfor %}
+
+<div class="hr-section-title"><span>Текст отчёта</span></div>
+<div class="hr-card">
+  <div class="hr-card-body">
+    <p class="hr-hint" style="margin:0 0 8px">Ровно этот текст уйдёт в Telegram</p>
+    <pre class="hr-ai-text" id="reportText" style="margin:0;max-height:280px;overflow:auto;font-family:inherit">{{ report_text }}</pre>
+    <button class="hr-btn hr-btn-outline hr-btn-block hr-btn-sm" id="copyReport" style="margin-top:10px">
+      <i class="bi bi-clipboard"></i>Скопировать
+    </button>
+  </div>
+</div>
+
+<div class="hr-card">
+  <div class="hr-card-body hr-stack">
+    <button type="button" class="hr-btn hr-btn-cta hr-btn-block"
+            data-bs-toggle="modal" data-bs-target="#sendMonthReport">
+      <i class="bi bi-telegram"></i>Отправить в Telegram
+    </button>
+    <a class="hr-btn hr-btn-outline hr-btn-block"
+       href="/hr/metrics/month/export.csv?month={{ anchor }}&months=3{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+      <i class="bi bi-download"></i>Выгрузить CSV
+    </a>
+    <a class="hr-btn hr-btn-outline hr-btn-block"
+       href="/hr/metrics/month?month={{ anchor }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+      ← К своду за месяц
+    </a>
+  </div>
+</div>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 <style>
   .rep-head { border-radius: var(--r); background: var(--surface); box-shadow: var(--shadow-sm);
               padding: 1rem 1.15rem; margin-bottom: 1rem; }
@@ -159,8 +281,9 @@
   </div>
   <pre class="rep-text" id="reportText">{{ report_text }}</pre>
 </div>
+{% endif %}
 
-<!-- ── Модалка: отправка отчёта ───────────────────────────────────────────── -->
+<!-- ── Модалка: отправка отчёта — общая для обоих видов ───────────────────── -->
 <div class="modal fade" id="sendMonthReport" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">

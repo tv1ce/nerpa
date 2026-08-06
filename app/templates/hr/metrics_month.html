@@ -1,4 +1,5 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}Метрика за месяц{% endblock %}
 {% block page_title %}Метрика за месяц{% endblock %}
 
@@ -25,6 +26,127 @@
 {% endblock %}
 
 {% block content %}
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+<div class="hr-period">
+  <a href="/hr/metrics/month?month={{ prev_anchor }}&months={{ month_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="hr-period-btn" aria-label="Месяц назад"><i class="bi bi-chevron-left"></i></a>
+  <div class="hr-period-label">
+    {{ anchor_label }}
+    {% if anchor != this_month %}
+    <small><a href="/hr/metrics/month?months={{ month_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">к текущему месяцу</a></small>
+    {% endif %}
+  </div>
+  <a href="/hr/metrics/month?month={{ next_anchor }}&months={{ month_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}"
+     class="hr-period-btn" aria-label="Месяц вперёд"><i class="bi bi-chevron-right"></i></a>
+</div>
+
+<div class="hr-kpi-grid one">
+  <div class="hr-kpi hero">
+    <div class="hr-kpi-label">Метрика растёт — {{ anchor_label }}</div>
+    <div class="hr-kpi-val">{{ kpi.growing }} <span class="of">/ {{ kpi.compared }}</span></div>
+    <div class="hr-kpi-sub">{{ kpi.growing_pct }}% · к предыдущему заполненному месяцу</div>
+  </div>
+</div>
+<div class="hr-kpi-grid">
+  <div class="hr-kpi">
+    <div class="hr-kpi-label">На цели</div>
+    <div class="hr-kpi-val">{{ kpi.on_target }} <span class="of">/ {{ kpi.targeted }}</span></div>
+    <div class="hr-kpi-sub">метрик с целью выполнены</div>
+  </div>
+  <div class="hr-kpi">
+    <div class="hr-kpi-label">Заполнено недель</div>
+    <div class="hr-kpi-val">{{ kpi.weeks_filled }} <span class="of">/ {{ kpi.weeks_expected }}</span></div>
+    <div class="hr-progress">
+      <span class="{% if kpi.weeks_pct >= 100 %}full{% elif kpi.weeks_pct > 0 %}part{% else %}none{% endif %}"
+            style="width:{{ kpi.weeks_pct if kpi.weeks_pct < 100 else 100 }}%"></span>
+    </div>
+  </div>
+</div>
+
+<form method="get" action="/hr/metrics/month" class="hr-filter-row">
+  <input type="hidden" name="month" value="{{ anchor }}">
+  <select name="manager" class="hr-select" onchange="this.form.submit()" aria-label="Подразделение">
+    <option value="">Все подразделения</option>
+    {% for m in managers %}
+    <option value="{{ m.id }}" {% if manager_id == m.id %}selected{% endif %}>{{ m.full_name }}</option>
+    {% endfor %}
+  </select>
+  <select name="months" class="hr-select" style="max-width:130px" onchange="this.form.submit()" aria-label="Сколько месяцев">
+    {% for n, label in month_options %}
+    <option value="{{ n }}" {% if month_count == n %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+</form>
+
+<p class="hr-hint" style="padding:0 4px 10px">
+  <i class="bi bi-info-circle"></i> Месяц считается из недель: процент «двух чисел» — по сумме
+  операций, остальные метрики — среднее недельное.
+</p>
+
+{% for group_name, group_rows in groups %}
+<div class="hr-section-title"><span>{{ group_name }}</span></div>
+  {% for r in group_rows %}{% set m = r.metric %}
+  <div class="hr-card">
+    <div class="hr-metric-head">
+      <div style="min-width:0">
+        <a href="/hr/employees/{{ r.employee.id }}/profile" class="hr-metric-emp">{{ r.employee.full_name }}</a>
+        <div class="hr-metric-title">{{ m.title }}</div>
+        <div class="hr-metric-sub">
+          {% if r.target_text %}цель {{ r.target_text }}{% if not m.better_higher %} и ниже{% endif %}{% else %}без цели{% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="hr-weeks">
+      {% for c in r.cells %}{% set mo = months[loop.index0] %}
+      <div class="hr-week st-{{ c.status }} {% if mo.iso == kpi.month.isoformat() %}cur{% endif %}"
+           title="{{ c.label }}{% if c.filled %} · {{ c.weeks }} из {{ c.weeks_expected }} недель{% endif %}">
+        <div class="hr-week-label">{{ mo.short }}</div>
+        {% if c.filled %}
+        <div class="hr-week-val">{{ c.text }}</div>
+        <span class="hr-week-calc">
+          {%- if c.delta is not none -%}
+          <span class="hr-trend {{ 'up' if c.growing else ('flat' if c.trend == 'flat' else 'down') }}">
+            {% if c.trend == 'up' %}▲{% elif c.trend == 'down' %}▼{% else %}▬{% endif %}{{ c.delta_text }}
+          </span>
+          {%- elif c.sub -%}{{ c.sub }}{%- endif -%}
+        </span>
+        {% else %}
+        <div class="hr-week-val hr-faint">—</div>
+        <span class="hr-week-calc"></span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="hr-card">
+  <div class="hr-empty">
+    <i class="bi bi-calendar3"></i>
+    <p>Сводить пока нечего</p>
+    <p>Метрики заводятся и заполняются на вкладке «Неделя».</p>
+  </div>
+</div>
+{% endfor %}
+
+<div class="hr-section-title"><span>Выгрузки и отчёты</span></div>
+<div class="hr-card">
+  <div class="hr-card-body hr-stack">
+    <a class="hr-btn hr-btn-cta hr-btn-block"
+       href="/hr/metrics/month/report?month={{ anchor }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+      <i class="bi bi-file-earmark-text"></i>Отчёт за месяц
+    </a>
+    <a class="hr-btn hr-btn-outline hr-btn-block"
+       href="/hr/metrics/month/export.csv?month={{ anchor }}&months={{ month_count }}{% if manager_id %}&manager={{ manager_id }}{% endif %}">
+      <i class="bi bi-download"></i>Выгрузить CSV
+    </a>
+  </div>
+</div>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 <style>
   /* Свод по месяцам — та же сетка, что и в неделях, но ячейка только читается */
   .mgrid-wrap { overflow-x: auto; }
@@ -184,4 +306,5 @@
     </table>
   </div>
 </div>
+{% endif %}
 {% endblock %}

@@ -28,6 +28,21 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/hr", tags=["hr"])
 templates = Jinja2Templates(directory="app/templates")
 
+
+@router.post("/toggle-view")
+@login_required
+async def toggle_view(request: Request, next: str = Form(default="/hr/")):
+    """Переключает HR-раздел между мобильным и десктопным видом.
+
+    По умолчанию мобильный вид включён у роли hr (телефон — её основной
+    инструмент); остальные роли заходят с десктопа и включают его вручную.
+    Светлая/тёмная тема живёт отдельно, в localStorage — см. base_hr.html.
+    """
+    default = "mobile" if request.session.get("user_role") == "hr" else "desktop"
+    current = request.session.get("hr_view", default)
+    request.session["hr_view"] = "desktop" if current == "mobile" else "mobile"
+    return RedirectResponse(url=next, status_code=302)
+
 SECTION_META = {
     "personal":      {"icon": "👨", "label": "Личностный профиль сотрудника"},
     "complaints":    {"icon": "⁉️", "label": "С какой дичью вам приходится сталкиваться каждый день?"},

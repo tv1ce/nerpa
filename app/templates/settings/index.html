@@ -714,6 +714,35 @@
           <div class="col-12">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox"
+                     name="bitrix_stock_enabled" value="1" id="bitrixStockEnabled"
+                     {% if company and company.bitrix_stock_enabled %}checked{% endif %}>
+              <label class="form-check-label" for="bitrixStockEnabled" style="font-size:.88rem">
+                Выгружать остаток товара в карточку каталога Bitrix24
+              </label>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label form-label-sm">Свойство «Остаток»</label>
+            <input type="text" name="bitrix_stock_field" class="form-control form-control-sm font-monospace"
+                   placeholder="PROPERTY_119"
+                   value="{{ company.bitrix_stock_field if company and company.bitrix_stock_field else '' }}">
+            <div class="form-text" style="font-size:.72rem">Пусто — <code>PROPERTY_119</code></div>
+          </div>
+          <div class="col-md-8">
+            <div class="form-text" style="font-size:.75rem">
+              Остаток берётся из синхронизации с 1С (тот же, что видит кладовщик) и уходит
+              в CRM сразу следом за ней — раз в минуту. Пишутся только изменившиеся значения.
+              Товары каталога сопоставляются с номенклатурой TMS по коду <code>XML_ID</code>
+              (артикул / GUID 1С), затем по названию; связка запоминается. Позиции, по которым
+              1С ни разу не отдавала остаток, не трогаем — чтобы не затереть значение,
+              проставленное в CRM вручную.
+              <span id="bitrixStockResult" class="d-block mt-1"></span>
+            </div>
+          </div>
+          <hr class="my-2">
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox"
                      name="bitrix_lead_export_enabled" value="1" id="bitrixLeadExportEnabled"
                      {% if company and company.bitrix_lead_export_enabled %}checked{% endif %}>
               <label class="form-check-label" for="bitrixLeadExportEnabled" style="font-size:.88rem">
@@ -761,6 +790,9 @@
             </button>
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="ensureBitrixFields()">
               <i class="bi bi-flag me-1"></i>Создать UF-поля
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="pushBitrixStock(this)">
+              <i class="bi bi-box-seam me-1"></i>Выгрузить остатки сейчас
             </button>
             <span id="bitrixTestResult" class="ms-1 align-self-center" style="font-size:.85rem"></span>
           </div>
@@ -1307,6 +1339,31 @@ async function ensureBitrixFields() {
       `<i class="bi bi-${d.ok ? 'check-circle' : 'x-circle'} me-1"></i>${d.ok ? 'Поля созданы: ' + d.field_paid + ', ' + d.field_delivered : d.error}</span>`;
   } catch(e) {
     el.innerHTML = `<span class="text-danger">${e}</span>`;
+  }
+}
+
+// Ручная выгрузка остатков в каталог Bitrix24. Обход каталога тут форсируется,
+// поэтому на большом каталоге ответ приходит не мгновенно — кнопку блокируем.
+async function pushBitrixStock(btn) {
+  const el = document.getElementById('bitrixStockResult');
+  const html = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Выгружаю…';
+  el.innerHTML = '<span class="text-muted">Сопоставляю каталог и отправляю остатки…</span>';
+  try {
+    const r = await fetch('/settings/bitrix/stock-push', { method: 'POST' });
+    const d = await r.json();
+    const errs = d.errors || [];
+    el.innerHTML = errs.length
+      ? `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>` +
+        `Отправлено ${d.pushed}, ошибок ${errs.length}: ${errs.slice(0, 2).join('; ')}</span>`
+      : `<span class="text-success"><i class="bi bi-check-circle me-1"></i>` +
+        `Отправлено ${d.pushed}, без изменений ${d.skipped}, новых привязок ${d.linked}</span>`;
+  } catch (e) {
+    el.innerHTML = `<span class="text-danger">${e}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = html;
   }
 }
 

@@ -1,6 +1,7 @@
-{% extends "base.html" %}
+{% set _hrmob = hr_mobile(request) %}
+{% extends "base_hr.html" if _hrmob else "base.html" %}
 {% block title %}Анализ ИИ — HR{% endblock %}
-{% block page_title %}Анализ динамики — все сотрудники{% endblock %}
+{% block page_title %}{% if _hrmob %}Анализ ИИ{% else %}Анализ динамики — все сотрудники{% endif %}{% endblock %}
 {% block topbar_actions %}
 <div class="d-flex align-items-center gap-2">
   <span id="runProgress" class="text-muted" style="font-size:.8rem"></span>
@@ -15,6 +16,96 @@
 {% endblock %}
 
 {% block content %}
+
+{% if _hrmob %}
+{# ═════════════════════════════════ МОБИЛЬНЫЙ ВИД ═════════════════════════════════ #}
+
+<div class="hr-kpi-grid">
+  <div class="hr-kpi hero">
+    <div class="hr-kpi-label">Собран анализ</div>
+    <div class="hr-kpi-val">{{ ready }} <span class="of">/ {{ rows | length }}</span></div>
+    <div class="hr-progress">
+      <span style="width:{{ (ready / rows|length * 100) | round if rows else 0 }}%"></span>
+    </div>
+  </div>
+  <div class="hr-kpi">
+    <div class="hr-kpi-label">Как это работает</div>
+    <div class="hr-kpi-sub" style="margin-top:6px">
+      Модель читает все месяцы ответов сотрудника. Результат виден и в его профайле.
+    </div>
+  </div>
+</div>
+
+<div class="hr-card">
+  <div class="hr-card-body hr-stack">
+    <button class="hr-btn hr-btn-cta hr-btn-block" id="runAll">
+      <i class="bi bi-stars"></i>Собрать анализ по всем
+    </button>
+    <button class="hr-btn hr-btn-outline hr-btn-block" id="runMissing">
+      <i class="bi bi-plus-slash-minus"></i>Только новые
+    </button>
+    <div id="runProgress" class="hr-hint" style="text-align:center"></div>
+  </div>
+</div>
+
+<div id="insightCards">
+  {% for r in rows %}
+  <div class="hr-card card" data-id="{{ r.employee.id }}"
+       data-has-data="{{ 1 if r.has_data else 0 }}"
+       data-has-insight="{{ 1 if r.insight else 0 }}">
+    <div class="hr-card-body">
+      <div class="hr-between" style="align-items:flex-start">
+        <div style="min-width:0">
+          <a href="/hr/employees/{{ r.employee.id }}/profile" class="hr-emp-name" style="text-decoration:none;display:block">
+            {{ r.employee.full_name }}
+          </a>
+          <div class="hr-emp-meta">
+            {{ r.employee.position_title or 'должность не задана' }}
+            {%- if r.employee.manager %} · рук.: {{ r.employee.manager.full_name }}{% endif %}
+          </div>
+        </div>
+        {% if r.enps_last is not none %}
+        <span class="hr-pill {% if r.enps_last >= 8 %}hr-pill-success{% elif r.enps_last >= 6 %}hr-pill-warn{% else %}hr-pill-danger{% endif %}">
+          eNPS {{ r.enps_last }}/10
+          {%- if r.enps_delta %} {{ '↑' if r.enps_delta > 0 else '↓' }}{{ r.enps_delta | abs }}{% endif %}
+        </span>
+        {% endif %}
+      </div>
+
+      {% if r.enps | length > 1 %}
+      <div class="hr-faint hr-sm" style="margin-top:5px;font-variant-numeric:tabular-nums">{{ r.enps | join(' → ') }}</div>
+      {% endif %}
+
+      <div class="hr-between" style="margin:10px 0 6px">
+        <span class="hr-faint hr-sm made-at">
+          {% if r.insight %}Анализ от {{ r.made_at }}{% elif r.has_data %}Анализ ещё не собирали{% else %}Нет ответов за месяцы{% endif %}
+        </span>
+        <button class="hr-btn hr-btn-outline hr-btn-sm hr-btn-icon run-one" {% if not r.has_data %}disabled{% endif %}
+                aria-label="Пересобрать анализ"><i class="bi bi-arrow-repeat"></i></button>
+      </div>
+
+      <div class="hr-ai-text insight-text" style="max-height:300px;overflow:auto">{{ r.text }}</div>
+      {% if not r.text %}
+      <div class="hr-hint insight-empty">
+        {% if r.has_data %}Нажмите «Собрать анализ по всем» — или значок обновления в этой карточке.
+        {% else %}Сотрудник ещё не отвечал ни за один месяц: анализировать нечего.{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="hr-card">
+    <div class="hr-empty">
+      <i class="bi bi-people"></i>
+      <p>Активных сотрудников нет</p>
+      <p>Добавьте их во вкладке «Сотрудники».</p>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+{# ═════════════════════════════════ ДЕСКТОП-ВИД ═════════════════════════════════ #}
 
 {% include "hr/_tabs.html" %}
 
@@ -100,6 +191,7 @@
   </div>
   {% endfor %}
 </div>
+{% endif %}
 
 <script>
 // Очередь на стороне браузера: анализ каждого сотрудника — отдельный запрос.

@@ -15,7 +15,6 @@ POST /api/bitrix/ensure-userfields       — создать UF-поля «Опл
 """
 import logging
 import os
-import re
 import secrets
 
 from fastapi import APIRouter, Request, Depends, Form
@@ -30,7 +29,7 @@ from app.models import (
 )
 from app.services.bitrix_client import (
     BitrixError, get_bitrix_client, extract_counterparty_data, enrich_from_dadata,
-    refresh_counterparty_requisites, extract_delivery_from_deal,
+    refresh_counterparty_requisites, extract_delivery_from_deal, normalize_product_name,
 )
 from app.utils import log_action
 
@@ -59,14 +58,10 @@ def _json(ok: bool, **kw):
 # Как только (2) или (3) сработали — привязка сохраняется, и в следующий раз
 # тот же товар Bitrix матчится мгновенно через (1), даже если имя никогда не
 # приведут к единому виду в CRM.
-_NAME_PUNCT_RE = re.compile(r"[,.;:!?\"'()«»]")
-_NAME_SPACE_RE = re.compile(r"\s+")
-
-
-def _normalize_product_name(name: str) -> str:
-    s = (name or "").strip().lower().replace("ё", "е")
-    s = _NAME_PUNCT_RE.sub(" ", s)
-    return _NAME_SPACE_RE.sub(" ", s).strip()
+# Нормализация имени живёт в bitrix_client: тем же правилом каталог CRM
+# сопоставляется с номенклатурой при выгрузке остатков — товар должен
+# матчиться одинаково с обеих сторон.
+_normalize_product_name = normalize_product_name
 
 
 def _build_product_name_index(db: Session) -> dict:

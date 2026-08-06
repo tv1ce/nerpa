@@ -411,17 +411,24 @@ def _run_1c_fast_sync_job():
     from app.services.onec_client import (
         sync_receiving_tasks_from_1c, sync_transfer_tasks_from_1c, sync_stock_balances_from_1c,
     )
+    from app.services.bitrix_client import push_stock_to_bitrix
     db = SessionLocal()
     try:
         rr = sync_receiving_tasks_from_1c(db)
         rtr = sync_transfer_tasks_from_1c(db)
         rb = sync_stock_balances_from_1c(db)
-        if rr.get("created") or rtr.get("created") or rr.get("errors") or rtr.get("errors") or rb.get("errors"):
+        # Свежий остаток сразу уезжает в карточку товара Bitrix24 (PROPERTY_119):
+        # пишутся только изменившиеся значения, поэтому обычный такт молчит.
+        bx = push_stock_to_bitrix(db)
+        if rr.get("created") or rtr.get("created") or rr.get("errors") or rtr.get("errors") or rb.get("errors") \
+                or bx.get("pushed") or bx.get("errors"):
             logger.info(
-                "fast-sync: receiving c=%s u=%s errs=%s; transfers c=%s u=%s errs=%s; balances u=%s errs=%s",
+                "fast-sync: receiving c=%s u=%s errs=%s; transfers c=%s u=%s errs=%s; "
+                "balances u=%s errs=%s; bitrix-stock p=%s errs=%s",
                 rr.get("created"), rr.get("updated"), rr.get("errors"),
                 rtr.get("created"), rtr.get("updated"), rtr.get("errors"),
                 rb.get("updated"), rb.get("errors"),
+                bx.get("pushed"), bx.get("errors"),
             )
     except Exception as e:
         logger.error("fast-sync job error: %s", e)
@@ -791,6 +798,28 @@ class _TodayProxy:
 
 _templates.env.globals["today"] = _TodayProxy()
 _templates.env.globals["csrf_token"] = _get_csrf_token
+
+
+def _hr_mobile(request) -> bool:
+    """Показывать ли HR-раздел мобильным кабинетом (base_hr.html).
+
+    По умолчанию мобильный вид у роли hr — телефон её основной инструмент.
+    Остальные роли (админ, руководитель) заходят с компьютера и включают
+    мобильный вид вручную кнопкой в меню. Выбор хранится в сессии, чтобы
+    держался между страницами; переключает POST /hr/toggle-view.
+    """
+    session = getattr(request, "session", {}) or {}
+    default = "mobile" if session.get("user_role") == "hr" else "desktop"
+    return session.get("hr_view", default) == "mobile"
+
+_templates.env.globals["hr_mobile"] = _hr_mobile
+
+# Справочники рекламаций доступны всем шаблонам: напоминание о нерешённой
+# рекламации показывается не только в разделе «Рекламации», но и в карточке
+# и форме заказа. Явно переданный контекст по-прежнему имеет приоритет.
+from app.models import CLAIM_STATUSES as _CLAIM_STATUSES, CLAIM_TYPES as _CLAIM_TYPES
+_templates.env.globals["claim_statuses"] = _CLAIM_STATUSES
+_templates.env.globals["claim_types"] = _CLAIM_TYPES
 
 
 def _safe_url(v):

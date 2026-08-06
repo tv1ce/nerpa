@@ -174,10 +174,18 @@ def _order_sorting(sort: str):
     ]
 
 
+def _parse_date(raw: str):
+    """'2026-08-06' → date, мусор/пусто → None (фильтр просто не применяется)."""
+    try:
+        return date.fromisoformat(raw) if raw else None
+    except ValueError:
+        return None
+
+
 def _filtered_orders(
     db: Session, q: str, status: str, date_from: str, date_to: str,
     counterparty_id: int, carrier_id: int, payment_type: str, overdue: str,
-    sort: str = "",
+    sort: str = "", dispatch_from: str = "", dispatch_to: str = "",
 ):
     today = date.today()
     query = db.query(Order).join(Counterparty, Order.counterparty_id == Counterparty.id)
@@ -190,16 +198,17 @@ def _filtered_orders(
         ))
     if status:
         query = query.filter(Order.status == status)
-    if date_from:
-        try:
-            query = query.filter(Order.date >= date.fromisoformat(date_from))
-        except ValueError:
-            pass
-    if date_to:
-        try:
-            query = query.filter(Order.date <= date.fromisoformat(date_to))
-        except ValueError:
-            pass
+    if _parse_date(date_from):
+        query = query.filter(Order.date >= _parse_date(date_from))
+    if _parse_date(date_to):
+        query = query.filter(Order.date <= _parse_date(date_to))
+    # Дата загрузки (отправления, dispatch_date) — отдельный от даты заказа период:
+    # логисту нужно видеть, что грузится в конкретные дни, а не когда оформили.
+    # Заказы без даты загрузки под такой фильтр не попадают.
+    if _parse_date(dispatch_from):
+        query = query.filter(Order.dispatch_date >= _parse_date(dispatch_from))
+    if _parse_date(dispatch_to):
+        query = query.filter(Order.dispatch_date <= _parse_date(dispatch_to))
     if counterparty_id:
         query = query.filter(Order.counterparty_id == counterparty_id)
     if carrier_id:
@@ -228,12 +237,14 @@ async def list_orders(
     payment_type: str = "",
     overdue: str = "",
     sort: str = "",
+    dispatch_from: str = "",
+    dispatch_to: str = "",
     db: Session = Depends(get_db),
 ):
     today = date.today()
     orders = _filtered_orders(
         db, q, status, date_from, date_to, counterparty_id, carrier_id, payment_type, overdue,
-        sort,
+        sort, dispatch_from, dispatch_to,
     )
     counterparties = db.query(Counterparty).filter(
         Counterparty.is_active == True, Counterparty.type.in_(["client", "both"])
@@ -244,6 +255,7 @@ async def list_orders(
     return templates.TemplateResponse(request, "orders/list.html", {
         "orders": orders, "q": q, "status": status, "statuses": ORDER_STATUSES,
         "date_from": date_from, "date_to": date_to,
+        "dispatch_from": dispatch_from, "dispatch_to": dispatch_to,
         "counterparty_id": counterparty_id, "carrier_id": carrier_id,
         "payment_type": payment_type, "overdue": overdue,
         "sort": sort or _DEFAULT_SORT,
@@ -266,6 +278,8 @@ async def search_orders(
     payment_type: str = "",
     overdue: str = "",
     sort: str = "",
+    dispatch_from: str = "",
+    dispatch_to: str = "",
     db: Session = Depends(get_db),
 ):
     """Живой поиск/фильтр — возвращает только карточки/строки списка (без каркаса
@@ -273,7 +287,7 @@ async def search_orders(
     today = date.today()
     orders = _filtered_orders(
         db, q, status, date_from, date_to, counterparty_id, carrier_id, payment_type, overdue,
-        sort,
+        sort, dispatch_from, dispatch_to,
     )
     _role = request.session.get("user_role")
     _wview = request.session.get("warehouse_view", "mobile")
@@ -454,8 +468,15 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
     company = db.query(CompanySettings).first()
     sbis_configured = bool(company and company.sbis_login and company.sbis_password)
 
+    # Нерешённые рекламации клиента, заведённые до этого заказа: висят
+    # напоминанием в каждом следующем заказе, пока их не закроют.
+    from app.utils import open_claims_for_counterparty
+    open_claims = open_claims_for_counterparty(
+        db, order.counterparty_id, before=order.created_at, exclude_order_id=order.id)
+
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
+        "open_claims": open_claims,
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
         "tasks": tasks, "comments": comments, "activity": activity, "users": users,
         "files": files, "file_types": FILE_TYPES["order"],

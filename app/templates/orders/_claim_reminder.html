@@ -1,0 +1,45 @@
+{# Напоминание о нерешённых рекламациях клиента.
+   Ожидает open_claims (список Claim) — см. open_claims_for_counterparty.
+   Подключается в карточке заказа и в форме создания/правки заказа. #}
+{% if open_claims %}
+<div class="alert alert-warning border-0 shadow-sm mb-3" role="alert">
+  <div class="d-flex align-items-start gap-2">
+    <i class="bi bi-exclamation-triangle-fill fs-5 lh-1 mt-1"></i>
+    <div class="flex-grow-1" style="min-width:0">
+      <div class="fw-semibold mb-1">
+        {% if open_claims | length == 1 %}
+          По клиенту есть нерешённая рекламация
+        {% else %}
+          По клиенту есть нерешённые рекламации — {{ open_claims | length }}
+        {% endif %}
+      </div>
+      {% for c in open_claims %}
+      <div class="{% if not loop.last %}border-bottom pb-2 mb-2{% endif %}" style="font-size:.86rem">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <a href="/claims/{{ c.id }}" class="fw-semibold text-decoration-none">{{ c.number }}</a>
+          <span class="badge bg-{{ 'warning text-dark' if c.status == 'in_progress' else 'info text-dark' }}">
+            {{ claim_statuses[c.status] }}
+          </span>
+          <span class="text-muted">{{ claim_types.get(c.type, c.type) }} · от {{ c.date | date_fmt }}</span>
+          {% if c.order %}
+          <span class="text-muted">
+            по заказу <a href="/orders/{{ c.order_id }}" class="text-decoration-none">{{ c.order.number }}</a>
+            {%- if c.order.date %} от {{ c.order.date | date_fmt }}{% endif %}
+          </span>
+          {% else %}
+          <span class="text-muted">без привязки к заказу</span>
+          {% endif %}
+          {% if c.amount %}<span class="text-muted">· {{ c.amount | money }} ₽</span>{% endif %}
+        </div>
+        {% if c.description %}
+        <div class="mt-1" style="white-space:pre-wrap">{{ c.description }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      <div class="text-muted mt-1" style="font-size:.78rem">
+        Напоминание пропадёт, когда рекламации проставят статус «Решена» или «Отклонена».
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
