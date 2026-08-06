@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from telegram import Bot, Update
 from telegram.constants import ParseMode
+from telegram.error import NetworkError, RetryAfter, TimedOut
 from telegram.ext import (
     Application, CommandHandler, ContextTypes, MessageHandler, MessageReactionHandler, filters,
 )
@@ -152,17 +153,50 @@ def _callback_settings() -> tuple[bool, list[int]]:
         db.close()
 
 
-async def broadcast(bot: Bot, text: str) -> None:
-    for chat_id in _report_chat_ids():
+# Telegram доступен только через SOCKS5-прокси (см. main()), а тот периодически
+# отваливается на минуту-другую: «ProxyError: Network unreachable». Одна такая
+# секунда раньше стоила целого отчёта — задача отрабатывала, сообщение терялось,
+# и об этом знал только лог (так пропали ежедневные отчёты 04.08 и 05.08.2026).
+# Поэтому сетевые ошибки перевыпрашиваем: паузы покрывают ~4 минуты, а типичный
+# провал прокси длится 1–3 минуты. Ошибки самого Telegram (плохая разметка,
+# нет доступа в чат) не ретраим — они не пройдут и со второго раза.
+SEND_RETRY_DELAYS = (5, 15, 30, 60, 120)
+
+
+async def _send_message(bot: Bot, chat_id, text: str, *, markdown: bool = True,
+                        what: str = "сообщение") -> bool:
+    """Отправка с повторами при сетевых сбоях. True — доставлено."""
+    kwargs = {"read_timeout": 20, "write_timeout": 20, "connect_timeout": 10}
+    if markdown:
+        kwargs["parse_mode"] = ParseMode.MARKDOWN_V2
+
+    for attempt, delay in enumerate((0, *SEND_RETRY_DELAYS)):
+        if delay:
+            await asyncio.sleep(delay)
         try:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                read_timeout=20, write_timeout=20, connect_timeout=10,
-            )
+            await bot.send_message(chat_id=chat_id, text=text, **kwargs)
+            if attempt:
+                logger.info("%s в chat_id=%s доставлено с попытки %d", what, chat_id, attempt + 1)
+            return True
+        except RetryAfter as e:
+            # Telegram сам сказал, сколько ждать — слушаемся его, а не свою паузу
+            logger.warning("Telegram просит подождать %ss (chat_id=%s)", e.retry_after, chat_id)
+            await asyncio.sleep(float(e.retry_after) + 1)
+        except (NetworkError, TimedOut) as e:
+            logger.warning("Сеть недоступна при отправке в chat_id=%s (попытка %d/%d): %s",
+                           chat_id, attempt + 1, len(SEND_RETRY_DELAYS) + 1, e)
         except Exception as e:
             logger.error("Ошибка отправки в chat_id=%s: %s", chat_id, e)
+            return False
+
+    logger.error("Не удалось отправить %s в chat_id=%s: сеть недоступна все %d попыток",
+                 what, chat_id, len(SEND_RETRY_DELAYS) + 1)
+    return False
+
+
+async def broadcast(bot: Bot, text: str) -> None:
+    for chat_id in _report_chat_ids():
+        await _send_message(bot, chat_id, text, what="отчёт")
 
 
 async def broadcast_callbacks(bot: Bot, text: str) -> None:
@@ -173,28 +207,14 @@ async def broadcast_callbacks(bot: Bot, text: str) -> None:
         return
     targets = ids or _report_chat_ids()
     for chat_id in targets:
-        try:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=text,
-                parse_mode=ParseMode.MARKDOWN_V2,
-                read_timeout=20, write_timeout=20, connect_timeout=10,
-            )
-        except Exception as e:
-            logger.error("Ошибка отправки прозвонов в chat_id=%s: %s", chat_id, e)
+        await _send_message(bot, chat_id, text, what="напоминание о прозвонах")
 
 
 async def _send_plain(bot: Bot, chat_ids: list[int], text: str) -> None:
     """Отправка без разметки: в тексте ФИО и ссылки, которые в MarkdownV2
     пришлось бы экранировать — ошибка экранирования отменяет всё сообщение."""
     for chat_id in chat_ids:
-        try:
-            await bot.send_message(
-                chat_id=chat_id, text=text,
-                read_timeout=20, write_timeout=20, connect_timeout=10,
-            )
-        except Exception as e:
-            logger.error("Ошибка отправки в chat_id=%s: %s", chat_id, e)
+        await _send_message(bot, chat_id, text, markdown=False)
 
 
 def _authorized(update: Update) -> bool:
