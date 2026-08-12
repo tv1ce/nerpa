@@ -282,7 +282,7 @@ async def outlets_digest(request: Request, send_tg: str = Form(default=""),
 # (1 запрос/сек, поэтому 80 точек занимают полторы минуты). Результат кэшируется
 # в outlet_geo: ключ точки стабилен, повторно дёргать геокодер незачем.
 
-_geo_state: dict = {"running": False, "done": 0, "total": 0, "found": 0}
+_geo_state: dict = {"running": False, "done": 0, "total": 0, "found": 0, "error": None}
 
 
 def _geo_query(outlet: dict) -> str:
@@ -291,18 +291,36 @@ def _geo_query(outlet: dict) -> str:
 
 
 def _geocode_worker(items: list[tuple[str, str]]) -> None:
-    """Фоновый обход точек: (ключ, адрес) → координаты в outlet_geo."""
+    """Фоновый обход точек: (ключ, адрес) → координаты в outlet_geo.
+
+    Nominatim разрешает не больше запроса в секунду и на превышение отвечает 429,
+    поэтому идём с паузой и переживаем короткие сбои повтором — иначе проход
+    обрывается на первом же лимите и большинство точек остаётся без координат."""
+    import time
+
     from app.database import SessionLocal
-    from app.utils.geocode import GeocodeRequestError, geocode_address_sync
+    from app.utils.geocode import _DELAY, GeocodeRequestError, geocode_address_sync
 
     db = SessionLocal()
     try:
-        for key, query in items:
-            try:
-                found = geocode_address_sync(query)
-            except GeocodeRequestError as e:
-                # Сеть/лимит — не вина адреса: прекращаем проход, повторим позже
-                logger.warning("geocode stopped: %s", e)
+        for i, (key, query) in enumerate(items):
+            if i:
+                time.sleep(_DELAY)
+            found = None
+            for attempt in range(3):
+                try:
+                    found = geocode_address_sync(query)
+                    break
+                except GeocodeRequestError as e:
+                    # Сеть/лимит — не вина адреса: ждём дольше и пробуем ещё раз
+                    wait = e.retry_after or (_DELAY * (attempt + 2) * 2)
+                    logger.warning("geocode retry %s после %.1fс: %s", attempt + 1, wait, e)
+                    _geo_state["error"] = "геокодер ограничивает запросы, идём медленнее"
+                    time.sleep(min(wait, 30))
+            else:
+                _geo_state["error"] = ("геокодер недоступен — часть точек осталась без "
+                                       "координат, попробуйте позже")
+                logger.warning("geocode stopped after retries on %r", query)
                 break
             row = db.query(OutletGeo).filter(OutletGeo.address_key == key).first()
             if not row:
@@ -337,7 +355,7 @@ async def outlets_geocode(request: Request, db: Session = Depends(get_db)):
     if not pending:
         return JSONResponse({**_geo_state, "total": 0, "done": 0})
 
-    _geo_state.update(running=True, done=0, total=len(pending), found=0)
+    _geo_state.update(running=True, done=0, total=len(pending), found=0, error=None)
     threading.Thread(target=_geocode_worker, args=(pending,), daemon=True).start()
     return JSONResponse(dict(_geo_state))
 

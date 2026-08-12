@@ -40,7 +40,9 @@
 <div class="text-muted mt-2" style="font-size:.78rem">
   Размер кружка — расход точки в штуках в день, цвет — статус запаса. Координаты
   определяются по адресу из заказов (OpenStreetMap) и сохраняются: повторно
-  геокодировать те же точки не нужно.
+  геокодировать те же точки не нужно. Геокодер отвечает не быстрее одного адреса
+  в секунду, поэтому первый проход по всей базе занимает пару минут — страницу
+  можно не держать открытой, прогресс не потеряется.
 </div>
 {% endblock %}
 
@@ -57,8 +59,12 @@
   var COLORS = {empty:'#dc3545', soon:'#ffc107', ok:'#198754', sleeping:'#6c757d', new:'#0dcaf0'};
 
   var map = L.map('map').setView([59.94, 30.32], 11);   // Петербург по умолчанию
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19, attribution: '© OpenStreetMap'
+  // Тайлы CARTO, как в «Прозвоне» и «Поле»: tile.openstreetmap.org с наших
+  // рабочих мест не отдаётся, карта оставалась серой
+  map.attributionControl.setPrefix(false);   // убирает префикс «Leaflet» с флагом
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: 'abcd', maxZoom: 19,
   }).addTo(map);
   var cluster = L.markerClusterGroup({ maxClusterRadius: 45, disableClusteringAtZoom: 15 });
 
@@ -109,11 +115,16 @@
         .then(function(r) { return r.json(); })
         .then(function(st) {
           if (!st.total) { text.textContent = 'все точки уже на карте'; return; }
+          // Геокодер отдаёт не больше запроса в секунду, поэтому сразу говорим,
+          // сколько это займёт — иначе кажется, что кнопка не сработала
+          var eta = Math.ceil(st.total * 1.2 / 60);
+          text.textContent = '0 из ' + st.total + ' · примерно ' + eta + ' мин';
           var timer = setInterval(function() {
             fetch('/analytics/outlets/geocode/status')
               .then(function(r) { return r.json(); })
               .then(function(s) {
-                text.textContent = s.done + ' из ' + s.total + ' (найдено ' + s.found + ')';
+                text.textContent = s.done + ' из ' + s.total + ' (найдено ' + s.found + ')'
+                  + (s.error ? ' — ' + s.error : '');
                 if (!s.running) { clearInterval(timer); location.reload(); }
               });
           }, 2000);

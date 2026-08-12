@@ -288,7 +288,8 @@
 (function() {
   var map = L.map('outletMap', { zoomControl: false, attributionControl: false })
              .setView([{{ geo.lat }}, {{ geo.lng }}], 15);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+              { subdomains: 'abcd', maxZoom: 19 }).addTo(map);
   L.circleMarker([{{ geo.lat }}, {{ geo.lng }}], {
     radius: 10, color: '#fff', weight: 2, fillOpacity: .9,
     fillColor: '{{ {"empty":"#dc3545","soon":"#ffc107","ok":"#198754","sleeping":"#6c757d","new":"#0dcaf0"}[o.status] }}'
