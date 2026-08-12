@@ -521,3 +521,16 @@ def test_digest_skips_lost_points():
         assert rows == [] and sleeping == []
     finally:
         db.close()
+
+
+def test_single_delivery_long_ago_is_not_new():
+    """Одна поставка полгода назад — это не «новая» точка, а потерянный клиент.
+    Раньше такие навсегда оставались «Новая» и выпадали из работы."""
+    fresh = outlet_metrics(_point([(date.today() - timedelta(days=5), 168)]))
+    assert fresh["status"] == "new"
+
+    stale = outlet_metrics(_point([(date.today() - timedelta(days=45), 168)]))
+    assert stale["status"] == "sleeping"
+
+    ancient = outlet_metrics(_point([(date.today() - timedelta(days=200), 168)]))
+    assert ancient["status"] == "lost"

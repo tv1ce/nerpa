@@ -42,7 +42,7 @@ OUTLET_STATUSES = {
     "ok":       "В норме",
     "sleeping": "Спит",        # выпала из своего ритма — клиента можно вернуть
     "lost":     "Потерян",     # молчит больше трёх месяцев — уже не «спит»
-    "new":      "Новая",       # одна поставка — расход считать не из чего
+    "new":      "Новая",       # одна поставка и меньше месяца назад — ждём второй
 }
 
 # Сколько дней тишины считать «сном». Одного «дольше 2.5 своих интервалов» мало:
@@ -261,11 +261,14 @@ def outlet_metrics(point: dict, today: date | None = None) -> dict:
         last_rate = last_prev_qty / last_days
         trend_pct = round((last_rate / daily_rate - 1) * 100)
 
-    if len(deliveries) < 2:
-        status = "new"
-    elif days_since > LOST_DAYS:
-        # Три месяца тишины — это уже не «спит»
+    if days_since > LOST_DAYS:
+        # Три месяца тишины — это уже не «спит», сколько бы поставок ни было
         status = "lost"
+    elif len(deliveries) < 2:
+        # Одна поставка: ритма нет, поэтому смотрим только на календарь. Точка,
+        # которой завезли один раз и полгода тишина, — это не «новая», а уснувшая:
+        # именно такие раньше навсегда оставались «новыми» и терялись из виду
+        status = "new" if days_since < SLEEP_MIN_DAYS else "sleeping"
     elif (avg_interval and days_since > avg_interval * SLEEP_INTERVAL_FACTOR
             and days_since >= SLEEP_MIN_DAYS):
         # Выпала из ритма — но только если тишина заметна и в абсолютных днях:
