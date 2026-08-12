@@ -188,7 +188,13 @@ def collect_deliveries(db: Session) -> dict[str, dict]:
             "counterparties": {}, "flavors": defaultdict(float), "revenue": 0.0,
         })
         p["raw_addresses"].add((order.delivery_address or "").strip())
-        p["deliveries"].append({"date": order.date, "qty": qty, "order": order})
+        p["deliveries"].append({
+            "date": order.date, "qty": qty, "order": order, "amount": amount,
+            # Нулевая сумма при отгруженном товаре — это не дозаказ, а чаще всего
+            # рекламация: везём замену брака бесплатно. Помечаем, чтобы такие
+            # поставки не выдавались за признак роста продаж
+            "free": qty > 0 and not amount,
+        })
         p["revenue"] += amount
         cp = order.counterparty
         if cp:
@@ -256,6 +262,7 @@ def outlet_metrics(point: dict, today: date | None = None) -> dict:
     else:
         status = "ok"
 
+    free_count = sum(1 for d in deliveries if d.get("free"))
     flavors = dict(point["flavors"])
     flavor_total = sum(flavors.values()) or 1
     flavor_mix = {k: round(v / flavor_total * 100) for k, v in
@@ -272,6 +279,7 @@ def outlet_metrics(point: dict, today: date | None = None) -> dict:
         "networks": sorted(networks),
         "deliveries": deliveries,
         "deliveries_count": len(deliveries),
+        "free_count": free_count,
         "first_date": first,
         "last_date": last,
         "days_since": days_since,
@@ -327,3 +335,52 @@ def summary(outlets: list[dict]) -> dict:
         "avg_interval": (sum(intervals) / len(intervals)) if intervals else 0.0,
         "revenue": sum(o["revenue"] for o in outlets),
     }
+
+
+# ── Сравнение точек внутри сети ──────────────────────────────────────────────
+
+def add_network_comparison(outlets: list[dict]) -> None:
+    """Считает место точки среди точек её сети и отставание от лучшей.
+
+    Медиана по всей базе смешивает кофейню в спальнике с точкой на Невском.
+    Внутри сети формат, ассортимент и цены одинаковые, поэтому разрыв между
+    точками одной вывески — это уже вопрос к конкретной точке, а не к рынку."""
+    by_network: dict[str, list[dict]] = defaultdict(list)
+    for o in outlets:
+        for name in o["networks"]:
+            by_network[name].append(o)
+
+    for o in outlets:
+        o["network_rank"] = None
+
+    for name, members in by_network.items():
+        rated = sorted((m for m in members if m["daily_rate"]),
+                       key=lambda m: -m["daily_rate"])
+        if len(rated) < 2:
+            continue
+        best = rated[0]
+        rates = [m["daily_rate"] for m in rated]
+        avg = sum(rates) / len(rates)
+        for i, m in enumerate(rated, start=1):
+            # Точка может входить в несколько сетей — оставляем сравнение с той,
+            # где она выглядит хуже: именно там есть что чинить
+            gap = round((m["daily_rate"] / best["daily_rate"] - 1) * 100)
+            prev = m.get("network_rank")
+            if prev and prev["gap_to_best_pct"] <= gap:
+                continue
+            m["network_rank"] = {
+                "network": name,
+                "place": i,
+                "total": len(rated),
+                "best_label": best["label"],
+                "best_rate": best["daily_rate"],
+                "avg_rate": avg,
+                "gap_to_best_pct": gap,
+                "vs_network_pct": round((m["daily_rate"] / avg - 1) * 100),
+            }
+
+
+def network_outlets(outlets: list[dict], network_name: str) -> list[dict]:
+    """Точки одной сети, отсортированные по расходу — таблица сравнения в карточке сети."""
+    members = [o for o in outlets if network_name in o["networks"]]
+    return sorted(members, key=lambda o: -(o["daily_rate"] or 0))

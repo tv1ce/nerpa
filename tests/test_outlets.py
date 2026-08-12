@@ -197,3 +197,179 @@ def _csrf(client, path):
     import re
     m = re.search(r'name="csrf_token"\s+value="([^"]+)"', client.get(path).text)
     return m.group(1) if m else ""
+
+
+# ── Сравнение внутри сети ────────────────────────────────────────────────────
+
+def test_network_comparison_ranks_outlets():
+    """Точки одной сети выстраиваются по расходу с отставанием от лучшей."""
+    from app.services.outlets import add_network_comparison
+
+    def fake(label, rate, network):
+        return {"key": label, "label": label, "daily_rate": rate,
+                "networks": [network] if network else []}
+
+    outlets = [fake("A", 20.0, "Сеть"), fake("B", 10.0, "Сеть"),
+               fake("C", 5.0, "Сеть"), fake("D", 30.0, None)]
+    add_network_comparison(outlets)
+
+    a, b, c, d = outlets
+    assert a["network_rank"]["place"] == 1
+    assert b["network_rank"]["place"] == 2
+    assert b["network_rank"]["gap_to_best_pct"] == -50      # 10 против 20
+    assert c["network_rank"]["gap_to_best_pct"] == -75      # 5 против 20
+    # средний расход сети (20+10+5)/3 ≈ 11.67 → лучшая точка на +71%
+    assert a["network_rank"]["vs_network_pct"] == 71
+    assert d["network_rank"] is None, "точку вне сети сравнивать не с чем"
+
+
+def test_single_outlet_network_has_no_rank():
+    from app.services.outlets import add_network_comparison
+    outlets = [{"key": "A", "label": "A", "daily_rate": 12.0, "networks": ["Одна точка"]}]
+    add_network_comparison(outlets)
+    assert outlets[0]["network_rank"] is None
+
+
+# ── Карта и сравнение сетей ──────────────────────────────────────────────────
+
+def test_map_and_networks_pages_render(admin_client):
+    for path in ("/analytics/outlets/map", "/analytics/networks"):
+        r = admin_client.get(path)
+        assert r.status_code == 200, f"{path} → {r.status_code}"
+
+
+def test_map_data_returns_only_geocoded(admin_client):
+    """В данные карты попадают только точки с координатами."""
+    from app.database import SessionLocal
+    from app.models import OutletGeo
+
+    assert admin_client.get("/analytics/outlets/map/data").json() == []
+
+    db = SessionLocal()
+    try:
+        db.add(OutletGeo(address_key="тестовая:7", lat=59.93, lng=30.33,
+                         query="Тестовая 7"))
+        db.commit()
+    finally:
+        db.close()
+
+    rows = admin_client.get("/analytics/outlets/map/data").json()
+    assert len(rows) == 1
+    point = rows[0]
+    assert point["label"] == "Тестовая, 7"
+    assert point["lat"] == 59.93 and point["lng"] == 30.33
+    assert point["daily_rate"] == 10.0
+    assert "Кофейня Аналитика" in point["clients"]
+
+
+def test_geocode_status_available(admin_client):
+    st = admin_client.get("/analytics/outlets/geocode/status").json()
+    assert set(st) >= {"running", "done", "total", "found"}
+
+
+def test_zero_price_delivery_marked_as_claim(admin_client):
+    """Отгрузка на 0 ₽ — рекламация: помечается в карточке и уходит в промпт ИИ."""
+    from app.database import SessionLocal
+    from app.models import Counterparty, Order, OrderItem, Product
+    from app.routers.analytics import _outlet_facts, _outlets
+
+    start = date.today() - timedelta(days=24)
+    db = SessionLocal()
+    try:
+        product = Product(name="П1.Орешки с кокосовой начинкой", price=52.0)
+        db.add(product)
+        cp = Counterparty(name="ООО «Рекламационная»", trade_name="Кофейня Брак",
+                          inn="7899999902")
+        db.add(cp)
+        db.flush()
+        addr = "г Санкт-Петербург, ул Бракованная, д 5"
+        # Вторая отгрузка — бесплатная замена брака (сумма 0)
+        for i, (day, qty, price) in enumerate([
+            (start, 120, 52.0),
+            (start + timedelta(days=12), 60, 0.0),
+            (start + timedelta(days=20), 120, 52.0),
+        ]):
+            order = Order(number=f"CLAIM-TEST-{i}", date=day, counterparty_id=cp.id,
+                          status="delivered", delivery_address=addr)
+            db.add(order)
+            db.flush()
+            db.add(OrderItem(order_id=order.id, product_id=product.id,
+                             quantity=qty, price=price, amount=qty * price))
+        db.commit()
+
+        outlet = next(o for o in _outlets(db) if o["key"] == "бракованная:5")
+        assert outlet["free_count"] == 1
+        assert [d["free"] for d in outlet["deliveries"]] == [False, True, False]
+
+        facts = _outlet_facts(outlet)
+        assert "РЕКЛАМАЦИЯ" in facts
+        assert "Из них рекламаций (нулевая сумма): 1" in facts
+    finally:
+        db.close()
+
+    r = admin_client.get("/analytics/outlets/detail", params={"key": "бракованная:5"})
+    assert r.status_code == 200
+    assert "рекламация" in r.text
+
+
+# ── Ежедневная сводка в Telegram ─────────────────────────────────────────────
+
+def test_digest_message_format():
+    """Задачи превращаются в сообщение с приоритетами, контрагентом и адресом."""
+    from app.services.outlets_digest import format_message
+
+    text = format_message([
+        {"outlet": "Гончарная, 2", "client": "ИП Веннерхолм", "priority": "high",
+         "action": "Позвонить и завезти 240 шт", "why": "стоит без товара 5 дней"},
+    ])
+    assert "Веннерхолм" in text
+    assert "Гончарная" in text
+    assert "🔴" in text
+
+
+def test_digest_message_when_all_calm():
+    from app.services.outlets_digest import format_message
+    assert "Срочных задач нет" in format_message([])
+
+
+def test_digest_due_now_respects_settings():
+    """Расписание: время, будни и защита от повторной отправки за день."""
+    from datetime import datetime
+
+    from app.models import CompanySettings
+    from app.services.outlets_digest import due_now
+
+    monday_10 = datetime(2026, 8, 10, 10, 0)     # понедельник
+    saturday_10 = datetime(2026, 8, 15, 10, 0)   # суббота
+
+    off = CompanySettings(outlets_digest_enabled=False, outlets_digest_time="09:30")
+    assert due_now(off, monday_10) is False
+
+    on = CompanySettings(outlets_digest_enabled=True, outlets_digest_time="09:30",
+                         outlets_digest_weekdays_only=True)
+    assert due_now(on, monday_10) is True
+    assert due_now(on, datetime(2026, 8, 10, 9, 0)) is False, "время ещё не наступило"
+    assert due_now(on, saturday_10) is False, "по выходным не шлём"
+
+    on.outlets_digest_last_sent = monday_10.date()
+    assert due_now(on, monday_10) is False, "за день отправляем один раз"
+
+    assert due_now(None, monday_10) is False
+
+
+def test_digest_send_without_chat_is_reported(admin_client):
+    """Без настроенного чата сводка не отправляется, но и не падает."""
+    from app.database import SessionLocal
+    from app.models import CompanySettings
+    from app.services import outlets_digest
+
+    db = SessionLocal()
+    try:
+        company = db.query(CompanySettings).first()
+        company.outlets_digest_chat_ids = None
+        company.tg_report_chat_ids = None
+        db.commit()
+        result = outlets_digest.send(db)
+        assert result["ok"] is False and "чат" in result["error"].lower()
+    finally:
+        db.close()

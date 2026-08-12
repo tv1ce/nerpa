@@ -1,0 +1,21 @@
+{# Вкладки раздела аналитики — общий переключатель для списка, карты и сетей #}
+<ul class="nav nav-pills mb-3" style="gap:.35rem">
+  <li class="nav-item">
+    <a class="nav-link py-1 px-3 {% if tab == 'list' %}active{% endif %}"
+       href="/analytics/outlets" style="font-size:.86rem">
+      <i class="bi bi-list-ul me-1"></i>Список точек
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link py-1 px-3 {% if tab == 'map' %}active{% endif %}"
+       href="/analytics/outlets/map" style="font-size:.86rem">
+      <i class="bi bi-geo-alt me-1"></i>Карта
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link py-1 px-3 {% if tab == 'networks' %}active{% endif %}"
+       href="/analytics/networks" style="font-size:.86rem">
+      <i class="bi bi-diagram-3 me-1"></i>Сравнение сетей
+    </a>
+  </li>
+</ul>

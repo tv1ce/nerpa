@@ -190,6 +190,17 @@ def _normalize_chat_ids(raw: str) -> str | None:
     return ",".join(ids) or None
 
 
+def _normalize_time(raw: str) -> str:
+    """«9:5» → «09:05». Мусор превращаем в 09:30, а не роняем сохранение настроек."""
+    try:
+        hh, mm = (int(x) for x in raw.strip().split(":", 1))
+        if 0 <= hh <= 23 and 0 <= mm <= 59:
+            return f"{hh:02d}:{mm:02d}"
+    except (ValueError, AttributeError):
+        pass
+    return "09:30"
+
+
 @router.post("/telegram")
 @role_required("admin")
 async def save_telegram(
@@ -211,6 +222,10 @@ async def save_telegram(
     hr_metric_remind_chat_ids: str = Form(default=""),
     hr_metric_check_enabled: str = Form(default=""),
     hr_metric_check_chat_ids: str = Form(default=""),
+    outlets_digest_enabled: str = Form(default=""),
+    outlets_digest_time: str = Form(default="09:30"),
+    outlets_digest_chat_ids: str = Form(default=""),
+    outlets_digest_weekdays_only: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
     company = db.query(CompanySettings).first()
@@ -234,6 +249,10 @@ async def save_telegram(
     company.hr_metric_remind_chat_ids = _normalize_chat_ids(hr_metric_remind_chat_ids)
     company.hr_metric_check_enabled = (hr_metric_check_enabled == "1")
     company.hr_metric_check_chat_ids = _normalize_chat_ids(hr_metric_check_chat_ids)
+    company.outlets_digest_enabled = (outlets_digest_enabled == "1")
+    company.outlets_digest_time = _normalize_time(outlets_digest_time)
+    company.outlets_digest_chat_ids = _normalize_chat_ids(outlets_digest_chat_ids)
+    company.outlets_digest_weekdays_only = (outlets_digest_weekdays_only == "1")
     db.commit()
     return RedirectResponse(url="/settings/?saved=1", status_code=302)
 

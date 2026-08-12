@@ -386,6 +386,12 @@ def _migrate_db():
         ("counterparties", "is_network_hq", "BOOLEAN DEFAULT 0"),
         # ── Аналитика точек: ИИ-разборы (таблица создаётся через create_all) ──
         ("outlet_insights", "scope", "TEXT DEFAULT 'outlet'"),
+        ("outlet_geo", "not_found", "BOOLEAN DEFAULT 0"),
+        ("company_settings", "outlets_digest_enabled",       "INTEGER DEFAULT 0"),
+        ("company_settings", "outlets_digest_time",          "TEXT DEFAULT '09:30'"),
+        ("company_settings", "outlets_digest_chat_ids",      "TEXT"),
+        ("company_settings", "outlets_digest_weekdays_only", "INTEGER DEFAULT 1"),
+        ("company_settings", "outlets_digest_last_sent",     "DATE"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

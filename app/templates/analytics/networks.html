@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% set tab = 'networks' %}
+{% block title %}Сравнение сетей{% endblock %}
+{% block page_title %}Сравнение точек внутри сетей{% endblock %}
+
+{% block content %}
+{% include "analytics/_tabs.html" %}
+
+<div class="alert alert-light border py-2 mb-3" style="font-size:.85rem">
+  <i class="bi bi-info-circle me-1"></i>
+  У точек одной вывески одинаковый формат, ассортимент и цены — значит, разрыв между
+  ними это вопрос к конкретной точке, а не к району. Ниже точки каждой сети выстроены
+  по расходу: сверху те, кто тянет сеть, снизу — кто её проедает.
+</div>
+
+{% for g in groups %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body pb-2">
+    <div class="d-flex flex-wrap align-items-center gap-3">
+      <a href="/networks/{{ g.network.id }}" class="fw-bold text-decoration-none" style="font-size:1rem">
+        <i class="bi bi-diagram-3 me-1" style="color:var(--brand)"></i>{{ g.network.name }}
+      </a>
+      <span class="text-muted" style="font-size:.82rem">{{ g.outlets | length }} точек</span>
+      <span style="font-size:.82rem"><span class="text-muted">Съедают в день:</span>
+        <strong>{{ '%.0f'|format(g.daily_total) }} шт</strong></span>
+      <span style="font-size:.82rem"><span class="text-muted">Средняя точка:</span>
+        <strong>{{ '%.1f'|format(g.avg_rate) }} шт/день</strong></span>
+      {% if g.empty %}
+      <span class="badge bg-danger">{{ g.empty }} без товара</span>
+      {% endif %}
+    </div>
+    {% if g.best and g.worst and g.best.key != g.worst.key %}
+    <div class="text-muted mt-1" style="font-size:.8rem">
+      Разрыв: <strong>{{ g.best.label }}</strong> {{ '%.1f'|format(g.best.daily_rate) }} шт/день против
+      <strong>{{ g.worst.label }}</strong> {{ '%.1f'|format(g.worst.daily_rate) }} шт/день —
+      худшая точка сети даёт
+      {{ '%.1f'|format(g.best.daily_rate / g.worst.daily_rate) }}× меньше лучшей
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="table-responsive">
+    <table class="table tms-table mb-0 align-middle">
+      <thead>
+        <tr style="font-size:.76rem">
+          <th class="ps-3" style="width:2.5rem">#</th>
+          <th>Точка</th>
+          <th>Контрагент</th>
+          <th style="width:32%">Расход относительно лучшей точки сети</th>
+          <th class="text-end" style="width:7rem">шт/день</th>
+          <th class="text-end" style="width:7rem">К средней</th>
+          <th style="width:7rem">Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in g.outlets %}
+        {% set best_rate = g.best.daily_rate if g.best and g.best.daily_rate else 0 %}
+        <tr>
+          <td class="ps-3 text-muted">{{ loop.index }}</td>
+          <td>
+            <a href="/analytics/outlets/detail?key={{ o.key | urlencode }}"
+               class="fw-semibold text-decoration-none">{{ o.label }}</a>
+          </td>
+          <td class="text-muted" style="font-size:.8rem">
+            {% for cp in o.counterparties %}
+            <a href="/counterparties/{{ cp.id }}" class="text-reset text-decoration-none">{{ cp.trade_name or cp.name }}</a>{% if not loop.last %}, {% endif %}
+            {% else %}—{% endfor %}
+          </td>
+          <td>
+            {% if o.daily_rate and best_rate %}
+            {% set pct = (o.daily_rate / best_rate * 100) | round %}
+            <div class="d-flex align-items-center gap-2">
+              <div style="flex:1;height:8px;background:#F1F5F9;border-radius:4px;overflow:hidden">
+                <div style="height:100%;width:{{ pct }}%;border-radius:4px;
+                            background:var(--bs-{{ 'success' if pct >= 80 else ('warning' if pct >= 50 else 'danger') }})"></div>
+              </div>
+              <span class="text-muted" style="font-size:.75rem; width:2.6rem; text-align:right">{{ pct }}%</span>
+            </div>
+            {% else %}
+            <span class="text-muted" style="font-size:.8rem">мало данных</span>
+            {% endif %}
+          </td>
+          <td class="text-end fw-semibold">{{ '%.1f'|format(o.daily_rate) if o.daily_rate else '—' }}</td>
+          <td class="text-end" style="font-size:.82rem">
+            {% if o.network_rank %}
+            <span class="{% if o.network_rank.vs_network_pct < -25 %}text-danger{% elif o.network_rank.vs_network_pct > 25 %}text-success{% else %}text-muted{% endif %}">
+              {{ '%+d'|format(o.network_rank.vs_network_pct) }}%
+            </span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td>
+            <span class="badge bg-{{ status_colors[o.status] }} {% if o.status == 'new' %}text-dark{% endif %}"
+                  style="font-size:.7rem">{{ statuses[o.status] }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card border-0 shadow-sm p-5 text-center text-muted">
+  Пока не с чем сравнивать: нужны сети с поставками хотя бы на две точки.
+  <div class="mt-2"><a href="/networks/suggest">Собрать сети из контрагентов</a></div>
+</div>
+{% endfor %}
+{% endblock %}

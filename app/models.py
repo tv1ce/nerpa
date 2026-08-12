@@ -564,6 +564,14 @@ class CompanySettings(Base):
     notify_contract_days = Column(Integer, default=14)  # до истечения договора
     notify_invoice_days  = Column(Integer, default=3)   # до дедлайна оплаты счёта
     # ── Автобекап БД ──
+    # ── Ежедневная ИИ-сводка «кому звонить сегодня» по точкам ──
+    # (см. services/outlets_digest.py — собирается по расписанию и уходит в Telegram)
+    outlets_digest_enabled = Column(Boolean, default=False)
+    outlets_digest_time = Column(String(5), default="09:30")     # время по Москве, ЧЧ:ММ
+    outlets_digest_chat_ids = Column(String(200))                # пусто — чат отчётов
+    outlets_digest_weekdays_only = Column(Boolean, default=True)
+    outlets_digest_last_sent = Column(Date)                      # защита от повторной отправки
+
     backup_enabled = Column(Boolean, default=False)     # вкл/выкл автобекап
     backup_frequency = Column(String(20), default="weekly")  # daily / weekly / monthly
     tg_backup_chat_id = Column(String(100))              # chat_id куда отправлять бекап
@@ -1571,6 +1579,22 @@ class OutletInsight(Base):
     text = Column(Text, nullable=False)
     model = Column(String(100))
     created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+
+
+class OutletGeo(Base):
+    """Координаты точки (адреса доставки) — кэш геокодирования.
+
+    Точка не имеет своей строки в базе: она вычисляется из адресов заказов, и её
+    ключ («улица:дом») стабилен. По этому ключу и храним найденные координаты,
+    чтобы не дёргать геокодер на каждый показ карты (Nominatim — 1 запрос/сек)."""
+    __tablename__ = "outlet_geo"
+    id = Column(Integer, primary_key=True)
+    address_key = Column(String(200), unique=True, index=True, nullable=False)
+    lat = Column(Float)
+    lng = Column(Float)
+    query = Column(String(500))     # адрес, по которому нашлись координаты
+    not_found = Column(Boolean, default=False)   # геокодер адрес не знает — не долбить повторно
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
 

@@ -1,98 +1,151 @@
 {% extends "base.html" %}
 {% block title %}{{ o.label }}{% endblock %}
-{% block page_title %}Точка: {{ o.label }}{% endblock %}
+{% block page_title %}{{ o.label }}{% endblock %}
 {% block topbar_actions %}
   {% if request.session.get('user_role') != 'viewer' %}
   <form method="post" action="/analytics/outlets/analyze" class="d-inline me-2">
     <input type="hidden" name="key" value="{{ o.key }}">
-    <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-stars me-1"></i>Разбор ИИ</button>
+    <button class="btn btn-sm btn-accent"><i class="bi bi-stars me-1"></i>Разбор ИИ</button>
   </form>
   {% endif %}
   <a href="/analytics/outlets" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К точкам</a>
 {% endblock %}
 
 {% block content %}
-{% if error %}
-<div class="alert alert-warning py-2">{{ error }}</div>
-{% endif %}
+{% if error %}<div class="alert alert-warning py-2">{{ error }}</div>{% endif %}
+
+{# ── Вердикт: одной строкой, что с точкой делать ──────────────────────────── #}
+{% set st = o.status %}
+<div class="alert py-2 mb-3 d-flex align-items-center gap-2
+            alert-{{ 'danger' if st == 'empty' else ('warning' if st in ('soon','sleeping') else 'light') }}
+            {% if st in ('ok','new') %}border{% endif %}">
+  <i class="bi {{ 'bi-exclamation-octagon-fill' if st == 'empty'
+                  else ('bi-hourglass-split' if st == 'soon'
+                  else ('bi-moon-stars-fill' if st == 'sleeping' else 'bi-check-circle')) }}"></i>
+  <div>
+    {% if st == 'empty' %}
+      <strong>Точка стоит без товара {{ '%.0f'|format(-o.days_left) }} дн.</strong> —
+      при расходе {{ '%.1f'|format(o.daily_rate) }} шт/день это примерно
+      {{ '%.0f'|format(-o.days_left * o.daily_rate) }} шт непроданного. Звонить сегодня.
+    {% elif st == 'soon' %}
+      <strong>Запас кончится через {{ '%.0f'|format(o.days_left) }} дн.</strong> —
+      пора согласовывать завоз{% if o.next_order_date %} (расчётная дата — {{ o.next_order_date | date_fmt }}){% endif %}.
+    {% elif st == 'sleeping' %}
+      <strong>Не заказывают {{ o.days_since }} дн.</strong> при обычном ритме раз в
+      {{ '%.0f'|format(o.avg_interval) }} дн. — точка выпала из графика, стоит выяснить причину.
+    {% elif st == 'new' %}
+      <strong>Новая точка</strong> — была одна поставка, расход посчитаем после второй.
+    {% else %}
+      <strong>Точка в графике.</strong> Запаса на {{ '%.0f'|format(o.days_left) }} дн.,
+      следующий завоз ориентировочно {{ o.next_order_date | date_fmt }}.
+    {% endif %}
+  </div>
+</div>
 
 <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
-  <span class="badge bg-{{ status_colors[o.status] }} {% if o.status == 'new' %}text-dark{% endif %}">{{ statuses[o.status] }}</span>
   {% for cp in o.counterparties %}
-  <a href="/counterparties/{{ cp.id }}" class="badge bg-light text-dark border text-decoration-none">
-    {{ cp.trade_name or cp.name }}
+  <a href="/counterparties/{{ cp.id }}" class="badge bg-light text-dark border text-decoration-none py-2 px-3">
+    <i class="bi bi-person me-1"></i>{{ cp.trade_name or cp.name }}
+    {% if cp.inn %}<span class="text-muted">· ИНН {{ cp.inn }}</span>{% endif %}
   </a>
   {% endfor %}
   {% for n in o.networks %}
-  <span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="bi bi-diagram-3 me-1"></i>{{ n }}</span>
+  <span class="badge bg-primary-subtle text-primary border border-primary-subtle py-2 px-3">
+    <i class="bi bi-diagram-3 me-1"></i>{{ n }}</span>
   {% endfor %}
 </div>
 
 {# ── Ключевые цифры ───────────────────────────────────────────────────────── #}
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
-    <div class="card border-0 shadow-sm p-3 h-100 text-center">
-      <div class="fw-bold text-success" style="font-size:1.6rem; line-height:1.1">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="text-muted" style="font-size:.75rem">РАСХОД</div>
+      <div class="fw-bold text-success" style="font-size:1.7rem; line-height:1.1">
         {{ '%.1f'|format(o.daily_rate) if o.daily_rate else '—' }}
       </div>
-      <div class="text-muted" style="font-size:.78rem">Орешков в день</div>
+      <div class="text-muted" style="font-size:.78rem">орешков в день</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card border-0 shadow-sm p-3 h-100 text-center">
-      <div class="fw-bold" style="font-size:1.6rem; line-height:1.1">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="text-muted" style="font-size:.75rem">РИТМ</div>
+      <div class="fw-bold" style="font-size:1.7rem; line-height:1.1">
         {{ '%.1f'|format(o.orders_per_month) if o.orders_per_month else '—' }}
       </div>
-      <div class="text-muted" style="font-size:.78rem">Заказов в месяц</div>
+      <div class="text-muted" style="font-size:.78rem">
+        заказов в месяц{% if o.avg_interval %} · раз в {{ '%.0f'|format(o.avg_interval) }} дн.{% endif %}
+      </div>
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card border-0 shadow-sm p-3 h-100 text-center">
-      <div class="fw-bold {% if o.days_left is not none and o.days_left < 0 %}text-danger{% endif %}" style="font-size:1.6rem; line-height:1.1">
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="text-muted" style="font-size:.75rem">ЗАПАС</div>
+      <div class="fw-bold {% if o.days_left is not none and o.days_left < 0 %}text-danger{% endif %}"
+           style="font-size:1.7rem; line-height:1.1">
         {% if o.days_left is none %}—{% else %}{{ '%.0f'|format(o.days_left) }}{% endif %}
       </div>
       <div class="text-muted" style="font-size:.78rem">
-        Дней запаса{% if o.next_order_date %} · завоз к {{ o.next_order_date | date_fmt }}{% endif %}
+        дней{% if o.next_order_date %} · завоз к {{ o.next_order_date | date_fmt }}{% endif %}
       </div>
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card border-0 shadow-sm p-3 h-100 text-center">
-      <div class="fw-bold" style="font-size:1.15rem; line-height:1.3">{{ o.revenue | money }}</div>
-      <div class="text-muted" style="font-size:.78rem">Выручка по точке, ₽</div>
+    <div class="card border-0 shadow-sm p-3 h-100">
+      <div class="text-muted" style="font-size:.75rem">ВЫРУЧКА</div>
+      <div class="fw-bold" style="font-size:1.3rem; line-height:1.35">{{ o.revenue | money }}</div>
+      <div class="text-muted" style="font-size:.78rem">₽ за всё время</div>
     </div>
   </div>
 </div>
 
 <div class="row g-3">
   <div class="col-lg-8">
-    {# ── История поставок ─────────────────────────────────────────────────── #}
-    <div class="card border-0 shadow-sm">
-      <div class="card-body pb-0"><span class="form-section-title mb-0">Поставки</span></div>
-      <div class="table-responsive">
+    {# ── График поставок ──────────────────────────────────────────────────── #}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body">
+        <div class="form-section-title">Поставки и расход</div>
+        {% set qtys = o.deliveries | map(attribute='qty') | list %}
+        {% set qmax = qtys | max %}
+        <div class="d-flex align-items-end gap-1" style="height:110px">
+          {% for d in o.deliveries %}
+          {% set h = (d.qty / (qmax or 1) * 100) | round %}
+          <div class="flex-fill d-flex flex-column justify-content-end align-items-center"
+               title="{{ d.date | date_fmt }} — {{ '%.0f'|format(d.qty) }} шт">
+            <span class="text-muted" style="font-size:.62rem">{{ '%.0f'|format(d.qty) }}</span>
+            <div style="width:100%; height:{{ h }}%; background:var(--brand); opacity:.65; border-radius:3px 3px 0 0"></div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="d-flex gap-1 mt-1">
+          {% for d in o.deliveries %}
+          <div class="flex-fill text-center text-muted" style="font-size:.62rem">
+            {{ d.date.strftime('%d.%m') }}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="table-responsive border-top">
         <table class="table tms-table mb-0">
-          <thead><tr>
-            <th class="ps-3">Дата</th><th>Заказ</th><th class="text-end">Орешков, шт</th>
-            <th class="text-end">Через, дней</th><th class="text-end">Расход, шт/день</th><th></th>
+          <thead><tr style="font-size:.76rem">
+            <th class="ps-3">Дата</th><th>Заказ</th><th class="text-end">Орешков</th>
+            <th class="text-end">Через, дней</th><th class="text-end">Расход в интервале</th>
           </tr></thead>
           <tbody>
             {% for d in o.deliveries | reverse %}
-            {# Расход интервала: сколько эта поставка «прожила» до следующей #}
             {% set idx = o.deliveries | length - loop.index %}
             {% set nxt = o.deliveries[idx + 1] if idx + 1 < (o.deliveries | length) else none %}
             {% set gap = (nxt.date - d.date).days if nxt else none %}
             <tr>
               <td class="ps-3">{{ d.date | date_fmt }}</td>
-              <td><a href="/orders/{{ d.order.id }}" class="text-decoration-none">{{ d.order.number }}</a></td>
+              <td>
+                {% if d.order %}<a href="/orders/{{ d.order.id }}" class="text-decoration-none">{{ d.order.number }}</a>{% else %}—{% endif %}
+                {# Нулевая сумма — это замена брака, а не дозаказ #}
+                {% if d.free %}<span class="badge bg-warning text-dark ms-1" style="font-size:.66rem"
+                  title="Отгрузка на 0 ₽ — рекламация, замена брака">рекламация</span>{% endif %}
+              </td>
               <td class="text-end">{{ '%.0f'|format(d.qty) }}</td>
               <td class="text-end text-muted">{{ gap if gap else '—' }}</td>
-              <td class="text-end">{{ '%.1f'|format(d.qty / gap) if gap else '—' }}</td>
-              <td style="width:35%">
-                {% set w = (d.qty / (o.deliveries | map(attribute='qty') | max or 1) * 100) | round %}
-                <div style="height:6px;background:#F1F5F9;border-radius:3px;overflow:hidden">
-                  <div style="height:100%;width:{{ w }}%;background:var(--brand);border-radius:3px"></div>
-                </div>
-              </td>
+              <td class="text-end fw-semibold">{{ '%.1f'|format(d.qty / gap) if gap else '—' }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -100,15 +153,13 @@
       </div>
     </div>
 
-    {# ── ИИ-разбор ────────────────────────────────────────────────────────── #}
-    <div class="card border-0 shadow-sm mt-3">
+    {# ── Разбор ИИ ────────────────────────────────────────────────────────── #}
+    <div class="card border-0 shadow-sm">
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-2">
           <span class="form-section-title mb-0"><i class="bi bi-stars me-1" style="color:var(--brand)"></i>Разбор ИИ</span>
           {% if insights %}
-          <span class="text-muted" style="font-size:.75rem">
-            {{ insights[0].model }} · {{ insights[0].created_at | datetime_fmt }}
-          </span>
+          <span class="text-muted" style="font-size:.75rem">{{ insights[0].model }} · {{ insights[0].created_at | datetime_fmt }}</span>
           {% endif %}
         </div>
         {% if insights %}
@@ -126,9 +177,8 @@
         {% endif %}
         {% else %}
         <div class="text-muted" style="font-size:.85rem">
-          Разбора ещё нет — нажмите «Разбор ИИ» вверху. Модель получит только посчитанные
-          цифры этой точки и вернёт диагноз, рекомендацию по следующей поставке и текст
-          сообщения клиенту.
+          Разбора ещё нет. Модель получит контрагента, цифры расхода, ритм, место точки
+          в своей сети — и вернёт диагноз, рекомендацию по завозу и текст клиенту.
         </div>
         {% endif %}
       </div>
@@ -137,21 +187,49 @@
 
   {# ── Боковая колонка ──────────────────────────────────────────────────── #}
   <div class="col-lg-4">
+    {# Сравнение внутри сети #}
+    {% if o.network_rank %}
+    {% set r = o.network_rank %}
     <div class="card border-0 shadow-sm p-3 mb-3">
-      <div class="form-section-title">Ритм</div>
-      <div class="d-flex justify-content-between py-1" style="font-size:.85rem">
-        <span class="text-muted">Поставок всего</span><span>{{ o.deliveries_count }}</span>
+      <div class="form-section-title">В сети «{{ r.network }}»</div>
+      <div class="d-flex align-items-baseline gap-2 mb-2">
+        <span class="fw-bold" style="font-size:1.6rem">{{ r.place }}</span>
+        <span class="text-muted">место из {{ r.total }}</span>
       </div>
       <div class="d-flex justify-content-between py-1" style="font-size:.85rem">
-        <span class="text-muted">Средний интервал</span>
-        <span>{{ '%.0f'|format(o.avg_interval) if o.avg_interval else '—' }} дн.</span>
+        <span class="text-muted">К лучшей точке</span>
+        <span class="{% if r.gap_to_best_pct < -25 %}text-danger fw-semibold{% endif %}">
+          {{ '%+d'|format(r.gap_to_best_pct) }}%
+        </span>
       </div>
       <div class="d-flex justify-content-between py-1" style="font-size:.85rem">
-        <span class="text-muted">Средняя поставка</span><span>{{ '%.0f'|format(o.avg_qty) }} шт</span>
+        <span class="text-muted">К средней по сети</span>
+        <span class="{% if r.vs_network_pct < -25 %}text-danger{% elif r.vs_network_pct > 25 %}text-success{% endif %}">
+          {{ '%+d'|format(r.vs_network_pct) }}%
+        </span>
       </div>
+      <div class="text-muted mt-2" style="font-size:.78rem">
+        Лучшая: {{ r.best_label }} — {{ '%.1f'|format(r.best_rate) }} шт/день,
+        средняя по сети {{ '%.1f'|format(r.avg_rate) }} шт/день
+      </div>
+      <a href="/analytics/networks" class="mt-2" style="font-size:.8rem">Все точки сети рядом →</a>
+    </div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="form-section-title">Цифры</div>
+      {% set rows = [
+          ('Поставок всего', (o.deliveries_count ~ '') ~ (' (из них рекламаций: ' ~ o.free_count ~ ')' if o.free_count else '')),
+          ('Средняя поставка', '%.0f шт'|format(o.avg_qty)),
+          ('Всего отгружено', '%.0f шт'|format(o.total_qty)),
+          ('Первая поставка', o.first_date | date_fmt),
+          ('Последняя', (o.last_date | date_fmt) ~ ' (' ~ o.days_since ~ ' дн. назад)'),
+      ] %}
+      {% for label, value in rows %}
       <div class="d-flex justify-content-between py-1" style="font-size:.85rem">
-        <span class="text-muted">Всего отгружено</span><span>{{ '%.0f'|format(o.total_qty) }} шт</span>
+        <span class="text-muted">{{ label }}</span><span>{{ value }}</span>
       </div>
+      {% endfor %}
       <div class="d-flex justify-content-between py-1" style="font-size:.85rem">
         <span class="text-muted">Тренд к своему среднему</span>
         <span class="{% if o.trend_pct is not none and o.trend_pct < -20 %}text-danger{% elif o.trend_pct is not none and o.trend_pct > 20 %}text-success{% endif %}">
@@ -179,7 +257,13 @@
     </div>
     {% endif %}
 
-    {# Как адрес написан в заказах — чтобы видеть, что склеилось в одну точку #}
+    {# Карта точки — сразу видно, где это и что рядом #}
+    {% if geo and geo.lat %}
+    <div class="card border-0 shadow-sm mb-3 overflow-hidden">
+      <div id="outletMap" style="height:220px"></div>
+    </div>
+    {% endif %}
+
     <div class="card border-0 shadow-sm p-3">
       <div class="form-section-title">Адрес в заказах</div>
       {% for a in o.raw_addresses %}
@@ -194,4 +278,22 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if geo and geo.lat %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script>
+(function() {
+  var map = L.map('outletMap', { zoomControl: false, attributionControl: false })
+             .setView([{{ geo.lat }}, {{ geo.lng }}], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+  L.circleMarker([{{ geo.lat }}, {{ geo.lng }}], {
+    radius: 10, color: '#fff', weight: 2, fillOpacity: .9,
+    fillColor: '{{ {"empty":"#dc3545","soon":"#ffc107","ok":"#198754","sleeping":"#6c757d","new":"#0dcaf0"}[o.status] }}'
+  }).addTo(map);
+})();
+</script>
+{% endif %}
 {% endblock %}

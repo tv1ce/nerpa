@@ -987,6 +987,46 @@
         <hr class="my-3">
 
         <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label form-label-sm mb-0">
+            <i class="bi bi-stars me-1"></i>Сводка по точкам «кому звонить сегодня»
+          </label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="outlets_digest_enabled" value="1" id="outletsDigestEnabled"
+                   {% if company and company.outlets_digest_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="outletsDigestEnabled" style="font-size:.82rem">Вкл</label>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col-4">
+            <input type="time" name="outlets_digest_time" class="form-control form-control-sm"
+                   value="{{ company.outlets_digest_time if company and company.outlets_digest_time else '09:30' }}">
+            <div class="form-text" style="font-size:.68rem">время по Москве</div>
+          </div>
+          <div class="col-8">
+            <input type="text" name="outlets_digest_chat_ids" class="form-control form-control-sm font-monospace"
+                   placeholder="-1001234567890"
+                   value="{{ company.outlets_digest_chat_ids if company and company.outlets_digest_chat_ids else '' }}">
+            <div class="form-text" style="font-size:.68rem">чат отдела продаж; пусто — общий чат отчётов</div>
+          </div>
+        </div>
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="checkbox" name="outlets_digest_weekdays_only" value="1"
+                 id="outletsDigestWeekdays"
+                 {% if not company or company.outlets_digest_weekdays_only %}checked{% endif %}>
+          <label class="form-check-label" for="outletsDigestWeekdays" style="font-size:.82rem">
+            Только по будням
+          </label>
+        </div>
+        <div class="form-text mb-3" style="font-size:.72rem">
+          ИИ разбирает точки (расход, запас, ритм) и присылает список: кому звонить и
+          зачем. Требует ключ OpenRouter в .env. Последняя отправка:
+          {% if company and company.outlets_digest_last_sent %}{{ company.outlets_digest_last_sent | date_fmt }}{% else %}не отправлялась{% endif %}.
+          Проверить вручную — кнопка «Что делать сегодня» в разделе
+          <a href="/analytics/outlets">Аналитика → Точки</a>.
+        </div>
+
+        <div class="d-flex align-items-center justify-content-between mb-2">
           <label class="form-label form-label-sm mb-0"><i class="bi bi-archive me-1"></i>Автобекап БД</label>
           <div class="form-check form-switch mb-0">
             <input class="form-check-input" type="checkbox" role="switch"

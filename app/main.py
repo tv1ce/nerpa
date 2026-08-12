@@ -504,6 +504,14 @@ def _run_versta_status_job():
         db.close()
 
 
+def _run_outlets_digest_job():
+    """Фоновая задача APScheduler: ежедневная ИИ-сводка «кому звонить сегодня»
+    по точкам — собирается и уходит в Telegram в заданное время (см.
+    app/services/outlets_digest.py)."""
+    from app.services.outlets_digest import run_scheduled
+    run_scheduled()
+
+
 def _run_bitrix_cp_requisites_job():
     """Фоновая задача APScheduler: дозаливает ИНН/банковские реквизиты контрагентов,
     созданных из Bitrix24. Робот стадии «Заказ согласован» дёргает вебхук раньше,
@@ -553,8 +561,12 @@ async def lifespan(_app: FastAPI):
                            misfire_grace_time=60)
         _scheduler.add_job(_run_versta_status_job, "interval", minutes=30, id="versta_status",
                            misfire_grace_time=60)
+        # Сводка по точкам: проверяем каждые 5 минут — время отправки задаётся в
+        # настройках и может меняться без перезапуска сервера
+        _scheduler.add_job(_run_outlets_digest_job, "interval", minutes=5, id="outlets_digest",
+                           misfire_grace_time=300)
         _scheduler.start()
-        logger.info("APScheduler: задачи 1c_sync, 1c_fast_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status, sbis_edo_status, versta_status запущены")
+        logger.info("APScheduler: задачи 1c_sync, 1c_fast_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status, sbis_edo_status, versta_status, outlets_digest запущены")
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
 

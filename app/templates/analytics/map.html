@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% set tab = 'map' %}
+{% block title %}Карта точек{% endblock %}
+{% block page_title %}Карта точек{% endblock %}
+
+{% block content %}
+{% include "analytics/_tabs.html" %}
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2 d-flex flex-wrap align-items-center gap-3">
+    <span style="font-size:.85rem">
+      <span class="text-muted">На карте:</span>
+      <strong id="geoLocated">{{ located }}</strong> из {{ total }} точек
+    </span>
+    {% if request.session.get('user_role') != 'viewer' and located < total %}
+    <button class="btn btn-sm btn-outline-secondary" id="geoBtn">
+      <i class="bi bi-geo me-1"></i>Определить координаты остальных
+    </button>
+    <span id="geoProgress" class="text-muted d-none" style="font-size:.82rem">
+      <span class="spinner-border spinner-border-sm me-1"></span><span id="geoText"></span>
+    </span>
+    {% endif %}
+    {# Легенда — тот же светофор, что в списке #}
+    <div class="ms-auto d-flex flex-wrap gap-3" style="font-size:.8rem">
+      {% for val, label in statuses.items() %}
+      <span><span class="legend-dot bg-{{ status_colors[val] }}"></span>{{ label }}</span>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div id="map" style="height:calc(100vh - 300px); min-height:420px; border-radius:.5rem"></div>
+</div>
+
+<div class="text-muted mt-2" style="font-size:.78rem">
+  Размер кружка — расход точки в штуках в день, цвет — статус запаса. Координаты
+  определяются по адресу из заказов (OpenStreetMap) и сохраняются: повторно
+  геокодировать те же точки не нужно.
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .legend-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px }
+  .outlet-pop { font-size:.85rem; min-width:210px }
+  .outlet-pop .row-line { display:flex; justify-content:space-between; gap:1rem }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+(function() {
+  var COLORS = {empty:'#dc3545', soon:'#ffc107', ok:'#198754', sleeping:'#6c757d', new:'#0dcaf0'};
+
+  var map = L.map('map').setView([59.94, 30.32], 11);   // Петербург по умолчанию
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap'
+  }).addTo(map);
+  var cluster = L.markerClusterGroup({ maxClusterRadius: 45, disableClusteringAtZoom: 15 });
+
+  function popup(p) {
+    var esc = function(s) { return String(s == null ? '' : s).replace(/[<>&]/g, ''); };
+    var stock = p.days_left === null ? 'мало данных'
+      : (p.days_left < 0 ? 'пусто уже ' + (-p.days_left) + ' дн.' : 'хватит на ' + p.days_left + ' дн.');
+    return '<div class="outlet-pop">'
+      + '<div class="fw-bold mb-1">' + esc(p.label) + '</div>'
+      + (p.clients.length ? '<div class="text-muted mb-1">' + esc(p.clients.join(', ')) + '</div>' : '')
+      + (p.networks.length ? '<div class="mb-1"><span class="badge bg-light text-dark border">'
+          + esc(p.networks.join(', ')) + '</span></div>' : '')
+      + '<div class="row-line"><span class="text-muted">Расход</span><b>'
+          + (p.daily_rate === null ? '—' : p.daily_rate + ' шт/день') + '</b></div>'
+      + '<div class="row-line"><span class="text-muted">Запас</span><b>' + stock + '</b></div>'
+      + '<div class="row-line"><span class="text-muted">Ритм</span><b>'
+          + (p.orders_per_month === null ? '—' : p.orders_per_month + '/мес') + '</b></div>'
+      + '<div class="mt-2"><a href="/analytics/outlets/detail?key=' + encodeURIComponent(p.key) + '">'
+          + 'Открыть карточку точки</a></div>'
+      + '</div>';
+  }
+
+  fetch('/analytics/outlets/map/data').then(function(r) { return r.json(); }).then(function(rows) {
+    var bounds = [];
+    rows.forEach(function(p) {
+      // Радиус кружка растёт с расходом — крупные точки видно сразу
+      var r = 6 + Math.min(14, (p.daily_rate || 0) / 3);
+      var m = L.circleMarker([p.lat, p.lng], {
+        radius: r, color: '#fff', weight: 2, fillColor: COLORS[p.status] || '#6c757d', fillOpacity: .85
+      }).bindPopup(popup(p));
+      cluster.addLayer(m);
+      bounds.push([p.lat, p.lng]);
+    });
+    map.addLayer(cluster);
+    if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
+  });
+
+  // Геокодирование: запускаем и опрашиваем прогресс, пока фоновый поток идёт
+  var btn = document.getElementById('geoBtn');
+  if (btn) {
+    var box = document.getElementById('geoProgress');
+    var text = document.getElementById('geoText');
+    btn.addEventListener('click', function() {
+      btn.disabled = true;
+      box.classList.remove('d-none');
+      text.textContent = 'запускаю…';
+      fetch('/analytics/outlets/geocode', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(st) {
+          if (!st.total) { text.textContent = 'все точки уже на карте'; return; }
+          var timer = setInterval(function() {
+            fetch('/analytics/outlets/geocode/status')
+              .then(function(r) { return r.json(); })
+              .then(function(s) {
+                text.textContent = s.done + ' из ' + s.total + ' (найдено ' + s.found + ')';
+                if (!s.running) { clearInterval(timer); location.reload(); }
+              });
+          }, 2000);
+        })
+        .catch(function() { text.textContent = 'не удалось запустить'; btn.disabled = false; });
+    });
+  }
+})();
+</script>
+{% endblock %}
