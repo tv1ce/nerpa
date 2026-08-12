@@ -120,25 +120,6 @@ class BitrixClient:
     def get_deal_products(self, deal_id) -> list:
         return self.call("crm.deal.productrows.get", id=deal_id) or []
 
-    def add_deal(self, fields: dict) -> str:
-        """Создаёт сделку и возвращает её ID.
-
-        STAGE_ID намеренно не подставляем по умолчанию: без него Bitrix кладёт
-        сделку на ПЕРВУЮ стадию направления — ровно туда же, куда попадают
-        сделки, заведённые менеджером руками. Заказ из клиентского кабинета
-        не должен выглядеть в воронке как-то по-особенному.
-
-        REGISTER_SONET_EVENT=Y — чтобы сделка появилась в живой ленте и
-        ответственный получил штатное уведомление Bitrix, а не узнал о заказе
-        случайно, открыв список."""
-        logger.info("Bitrix24: создаю сделку — %s", fields.get("TITLE"))
-        return str(self.call("crm.deal.add", fields=fields,
-                             params={"REGISTER_SONET_EVENT": "Y"}))
-
-    def set_deal_products(self, deal_id, rows: list) -> bool:
-        """Записывает товарные позиции сделки (перезаписывает целиком)."""
-        return bool(self.call("crm.deal.productrows.set", id=deal_id, rows=rows))
-
     def get_product(self, product_id) -> dict:
         """Карточка товара каталога Bitrix24 — читаем XML_ID (обычно код/GUID
         номенклатуры из 1С, если каталог заведён через штатную выгрузку), чтобы
@@ -783,108 +764,6 @@ def push_order_event(order, company, event: str, db=None) -> bool:
         return False
 
 
-def push_shop_order_to_bitrix(order, company, db=None) -> bool:
-    """Создаёт сделку в Bitrix24 по заказу, собранному клиентом в /shop/{token}.
-
-    Обратное направление к api_bitrix.deal_approved (там сделка → заказ). Здесь
-    хозяин заказа — TMS, а Bitrix получает реплику, чтобы менеджер вёл клиента
-    в привычном интерфейсе и не терял заказ из виду.
-
-    Сделка садится на компанию контрагента (COMPANY_ID из external_id_bitrix),
-    в направление и стадию по умолчанию — те же, что у сделок менеджеров.
-    Ответственный: персональный bitrix_user_id менеджера заказа, иначе общий
-    bitrix_lead_responsible_id из Настроек.
-
-    Идемпотентно: если order.bitrix_deal_id уже заполнен — ничего не делает.
-    Не бросает исключений наружу: заказ клиента не должен падать из-за Bitrix."""
-    if order.bitrix_deal_id:
-        return False
-    if not company or not company.bitrix_enabled:
-        return False
-    client = get_bitrix_client(company)
-    if not client:
-        return False
-
-    cp = order.counterparty
-    manager = getattr(order, "sales_manager", None)
-    responsible_id = (getattr(manager, "bitrix_user_id", None)
-                      or company.bitrix_lead_responsible_id)
-
-    total = round(sum(i.amount or 0 for i in order.items), 2)
-
-    lines = [f"Заказ №{order.number} собран клиентом в личном кабинете TMS."]
-    if order.delivery_date:
-        lines.append(f"Доставить до: {order.delivery_date.strftime('%d.%m.%Y')}")
-    if order.delivery_address:
-        lines.append(f"Адрес: {order.delivery_address}")
-    if order.delivery_contact:
-        lines.append(f"Контакт: {order.delivery_contact}")
-    if order.notes:
-        lines.append(f"Комментарий клиента: {order.notes}")
-    if getattr(company, "public_url", None):
-        lines.append(f"Карточка заказа в TMS: {company.public_url.rstrip('/')}/orders/{order.id}")
-
-    fields = {
-        "TITLE": f"Заказ №{order.number} — {cp.trade_name or cp.name}",
-        "OPPORTUNITY": total,
-        "CURRENCY_ID": "RUB",
-        "SOURCE_ID": "WEB",
-        "SOURCE_DESCRIPTION": "TMS — кабинет клиента",
-        "COMMENTS": "\n".join(lines),
-        "OPENED": "N",
-    }
-    if cp.external_id_bitrix and str(cp.external_id_bitrix).isdigit():
-        fields["COMPANY_ID"] = cp.external_id_bitrix
-    if responsible_id:
-        fields["ASSIGNED_BY_ID"] = responsible_id
-
-    # Товарные позиции: PRODUCT_ID проставляем только там, где связка с
-    # каталогом Bitrix уже известна (её же строит приём сделок). Для остальных
-    # уходит строка без ID — Bitrix покажет её как товар «вне каталога», что
-    # менеджеру всё равно читаемо, а сумма сделки сойдётся.
-    link_map = {}
-    if db is not None:
-        from app.models import BitrixProductLink
-        product_ids = [i.product_id for i in order.items]
-        if product_ids:
-            for link in (db.query(BitrixProductLink)
-                         .filter(BitrixProductLink.product_id.in_(product_ids))
-                         .all()):
-                bx_id = str(link.bitrix_product_id or "")
-                # Строки с префиксом 'cat:' — это привязка к РОДИТЕЛЬСКОМУ товару
-                # каталога для выгрузки остатков, для позиций сделки они не годятся.
-                if bx_id and not bx_id.startswith(CATALOG_LINK_PREFIX):
-                    link_map.setdefault(link.product_id, bx_id)
-
-    rows = []
-    for item in order.items:
-        product = item.product
-        row = {
-            "PRODUCT_NAME": product.name if product else "Товар",
-            "PRICE": round((item.price or 0) * (1 - (item.discount_pct or 0) / 100), 2),
-            "QUANTITY": item.quantity,
-        }
-        bx_id = link_map.get(item.product_id)
-        if bx_id:
-            row["PRODUCT_ID"] = bx_id
-        rows.append(row)
-
-    try:
-        with client:
-            deal_id = client.add_deal(fields)
-            if rows:
-                client.set_deal_products(deal_id, rows)
-        order.bitrix_deal_id = deal_id
-        order.synced_to_bitrix_at = datetime.now()
-        if db is not None:
-            db.commit()
-        return True
-    except BitrixError as e:
-        logger.error("Bitrix24: не удалось создать сделку по заказу #%s из кабинета: %s",
-                     order.number, e)
-        return False
-
-
 # ── TMS → Bitrix24: остаток товара в свойство каталога ──────────────────────
 # Остаток в карточке товара живёт в свойстве «Остаток» (id=119, IBLOCK_ID=17)
 # Universal Catalog — см. развёрнутый комментарий у BitrixClient.list_catalog_products.
@@ -1175,62 +1054,6 @@ def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
     except BitrixError as e:
         logger.error("Bitrix24: не удалось создать CRM-лид из точки #%s (%s): %s",
                      lead.id, lead.name, e)
-        return False
-
-
-def push_site_lead_to_bitrix(lead, company, db=None) -> bool:
-    """Создаёт CRM-лид из заявки с публичного лендинга /order.
-
-    Отличие от push_lead_deal_to_bitrix (там точка прозвона уже дошла до
-    договора): здесь лид холодный и свежий, поэтому STATUS_ID='NEW' —
-    менеджер должен увидеть его именно как новое обращение с сайта и
-    перезвонить, а не решить, что его кто-то уже ведёт.
-
-    Идемпотентно и не бросает исключений: заявка клиента не должна теряться
-    из-за недоступной CRM — она в любом случае уже сохранена в TMS."""
-    if lead.bitrix_lead_id:
-        return False
-    if not company or not company.bitrix_lead_export_enabled:
-        return False
-    client = get_bitrix_client(company)
-    if not client:
-        return False
-
-    comments = []
-    if lead.city:
-        comments.append(f"Город: {lead.city}")
-    if lead.contact_person:
-        comments.append(f"Контакт: {lead.contact_person}")
-    if lead.notes:
-        comments.append(lead.notes)
-
-    fields = {
-        "TITLE": f"Заявка с сайта — {lead.name}",
-        "STATUS_ID": "NEW",
-        "OPENED": "N",
-        "SOURCE_ID": "WEB",
-        "SOURCE_DESCRIPTION": "TMS — форма на сайте",
-        "COMPANY_TITLE": lead.name,
-        "NAME": lead.contact_person or None,
-        "PHONE": [{"VALUE": lead.phone, "VALUE_TYPE": "WORK"}] if lead.phone else None,
-        "EMAIL": [{"VALUE": lead.email, "VALUE_TYPE": "WORK"}] if lead.email else None,
-        "ADDRESS": lead.city or None,
-        "COMMENTS": "\n".join(comments) or None,
-    }
-    fields = {k: v for k, v in fields.items() if v}
-    if company.bitrix_lead_responsible_id:
-        fields["ASSIGNED_BY_ID"] = company.bitrix_lead_responsible_id
-
-    try:
-        with client:
-            new_id = client.add_lead(fields)
-        lead.bitrix_lead_id = new_id
-        lead.bitrix_lead_synced_at = datetime.now()
-        if db is not None:
-            db.commit()
-        return True
-    except BitrixError as e:
-        logger.error("Bitrix24: не удалось создать лид из заявки с сайта (%s): %s", lead.name, e)
         return False
 
 

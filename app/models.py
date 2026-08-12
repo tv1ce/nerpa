@@ -110,24 +110,12 @@ class Counterparty(Base):
     # Versta24 — если True, при выборе этого контрагента перевозчиком в заказе
     # появляются поля привязки к заказу Versta (курьерская экспедиция: СДЭК, КСЭ и т.д.)
     is_versta_expeditor = Column(Boolean, default=False)
-    # Свой менеджер клиента: он ведёт заказы из кабинета и становится
-    # ответственным по сделке в Bitrix24. Пусто — заказ уходит на общего
-    # ответственного из Настроек (bitrix_lead_responsible_id).
-    manager_id = Column(Integer, ForeignKey("users.id"))
-    # ── Клиентский кабинет заказа /shop/{token} ──────────────────────────────
-    # Магическая ссылка без пароля: менеджер один раз отправляет её клиенту в
-    # мессенджер, дальше товаровед точки заказывает с телефона сам. Токен —
-    # единственный секрет, поэтому длинный и неугадываемый (как public_token
-    # заказа в /track). Генерируется лениво по кнопке в карточке контрагента.
-    shop_token = Column(String(40), unique=True, index=True)
-    shop_enabled = Column(Boolean, default=False)   # выключатель: ссылка живёт, но доступ закрыт
     # ── Сеть (франчайзинг): вывеска одна, юрлица разные ──────────────────────
     network_id = Column(Integer, ForeignKey("networks.id"))
     outlet_name = Column(String(200))          # название точки: «на Тверской», «ТЦ Мега»
     is_network_hq = Column(Boolean, default=False)  # управляющая компания сети
 
     network = relationship("Network", back_populates="counterparties")
-    manager = relationship("User", foreign_keys=[manager_id])
     orders = relationship("Order", back_populates="counterparty", foreign_keys="Order.counterparty_id")
     invoices = relationship("Invoice", back_populates="counterparty")
     contracts = relationship("Contract", back_populates="counterparty")
@@ -316,9 +304,6 @@ class Order(Base):
     upd_sbis_id     = Column(String(100))          # ID документа-УПД в СБИС
     upd_sbis_status = Column(String(50))           # черновик / отправлен / подписан / ошибка
     upd_sbis_url    = Column(String(500))          # ссылка на документ в СБИС Online
-    # Откуда взялся заказ: manual — завёл менеджер руками, bitrix — приехал
-    # вебхуком из сделки, client_portal — клиент собрал сам в /shop/{token}.
-    source = Column(String(20), default="manual")
     # ── Bitrix24 CRM ──
     bitrix_deal_id      = Column(String(20), index=True)  # ID сделки, из которой создан заказ
     bitrix_category_id  = Column(Integer)                 # CATEGORY_ID направления (воронки) сделки

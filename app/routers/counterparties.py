@@ -562,19 +562,8 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
         .all()
     )
 
-    # Ссылка на клиентский кабинет заказа — только если доступ включён вручную
-    shop_url = None
-    if cp.shop_enabled and cp.shop_token:
-        shop_url = str(request.base_url).rstrip("/") + f"/shop/{cp.shop_token}"
-
-    managers = (db.query(User)
-                .filter(User.is_active == True, User.role.in_(("admin", "manager", "sales")))
-                .order_by(User.full_name).all())
-
     return templates.TemplateResponse(request, "counterparties/detail.html", {
         "cp": cp,
-        "shop_url": shop_url,
-        "managers": managers,
         "cp_types": CP_TYPES,
         "entity_types": ENTITY_TYPES,
         "cat_colors": CAT_COLORS,
@@ -598,52 +587,6 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
         "egrul_status_labels": _EGRUL_STATUS_LABELS,
         "egrul_status_colors": _EGRUL_STATUS_COLORS,
     })
-
-
-@router.post("/{cp_id}/set-manager", response_class=JSONResponse)
-@login_required
-async def set_manager(request: Request, cp_id: int,
-                      manager_id: str = Form(default=""),
-                      db: Session = Depends(get_db)):
-    """AJAX: назначает клиенту своего менеджера. Он ведёт заказы из кабинета и
-    становится ответственным по сделке в Bitrix24."""
-    cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
-    if not cp:
-        return JSONResponse({"ok": False, "error": "Контрагент не найден"}, status_code=404)
-    new_id = int(manager_id) if manager_id.strip().isdigit() else None
-    if new_id and not db.query(User.id).filter(User.id == new_id, User.is_active == True).first():
-        return JSONResponse({"ok": False, "error": "Сотрудник не найден"}, status_code=400)
-    cp.manager_id = new_id
-    who = db.query(User).filter(User.id == new_id).first() if new_id else None
-    log_action(db, "counterparty", cp.id, "updated", request.session.get("user_id"),
-               f"Менеджер клиента: {who.full_name if who else 'не назначен'}")
-    db.commit()
-    return JSONResponse({"ok": True})
-
-
-@router.post("/{cp_id}/shop-access", response_class=JSONResponse)
-@login_required
-async def toggle_shop_access(request: Request, cp_id: int, db: Session = Depends(get_db)):
-    """AJAX: включает/выключает клиентский кабинет заказа и выдаёт ссылку.
-
-    Токен создаётся один раз и переживает выключение доступа — если клиента
-    временно отрезали (долг, спор), после включения работает ТА ЖЕ ссылка,
-    которая уже лежит у него в закладках."""
-    cp = db.query(Counterparty).filter(Counterparty.id == cp_id).first()
-    if not cp:
-        return JSONResponse({"ok": False, "error": "Контрагент не найден"}, status_code=404)
-
-    from app.routers.shop import ensure_shop_token
-    enable = not cp.shop_enabled
-    if enable:
-        ensure_shop_token(db, cp)
-    cp.shop_enabled = enable
-    log_action(db, "counterparty", cp.id, "updated", request.session.get("user_id"),
-               "Кабинет клиента " + ("включён" if enable else "выключен"))
-    db.commit()
-
-    url = (str(request.base_url).rstrip("/") + f"/shop/{cp.shop_token}") if enable else None
-    return JSONResponse({"ok": True, "enabled": enable, "url": url})
 
 
 @router.post("/{cp_id}/set-category")
