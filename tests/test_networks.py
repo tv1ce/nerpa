@@ -169,6 +169,7 @@ def test_revenue_report_consolidates_network(admin_client):
         net = Network(name="Отчётная сеть")
         db.add(net)
         db.flush()
+        net_id = net.id
         product = Product(name="Орешки тестовые", price=100.0)
         db.add(product)
         db.flush()
@@ -178,7 +179,8 @@ def test_revenue_report_consolidates_network(admin_client):
             db.add(cp)
             db.flush()
             order = Order(number=f"NET-TEST-{i}", date=date.today(),
-                          counterparty_id=cp.id, status="delivered")
+                          counterparty_id=cp.id, status="delivered",
+                          delivery_address=f"Тверская, {i + 1}")
             db.add(order)
             db.flush()
             db.add(OrderItem(order_id=order.id, product_id=product.id,
@@ -191,6 +193,12 @@ def test_revenue_report_consolidates_network(admin_client):
     assert r.status_code == 200
     assert "Отчётная сеть" in r.text
     assert "2 юрлиц(а)" in r.text, "в разбивке по сетям должно быть видно число юрлиц"
+
+    # В карточке сети у заказов виден адрес доставки — точки в разных местах
+    r = admin_client.get(f"/networks/{net_id}")
+    assert r.status_code == 200
+    assert "Адрес доставки" in r.text
+    assert "Тверская, 1" in r.text
 
 
 def test_receivables_shows_network_debt(admin_client):

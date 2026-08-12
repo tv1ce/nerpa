@@ -149,18 +149,22 @@
       <div class="card-body pb-0"><span class="form-section-title mb-0">Последние заказы сети</span></div>
       <div class="table-responsive">
         <table class="table tms-table mb-0">
-          <thead><tr><th class="ps-3">№</th><th>Дата</th><th>Точка</th><th class="text-end">Сумма</th><th>Статус</th></tr></thead>
+          <thead><tr><th class="ps-3">№</th><th>Дата</th><th>Точка</th><th>Адрес доставки</th><th class="text-end">Сумма</th><th>Статус</th></tr></thead>
           <tbody>
             {% for o in orders %}
             <tr>
               <td class="ps-3"><a href="/orders/{{ o.id }}" class="text-decoration-none">{{ o.number }}</a></td>
               <td class="text-muted">{{ o.date | date_fmt }}</td>
               <td class="text-muted">{{ (o.counterparty.trade_name or o.counterparty.name) if o.counterparty else '—' }}</td>
+              {# Адрес доставки: у сети точки в разных местах, по номеру заказа не сориентируешься #}
+              <td class="text-muted" style="font-size:.82rem; max-width:16rem">
+                {{ o.delivery_address or (o.counterparty.actual_address if o.counterparty and o.counterparty.actual_address else '—') }}
+              </td>
               <td class="text-end">{{ o.total_amount | money }}</td>
               <td><span class="badge bg-light text-dark border" style="font-size:.72rem">{{ order_statuses.get(o.status, o.status) }}</span></td>
             </tr>
             {% else %}
-            <tr><td colspan="5" class="text-center py-4 text-muted">Заказов нет</td></tr>
+            <tr><td colspan="6" class="text-center py-4 text-muted">Заказов нет</td></tr>
             {% endfor %}
           </tbody>
         </table>
