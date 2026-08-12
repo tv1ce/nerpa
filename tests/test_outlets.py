@@ -534,3 +534,57 @@ def test_single_delivery_long_ago_is_not_new():
 
     ancient = outlet_metrics(_point([(date.today() - timedelta(days=200), 168)]))
     assert ancient["status"] == "lost"
+
+
+def test_detail_renders_for_every_status(admin_client):
+    """Карточка открывается при любом статусе, включая точки без ритма.
+
+    На проде она падала с 500 на «Ленина, 45»: у точки с единственной поставкой
+    нет среднего интервала, а вердикт в шаблоне его форматировал."""
+    from app.database import SessionLocal
+    from app.models import Counterparty, Order, OrderItem, Product
+
+    today = date.today()
+    # (улица, дни назад для каждой поставки) → ожидаемый статус
+    cases = {
+        "новаяточка": ([3], "new"),
+        "спящаяодна": ([45], "sleeping"),
+        "потеряннаяодна": ([200], "lost"),
+        "вграфике": ([20, 6], "ok"),
+        "безритма": ([10, 10], "ok"),        # две поставки в один день — интервала нет
+    }
+
+    db = SessionLocal()
+    try:
+        product = (db.query(Product).filter(Product.name.like("П1.%")).first()
+                   or Product(name="П1.Орешки со сгущенкой «Классика»", price=52.0))
+        db.add(product)
+        cp = Counterparty(name="ООО «Все статусы»", trade_name="Статусная", inn="7899999903")
+        db.add(cp)
+        db.flush()
+        for street, (days_list, _) in cases.items():
+            for n, days_ago in enumerate(days_list):
+                order = Order(number=f"ST-{street}-{n}", date=today - timedelta(days=days_ago),
+                              counterparty_id=cp.id, status="delivered",
+                              delivery_address=f"г Санкт-Петербург, ул {street}, д 1")
+                db.add(order)
+                db.flush()
+                db.add(OrderItem(order_id=order.id, product_id=product.id,
+                                 quantity=100, price=52.0, amount=5200.0))
+        db.commit()
+    finally:
+        db.close()
+
+    from app.routers.analytics import _outlets
+
+    db = SessionLocal()
+    try:
+        by_key = {o["key"]: o for o in _outlets(db)}
+    finally:
+        db.close()
+
+    for street, (_, expected) in cases.items():
+        key = f"{street}:1"
+        assert by_key[key]["status"] == expected, f"{key}: ожидали {expected}"
+        r = admin_client.get("/analytics/outlets/detail", params={"key": key})
+        assert r.status_code == 200, f"{key} ({expected}) → {r.status_code}"
