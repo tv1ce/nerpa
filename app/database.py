@@ -384,6 +384,8 @@ def _migrate_db():
         ("counterparties", "network_id",    "INTEGER REFERENCES networks(id)"),
         ("counterparties", "outlet_name",   "TEXT"),
         ("counterparties", "is_network_hq", "BOOLEAN DEFAULT 0"),
+        # ── Аналитика точек: ИИ-разборы (таблица создаётся через create_all) ──
+        ("outlet_insights", "scope", "TEXT DEFAULT 'outlet'"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

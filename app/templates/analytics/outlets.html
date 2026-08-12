@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Аналитика точек{% endblock %}
+{% block page_title %}Аналитика по точкам{% endblock %}
+{% block topbar_actions %}
+  {% if request.session.get('user_role') != 'viewer' %}
+  <form method="post" action="/analytics/outlets/digest" class="d-inline">
+    <button class="btn btn-sm btn-outline-secondary" title="ИИ подскажет, кому звонить сегодня">
+      <i class="bi bi-stars me-1"></i>Сводка ИИ
+    </button>
+  </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if error %}
+<div class="alert alert-warning py-2">{{ error }}</div>
+{% endif %}
+
+{# ── Шапка: что в целом происходит с точками ──────────────────────────────── #}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm p-3 h-100 text-center">
+      <div class="fw-bold" style="font-size:1.6rem; line-height:1.1">{{ summary.count }}</div>
+      <div class="text-muted" style="font-size:.78rem">Точек с поставками</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm p-3 h-100 text-center">
+      <div class="fw-bold {% if summary.empty %}text-danger{% endif %}" style="font-size:1.6rem; line-height:1.1">
+        {{ summary.empty }}<span class="text-warning" style="font-size:1rem"> / {{ summary.soon }}</span>
+      </div>
+      <div class="text-muted" style="font-size:.78rem">Пусто / заканчивается</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm p-3 h-100 text-center">
+      <div class="fw-bold text-success" style="font-size:1.6rem; line-height:1.1">{{ '%.0f'|format(summary.daily_total) }}</div>
+      <div class="text-muted" style="font-size:.78rem">Орешков в день по всем точкам</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm p-3 h-100 text-center">
+      <div class="fw-bold" style="font-size:1.6rem; line-height:1.1">{{ '%.0f'|format(summary.avg_interval) }}</div>
+      <div class="text-muted" style="font-size:.78rem">Средний интервал, дней</div>
+    </div>
+  </div>
+</div>
+
+{# ── Сводка ИИ: список задач на сегодня ───────────────────────────────────── #}
+{% if digest %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <span class="fw-bold"><i class="bi bi-stars me-1" style="color:var(--brand)"></i>Кому звонить сегодня</span>
+      <span class="text-muted" style="font-size:.75rem">
+        ИИ · {{ digest.model }} · {{ digest.created_at | datetime_fmt }}
+      </span>
+    </div>
+    <div class="row g-2">
+      {% for task in digest.text | from_json %}
+      <div class="col-md-6">
+        <div class="border rounded p-2 h-100 {% if task.priority == 'high' %}border-danger{% endif %}">
+          <div class="fw-semibold" style="font-size:.85rem">{{ task.outlet }}</div>
+          <div style="font-size:.85rem">{{ task.action }}</div>
+          <div class="text-muted" style="font-size:.78rem">{{ task.why }}</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Фильтры + таблица ────────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-2">
+    <form class="row g-2" method="get">
+      <div class="col-md-4">
+        <input type="text" name="q" class="form-control form-control-sm"
+               placeholder="Адрес или клиент…" value="{{ q or '' }}">
+      </div>
+      <div class="col-md-3">
+        <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Все статусы</option>
+          {% for val, label in statuses.items() %}
+          <option value="{{ val }}" {% if status == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select name="network_id" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Все сети</option>
+          {% for n in networks %}
+          <option value="{{ n.id }}" {% if network_id == n.id|string %}selected{% endif %}>{{ n.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        <a href="/analytics/outlets" class="btn btn-sm btn-link text-muted">Сбросить</a>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Точка</th>
+          <th>Клиент</th>
+          <th class="text-end" title="Средний расход: объём поставки ÷ дней до следующей">шт/день</th>
+          <th class="text-end" title="Расчётный остаток от последнего завоза">Хватит на</th>
+          <th class="text-end">Заказов/мес</th>
+          <th class="text-end" title="Последний интервал против своего среднего">Тренд</th>
+          <th class="text-end" title="Отклонение расхода от медианы по всем точкам">К медиане</th>
+          <th>Последняя</th>
+          <th>Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in outlets %}
+        <tr>
+          <td class="ps-3">
+            <a href="/analytics/outlets/detail?key={{ o.key | urlencode }}" class="fw-semibold text-decoration-none">{{ o.label }}</a>
+            {% if o.networks %}
+            <div class="text-muted" style="font-size:.72rem"><i class="bi bi-diagram-3 me-1"></i>{{ o.networks | join(', ') }}</div>
+            {% endif %}
+          </td>
+          <td class="text-muted" style="font-size:.82rem">
+            {% for cp in o.counterparties %}
+            <a href="/counterparties/{{ cp.id }}" class="text-reset text-decoration-none">{{ cp.trade_name or cp.name }}</a>{% if not loop.last %}, {% endif %}
+            {% else %}—{% endfor %}
+          </td>
+          <td class="text-end fw-semibold">{{ '%.1f'|format(o.daily_rate) if o.daily_rate else '—' }}</td>
+          <td class="text-end {% if o.days_left is not none and o.days_left < 0 %}text-danger fw-semibold{% elif o.days_left is not none and o.days_left <= 3 %}text-warning fw-semibold{% endif %}">
+            {% if o.days_left is none %}—
+            {% elif o.days_left < 0 %}кончилось {{ '%.0f'|format(-o.days_left) }} дн. назад
+            {% else %}{{ '%.0f'|format(o.days_left) }} дн.{% endif %}
+          </td>
+          <td class="text-end">{{ '%.1f'|format(o.orders_per_month) if o.orders_per_month else '—' }}</td>
+          <td class="text-end {% if o.trend_pct is not none and o.trend_pct < -20 %}text-danger{% elif o.trend_pct is not none and o.trend_pct > 20 %}text-success{% endif %}">
+            {% if o.trend_pct is none %}—{% else %}{{ '%+d'|format(o.trend_pct) }}%{% endif %}
+          </td>
+          <td class="text-end text-muted">
+            {% if o.vs_median_pct is none %}—{% else %}{{ '%+d'|format(o.vs_median_pct) }}%{% endif %}
+          </td>
+          <td class="text-muted" style="font-size:.82rem">
+            {{ o.last_date | date_fmt }}
+            <div style="font-size:.72rem">{{ o.days_since }} дн. назад · {{ '%.0f'|format(o.last_qty) }} шт</div>
+          </td>
+          <td>
+            <span class="badge bg-{{ status_colors[o.status] }} {% if o.status == 'new' %}text-dark{% endif %}"
+                  style="font-size:.72rem">{{ statuses[o.status] }}</span>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="text-center py-4 text-muted">
+          Точек не найдено — нужны заказы с заполненным адресом доставки
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

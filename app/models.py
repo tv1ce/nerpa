@@ -1558,6 +1558,22 @@ class HrMetricToken(Base):
     manager = relationship("HrEmployee")
 
 
+class OutletInsight(Base):
+    """ИИ-разбор точки (адреса доставки) через OpenRouter.
+
+    Хранится историей: видно, что модель говорила месяц назад и что изменилось.
+    scope='outlet' — разбор конкретной точки (address_key — её ключ),
+    scope='digest' — сводка «что делать сегодня» по всем точкам сразу."""
+    __tablename__ = "outlet_insights"
+    id = Column(Integer, primary_key=True)
+    address_key = Column(String(200), index=True)   # ключ точки; NULL для сводки
+    scope = Column(String(10), default="outlet")    # outlet / digest
+    text = Column(Text, nullable=False)
+    model = Column(String(100))
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+
+
 class Receipt(Base):
     """Задача на приёмку товара — пара документов 1С «Заказ поставщику» +
     «Поступление товаров» (ещё не проведено), которую технолог создал в 1С.

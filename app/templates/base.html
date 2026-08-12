@@ -118,6 +118,9 @@
     </a>
 
     <div class="nav-section">Аналитика</div>
+    <a href="/analytics/outlets" class="nav-link {% if '/analytics' in request.url.path %}active{% endif %}">
+      <i class="bi bi-geo-alt"></i> <span>Точки</span>
+    </a>
     <a href="/reports/revenue" class="nav-link {% if '/reports/revenue' in request.url.path or '/reports/plans' in request.url.path %}active{% endif %}">
       <i class="bi bi-bar-chart-line"></i> <span>Выручка</span>
     </a>
