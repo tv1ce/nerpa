@@ -113,6 +113,32 @@
   </div>
 </div>
 
+{# ── Долг по сетям: точки одной вывески по отдельности выглядят мелочью ────── #}
+{% if networks_debt %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-3">
+    <div class="fw-bold mb-2" style="font-size:.9rem">
+      <i class="bi bi-diagram-3 me-1" style="color:var(--brand)"></i>Долг по сетям
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% for n in networks_debt %}
+      <a href="/networks/{{ n.id }}" class="text-decoration-none">
+        <div class="border rounded px-3 py-2 {% if n.overdue_total %}border-danger{% endif %}">
+          <div class="fw-semibold" style="font-size:.85rem">{{ n.name }}</div>
+          <div class="{% if n.overdue_total %}text-danger fw-bold{% else %}text-primary fw-bold{% endif %}" style="font-size:.95rem">
+            {{ n.total | money }} ₽
+          </div>
+          <div class="text-muted" style="font-size:.72rem">
+            {{ n.outlets }} юрлиц(а){% if n.overdue_total %} · просрочено {{ n.overdue_total | money }}{% endif %}
+          </div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# ── Таблица, сгруппированная по контрагентам ───────────────────────────────── #}
 {% if rows %}
 <div class="card border-0 shadow-sm">
@@ -142,6 +168,13 @@
               {{ g.cp_name }}
             </a>
             <span class="badge bg-secondary ms-1" style="font-size:.66rem">{{ g.rows | length }}</span>
+            {% if g.network_id %}
+            <a href="/networks/{{ g.network_id }}" onclick="event.stopPropagation()"
+               class="badge bg-light text-dark border text-decoration-none ms-1" style="font-size:.66rem"
+               title="Долг по всей сети: {{ g.network_total | money }} ₽">
+              <i class="bi bi-diagram-3 me-1"></i>{{ g.network_name }}{% if g.outlet_name %} · {{ g.outlet_name }}{% endif %}
+            </a>
+            {% endif %}
           </td>
           <td colspan="3" class="text-muted" style="font-size:.82rem">
             {% if g.overdue_count %}

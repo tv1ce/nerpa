@@ -131,11 +131,14 @@ async def revenue_report(
         cp_name  = cp.name if cp else "—"
         cp_trade = (cp.trade_name or "").strip() if cp else ""
         cp_short = _short_legal(cp_name)
+        network = cp.network if cp and cp.network_id else None
         shipments.append({
             "id": order.id,
             "counterparty":       cp_name,
             "counterparty_short": cp_short,
             "counterparty_trade": cp_trade,
+            "network_id":         network.id if network else None,
+            "network_name":       network.name if network else None,
             "amount": amount,
             "paid_amount": paid_amount,
             "qty": qty,
@@ -161,6 +164,33 @@ async def revenue_report(
     _period_total = sum(c["amount"] for c in by_client_map.values()) or 0.0
     by_client = sorted(by_client_map.values(), key=lambda c: c["amount"], reverse=True)
     for c in by_client:
+        c["share_pct"] = round(c["amount"] / _period_total * 100, 1) if _period_total > 0 else 0
+
+    # ── То же самое, но с укрупнением до сетей ────────────────────────────────
+    # Франчайзи одной вывески («Кофе Хауз» = десяток разных ИП) по отдельности
+    # выглядят мелочью, а вместе могут быть крупнейшим клиентом. Здесь их суммы
+    # складываются; контрагенты вне сетей остаются сами по себе.
+    by_network_map = {}
+    for s in shipments:
+        if s["network_id"]:
+            key = ("net", s["network_id"])
+            title, subtitle = s["network_name"], "сеть"
+        else:
+            key = ("cp", s["counterparty"])
+            title = s["counterparty_trade"] or s["counterparty_short"]
+            subtitle = ""
+        row = by_network_map.setdefault(key, {
+            "title": title, "subtitle": subtitle, "amount": 0.0, "qty": 0,
+            "orders": 0, "outlets": set(),
+            "network_id": s["network_id"],
+        })
+        row["amount"] += s["amount"]
+        row["qty"]    += s["qty"]
+        row["orders"] += 1
+        row["outlets"].add(s["counterparty"])
+    by_network = sorted(by_network_map.values(), key=lambda c: c["amount"], reverse=True)
+    for c in by_network:
+        c["outlets"] = len(c["outlets"])
         c["share_pct"] = round(c["amount"] / _period_total * 100, 1) if _period_total > 0 else 0
 
     # ── KPI ───────────────────────────────────────────────────────────────────
@@ -294,6 +324,7 @@ async def revenue_report(
     return templates.TemplateResponse(request, "reports/revenue.html", {
         "shipments": shipments,
         "by_client": by_client,
+        "by_network": by_network,
         "total_amount": total_amount,
         "total_paid_invoices": total_paid_invoices,
         "total_qty": total_qty,

@@ -380,6 +380,10 @@ def _migrate_db():
         ("company_settings", "bitrix_stock_field",   "TEXT"),
         ("bitrix_product_links", "last_stock_pushed", "REAL"),
         ("bitrix_product_links", "stock_pushed_at",   "TIMESTAMP"),
+        # ── Сети заведений: группировка контрагентов-франчайзи под одной вывеской ──
+        ("counterparties", "network_id",    "INTEGER REFERENCES networks(id)"),
+        ("counterparties", "outlet_name",   "TEXT"),
+        ("counterparties", "is_network_hq", "BOOLEAN DEFAULT 0"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

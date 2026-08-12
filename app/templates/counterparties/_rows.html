@@ -11,6 +11,12 @@
     <a href="/counterparties/{{ cp.id }}" class="fw-semibold text-decoration-none">
       {{ cp.trade_name or cp.name }}
     </a>
+    {% if cp.network %}
+    <a href="/networks/{{ cp.network_id }}" class="badge bg-light text-dark border text-decoration-none ms-1"
+       style="font-size:.7rem" title="Сеть">
+      <i class="bi bi-diagram-3 me-1"></i>{{ cp.network.name }}{% if cp.outlet_name %} · {{ cp.outlet_name }}{% endif %}
+    </a>
+    {% endif %}
     {% if cp.trade_name %}
     <div class="text-muted" style="font-size:.78rem">{{ cp.name }}</div>
     {% endif %}

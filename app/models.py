@@ -26,6 +26,39 @@ class User(Base):
     bitrix_user_id = Column(String(20))
 
 
+class Network(Base):
+    """Сеть заведений — одна вывеска, много юрлиц.
+
+    У сетевых клиентов по франчайзингу вывеска общая («Кофе Хауз»), а договоры,
+    счета и оплаты идут через разных контрагентов: каждая точка — своё ИП или ООО.
+    Сеть склеивает их в один объект: по ней считается общий оборот, дебиторка и
+    категория A/B/C, назначается один ответственный менеджер и общие условия
+    (скидка, отсрочка), которые подставляются в новые точки сети.
+
+    Сеть — только группировка. Документы, счета и заказы по-прежнему выставляются
+    на конкретного контрагента: с точки зрения бухгалтерии/1С ничего не меняется."""
+    __tablename__ = "networks"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)          # вывеска, как её знает рынок
+    kind = Column(String(20), default="franchise")      # franchise / own / holding
+    # Ответственный за сеть (КАМ) — может отличаться от менеджеров отдельных точек
+    manager_id = Column(Integer, ForeignKey("users.id"))
+    # Общие коммерческие условия сети — дефолт для новых точек
+    default_discount_pct = Column(Float, default=0.0)
+    payment_delay_days = Column(Integer)
+    payment_delay_type = Column(String(10), default="banking")  # banking / calendar
+    # Категория считается по СУММАРНОЙ выручке всех точек (см. networks.recalc_categories)
+    category = Column(String(1))                        # A / B / C / None
+    category_manual = Column(Boolean, default=False)
+    notes = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+
+    counterparties = relationship(
+        "Counterparty", back_populates="network", order_by="Counterparty.name")
+    manager = relationship("User")
+
+
 class Counterparty(Base):
     __tablename__ = "counterparties"
     id = Column(Integer, primary_key=True, index=True)
@@ -77,7 +110,12 @@ class Counterparty(Base):
     # Versta24 — если True, при выборе этого контрагента перевозчиком в заказе
     # появляются поля привязки к заказу Versta (курьерская экспедиция: СДЭК, КСЭ и т.д.)
     is_versta_expeditor = Column(Boolean, default=False)
+    # ── Сеть (франчайзинг): вывеска одна, юрлица разные ──────────────────────
+    network_id = Column(Integer, ForeignKey("networks.id"))
+    outlet_name = Column(String(200))          # название точки: «на Тверской», «ТЦ Мега»
+    is_network_hq = Column(Boolean, default=False)  # управляющая компания сети
 
+    network = relationship("Network", back_populates="counterparties")
     orders = relationship("Order", back_populates="counterparty", foreign_keys="Order.counterparty_id")
     invoices = relationship("Invoice", back_populates="counterparty")
     contracts = relationship("Contract", back_populates="counterparty")

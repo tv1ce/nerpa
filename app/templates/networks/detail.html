@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}{{ net.name }}{% endblock %}
+{% block page_title %}{{ net.name }}{% endblock %}
+{% block topbar_actions %}
+  {% if request.session.get('user_role') != 'viewer' %}
+  <a href="/networks/{{ net.id }}/edit" class="btn btn-accent btn-sm me-2"><i class="bi bi-pencil me-1"></i>Редактировать</a>
+  {% endif %}
+  <a href="/networks/" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>К сетям</a>
+{% endblock %}
+
+{% block content %}
+
+{# ── Шапка ───────────────────────────────────────────────────────────────── #}
+<div class="d-flex align-items-start mb-3 gap-3 flex-wrap">
+  <div class="flex-grow-1 d-flex align-items-center gap-2 flex-wrap">
+    <span class="badge bg-light text-dark border">{{ kinds.get(net.kind, net.kind) }}</span>
+    <span class="text-muted" style="font-size:.85rem">
+      <i class="bi bi-shop me-1"></i>{{ stats.outlets }} юрлиц(а) в сети
+    </span>
+    {% if net.manager %}
+    <span class="text-muted" style="font-size:.85rem"><i class="bi bi-person me-1"></i>{{ net.manager.full_name }}</span>
+    {% endif %}
+    {% if net.default_discount_pct %}
+    <span class="text-muted" style="font-size:.85rem">скидка {{ net.default_discount_pct }}%</span>
+    {% endif %}
+    {% if net.payment_delay_days is not none %}
+    <span class="text-muted" style="font-size:.85rem">
+      отсрочка {{ net.payment_delay_days }} дн. ({{ 'банк.' if net.payment_delay_type != 'calendar' else 'кал.' }})
+    </span>
+    {% endif %}
+  </div>
+  {% if net.category %}
+  <span class="badge bg-{{ cat_colors[net.category] }} {% if net.category == 'C' %}text-dark{% endif %} rounded-2 px-3 py-2"
+        style="font-size:1.1rem; font-weight:700">{{ net.category }}</span>
+  {% endif %}
+</div>
+
+{# ── Метрики по сети целиком ─────────────────────────────────────────────── #}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm p-3 h-100 text-center">
+      <div class="fw-bold text-success" style="font-size:1.15rem">{{ stats.revenue_12m | money }}</div>
+      <div class="text-muted" style="font-size:.78rem">Оборот за 12 мес, ₽</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm p-3 h-100 text-center">
+      <div class="fw-bold" style="font-size:1.6rem; line-height:1.1">{{ stats.orders_count }}</div>
+      <div class="text-muted" style="font-size:.78rem">Заказов всего</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm p-3 h-100 text-center">
+      <div class="fw-bold {% if stats.overdue > 0 %}text-danger{% endif %}" style="font-size:1.15rem">{{ stats.debt | money }}</div>
+      <div class="text-muted" style="font-size:.78rem">
+        Дебиторка, ₽{% if stats.overdue > 0 %} <span class="text-danger">(просрочка {{ stats.overdue | money }})</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card border-0 shadow-sm p-3 h-100 text-center">
+      <div class="fw-bold" style="font-size:1.15rem">{{ stats.avg_check | money }}</div>
+      <div class="text-muted" style="font-size:.78rem">Средний чек, ₽</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  {# ── Точки сети ────────────────────────────────────────────────────────── #}
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body pb-0 d-flex justify-content-between align-items-center">
+        <span class="form-section-title mb-0">Точки сети</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table tms-table mb-0">
+          <thead>
+            <tr>
+              <th class="ps-3">Контрагент</th>
+              <th>Точка</th>
+              <th class="text-end">Оборот 12 мес</th>
+              <th class="text-end">Долг</th>
+              <th>Последний заказ</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cp in net.counterparties if cp.is_active %}
+            {% set cs = stats.per_cp[cp.id] %}
+            <tr>
+              <td class="ps-3">
+                <a href="/counterparties/{{ cp.id }}" class="fw-semibold text-decoration-none">{{ cp.trade_name or cp.name }}</a>
+                {% if cp.is_network_hq %}<span class="badge bg-primary ms-1" style="font-size:.68rem">УК</span>{% endif %}
+                <div class="text-muted" style="font-size:.78rem">{{ cp.name }}{% if cp.inn %} · ИНН {{ cp.inn }}{% endif %}</div>
+              </td>
+              <td class="text-muted">{{ cp.outlet_name or '—' }}</td>
+              <td class="text-end">{{ cs.revenue_12m | money }}</td>
+              <td class="text-end {% if cs.overdue > 0 %}text-danger fw-semibold{% endif %}">{{ cs.debt | money }}</td>
+              <td class="text-muted">{{ cs.last_order_date | date_fmt }}</td>
+              <td class="text-end pe-3">
+                {% if request.session.get('user_role') != 'viewer' %}
+                <form method="post" action="/networks/{{ net.id }}/detach" class="d-inline"
+                      data-confirm="Исключить контрагента из сети?">
+                  <input type="hidden" name="counterparty_id" value="{{ cp.id }}">
+                  <button class="btn btn-sm btn-outline-secondary py-0" title="Исключить из сети">
+                    <i class="bi bi-box-arrow-right"></i>
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="text-center py-4 text-muted">В сети пока нет точек</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if request.session.get('user_role') != 'viewer' %}
+      <div class="card-body border-top">
+        <form method="post" action="/networks/{{ net.id }}/attach" class="row g-2 align-items-end">
+          <div class="col-md-5">
+            <label class="form-label" style="font-size:.82rem">Добавить контрагента в сеть</label>
+            <select name="counterparty_id" class="form-select form-select-sm" required id="attachSelect">
+              <option value="">— выберите —</option>
+              {% with counterparties = free_counterparties %}{% include "networks/_cp_options.html" %}{% endwith %}
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" style="font-size:.82rem">Название точки</label>
+            <input type="text" name="outlet_name" class="form-control form-control-sm" placeholder="напр. на Тверской">
+          </div>
+          <div class="col-md-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="use_defaults" value="1" id="useDef" checked>
+              <label class="form-check-label" for="useDef" style="font-size:.82rem">Применить условия сети</label>
+            </div>
+          </div>
+          <div class="col-md-1">
+            <button class="btn btn-sm btn-accent w-100"><i class="bi bi-plus-lg"></i></button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Последние заказы по всей сети ───────────────────────────────────── #}
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-body pb-0"><span class="form-section-title mb-0">Последние заказы сети</span></div>
+      <div class="table-responsive">
+        <table class="table tms-table mb-0">
+          <thead><tr><th class="ps-3">№</th><th>Дата</th><th>Точка</th><th class="text-end">Сумма</th><th>Статус</th></tr></thead>
+          <tbody>
+            {% for o in orders %}
+            <tr>
+              <td class="ps-3"><a href="/orders/{{ o.id }}" class="text-decoration-none">{{ o.number }}</a></td>
+              <td class="text-muted">{{ o.date | date_fmt }}</td>
+              <td class="text-muted">{{ (o.counterparty.trade_name or o.counterparty.name) if o.counterparty else '—' }}</td>
+              <td class="text-end">{{ o.total_amount | money }}</td>
+              <td><span class="badge bg-light text-dark border" style="font-size:.72rem">{{ order_statuses.get(o.status, o.status) }}</span></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center py-4 text-muted">Заказов нет</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# ── Боковая колонка ───────────────────────────────────────────────────── #}
+  <div class="col-lg-4">
+    {% if net.notes %}
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="form-section-title">Заметки</div>
+      <div style="white-space:pre-wrap; font-size:.88rem">{{ net.notes }}</div>
+    </div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm p-3">
+      <div class="form-section-title">Претензии по сети</div>
+      {% for c in claims %}
+      <div class="border-bottom py-2">
+        <div class="d-flex justify-content-between">
+          <a href="/claims/{{ c.id }}" class="text-decoration-none">{{ c.date | date_fmt }}</a>
+          <span class="badge bg-light text-dark border" style="font-size:.7rem">{{ claim_statuses.get(c.status, c.status) }}</span>
+        </div>
+        <div class="text-muted" style="font-size:.82rem">
+          {{ (c.counterparty.trade_name or c.counterparty.name) if c.counterparty else '' }}
+        </div>
+      </div>
+      {% else %}
+      <div class="text-muted" style="font-size:.85rem">Претензий нет</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

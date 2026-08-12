@@ -16,9 +16,18 @@
 <div class="card border-0 shadow-sm">
   <div class="card-body pb-0">
     <form class="row g-2 mb-2" method="get" id="cpFilterForm">
-      <div class="col-md-5">
+      <div class="col-md-3">
         <input type="text" name="q" id="cpSearchInput" class="form-control form-control-sm"
                placeholder="Поиск по названию… (от 3 символов)" value="{{ q }}" autocomplete="off">
+      </div>
+      <div class="col-md-2">
+        <select name="network_id" id="cpNetwork" class="form-select form-select-sm">
+          <option value="">Все сети</option>
+          <option value="none" {% if network_id == 'none' %}selected{% endif %}>Вне сетей</option>
+          {% for n in networks %}
+          <option value="{{ n.id }}" {% if network_id == n.id|string %}selected{% endif %}>{{ n.name }}</option>
+          {% endfor %}
+        </select>
       </div>
       <div class="col-md-2">
         <select name="entity_type" id="cpEntityType" class="form-select form-select-sm">
@@ -78,6 +87,7 @@
   var searchInput = document.getElementById('cpSearchInput');
   var entitySelect = document.getElementById('cpEntityType');
   var categorySelect = document.getElementById('cpCategory');
+  var networkSelect = document.getElementById('cpNetwork');
   var typeInput = document.getElementById('cpTypeInput');
   var typeTabs = document.getElementById('cpTypeTabs');
   var rowsBody = document.getElementById('cpRows');
@@ -93,6 +103,7 @@
     if (typeInput.value) params.set('type', typeInput.value);
     if (entitySelect.value) params.set('entity_type', entitySelect.value);
     if (categorySelect.value) params.set('category', categorySelect.value);
+    if (networkSelect.value) params.set('network_id', networkSelect.value);
     return params;
   }
 
@@ -121,6 +132,7 @@
 
   entitySelect.addEventListener('change', runSearch);
   categorySelect.addEventListener('change', runSearch);
+  networkSelect.addEventListener('change', runSearch);
 
   typeTabs.addEventListener('click', function(e) {
     var btn = e.target.closest('button[data-type]');
@@ -138,6 +150,7 @@
     searchInput.value = '';
     entitySelect.value = '';
     categorySelect.value = '';
+    networkSelect.value = '';
     typeInput.value = '';
     typeTabs.querySelectorAll('button').forEach(function(b) {
       b.classList.toggle('btn-accent', b.dataset.type === '');

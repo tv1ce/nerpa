@@ -21,6 +21,14 @@
 {# ── Заголовок + категория ───────────────────────────────────────────────── #}
 <div class="d-flex align-items-start mb-3 gap-3 flex-wrap">
   <div class="flex-grow-1">
+    {% if cp.network %}
+    <div class="mb-1">
+      <a href="/networks/{{ cp.network_id }}" class="badge bg-primary-subtle text-primary border border-primary-subtle text-decoration-none">
+        <i class="bi bi-diagram-3 me-1"></i>Сеть «{{ cp.network.name }}»{% if cp.outlet_name %} · {{ cp.outlet_name }}{% endif %}
+      </a>
+      {% if cp.is_network_hq %}<span class="badge bg-primary ms-1" style="font-size:.7rem">Управляющая компания</span>{% endif %}
+    </div>
+    {% endif %}
     {% if cp.trade_name %}
     <div class="text-muted mb-1" style="font-size:.88rem">{{ cp.name }}</div>
     {% endif %}

@@ -1,0 +1,4 @@
+{# Опции селекта «добавить точку»: контрагенты, ещё не привязанные ни к одной сети #}
+{% for cp in counterparties %}
+<option value="{{ cp.id }}">{{ cp.trade_name or cp.name }}{% if cp.inn %} · {{ cp.inn }}{% endif %}</option>
+{% endfor %}

@@ -170,6 +170,11 @@ async def receivables_list(request: Request, db: Session = Depends(get_db)):
             grouped[cp_id] = {
                 "cp_id": cp_id,
                 "cp_name": (cp.short_name or cp.name) if cp else "—",
+                # Сеть контрагента: долг одной точки читается иначе, когда видно
+                # весь долг вывески — переговоры часто ведутся с УК сети
+                "network_id": cp.network_id if cp else None,
+                "network_name": cp.network.name if cp and cp.network_id else None,
+                "outlet_name": cp.outlet_name if cp else None,
                 "rows": [],
                 "total": 0.0,
                 "overdue_total": 0.0,
@@ -183,11 +188,35 @@ async def receivables_list(request: Request, db: Session = Depends(get_db)):
             g["overdue_total"] += inv.total_amount
             g["overdue_count"] += 1
             g["max_overdue"] = max(g["max_overdue"], r["days_overdue"])
-    # Сортируем: сначала с просрочкой, потом по сумме долга
+    # Итоги по сетям: сколько всего должна вывеска и сколько её точек в реестре
+    net_totals: dict[int, dict] = {}
+    for g in grouped.values():
+        if not g["network_id"]:
+            continue
+        t = net_totals.setdefault(g["network_id"], {
+            "name": g["network_name"], "total": 0.0, "overdue_total": 0.0, "outlets": 0,
+        })
+        t["total"] += g["total"]
+        t["overdue_total"] += g["overdue_total"]
+        t["outlets"] += 1
+    for g in grouped.values():
+        g["network_total"] = net_totals.get(g["network_id"], {}).get("total")
+        g["network_outlets"] = net_totals.get(g["network_id"], {}).get("outlets", 0)
+
+    # Сортируем: сначала с просрочкой, потом по сумме долга. Точки одной сети
+    # держим рядом и взвешиваем по долгу всей сети — иначе они разъезжаются по
+    # реестру и общая проблема вывески не видна.
     groups = sorted(
         grouped.values(),
-        key=lambda g: (g["overdue_count"] > 0, g["total"]),
+        key=lambda g: (g["overdue_count"] > 0,
+                       g["network_total"] or g["total"],
+                       g["network_id"] or 0,
+                       g["total"]),
         reverse=True,
+    )
+    networks_debt = sorted(
+        ({"id": nid, **t} for nid, t in net_totals.items() if t["outlets"] > 1),
+        key=lambda t: t["total"], reverse=True,
     )
 
     forecast = build_forecast(db, n_weeks=8)
@@ -195,6 +224,7 @@ async def receivables_list(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "receivables/index.html", {
         "rows": rows,
         "groups": groups,
+        "networks_debt": networks_debt,
         "total_amount": total_amount,
         "overdue_amount": overdue_amount,
         "overdue_count": overdue_count,

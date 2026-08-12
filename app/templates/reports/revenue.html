@@ -280,9 +280,46 @@
     <div class="card border-0 shadow-sm h-100">
       <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex justify-content-between align-items-center">
         <span class="fw-bold"><i class="bi bi-people me-1" style="color:var(--brand)"></i>По клиентам</span>
-        <span class="text-muted" style="font-size:.78rem">{{ by_client|length }} кл.</span>
+        {# Франчайзи одной вывески по отдельности выглядят мелочью — вкладка
+           «Сети» складывает их в одну строку #}
+        <div class="btn-group btn-group-sm" role="group" id="clientGroupTabs">
+          <button type="button" class="btn btn-accent" data-pane="byClient">Клиенты</button>
+          <button type="button" class="btn btn-outline-secondary" data-pane="byNetwork">Сети</button>
+        </div>
       </div>
-      <div class="card-body px-4 py-2">
+      <div class="card-body px-4 py-2" id="byNetwork" style="display:none">
+        {% for c in by_network %}
+        <div class="py-2 {% if not loop.last %}border-bottom{% endif %}">
+          <div class="d-flex justify-content-between align-items-start mb-1">
+            <div style="max-width:175px;overflow:hidden">
+              <div style="font-size:.85rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                {% if c.network_id %}<i class="bi bi-diagram-3 me-1" style="color:var(--brand)"></i>{% endif %}
+                {% if c.network_id %}<a href="/networks/{{ c.network_id }}" class="text-decoration-none text-reset">{{ c.title }}</a>{% else %}{{ c.title }}{% endif %}
+              </div>
+              {% if c.network_id %}
+              <div style="font-size:.72rem;color:#94a3b8">сеть · {{ c.outlets }} юрлиц(а)</div>
+              {% endif %}
+            </div>
+            <div class="text-end ms-2 flex-shrink-0">
+              <div class="fw-bold text-success" style="font-size:.88rem">{{ c.amount | money }} ₽</div>
+              <div class="text-muted" style="font-size:.7rem">{{ c.orders }} заказов</div>
+            </div>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <div style="flex:1;height:5px;background:#F1F5F9;border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:{{ [c.share_pct,100]|min }}%;background:var(--brand);border-radius:3px"></div>
+            </div>
+            <span style="font-size:.72rem;font-weight:700;color:var(--brand);width:32px;text-align:right">{{ c.share_pct }}%</span>
+            {% if c.qty %}
+            <span class="text-muted" style="font-size:.7rem;width:42px;text-align:right">{{ c.qty | int }} шт</span>
+            {% endif %}
+          </div>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-4" style="font-size:.85rem">Нет данных</div>
+        {% endfor %}
+      </div>
+      <div class="card-body px-4 py-2" id="byClient">
         {% for c in by_client %}
         <div class="py-2 {% if not loop.last %}border-bottom{% endif %}">
           <div class="d-flex justify-content-between align-items-start mb-1">
@@ -321,6 +358,22 @@
 
 {% block scripts %}
 <script>
+// Переключатель «Клиенты / Сети» в панели разбивки выручки
+(function() {
+  var tabs = document.getElementById('clientGroupTabs');
+  if (!tabs) return;
+  tabs.addEventListener('click', function(e) {
+    var btn = e.target.closest('button[data-pane]');
+    if (!btn) return;
+    tabs.querySelectorAll('button').forEach(function(b) {
+      var on = b === btn;
+      b.classList.toggle('btn-accent', on);
+      b.classList.toggle('btn-outline-secondary', !on);
+      document.getElementById(b.dataset.pane).style.display = on ? '' : 'none';
+    });
+  });
+})();
+
 document.querySelectorAll('tbody tr').forEach(function(tr) {
   var cell = tr.children[1];
   if (!cell) return;

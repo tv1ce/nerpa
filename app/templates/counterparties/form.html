@@ -39,7 +39,39 @@
         <div class="row g-3">
           <div class="col-12">
             <label class="form-label">Название заведения <span class="text-muted" style="font-size:.8rem">(как называется точка: «Кафе Уют», «Магазин Продукты» и т.п.)</span></label>
-            <input type="text" name="trade_name" class="form-control" placeholder="Например: Кафе Ромашка" value="{{ cp.trade_name if cp and cp.trade_name else '' }}">
+            <input type="text" name="trade_name" id="f-trade_name" class="form-control" placeholder="Например: Кафе Ромашка" value="{{ cp.trade_name if cp and cp.trade_name else '' }}">
+            {# Подсказка про сеть: вывеска уже встречалась — предложим привязать #}
+            <div id="network-hint" class="mt-1" style="font-size:.82rem"></div>
+          </div>
+          {# Сеть: одна вывеска — много юрлиц (франчайзи). Сама по себе группировка,
+             на документы и счета не влияет. #}
+          <div class="col-md-6">
+            <label class="form-label">Сеть
+              <span class="text-muted" style="font-size:.8rem">(для франчайзи — общая вывеска)</span>
+            </label>
+            <div class="input-group">
+              <select name="network_id" class="form-select">
+                <option value="">— не входит в сеть —</option>
+                {% for n in networks %}
+                <option value="{{ n.id }}" {% if cp and cp.network_id == n.id %}selected{% endif %}>{{ n.name }}</option>
+                {% endfor %}
+              </select>
+              <a href="/networks/new" target="_blank" class="btn btn-outline-secondary" title="Создать сеть">
+                <i class="bi bi-plus-lg"></i>
+              </a>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Название точки</label>
+            <input type="text" name="outlet_name" class="form-control" placeholder="напр. на Тверской"
+                   value="{{ cp.outlet_name if cp and cp.outlet_name else '' }}">
+          </div>
+          <div class="col-md-2 d-flex align-items-end">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="is_network_hq" value="1"
+                     id="isHq" {% if cp and cp.is_network_hq %}checked{% endif %}>
+              <label class="form-check-label" for="isHq" style="font-size:.85rem">УК сети</label>
+            </div>
           </div>
           <div class="col-12">
             <label class="form-label">Полное наименование *</label>
@@ -261,6 +293,53 @@
 
 {% block scripts %}
 <script>
+// ── Подсказка про сеть по торговому названию ────────────────────────────────
+// Если вывеска совпала с уже заведённой сетью — предлагаем привязать в один клик;
+// если совпала с другими контрагентами — подсказываем, что это похоже на франшизу.
+(function() {
+  var input = document.getElementById('f-trade_name');
+  var hint  = document.getElementById('network-hint');
+  var select = document.querySelector('select[name="network_id"]');
+  if (!input || !hint || !select) return;
+  var excludeId = {{ cp.id if cp else 0 }};
+  var timer = null;
+
+  function render(match) {
+    if (!match || select.value) { hint.innerHTML = ''; return; }
+    if (match.kind === 'network') {
+      hint.innerHTML = '<span class="text-primary"><i class="bi bi-diagram-3 me-1"></i>' +
+        'Похоже на сеть «' + match.name + '» (' + match.outlets + ' юрлиц) — ' +
+        '<a href="#" id="net-attach-link">привязать</a></span>';
+      document.getElementById('net-attach-link').addEventListener('click', function(e) {
+        e.preventDefault();
+        select.value = String(match.id);
+        hint.innerHTML = '<span class="text-success"><i class="bi bi-check-lg me-1"></i>' +
+          'Контрагент войдёт в сеть «' + match.name + '»</span>';
+      });
+    } else if (match.kind === 'twins') {
+      hint.innerHTML = '<span class="text-muted"><i class="bi bi-info-circle me-1"></i>' +
+        'Такая же вывеска уже есть у ' + match.count + ' контрагент(ов) — похоже на сеть. ' +
+        'Объединить можно на странице <a href="/networks/suggest" target="_blank">«Найти сети»</a></span>';
+    }
+  }
+
+  function check() {
+    var q = input.value.trim();
+    if (q.length < 3) { hint.innerHTML = ''; return; }
+    fetch('/networks/match?exclude_id=' + excludeId + '&q=' + encodeURIComponent(q))
+      .then(function(r) { return r.json(); })
+      .then(function(d) { render(d.match); })
+      .catch(function() { /* подсказка необязательна — молча пропускаем сбой */ });
+  }
+
+  input.addEventListener('input', function() {
+    clearTimeout(timer);
+    timer = setTimeout(check, 400);
+  });
+  select.addEventListener('change', function() { if (select.value) hint.innerHTML = ''; });
+  if (input.value.trim().length >= 3 && !select.value) check();
+})();
+
 function setField(id, val) {
   const el = document.getElementById('f-' + id);
   if (el && val) el.value = val;

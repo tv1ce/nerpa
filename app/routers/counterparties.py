@@ -7,7 +7,8 @@ import httpx
 from app.tz import now as msk_now
 from app.database import get_db
 from app.auth import login_required, role_required
-from app.models import Counterparty, Claim, Task, Comment, AuditLog, User, ContactPerson, CarrierVehicle
+from app.models import (Counterparty, Claim, Task, Comment, AuditLog, User, ContactPerson,
+                        CarrierVehicle, Network)
 from app.utils import log_action
 import json
 import logging
@@ -156,6 +157,11 @@ STATUS_COLORS = {
 REVENUE_STATUSES = ("paid", "assembled", "handed", "delivered")
 
 
+def _active_networks(db: Session):
+    """Действующие сети — для фильтра списка и выпадающего списка в форме."""
+    return db.query(Network).filter(Network.is_active == True).order_by(Network.name).all()
+
+
 def _compute_category(cp: Counterparty) -> str | None:
     revenue = sum(o.total_amount for o in cp.orders if o.status in REVENUE_STATUSES)
     if revenue >= 1_000_000:
@@ -167,7 +173,8 @@ def _compute_category(cp: Counterparty) -> str | None:
     return None
 
 
-def _filtered_counterparties(db: Session, q: str, type: str, category: str, entity_type: str):
+def _filtered_counterparties(db: Session, q: str, type: str, category: str, entity_type: str,
+                             network_id: str = ""):
     query = db.query(Counterparty).filter(Counterparty.is_active == True)
     if q:
         like = f"%{q}%"
@@ -184,6 +191,11 @@ def _filtered_counterparties(db: Session, q: str, type: str, category: str, enti
         query = query.filter(Counterparty.category == category)
     if entity_type:
         query = query.filter(Counterparty.entity_type == entity_type)
+    # network_id: конкретная сеть, либо «none» — только несетевые контрагенты
+    if network_id == "none":
+        query = query.filter(Counterparty.network_id.is_(None))
+    elif network_id:
+        query = query.filter(Counterparty.network_id == int(network_id))
     return query.order_by(Counterparty.name).all()
 
 
@@ -191,14 +203,15 @@ def _filtered_counterparties(db: Session, q: str, type: str, category: str, enti
 @login_required
 async def list_counterparties(
     request: Request, q: str = "", type: str = "", category: str = "",
-    entity_type: str = "",
+    entity_type: str = "", network_id: str = "",
     db: Session = Depends(get_db),
 ):
-    counterparties = _filtered_counterparties(db, q, type, category, entity_type)
+    counterparties = _filtered_counterparties(db, q, type, category, entity_type, network_id)
     return templates.TemplateResponse(request, "counterparties/list.html", {
         "counterparties": counterparties, "q": q, "type": type,
-        "category": category, "entity_type": entity_type,
+        "category": category, "entity_type": entity_type, "network_id": network_id,
         "cp_types": CP_TYPES, "cat_colors": CAT_COLORS, "entity_types": ENTITY_TYPES,
+        "networks": _active_networks(db),
     })
 
 
@@ -206,12 +219,12 @@ async def list_counterparties(
 @login_required
 async def search_counterparties(
     request: Request, q: str = "", type: str = "", category: str = "",
-    entity_type: str = "",
+    entity_type: str = "", network_id: str = "",
     db: Session = Depends(get_db),
 ):
     """Живой поиск/фильтр — возвращает только строки таблицы (без каркаса страницы)
     для подстановки через fetch() без перезагрузки страницы."""
-    counterparties = _filtered_counterparties(db, q, type, category, entity_type)
+    counterparties = _filtered_counterparties(db, q, type, category, entity_type, network_id)
     return templates.TemplateResponse(request, "counterparties/_rows.html", {
         "counterparties": counterparties,
         "cp_types": CP_TYPES, "cat_colors": CAT_COLORS, "entity_types": ENTITY_TYPES,
@@ -235,10 +248,10 @@ async def recalc_categories(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/new", response_class=HTMLResponse)
 @login_required
-async def new_counterparty(request: Request):
+async def new_counterparty(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "counterparties/form.html", {
         "cp": None, "cp_types": CP_TYPES, "entity_types": ENTITY_TYPES, "errors": [],
-        "vehicles_initial": [],
+        "vehicles_initial": [], "networks": _active_networks(db),
     })
 
 
@@ -273,6 +286,9 @@ async def create_counterparty(
     tg_notify_enabled: str = Form(default=""),
     metafora_enabled: str = Form(default=""),
     is_versta_expeditor: str = Form(default=""),
+    network_id: str = Form(default=""),
+    outlet_name: str = Form(default=""),
+    is_network_hq: str = Form(default=""),
     vehicles_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -297,6 +313,9 @@ async def create_counterparty(
         tg_notify_enabled=bool(tg_notify_enabled),
         metafora_enabled=bool(metafora_enabled),
         is_versta_expeditor=bool(is_versta_expeditor),
+        network_id=int(network_id) if network_id else None,
+        outlet_name=_clean(outlet_name),
+        is_network_hq=bool(is_network_hq),
     )
     db.add(cp)
     db.flush()
@@ -610,7 +629,7 @@ async def edit_counterparty(request: Request, cp_id: int, db: Session = Depends(
     ]
     return templates.TemplateResponse(request, "counterparties/form.html", {
         "cp": cp, "cp_types": CP_TYPES, "entity_types": ENTITY_TYPES, "errors": [],
-        "vehicles_initial": vehicles_initial,
+        "vehicles_initial": vehicles_initial, "networks": _active_networks(db),
     })
 
 
@@ -645,6 +664,9 @@ async def update_counterparty(
     tg_notify_enabled: str = Form(default=""),
     metafora_enabled: str = Form(default=""),
     is_versta_expeditor: str = Form(default=""),
+    network_id: str = Form(default=""),
+    outlet_name: str = Form(default=""),
+    is_network_hq: str = Form(default=""),
     vehicles_json: str = Form(default="[]"),
     db: Session = Depends(get_db),
 ):
@@ -671,6 +693,9 @@ async def update_counterparty(
         cp.tg_notify_enabled = bool(tg_notify_enabled)
         cp.metafora_enabled = bool(metafora_enabled)
         cp.is_versta_expeditor = bool(is_versta_expeditor)
+        cp.network_id = int(network_id) if network_id else None
+        cp.outlet_name = _clean(outlet_name)
+        cp.is_network_hq = bool(is_network_hq) and cp.network_id is not None
         _sync_carrier_vehicles(db, cp, vehicles_json)
         db.commit()
         threading.Thread(target=_push_cp_bg, args=(cp_id,), daemon=True).start()

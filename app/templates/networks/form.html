@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% set is_new = net is none %}
+{% block title %}{{ 'Новая сеть' if is_new else 'Сеть: ' + net.name }}{% endblock %}
+{% block page_title %}{{ 'Новая сеть' if is_new else 'Редактировать сеть' }}{% endblock %}
+{% block topbar_actions %}
+  <a href="{{ '/networks/' if is_new else '/networks/' + net.id|string }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Назад
+  </a>
+{% endblock %}
+
+{% block content %}
+<form method="post" action="{{ '/networks/new' if is_new else '/networks/' + net.id|string + '/edit' }}">
+  <div class="row g-3">
+    <div class="col-lg-8">
+      <div class="card border-0 shadow-sm p-4">
+        <div class="form-section-title">Сеть</div>
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label">Название (вывеска) *
+              <span class="text-muted" style="font-size:.8rem">— как сеть знает рынок: «Кофе Хауз»</span>
+            </label>
+            <input type="text" name="name" class="form-control" required
+                   value="{{ net.name if net else '' }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Тип</label>
+            <select name="kind" class="form-select">
+              {% for val, label in kinds.items() %}
+              <option value="{{ val }}" {% if net and net.kind == val %}selected{% elif not net and val == 'franchise' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Ответственный за сеть</label>
+            <select name="manager_id" class="form-select">
+              <option value="">— не назначен —</option>
+              {% for u in managers %}
+              <option value="{{ u.id }}" {% if net and net.manager_id == u.id %}selected{% endif %}>{{ u.full_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Категория</label>
+            <div class="d-flex align-items-center gap-3">
+              <select name="category" class="form-select" style="max-width:9rem">
+                <option value="">авто</option>
+                {% for cat in ['A', 'B', 'C'] %}
+                <option value="{{ cat }}" {% if net and net.category == cat and net.category_manual %}selected{% endif %}>{{ cat }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="category_manual" value="1"
+                       id="catManual" {% if net and net.category_manual %}checked{% endif %}>
+                <label class="form-check-label" for="catManual" style="font-size:.85rem">Не пересчитывать</label>
+              </div>
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Заметки</label>
+            <textarea name="notes" class="form-control" rows="3">{{ net.notes if net and net.notes else '' }}</textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card border-0 shadow-sm p-4">
+        <div class="form-section-title">Условия сети</div>
+        <p class="text-muted" style="font-size:.82rem">
+          Подставляются в новые точки при добавлении в сеть. Условия отдельной точки
+          можно переопределить в её карточке.
+        </p>
+        <div class="mb-3">
+          <label class="form-label">Скидка по умолчанию, %</label>
+          <input type="text" name="default_discount_pct" class="form-control"
+                 value="{{ net.default_discount_pct if net and net.default_discount_pct else '0' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Отсрочка оплаты, дней</label>
+          <input type="text" name="payment_delay_days" class="form-control"
+                 placeholder="не задана"
+                 value="{{ net.payment_delay_days if net and net.payment_delay_days is not none else '' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Тип дней</label>
+          <select name="payment_delay_type" class="form-select">
+            <option value="banking" {% if not net or net.payment_delay_type != 'calendar' %}selected{% endif %}>Банковские</option>
+            <option value="calendar" {% if net and net.payment_delay_type == 'calendar' %}selected{% endif %}>Календарные</option>
+          </select>
+        </div>
+        {% if not is_new %}
+        <div class="form-check border-top pt-3">
+          <input class="form-check-input" type="checkbox" name="apply_to_outlets" value="1" id="applyAll">
+          <label class="form-check-label" for="applyAll" style="font-size:.85rem">
+            Применить ко всем точкам сети
+            <span class="text-muted d-block" style="font-size:.78rem">Перезапишет условия у {{ net.counterparties|length }} контрагент(ов)</span>
+          </label>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-3 d-flex gap-2">
+    <button class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
+    {% if not is_new %}
+    <button type="button" class="btn btn-outline-danger ms-auto"
+            onclick="document.getElementById('delNetForm').requestSubmit()">
+      <i class="bi bi-trash me-1"></i>Расформировать сеть
+    </button>
+    {% endif %}
+  </div>
+</form>
+
+{% if not is_new %}
+<form method="post" action="/networks/{{ net.id }}/delete" id="delNetForm" class="d-none"
+      data-confirm="Расформировать сеть? Контрагенты останутся, потеряется только группировка."></form>
+{% endif %}
+{% endblock %}

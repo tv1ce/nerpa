@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Сети{% endblock %}
+{% block page_title %}Сети заведений{% endblock %}
+{% block topbar_actions %}
+  {% if request.session.get('user_role') != 'viewer' %}
+  <a href="/networks/suggest" class="btn btn-sm btn-outline-secondary me-2">
+    <i class="bi bi-magic me-1"></i>Найти сети
+    {% if suggestions_count %}<span class="badge bg-danger ms-1">{{ suggestions_count }}</span>{% endif %}
+  </a>
+  <form method="post" action="/networks/recalc-categories" class="d-inline me-2">
+    <button class="btn btn-sm btn-outline-secondary" title="Пересчитать категории A/B/C по обороту сети">
+      <i class="bi bi-arrow-repeat me-1"></i>Пересчитать категории
+    </button>
+  </form>
+  <a href="/networks/new" class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новая сеть</a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-2">
+    <form class="row g-2" method="get">
+      <div class="col-md-5">
+        <input type="text" name="q" class="form-control form-control-sm"
+               placeholder="Поиск по названию сети…" value="{{ q or '' }}">
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        {% if q %}<a href="/networks/" class="btn btn-sm btn-link text-muted">Сбросить</a>{% endif %}
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3" style="width:2.2rem"></th>
+          <th>Сеть</th>
+          <th>Тип</th>
+          <th class="text-end">Точек</th>
+          <th class="text-end">Оборот 12 мес, ₽</th>
+          <th class="text-end">Долг, ₽</th>
+          <th>Ответственный</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for net in networks %}
+        {% set st = stats[net.id] %}
+        <tr>
+          <td class="ps-3 text-center">
+            {% if net.category %}
+            <span class="badge bg-{{ cat_colors[net.category] }} {% if net.category == 'C' %}text-dark{% endif %} px-2"
+                  style="font-size:.75rem; font-weight:700; min-width:1.5rem">{{ net.category }}</span>
+            {% else %}<span class="text-muted" style="font-size:.75rem">—</span>{% endif %}
+          </td>
+          <td class="ps-1">
+            <a href="/networks/{{ net.id }}" class="fw-semibold text-decoration-none">{{ net.name }}</a>
+          </td>
+          <td><span class="badge bg-light text-dark border" style="font-size:.72rem">{{ kinds.get(net.kind, net.kind) }}</span></td>
+          <td class="text-end">{{ st.outlets }}</td>
+          <td class="text-end">{{ st.revenue_12m | money }}</td>
+          <td class="text-end {% if st.overdue > 0 %}text-danger fw-semibold{% endif %}">
+            {{ st.debt | money }}
+            {% if st.overdue > 0 %}<div style="font-size:.72rem">просрочено {{ st.overdue | money }}</div>{% endif %}
+          </td>
+          <td class="text-muted">{{ net.manager.full_name if net.manager else '—' }}</td>
+          <td class="text-end pe-3">
+            {% if request.session.get('user_role') != 'viewer' %}
+            <a href="/networks/{{ net.id }}/edit" class="btn btn-sm btn-outline-secondary py-0"><i class="bi bi-pencil"></i></a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center py-4 text-muted">
+          Сетей пока нет.
+          <a href="/networks/suggest">Подобрать автоматически</a> — система найдёт контрагентов с одинаковой вывеской.
+        </td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

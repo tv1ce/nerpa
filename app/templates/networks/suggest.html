@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Подбор сетей{% endblock %}
+{% block page_title %}Подбор сетей{% endblock %}
+{% block topbar_actions %}
+  <a href="/networks/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К сетям</a>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-light border py-2 mb-3" style="font-size:.88rem">
+  <i class="bi bi-info-circle me-1"></i>
+  Контрагенты сгруппированы по совпадению вывески (торгового названия). Проверьте состав
+  группы, при необходимости снимите галочки — и создайте сеть. Ничего не меняется, пока
+  вы не нажмёте «Создать сеть».
+</div>
+
+{% for g in groups %}
+<form method="post" action="/networks/suggest/apply" class="card border-0 shadow-sm mb-3">
+  <div class="card-body">
+    <div class="row g-2 align-items-end mb-2">
+      <div class="col-md-5">
+        <label class="form-label" style="font-size:.82rem">Название сети</label>
+        <input type="text" name="title" class="form-control form-control-sm" value="{{ g.title }}" required>
+      </div>
+      <div class="col-md-4">
+        {% if g.network %}
+        <input type="hidden" name="network_id" value="{{ g.network.id }}">
+        <div class="text-muted" style="font-size:.82rem">
+          <i class="bi bi-link-45deg me-1"></i>Присоединить к существующей сети
+          <a href="/networks/{{ g.network.id }}">«{{ g.network.name }}»</a>
+        </div>
+        {% endif %}
+      </div>
+      <div class="col-md-3 text-end">
+        <button class="btn btn-sm btn-accent">
+          <i class="bi bi-diagram-3 me-1"></i>{{ 'Присоединить' if g.network else 'Создать сеть' }}
+        </button>
+      </div>
+    </div>
+    <div class="row g-2">
+      {% for cp in g.counterparties %}
+      <div class="col-md-6">
+        <div class="form-check border rounded p-2 ps-4">
+          <input class="form-check-input" type="checkbox" name="cp_ids" value="{{ cp.id }}"
+                 id="cp{{ g.brand|replace(' ','_') }}{{ cp.id }}" checked>
+          <label class="form-check-label" for="cp{{ g.brand|replace(' ','_') }}{{ cp.id }}">
+            <span class="fw-semibold">{{ cp.trade_name or cp.name }}</span>
+            <span class="text-muted d-block" style="font-size:.78rem">
+              {{ cp.name }}{% if cp.inn %} · ИНН {{ cp.inn }}{% endif %}
+            </span>
+          </label>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</form>
+{% else %}
+<div class="card border-0 shadow-sm p-5 text-center text-muted">
+  <div style="font-size:2rem">✅</div>
+  Одинаковых вывесок среди несгруппированных контрагентов не нашлось.
+</div>
+{% endfor %}
+{% endblock %}
