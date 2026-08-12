@@ -166,7 +166,7 @@
       {% if sources %}
       <div class="col-12"><div class="d-flex align-items-center gap-2 flex-wrap">
         <span class="small text-muted">Загрузки:</span>
-        {% for s in sources %}<a href="/leads/?source={{ s|urlencode }}" class="badge text-decoration-none {% if source==s %}bg-primary{% else %}bg-light text-dark border{% endif %}">{{ s }}</a>{% endfor %}
+        {% for s in sources %}<a href="/leads/?source={{ s|urlencode }}" class="badge text-decoration-none {% if source==s %}bg-primary{% else %}bg-light text-dark border{% endif %}">{% if s == 'site_form' %}📩 Заявки с сайта{% elif s == 'field_rep' %}Поле (торгпред){% else %}{{ s }}{% endif %}</a>{% endfor %}
       </div></div>
       {% endif %}
     </form>
