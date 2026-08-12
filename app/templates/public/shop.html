@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Заказ — {{ company.short_name or company.name or 'Кабинет клиента' }}</title>
+  <link rel="icon" href="/static/favicon.ico">
+  <style>
+    :root {
+      --bg: #f1f5f9; --card: #fff; --ink: #0f172a; --muted: #64748b;
+      --line: #e2e8f0; --brand: #16a34a; --brand-soft: #dcfce7; --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body {
+      margin: 0; font-family: -apple-system, "Segoe UI", "Fira Sans", Roboto, sans-serif;
+      background: var(--bg); color: var(--ink); line-height: 1.45;
+      -webkit-font-smoothing: antialiased; padding-bottom: 96px;
+    }
+    .wrap { max-width: 620px; margin: 0 auto; padding: 12px 12px 0; }
+    .head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 6px 2px 14px; }
+    .head .who { font-weight: 700; font-size: 1.05rem; }
+    .head .sub { color: var(--muted); font-size: .82rem; }
+    .pill { background: var(--brand-soft); color: var(--brand); font-weight: 600;
+            font-size: .78rem; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+
+    .repeat {
+      display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 16px; margin-bottom: 12px; cursor: pointer; font: inherit; color: inherit;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    }
+    .repeat:active { transform: scale(.99); }
+    .repeat .ico { font-size: 1.6rem; }
+    .repeat .t { font-weight: 700; }
+    .repeat .s { color: var(--muted); font-size: .84rem; }
+
+    .search { width: 100%; padding: 13px 14px; border: 1px solid var(--line);
+              border-radius: 14px; font-size: 1rem; background: var(--card); margin-bottom: 10px; }
+    .search:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+
+    .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+    .tab { flex: 1; padding: 10px; text-align: center; border-radius: 12px; font-weight: 600;
+           font-size: .92rem; background: var(--card); border: 1px solid var(--line);
+           color: var(--muted); cursor: pointer; }
+    .tab.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+    .group { font-size: .74rem; text-transform: uppercase; letter-spacing: .05em;
+             color: var(--muted); font-weight: 700; margin: 18px 4px 8px; }
+    .item {
+      display: flex; align-items: center; gap: 12px; background: var(--card);
+      border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+    }
+    .item.in-cart { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+    .info { flex: 1; min-width: 0; }
+    .nm { font-weight: 600; font-size: .95rem; }
+    .meta { color: var(--muted); font-size: .8rem; margin-top: 2px; }
+    .price { font-weight: 700; white-space: nowrap; }
+    .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+    .dot.in { background: var(--brand); } .dot.low { background: var(--warn); } .dot.order { background: #cbd5e1; }
+
+    .stepper { display: flex; align-items: center; gap: 2px; }
+    .stepper button {
+      width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line);
+      background: #f8fafc; font-size: 1.25rem; font-weight: 600; color: var(--ink); cursor: pointer;
+    }
+    .stepper button:active { background: var(--brand-soft); }
+    .stepper .q { min-width: 34px; text-align: center; font-weight: 700; font-size: 1rem; }
+    .add { padding: 9px 16px; border-radius: 10px; border: 1px solid var(--brand);
+           background: var(--brand-soft); color: var(--brand); font-weight: 700; cursor: pointer; font-size: .9rem; }
+
+    .bar {
+      position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,.97);
+      border-top: 1px solid var(--line); padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+      backdrop-filter: blur(8px);
+    }
+    .bar .inner { max-width: 620px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+    .bar .sum { flex: 1; }
+    .bar .sum .t { font-weight: 700; font-size: 1.15rem; }
+    .bar .sum .s { color: var(--muted); font-size: .8rem; }
+    .btn {
+      background: var(--brand); color: #fff; border: 0; border-radius: 14px;
+      padding: 14px 24px; font-size: 1rem; font-weight: 700; cursor: pointer;
+    }
+    .btn:disabled { background: #cbd5e1; cursor: default; }
+    .btn.wide { width: 100%; }
+
+    dialog {
+      border: 0; border-radius: 20px 20px 0 0; padding: 0; width: 100%; max-width: 620px;
+      margin: auto auto 0; background: var(--card);
+    }
+    dialog::backdrop { background: rgba(15,23,42,.45); }
+    .sheet { padding: 20px 18px calc(20px + env(safe-area-inset-bottom)); }
+    .sheet h2 { margin: 0 0 4px; font-size: 1.15rem; }
+    .lbl { font-size: .8rem; color: var(--muted); font-weight: 600; margin: 16px 0 6px; }
+    .fld { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
+           font-size: 1rem; font-family: inherit; background: #f8fafc; }
+    .slots { display: flex; gap: 8px; }
+    .slot { flex: 1; padding: 12px 6px; text-align: center; border: 1px solid var(--line);
+            border-radius: 12px; font-weight: 600; font-size: .88rem; cursor: pointer; background: #f8fafc; }
+    .slot.on { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
+    .rows { max-height: 34vh; overflow-y: auto; margin-top: 10px; }
+    .row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0;
+           border-bottom: 1px solid var(--line); font-size: .9rem; }
+    .row .r-n { flex: 1; }
+    .row .r-q { color: var(--muted); white-space: nowrap; }
+    .empty { text-align: center; color: var(--muted); padding: 40px 20px; }
+    .link { background: none; border: 0; color: var(--muted); font: inherit;
+            text-decoration: underline; cursor: pointer; padding: 12px; width: 100%; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="who">{{ cp.trade_name or cp.name }}</div>
+      <div class="sub">{{ company.short_name or company.name or '' }}{% if cp.outlet_name %} · {{ cp.outlet_name }}{% endif %}</div>
+    </div>
+    {% if discount %}<span class="pill">ваша скидка {{ discount|round(0)|int }}%</span>{% endif %}
+  </div>
+
+  {% if last_items %}
+  <button class="repeat" id="repeat">
+    <span class="ico">🔁</span>
+    <span>
+      <span class="t">Повторить прошлый заказ</span><br>
+      <span class="s">{{ last_items|length }} позиц{{ 'ия' if last_items|length == 1 else 'ии' if last_items|length < 5 else 'ий' }} — добавим в корзину, потом поправите</span>
+    </span>
+  </button>
+  {% endif %}
+
+  <input class="search" id="q" type="search" placeholder="Поиск по названию или артикулу" autocomplete="off">
+
+  <div class="tabs">
+    <div class="tab on" data-tab="mine">Мои товары</div>
+    <div class="tab" data-tab="all">Весь каталог</div>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<div class="bar">
+  <div class="inner">
+    <div class="sum">
+      <div class="t" id="total">0 ₽</div>
+      <div class="s" id="count">корзина пуста</div>
+    </div>
+    <button class="btn" id="checkout" disabled>Оформить</button>
+  </div>
+</div>
+
+<dialog id="sheet">
+  <div class="sheet">
+    <h2>Оформление заказа</h2>
+    <div class="sub" style="color:var(--muted);font-size:.85rem">Заказ уйдёт вашему менеджеру — он подтвердит состав и сумму.</div>
+
+    <div class="lbl">Когда доставить</div>
+    <div class="slots">
+      {% for s in slots %}
+      <div class="slot{% if loop.first %} on{% endif %}" data-date="{{ s.value }}">{{ s.label }}</div>
+      {% endfor %}
+    </div>
+
+    <div class="lbl">Адрес доставки</div>
+    <input class="fld" id="address" value="{{ default_address }}" placeholder="Город, улица, дом">
+
+    <div class="lbl">Кто примет</div>
+    <input class="fld" id="contact" value="{{ cp.contact_person or '' }}{% if cp.contact_person and cp.phone %}, {% endif %}{{ cp.phone or '' }}" placeholder="Имя и телефон">
+
+    <div class="lbl">Комментарий</div>
+    <textarea class="fld" id="comment" rows="2" placeholder="Пожелания по доставке или составу"></textarea>
+
+    <div class="rows" id="rows"></div>
+
+    <div style="display:flex;justify-content:space-between;font-weight:700;font-size:1.1rem;margin:14px 0 16px">
+      <span>Итого</span><span id="sheet-total">0 ₽</span>
+    </div>
+    <button class="btn wide" id="send">Отправить заказ</button>
+    <button class="link" id="close">Вернуться к товарам</button>
+  </div>
+</dialog>
+
+<script>
+const CATALOG = {{ catalog|tojson }};
+const MINE = {{ mine_ids|tojson }};
+const LAST = {{ last_items|tojson }};
+const TOKEN = {{ token|tojson }};
+const KEY = 'shop_cart_' + TOKEN;
+
+const BY_ID = Object.fromEntries(CATALOG.map(p => [p.id, p]));
+// Корзина живёт в localStorage: товаровед начал набирать на складе, отвлёкся,
+// вернулся через час — набранное на месте.
+let cart = {};
+try { cart = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { cart = {}; }
+for (const id of Object.keys(cart)) { if (!BY_ID[id]) delete cart[id]; }
+
+let tab = MINE.length ? 'mine' : 'all';
+if (!MINE.length) { document.querySelector('[data-tab="mine"]').classList.remove('on');
+                    document.querySelector('[data-tab="all"]').classList.add('on'); }
+let query = '';
+
+const fmt = n => new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
+const STOCK = { in: 'есть на складе', low: 'мало', order: 'под заказ' };
+
+function save() { localStorage.setItem(KEY, JSON.stringify(cart)); }
+
+function visible() {
+  let items = tab === 'mine' && MINE.length
+    ? MINE.map(id => BY_ID[id]).filter(Boolean)
+    : CATALOG;
+  if (query) {
+    const q = query.toLowerCase();
+    items = CATALOG.filter(p => p.name.toLowerCase().includes(q) || (p.article || '').toLowerCase().includes(q));
+  }
+  return items;
+}
+
+function render() {
+  const items = visible();
+  const list = document.getElementById('list');
+  if (!items.length) {
+    list.innerHTML = '<div class="empty">Ничего не нашлось.<br>Попробуйте другое слово или откройте весь каталог.</div>';
+  } else {
+    // В «Моих товарах» и поиске порядок осмысленный (частота / релевантность) —
+    // группировку по категориям включаем только в полном каталоге.
+    const grouped = (tab === 'all' && !query);
+    let html = '', group = null;
+    for (const p of items) {
+      if (grouped && p.category !== group) { group = p.category; html += `<div class="group">${esc(group)}</div>`; }
+      html += row(p);
+    }
+    list.innerHTML = html;
+  }
+  updateBar();
+}
+
+function esc(s) { return String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
+
+function row(p) {
+  const q = cart[p.id] || 0;
+  const box = p.per_box > 1 ? ` · короб ${p.per_box} ${esc(p.unit)}` : '';
+  const ctl = q > 0
+    ? `<div class="stepper"><button data-minus="${p.id}">−</button><span class="q">${q}</span><button data-plus="${p.id}">+</button></div>`
+    : `<button class="add" data-plus="${p.id}">В заказ</button>`;
+  return `<div class="item${q ? ' in-cart' : ''}">
+      <div class="info">
+        <div class="nm">${esc(p.name)}</div>
+        <div class="meta"><span class="dot ${p.stock}"></span>${STOCK[p.stock]}${box}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="price">${fmt(p.price)}</div>
+        <div class="meta">за ${esc(p.unit)}</div>
+      </div>
+      ${ctl}
+    </div>`;
+}
+
+function step(id, delta) {
+  const p = BY_ID[id]; if (!p) return;
+  // Шагаем коробами: 7 шт при коробе в 12 склад всё равно не соберёт.
+  const inc = p.per_box > 1 ? p.per_box : 1;
+  const next = (cart[id] || 0) + delta * inc;
+  if (next > 0) cart[id] = next; else delete cart[id];
+  save(); render();
+}
+
+function totals() {
+  let sum = 0, n = 0;
+  for (const [id, q] of Object.entries(cart)) { const p = BY_ID[id]; if (p) { sum += p.price * q; n++; } }
+  return { sum, n };
+}
+
+function updateBar() {
+  const { sum, n } = totals();
+  document.getElementById('total').textContent = fmt(sum);
+  document.getElementById('count').textContent = n ? `${n} поз. · с учётом вашей скидки` : 'корзина пуста';
+  document.getElementById('checkout').disabled = !n;
+}
+
+document.getElementById('list').addEventListener('click', e => {
+  const plus = e.target.closest('[data-plus]'), minus = e.target.closest('[data-minus]');
+  if (plus) step(plus.dataset.plus, +1);
+  if (minus) step(minus.dataset.minus, -1);
+});
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
+  t.classList.add('on'); tab = t.dataset.tab; render();
+}));
+
+document.getElementById('q').addEventListener('input', e => { query = e.target.value.trim(); render(); });
+
+const repeatBtn = document.getElementById('repeat');
+if (repeatBtn) repeatBtn.addEventListener('click', () => {
+  for (const it of LAST) if (BY_ID[it.id]) cart[it.id] = it.qty;
+  save(); render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+});
+
+// ── Оформление ──────────────────────────────────────────────────────────────
+const sheet = document.getElementById('sheet');
+let slotDate = document.querySelector('.slot')?.dataset.date || '';
+
+document.querySelectorAll('.slot').forEach(s => s.addEventListener('click', () => {
+  document.querySelectorAll('.slot').forEach(x => x.classList.remove('on'));
+  s.classList.add('on'); slotDate = s.dataset.date;
+}));
+
+document.getElementById('checkout').addEventListener('click', () => {
+  const { sum } = totals();
+  document.getElementById('rows').innerHTML = Object.entries(cart).map(([id, q]) => {
+    const p = BY_ID[id];
+    return `<div class="row"><span class="r-n">${esc(p.name)}</span><span class="r-q">${q} ${esc(p.unit)} · ${fmt(p.price * q)}</span></div>`;
+  }).join('');
+  document.getElementById('sheet-total').textContent = fmt(sum);
+  sheet.showModal();
+});
+
+document.getElementById('close').addEventListener('click', () => sheet.close());
+
+document.getElementById('send').addEventListener('click', async () => {
+  const btn = document.getElementById('send');
+  btn.disabled = true; btn.textContent = 'Отправляем…';
+  try {
+    const res = await fetch(`/shop/${TOKEN}/submit`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })),
+        delivery_date: slotDate,
+        address: document.getElementById('address').value,
+        contact: document.getElementById('contact').value,
+        comment: document.getElementById('comment').value,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Не удалось отправить заказ');
+    localStorage.removeItem(KEY);
+    // Сразу на страницу трекинга: заказ уже существует, статус видно —
+    // никакого «спасибо, с вами свяжутся».
+    window.location.href = data.track_url;
+  } catch (e) {
+    alert(e.message || 'Ошибка отправки. Проверьте связь и попробуйте ещё раз.');
+    btn.disabled = false; btn.textContent = 'Отправить заказ';
+  }
+});
+
+render();
+</script>
+</body>
+</html>

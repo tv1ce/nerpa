@@ -392,6 +392,11 @@ def _migrate_db():
         ("company_settings", "outlets_digest_chat_ids",      "TEXT"),
         ("company_settings", "outlets_digest_weekdays_only", "INTEGER DEFAULT 1"),
         ("company_settings", "outlets_digest_last_sent",     "DATE"),
+        # ── Клиентский кабинет заказа /shop/{token} ──
+        ("counterparties", "manager_id",   "INTEGER REFERENCES users(id)"),
+        ("counterparties", "shop_token",   "TEXT"),
+        ("counterparties", "shop_enabled", "BOOLEAN DEFAULT 0"),
+        ("orders", "source", "TEXT DEFAULT 'manual'"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
@@ -562,6 +567,11 @@ def _migrate_db():
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_public_token "
         "ON orders(public_token) WHERE public_token IS NOT NULL"
+    )
+    # Уникальный индекс для токена клиентского кабинета заказа (/shop/{token})
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_counterparties_shop_token "
+        "ON counterparties(shop_token) WHERE shop_token IS NOT NULL"
     )
     # Идемпотентность приёма платежей: один (источник, внешний id) = одна запись
     cur.execute(
