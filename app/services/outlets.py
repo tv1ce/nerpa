@@ -40,9 +40,21 @@ OUTLET_STATUSES = {
     "empty":    "Пусто",       # расчётный запас кончился — точка стоит без товара
     "soon":     "Заканчивается",
     "ok":       "В норме",
-    "sleeping": "Спит",        # давно не заказывали относительно своего же ритма
+    "sleeping": "Спит",        # выпала из своего ритма — клиента можно вернуть
+    "lost":     "Потерян",     # молчит больше трёх месяцев — уже не «спит»
     "new":      "Новая",       # одна поставка — расход считать не из чего
 }
+
+# Сколько дней тишины считать «сном». Одного «дольше 2.5 своих интервалов» мало:
+# у точки с ритмом раз в неделю это всего 18 дней — она ещё не спит, а просто
+# доедает запас. Поэтому к относительному порогу добавлен абсолютный.
+SLEEP_MIN_DAYS = 30
+SLEEP_INTERVAL_FACTOR = 2.5
+
+# После трёх месяцев тишины точка перестаёт быть «спящей»: это уже не пауза,
+# а потерянный клиент. В ежедневную сводку такие больше не попадают
+# (см. services/outlets_digest.py — напоминаем 3 раза, раз в месяц).
+LOST_DAYS = 90
 
 # ── Нормализация адреса ──────────────────────────────────────────────────────
 
@@ -251,7 +263,14 @@ def outlet_metrics(point: dict, today: date | None = None) -> dict:
 
     if len(deliveries) < 2:
         status = "new"
-    elif avg_interval and days_since > avg_interval * 2.5:
+    elif days_since > LOST_DAYS:
+        # Три месяца тишины — это уже не «спит»
+        status = "lost"
+    elif (avg_interval and days_since > avg_interval * SLEEP_INTERVAL_FACTOR
+            and days_since >= SLEEP_MIN_DAYS):
+        # Выпала из ритма — но только если тишина заметна и в абсолютных днях:
+        # иначе точка с недельным ритмом «засыпала» через две с половиной недели,
+        # хотя ей просто пора завозить (это «Пусто», а не «Спит»)
         status = "sleeping"
     elif days_left is None:
         status = "ok"
@@ -300,7 +319,7 @@ def outlet_metrics(point: dict, today: date | None = None) -> dict:
 
 def build_outlets(db: Session, today: date | None = None) -> list[dict]:
     """Все точки с метриками, отсортированные по срочности: где пусто — сверху."""
-    order = {"empty": 0, "soon": 1, "sleeping": 2, "ok": 3, "new": 4}
+    order = {"empty": 0, "soon": 1, "sleeping": 2, "ok": 3, "new": 4, "lost": 5}
     outlets = [outlet_metrics(p, today) for p in collect_deliveries(db).values()]
     outlets.sort(key=lambda o: (order.get(o["status"], 9),
                                 o["days_left"] if o["days_left"] is not None else 999))
@@ -330,6 +349,7 @@ def summary(outlets: list[dict]) -> dict:
         "empty": sum(1 for o in outlets if o["status"] == "empty"),
         "soon": sum(1 for o in outlets if o["status"] == "soon"),
         "sleeping": sum(1 for o in outlets if o["status"] == "sleeping"),
+        "lost": sum(1 for o in outlets if o["status"] == "lost"),
         "daily_total": sum(rates),
         "avg_rate": (sum(rates) / len(rates)) if rates else 0.0,
         "avg_interval": (sum(intervals) / len(intervals)) if intervals else 0.0,
@@ -384,3 +404,51 @@ def network_outlets(outlets: list[dict], network_name: str) -> list[dict]:
     """Точки одной сети, отсортированные по расходу — таблица сравнения в карточке сети."""
     members = [o for o in outlets if network_name in o["networks"]]
     return sorted(members, key=lambda o: -(o["daily_rate"] or 0))
+
+
+# ── Запросы к геокодеру ──────────────────────────────────────────────────────
+
+# Города, которые встречаются в адресах заказов. Геокодеру нужен город явно:
+# «Гончарная 2» без города он ищет по всей стране и чаще всего не находит.
+_CITY_HINTS = (
+    ("санкт-петербург", "Санкт-Петербург"), ("спб", "Санкт-Петербург"),
+    ("петербург", "Санкт-Петербург"), ("кронштадт", "Кронштадт"),
+    ("москва", "Москва"), ("кудрово", "Кудрово"), ("мурино", "Мурино"),
+    ("выборг", "Выборг"), ("кириши", "Кириши"), ("раменское", "Раменское"),
+    ("парголово", "Санкт-Петербург"), ("отрадное", "Отрадное"),
+)
+
+
+def _city_of(raw_addresses: list[str]) -> str:
+    """Город точки по исходным адресам; пусто — не определили."""
+    joined = " ".join(raw_addresses).lower().replace("ё", "е")
+    for needle, city in _CITY_HINTS:
+        if needle in joined:
+            return city
+    return ""
+
+
+def geocode_queries(key: str, raw_addresses: list[str]) -> list[str]:
+    """Варианты запроса к геокодеру, от подробного к простому.
+
+    Полный адрес из заказа («…лит.Б, ТРК "Академ-Парк", помещение F6») геокодер
+    часто не понимает, зато уверенно находит «Гражданский проспект 41,
+    Санкт-Петербург». Поэтому пробуем по очереди: как записано в заказе, затем
+    очищенное «улица дом, город»."""
+    variants = []
+    if raw_addresses:
+        variants.append(max(raw_addresses, key=len))
+    street, _, house = key.partition(":")
+    city = _city_of(raw_addresses)
+    clean = f"{street} {house}".strip()
+    if city:
+        variants.append(f"{clean}, {city}")
+    variants.append(clean)
+    # Убираем дубли, сохраняя порядок
+    seen, result = set(), []
+    for v in variants:
+        v = v.strip()
+        if v and v.lower() not in seen:
+            seen.add(v.lower())
+            result.append(v)
+    return result

@@ -16,10 +16,21 @@
       <span class="text-muted">На карте:</span>
       <strong id="geoLocated">{{ located }}</strong> из {{ total }} точек
     </span>
+    {% if not_found %}
+    <span class="text-muted" style="font-size:.82rem">
+      не найдено геокодером: <strong>{{ not_found }}</strong>
+    </span>
+    {% endif %}
     {% if request.session.get('user_role') != 'viewer' and located < total %}
     <button class="btn btn-sm btn-outline-secondary" id="geoBtn">
       <i class="bi bi-geo me-1"></i>Определить координаты остальных
     </button>
+    {% if not_found %}
+    <button class="btn btn-sm btn-link text-muted p-0" id="geoRetryBtn"
+            title="Попробовать заново адреса, которые геокодер не нашёл">
+      попробовать ненайденные заново
+    </button>
+    {% endif %}
     <span id="geoProgress" class="text-muted d-none" style="font-size:.82rem">
       <span class="spinner-border spinner-border-sm me-1"></span><span id="geoText"></span>
     </span>
@@ -56,7 +67,8 @@
 <script src="https://cdn.jsdelivr.net/npm/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 (function() {
-  var COLORS = {empty:'#dc3545', soon:'#ffc107', ok:'#198754', sleeping:'#6c757d', new:'#0dcaf0'};
+  var COLORS = {empty:'#dc3545', soon:'#ffc107', ok:'#198754', sleeping:'#6c757d',
+                lost:'#212529', new:'#0dcaf0'};
 
   var map = L.map('map').setView([59.94, 30.32], 11);   // Петербург по умолчанию
   // Тайлы CARTO, как в «Прозвоне» и «Поле»: tile.openstreetmap.org с наших
@@ -101,6 +113,17 @@
     map.addLayer(cluster);
     if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
   });
+
+  // Сброс «не найдено»: после правки адреса в заказе точку можно искать заново
+  var retryBtn = document.getElementById('geoRetryBtn');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', function() {
+      retryBtn.disabled = true;
+      fetch('/analytics/outlets/geocode/retry-failed', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function() { location.reload(); });
+    });
+  }
 
   // Геокодирование: запускаем и опрашиваем прогресс, пока фоновый поток идёт
   var btn = document.getElementById('geoBtn');

@@ -33,6 +33,10 @@
     {% elif st == 'sleeping' %}
       <strong>Не заказывают {{ o.days_since }} дн.</strong> при обычном ритме раз в
       {{ '%.0f'|format(o.avg_interval) }} дн. — точка выпала из графика, стоит выяснить причину.
+    {% elif st == 'lost' %}
+      <strong>Молчит {{ o.days_since }} дн.</strong> — больше трёх месяцев без заказов.
+      Точка считается потерянной: в ежедневную сводку она уже не попадает,
+      возвращать её — отдельная задача, а не текущая работа с базой.
     {% elif st == 'new' %}
       <strong>Новая точка</strong> — была одна поставка, расход посчитаем после второй.
     {% else %}
@@ -292,7 +296,7 @@
               { subdomains: 'abcd', maxZoom: 19 }).addTo(map);
   L.circleMarker([{{ geo.lat }}, {{ geo.lng }}], {
     radius: 10, color: '#fff', weight: 2, fillOpacity: .9,
-    fillColor: '{{ {"empty":"#dc3545","soon":"#ffc107","ok":"#198754","sleeping":"#6c757d","new":"#0dcaf0"}[o.status] }}'
+    fillColor: '{{ {"empty":"#dc3545","soon":"#ffc107","ok":"#198754","sleeping":"#6c757d","lost":"#212529","new":"#0dcaf0"}[o.status] }}'
   }).addTo(map);
 })();
 </script>

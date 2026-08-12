@@ -1598,6 +1598,22 @@ class OutletGeo(Base):
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
 
+class OutletReminder(Base):
+    """Сколько раз точка попадала в Telegram-сводку как спящая.
+
+    Спящую точку напоминаем раз в месяц и не больше трёх раз: если за три месяца
+    заказов так и не появилось, клиент считается потерянным и сводку он больше не
+    засоряет (см. services/outlets_digest.py). Счётчик сбрасывается сам, как только
+    точка снова заказала — тогда она перестаёт быть спящей."""
+    __tablename__ = "outlet_reminders"
+    id = Column(Integer, primary_key=True)
+    address_key = Column(String(200), index=True, nullable=False)
+    kind = Column(String(20), default="sleeping")
+    sent_count = Column(Integer, default=0)
+    last_sent_at = Column(Date)
+    last_order_date = Column(Date)   # поставка, после которой точка «уснула»
+
+
 class Receipt(Base):
     """Задача на приёмку товара — пара документов 1С «Заказ поставщику» +
     «Поступление товаров» (ещё не проведено), которую технолог создал в 1С.

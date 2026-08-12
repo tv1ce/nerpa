@@ -30,9 +30,10 @@
       ('empty',    'Пусто сейчас',   summary.empty,    'danger',    'bi-exclamation-octagon'),
       ('soon',     'Заканчивается',  summary.soon,     'warning',   'bi-hourglass-split'),
       ('sleeping', 'Спят',           summary.sleeping, 'secondary', 'bi-moon-stars'),
+      ('lost',     'Потеряны',       summary.lost,     'dark',      'bi-x-circle'),
   ] %}
   {% for val, label, count, color, icon in tiles %}
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg-3 col-xl">
     <a href="/analytics/outlets?status={{ val }}{% if q %}&q={{ q }}{% endif %}{% if network_id %}&network_id={{ network_id }}{% endif %}"
        class="text-decoration-none">
       <div class="card border-0 shadow-sm h-100"

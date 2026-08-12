@@ -373,3 +373,151 @@ def test_digest_send_without_chat_is_reported(admin_client):
         assert result["ok"] is False and "чат" in result["error"].lower()
     finally:
         db.close()
+
+
+def test_geocode_queries_fallback_to_clean_address():
+    """Полный адрес из заказа дополняется очищенным «улица дом, город»."""
+    from app.services.outlets import geocode_queries
+
+    raw = ['г.Санкт-Петербург, Гражданский пр-кт, д.41, корп.2, лит.Б, ТРК "Академ-Парк", помещение F6']
+    variants = geocode_queries("гражданский:41", raw)
+    assert variants[0] == raw[0], "сначала пробуем как записано в заказе"
+    assert "гражданский 41, Санкт-Петербург" in variants
+    # Москву не подставляем в питерский адрес и наоборот
+    assert geocode_queries("гвардейская:3", ["Москва, Гвардейская улица, 3к1"])[1] \
+        == "гвардейская 3, Москва"
+
+
+def test_geocode_queries_without_city():
+    """Город не определился, а очищенный вариант совпал с исходным — дубль не плодим."""
+    from app.services.outlets import geocode_queries
+    assert geocode_queries("благодатная:33", ["Благодатная 33"]) == ["Благодатная 33"]
+
+
+# ── «Спит» и «Потерян» ───────────────────────────────────────────────────────
+
+def test_frequent_point_is_empty_not_sleeping():
+    """Точка с недельным ритмом молчит 20 дней — это «пусто», а не «спит»:
+    прежний порог 2.5 интервала засыпал её на 18-й день и прятал срочную задачу."""
+    start = date.today() - timedelta(days=41)
+    m = outlet_metrics(_point([
+        (start, 70), (start + timedelta(days=7), 70), (start + timedelta(days=14), 70),
+        (start + timedelta(days=21), 70),
+    ]))
+    assert m["days_since"] == 20
+    assert m["status"] == "empty"
+
+
+def test_point_sleeps_after_month_off_rhythm():
+    """Тот же недельный ритм, но тишина уже 40 дней — точка выпала из графика."""
+    start = date.today() - timedelta(days=61)
+    m = outlet_metrics(_point([
+        (start, 70), (start + timedelta(days=7), 70), (start + timedelta(days=14), 70),
+        (start + timedelta(days=21), 70),
+    ]))
+    assert m["days_since"] == 40
+    assert m["status"] == "sleeping"
+
+
+def test_point_is_lost_after_three_months():
+    start = date.today() - timedelta(days=200)
+    m = outlet_metrics(_point([(start, 100), (start + timedelta(days=14), 100)]))
+    assert m["status"] == "lost"
+
+
+def test_rare_rhythm_point_not_sleeping_too_early():
+    """Точка заказывает раз в 30 дней: 40 дней тишины — ещё не сон."""
+    start = date.today() - timedelta(days=100)
+    m = outlet_metrics(_point([
+        (start, 200), (start + timedelta(days=30), 200), (start + timedelta(days=60), 200),
+    ]))
+    assert m["days_since"] == 40
+    assert m["status"] != "sleeping"
+
+
+# ── Напоминания по спящим в сводке ───────────────────────────────────────────
+
+def _sleeping(key, days_ago=45):
+    return {"key": key, "label": key, "status": "sleeping",
+            "last_date": date.today() - timedelta(days=days_ago)}
+
+
+def test_digest_reminds_sleeping_monthly_three_times():
+    """Спящую точку напоминаем раз в месяц и максимум три раза, потом молчим."""
+    from app.database import SessionLocal
+    from app.models import OutletReminder
+    from app.services.outlets_digest import mark_reminded, select_for_digest
+
+    db = SessionLocal()
+    try:
+        db.query(OutletReminder).delete()
+        db.commit()
+        today = date.today()
+        point = _sleeping("спящая:1")
+        active = {"key": "живая:2", "label": "живая:2", "status": "empty",
+                  "last_date": today}
+
+        # 1-е напоминание — уходит
+        rows, sleeping = select_for_digest(db, [point, active], today)
+        assert point in rows and sleeping == [point]
+        mark_reminded(db, sleeping, today)
+
+        # На следующий день спящей в сводке уже нет, активная осталась
+        rows, sleeping = select_for_digest(db, [point, active], today + timedelta(days=1))
+        assert sleeping == [] and rows == [active]
+
+        # Через месяц — второе напоминание, ещё через месяц — третье
+        for month in (1, 2):
+            when = today + timedelta(days=30 * month)
+            rows, sleeping = select_for_digest(db, [point, active], when)
+            assert sleeping == [point], f"напоминание {month + 1} должно уйти"
+            mark_reminded(db, sleeping, when)
+
+        # Четвёртого напоминания нет — три месяца прошли, клиент потерян
+        rows, sleeping = select_for_digest(db, [point, active], today + timedelta(days=90))
+        assert sleeping == [] and point not in rows
+        assert db.query(OutletReminder).filter(
+            OutletReminder.address_key == "спящая:1").first().sent_count == 3
+    finally:
+        db.close()
+
+
+def test_digest_resets_counter_when_point_orders_again():
+    """Точка заказала после напоминаний — счётчик обнуляется, цикл начинается заново."""
+    from app.database import SessionLocal
+    from app.models import OutletReminder
+    from app.services.outlets_digest import mark_reminded, select_for_digest
+
+    db = SessionLocal()
+    try:
+        db.query(OutletReminder).delete()
+        db.commit()
+        today = date.today()
+        old = _sleeping("вернулась:3", days_ago=60)
+        for i in range(3):
+            when = today + timedelta(days=30 * i)
+            _, sleeping = select_for_digest(db, [old], when)
+            mark_reminded(db, sleeping, when)
+
+        # Свежая поставка → точка снова может попасть в сводку
+        revived = _sleeping("вернулась:3", days_ago=0)
+        revived["last_date"] = today + timedelta(days=100)
+        rows, sleeping = select_for_digest(db, [revived], today + timedelta(days=140))
+        assert sleeping == [revived]
+    finally:
+        db.close()
+
+
+def test_digest_skips_lost_points():
+    """Потерянные точки в сводку не попадают вообще."""
+    from app.database import SessionLocal
+    from app.services.outlets_digest import select_for_digest
+
+    db = SessionLocal()
+    try:
+        lost = {"key": "потерянная:9", "label": "потерянная:9", "status": "lost",
+                "last_date": date.today() - timedelta(days=200)}
+        rows, sleeping = select_for_digest(db, [lost])
+        assert rows == [] and sleeping == []
+    finally:
+        db.close()

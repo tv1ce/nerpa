@@ -18,7 +18,7 @@ from app.database import get_db
 from app.models import Network, OutletGeo, OutletInsight
 from app.services.outlets import (
     OUTLET_STATUSES, add_benchmarks, add_network_comparison, build_outlets,
-    network_outlets, summary,
+    geocode_queries, network_outlets, summary,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ templates = Jinja2Templates(directory="app/templates")  # подменяется
 
 STATUS_COLORS = {
     "empty": "danger", "soon": "warning", "ok": "success",
-    "sleeping": "secondary", "new": "info",
+    "sleeping": "secondary", "lost": "dark", "new": "info",
 }
 
 # ── Промпты ──────────────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ async def outlets_digest(request: Request, send_tg: str = Form(default=""),
                     url=f"/analytics/outlets?error={result.get('error', 'Не отправлено')}",
                     status_code=302)
         else:
-            await asyncio.to_thread(digest_service.generate, db, user_id)
+            await asyncio.to_thread(digest_service.generate, db, user_id)  # (задачи, спящие)
     except Exception as e:
         logger.error("outlets digest: %s", e)
         return RedirectResponse(
@@ -285,9 +285,9 @@ async def outlets_digest(request: Request, send_tg: str = Form(default=""),
 _geo_state: dict = {"running": False, "done": 0, "total": 0, "found": 0, "error": None}
 
 
-def _geo_query(outlet: dict) -> str:
-    """Адрес для геокодера: берём самое подробное написание из заказов."""
-    return max(outlet["raw_addresses"], key=len) if outlet["raw_addresses"] else outlet["label"]
+def _geo_queries(outlet: dict) -> list[str]:
+    """Варианты адреса для геокодера — от написания в заказе к очищенному."""
+    return geocode_queries(outlet["key"], outlet["raw_addresses"]) or [outlet["label"]]
 
 
 def _geocode_worker(items: list[tuple[str, str]]) -> None:
@@ -302,31 +302,40 @@ def _geocode_worker(items: list[tuple[str, str]]) -> None:
     from app.utils.geocode import _DELAY, GeocodeRequestError, geocode_address_sync
 
     db = SessionLocal()
+    stopped = False
     try:
-        for i, (key, query) in enumerate(items):
-            if i:
-                time.sleep(_DELAY)
-            found = None
-            for attempt in range(3):
-                try:
-                    found = geocode_address_sync(query)
+        for i, (key, queries) in enumerate(items):
+            found, used = None, queries[0]
+            # Варианты адреса пробуем по очереди: как в заказе, затем очищенный
+            for query in queries:
+                if i or query != queries[0]:
+                    time.sleep(_DELAY)
+                for attempt in range(3):
+                    try:
+                        found = geocode_address_sync(query)
+                        break
+                    except GeocodeRequestError as e:
+                        # Сеть/лимит — не вина адреса: ждём дольше и пробуем ещё раз
+                        wait = e.retry_after or (_DELAY * (attempt + 2) * 2)
+                        logger.warning("geocode retry %s после %.1fс: %s", attempt + 1, wait, e)
+                        _geo_state["error"] = "геокодер ограничивает запросы, идём медленнее"
+                        time.sleep(min(wait, 30))
+                else:
+                    _geo_state["error"] = ("геокодер недоступен — часть точек осталась без "
+                                           "координат, попробуйте позже")
+                    logger.warning("geocode stopped after retries on %r", query)
+                    stopped = True
                     break
-                except GeocodeRequestError as e:
-                    # Сеть/лимит — не вина адреса: ждём дольше и пробуем ещё раз
-                    wait = e.retry_after or (_DELAY * (attempt + 2) * 2)
-                    logger.warning("geocode retry %s после %.1fс: %s", attempt + 1, wait, e)
-                    _geo_state["error"] = "геокодер ограничивает запросы, идём медленнее"
-                    time.sleep(min(wait, 30))
-            else:
-                _geo_state["error"] = ("геокодер недоступен — часть точек осталась без "
-                                       "координат, попробуйте позже")
-                logger.warning("geocode stopped after retries on %r", query)
+                used = query
+                if found:
+                    break
+            if stopped:
                 break
             row = db.query(OutletGeo).filter(OutletGeo.address_key == key).first()
             if not row:
                 row = OutletGeo(address_key=key)
                 db.add(row)
-            row.query = query
+            row.query = used
             if found:
                 row.lat, row.lng = found
                 row.not_found = False
@@ -351,13 +360,23 @@ async def outlets_geocode(request: Request, db: Session = Depends(get_db)):
 
     known = {g.address_key for g in db.query(OutletGeo).filter(
         (OutletGeo.lat.isnot(None)) | (OutletGeo.not_found == True))}  # noqa: E712
-    pending = [(o["key"], _geo_query(o)) for o in _outlets(db) if o["key"] not in known]
+    pending = [(o["key"], _geo_queries(o)) for o in _outlets(db) if o["key"] not in known]
     if not pending:
         return JSONResponse({**_geo_state, "total": 0, "done": 0})
 
     _geo_state.update(running=True, done=0, total=len(pending), found=0, error=None)
     threading.Thread(target=_geocode_worker, args=(pending,), daemon=True).start()
     return JSONResponse(dict(_geo_state))
+
+
+@router.post("/outlets/geocode/retry-failed", response_class=JSONResponse)
+@role_required("manager")
+async def outlets_geocode_retry(request: Request, db: Session = Depends(get_db)):
+    """Забывает адреса, которые геокодер не нашёл, — чтобы попробовать заново
+    (например, после того как адрес в заказе поправили)."""
+    count = db.query(OutletGeo).filter(OutletGeo.not_found == True).delete()  # noqa: E712
+    db.commit()
+    return JSONResponse({"ok": True, "cleared": count})
 
 
 @router.get("/outlets/geocode/status", response_class=JSONResponse)
@@ -372,8 +391,9 @@ async def outlets_map(request: Request, db: Session = Depends(get_db)):
     outlets = _outlets(db)
     geo = {g.address_key: g for g in db.query(OutletGeo).all()}
     located = sum(1 for o in outlets if geo.get(o["key"]) and geo[o["key"]].lat)
+    not_found = sum(1 for o in outlets if geo.get(o["key"]) and geo[o["key"]].not_found)
     return templates.TemplateResponse(request, "analytics/map.html", {
-        "total": len(outlets), "located": located,
+        "total": len(outlets), "located": located, "not_found": not_found,
         "statuses": OUTLET_STATUSES, "status_colors": STATUS_COLORS,
         "geo_state": dict(_geo_state),
     })
@@ -400,7 +420,7 @@ async def outlets_map_data(request: Request, db: Session = Depends(get_db)):
             "last_date": o["last_date"].isoformat(),
             "clients": [(cp.trade_name or cp.name) for cp in o["counterparties"]],
             "networks": o["networks"],
-            "address": _geo_query(o),
+            "address": _geo_queries(o)[0],
         })
     return JSONResponse(rows)
 
