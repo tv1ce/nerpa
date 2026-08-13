@@ -255,15 +255,16 @@ def _escalate_bitrix_alerts(threshold_minutes: int = 10) -> int:
         if not pending:
             return 0
 
-        import httpx
+        # Через общий отправитель — он ходит через SOCKS-прокси (TMS_PROXY).
+        # Прямой httpx отсюда всегда падал с «Network is unreachable»:
+        # api.telegram.org с российского сервера напрямую недоступен.
+        from app.services.telegram_send import send_topic_message
         sent = 0
         for n in pending:
             text = f"⏰ Напоминание: заказ из Bitrix24 всё ещё не обработан!\n{n.title}\nОткройте TMS → Уведомления."
             try:
-                with httpx.Client(timeout=10.0) as client:
-                    for chat_id in chat_ids:
-                        client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                                    json={"chat_id": chat_id, "text": text})
+                for chat_id in chat_ids:
+                    send_topic_message(int(chat_id), text, bot_token)
                 n.escalated_at = now
                 sent += 1
             except Exception as e:

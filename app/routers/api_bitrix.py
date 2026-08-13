@@ -390,14 +390,18 @@ async def _send_bitrix_alert(company, order, cp, actions) -> None:
         f"Нужно создать: {' + '.join(actions)}\n"
         f"Открыть: смотрите вкладку «Уведомления» в TMS"
     )
-    import httpx
+    # Через общий отправитель (SOCKS-прокси TMS_PROXY): напрямую
+    # api.telegram.org с российского сервера недоступен. Отправка блокирующая,
+    # поэтому уводим её в поток, чтобы не держать event loop.
+    import asyncio
+    from app.services.telegram_send import send_topic_message
+
+    def _send():
+        for chat_id in chat_ids:
+            send_topic_message(int(chat_id), text, bot_token)
+
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            for chat_id in chat_ids:
-                await client.post(
-                    f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                    json={"chat_id": chat_id, "text": text},
-                )
+        await asyncio.to_thread(_send)
     except Exception as e:
         logger.warning("Bitrix24: не удалось отправить Telegram-алерт: %s", e)
 

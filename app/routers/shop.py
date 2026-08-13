@@ -568,11 +568,15 @@ def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
                 f"{cp.trade_name or cp.name}, сумма {round(total):,} ₽".replace(",", " ") +
                 f"\nПричина: {detail}\nКлиент увидел ошибку — свяжитесь с ним.")
 
-    import httpx
-    try:
-        with httpx.Client(timeout=10.0) as client:
-            for chat_id in chat_ids:
-                client.post(f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                            json={"chat_id": chat_id, "text": text})
-    except Exception as e:
-        logger.warning("Кабинет клиента: не удалось отправить Telegram-алерт: %s", e)
+    # Отправляем ТОЛЬКО через общий отправитель: он ходит в Telegram через
+    # локальный SOCKS-прокси (TMS_PROXY). Напрямую с российского сервера
+    # api.telegram.org не отвечает, и собственный httpx-клиент здесь молча
+    # падал с «Network is unreachable», хотя бот и остальные уведомления
+    # работали.
+    from app.services.telegram_send import send_topic_message
+    for chat_id in chat_ids:
+        try:
+            send_topic_message(int(chat_id), text, bot_token)
+        except Exception as e:
+            logger.warning("Кабинет клиента: не удалось отправить Telegram-алерт в %s: %s",
+                           chat_id, e)
