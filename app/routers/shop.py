@@ -149,6 +149,20 @@ def client_outlets(db: Session, cp: Counterparty) -> list[dict]:
     return sorted(found.values(), key=lambda o: (-o["orders"], o["label"]))
 
 
+def _recent_outlet_key(db: Session, cp: Counterparty) -> str:
+    """Точка последнего заказа — её подсвечиваем в выборе как подсказку.
+
+    Именно подсказку, а не выбор по умолчанию: клиент всё равно должен ткнуть
+    сам, иначе смысл экрана теряется."""
+    from app.services.outlets import normalize_address
+    o = (db.query(Order)
+         .filter(Order.counterparty_id == cp.id, Order.status != "cancelled",
+                 Order.delivery_address.isnot(None))
+         .order_by(Order.date.desc(), Order.id.desc())
+         .first())
+    return normalize_address(o.delivery_address) if o else ""
+
+
 def pick_outlet(outlets: list[dict], key: str | None) -> dict | None:
     """Выбранная точка: из ссылки, иначе самая ходовая."""
     if not outlets:
@@ -535,12 +549,24 @@ async def shop_page(request: Request, token: str, p: str = "", db: Session = Dep
                                           {}, status_code=404)
 
     outlets = client_outlets(db, cp)
+    company = db.query(CompanySettings).first()
+
+    # Точек несколько, а какая нужна — не сказано: спрашиваем ДО витрины.
+    # Подставлять «самую ходовую» молча нельзя: товаровед откроет ссылку по
+    # привычке, наберёт заказ и не заметит, что везём его на соседнюю кофейню.
+    # Отдельным экраном, а не всплывашкой: экран нельзя закрыть мимо.
+    if len(outlets) > 1 and not p:
+        last_key = _recent_outlet_key(db, cp)
+        return templates.TemplateResponse(request, "public/shop_outlets.html", {
+            "cp": cp, "company": company, "token": token,
+            "outlets": outlets, "last_key": last_key,
+        })
+
     outlet = pick_outlet(outlets, p)
     outlet_key = outlet["key"] if outlet else ""
 
     catalog, last = _catalog(db, cp, outlet)
     cart = _load_cart(db, cp, {c["id"] for c in catalog}, outlet_key)
-    company = db.query(CompanySettings).first()
     history = _order_history(db, cp, outlet)
     return templates.TemplateResponse(request, "public/shop.html", {
         "cp": cp,
