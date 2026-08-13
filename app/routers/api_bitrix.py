@@ -300,7 +300,11 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         delivery_address=(delivery.get("delivery_address")
                           or cp_data.get("actual_address") or None),
         delivery_contact=delivery.get("delivery_contact"),
-        delivery_date=delivery.get("delivery_date"),
+        # Поле сделки называется «Планируемая дата доставки», но менеджеры и
+        # кабинет кладут в него день ОТГРУЗКИ — по нему считают цех и логистика.
+        # Поэтому оно и приземляется в dispatch_date: иначе межгородний заказ,
+        # отгруженный 12-го и доставленный 14-го, попадал в план цеха на 14-е.
+        dispatch_date=delivery.get("delivery_date"),
     )
     db.add(order)
     db.flush()

@@ -843,7 +843,9 @@ class ShopBooking(Base):
     то же количество считалось бы дважды)."""
     __tablename__ = "shop_bookings"
     id = Column(Integer, primary_key=True)
-    delivery_date = Column(Date, nullable=False, index=True)
+    # День ОТГРУЗКИ, выбранный клиентом (слоты строятся по дням, когда мы грузим).
+    # Не доставки: на межгород она случается на несколько дней позже.
+    ship_date = Column(Date, nullable=False, index=True)
     counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
     qty = Column(Integer, nullable=False)          # орешков в заказе, штук
     # Состав брони: [{"id": 5, "qty": 42}, …]. Нужен табло цеха: пока заказ едет

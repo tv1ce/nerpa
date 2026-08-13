@@ -471,7 +471,7 @@
           <div>
             <div class="no">Заказ № {{ o.number }}</div>
             <div class="when">
-              от {{ o.date }}{% if o.delivery_date %} · доставка {{ o.delivery_date|lower }}{% endif %}
+              от {{ o.date }}{% if o.ship_date %} · отгрузка {{ o.ship_date|lower }}{% endif %}
             </div>
           </div>
           <span class="pill {{ 'done' if o.status_code == 'delivered' else 'way' }}">{{ o.status }}</span>
@@ -515,9 +515,9 @@
   <div class="sheet">
     <div class="grip"></div>
     <h2 id="sheet-title">Оформление заказа</h2>
-    <p class="lead">Заказ уйдёт вашему менеджеру — он подтвердит состав, сумму и дату.</p>
+    <p class="lead">Заказ уйдёт вашему менеджеру — он подтвердит состав, сумму и дату отгрузки.</p>
 
-    <span class="lbl">Когда доставить</span>
+    <span class="lbl">Когда отгружаем</span>
     <div class="dates">
       {% for s in slots %}
       <button type="button" class="date-opt" data-date="{{ s.value }}"
@@ -532,7 +532,7 @@
         <span>Другая дата<small>Согласуем с менеджером</small></span>
       </button>
       <input type="date" class="fld" id="other-date" min="{{ min_date }}" hidden
-             aria-label="Выберите дату доставки">
+             aria-label="Выберите дату отгрузки">
     </div>
 
     <label class="lbl" for="address">Адрес доставки</label>
@@ -784,8 +784,8 @@ function checkCapacity() {
   const { pcs } = totals();
   if (free !== null && pcs > free) {
     $('err').textContent = free <= 0
-      ? 'На эту дату мы уже полностью загружены — выберите другую.'
-      : `На эту дату осталось ${free} шт, а в заказе ${pcs}. Выберите другую дату.`;
+      ? 'На этот день отгрузки мы уже полностью загружены — выберите другую.'
+      : `На этот день отгрузки осталось ${free} шт, а в заказе ${pcs}. Выберите другую дату.`;
     return false;
   }
   $('err').textContent = '';
@@ -860,7 +860,7 @@ async function flushPending() {
 
 $('send').addEventListener('click', async () => {
   const btn = $('send');
-  if (!slotDate) { $('err').textContent = 'Выберите дату доставки'; return; }
+  if (!slotDate) { $('err').textContent = 'Выберите дату отгрузки'; return; }
   if (!checkCapacity()) return;
   btn.disabled = true; btn.textContent = 'Отправляем…'; $('err').textContent = '';
 

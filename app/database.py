@@ -575,6 +575,13 @@ def _migrate_db():
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_public_token "
         "ON orders(public_token) WHERE public_token IS NOT NULL"
     )
+    # Бронь мощности хранит дату ОТГРУЗКИ — старое имя delivery_date вводило в
+    # заблуждение (доставка на межгород бывает на дни позже отгрузки).
+    cur.execute("PRAGMA table_info(shop_bookings)")
+    _booking_cols = {row[1] for row in cur.fetchall()}
+    if _booking_cols and "delivery_date" in _booking_cols and "ship_date" not in _booking_cols:
+        cur.execute("ALTER TABLE shop_bookings RENAME COLUMN delivery_date TO ship_date")
+
     # Уникальный индекс для токена клиентского кабинета заказа (/shop/{token})
     cur.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS ix_counterparties_shop_token "

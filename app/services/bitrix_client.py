@@ -945,8 +945,11 @@ def apply_shop_order_to_deal(cp, items: list, order_data: dict, company, db) -> 
                 fields[uf["delivery_address"]] = order_data["address"]
             if uf.get("delivery_phone") and order_data.get("contact"):
                 fields[uf["delivery_phone"]] = order_data["contact"]
-            if uf.get("delivery_date") and order_data.get("delivery_date"):
-                fields[uf["delivery_date"]] = order_data["delivery_date"].isoformat()
+            # UF-поле называется «Планируемая дата доставки», но по факту в нём
+            # держат день отгрузки — так его заполняют менеджеры, так же читает
+            # приём сделки (api_bitrix кладёт его в dispatch_date).
+            if uf.get("delivery_date") and order_data.get("ship_date"):
+                fields[uf["delivery_date"]] = order_data["ship_date"].isoformat()
             if order_data.get("comment"):
                 fields["COMMENTS"] = ("Заказ из кабинета клиента:\n"
                                       + order_data["comment"])

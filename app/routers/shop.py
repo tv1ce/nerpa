@@ -51,6 +51,25 @@ LINE_LABELS = {"п1.": "на сливочном масле", "п2.": "на ма�
 # Статусы, после которых позиция уже физически собрана и печь её не нужно.
 ASSEMBLED_STATUSES = ("assembled", "handed", "delivered")
 
+
+def shipment_date(order) -> "date | None":
+    """Дата ОТГРУЗКИ заказа — день, когда мы грузим машину.
+
+    В заказе две даты, и их постоянно путают: `dispatch_date` — когда отгружаем,
+    `delivery_date` — когда товар оказывается у клиента. Внутри города это один
+    день, а на межгород расходится: заказ №108 отгружен 12-го, доставлен 14-го.
+
+    Цеху, лимиту мощности и кабинету важна именно отгрузка: печь надо к погрузке,
+    а не к моменту, когда коробка доедет до Москвы. Дату доставки берём запасным
+    вариантом — у части старых заказов отгрузка не проставлена."""
+    return order.dispatch_date or order.delivery_date
+
+
+def shipment_date_col():
+    """То же самое, но выражением для SQL-запросов."""
+    from sqlalchemy import func
+    return func.coalesce(Order.dispatch_date, Order.delivery_date)
+
 BOX_CAPACITY = 51
 MIN_QTY = 42
 QTY_STEP = 3
@@ -352,7 +371,7 @@ def date_load(db: Session, d: date) -> int:
     booked = 0
     rows = (db.query(OrderItem.quantity)
             .join(Order, Order.id == OrderItem.order_id)
-            .filter(Order.delivery_date == d,
+            .filter(shipment_date_col() == d,
                     Order.status != "cancelled",
                     OrderItem.product_id.in_(nut_ids))
             .all())
@@ -360,7 +379,7 @@ def date_load(db: Session, d: date) -> int:
 
     known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
                    .filter(Order.bitrix_deal_id.isnot(None)).all()}
-    for b in db.query(ShopBooking).filter(ShopBooking.delivery_date == d).all():
+    for b in db.query(ShopBooking).filter(ShopBooking.ship_date == d).all():
         if str(b.bitrix_deal_id or "") not in known_deals:
             booked += int(b.qty or 0)
     return booked
@@ -381,10 +400,10 @@ def _record_booking(db: Session, cp: Counterparty, d: date, qty: int, deal_id: s
         return
     detail = json.dumps([{"id": p.id, "qty": int(q)} for p, q, _ in (items or [])],
                         ensure_ascii=False)
-    db.add(ShopBooking(delivery_date=d, counterparty_id=cp.id, qty=int(qty),
+    db.add(ShopBooking(ship_date=d, counterparty_id=cp.id, qty=int(qty),
                        items=detail, bitrix_deal_id=str(deal_id) if deal_id else None))
     db.query(ShopBooking).filter(
-        ShopBooking.delivery_date < date.today() - timedelta(days=30)).delete()
+        ShopBooking.ship_date < date.today() - timedelta(days=30)).delete()
 
 
 def production_plan(db: Session, company) -> dict:
@@ -409,10 +428,10 @@ def production_plan(db: Session, company) -> dict:
 
     # ── Ближайшая дата, на которую что-то есть ──────────────────────────────
     today = date.today()
-    dates = [d for (d,) in db.query(Order.delivery_date)
-             .filter(Order.delivery_date >= today, Order.status != "cancelled").distinct().all() if d]
-    dates += [d for (d,) in db.query(ShopBooking.delivery_date)
-              .filter(ShopBooking.delivery_date >= today).distinct().all() if d]
+    dates = [d for (d,) in db.query(shipment_date_col())
+             .filter(shipment_date_col() >= today, Order.status != "cancelled").distinct().all() if d]
+    dates += [d for (d,) in db.query(ShopBooking.ship_date)
+              .filter(ShopBooking.ship_date >= today).distinct().all() if d]
     if not dates:
         return {"date": None}
     day = min(dates)
@@ -424,7 +443,7 @@ def production_plan(db: Session, company) -> dict:
     # момента позиция физически лежит на отгрузке, а не ждёт печи.
     rows = (db.query(OrderItem.product_id, OrderItem.quantity, Order.status)
             .join(Order, Order.id == OrderItem.order_id)
-            .filter(Order.delivery_date == day, Order.status != "cancelled",
+            .filter(shipment_date_col() == day, Order.status != "cancelled",
                     OrderItem.product_id.in_(nut_names.keys()))
             .all())
     for pid, qty, status in rows:
@@ -434,7 +453,7 @@ def production_plan(db: Session, company) -> dict:
 
     known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
                    .filter(Order.bitrix_deal_id.isnot(None)).all()}
-    for b in db.query(ShopBooking).filter(ShopBooking.delivery_date == day).all():
+    for b in db.query(ShopBooking).filter(ShopBooking.ship_date == day).all():
         if str(b.bitrix_deal_id or "") in known_deals:
             continue                      # заказ уже доехал — посчитан выше
         try:
@@ -547,7 +566,7 @@ def _order_history(db: Session, cp: Counterparty, outlet: dict | None = None,
             "date": f"{o.date.day} {MONTHS_GEN[o.date.month - 1]} {o.date.year}" if o.date else "",
             "status": PUBLIC_STATUS_LABELS.get(o.status, o.status),
             "status_code": o.status,
-            "delivery_date": format_slot_date(o.delivery_date) if o.delivery_date else "",
+            "ship_date": format_slot_date(shipment_date(o)) if shipment_date(o) else "",
             "lines": lines,
             "total": round(sum(i["amount"] for i in lines), 2),
             "track_url": f"/track/{o.public_token}" if o.public_token else "",
@@ -694,13 +713,13 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
     if not items:
         return JSONResponse({"ok": False, "error": "Корзина пуста"}, status_code=400)
 
-    delivery_date = None
+    ship_date = None
     raw_date = (payload.get("delivery_date") or "").strip()
     if raw_date:
         try:
             parsed = date.fromisoformat(raw_date)
             if parsed >= date.today():
-                delivery_date = parsed
+                ship_date = parsed
         except ValueError:
             pass
 
@@ -708,15 +727,15 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
     # Проверяем ПЕРЕД походом в Bitrix: отказ должен быть мгновенным и внятным,
     # а не после того, как заказ уже уехал в сделку.
     total_qty = int(sum(qty for _, qty, _ in items))
-    free = date_free(db, company_settings, delivery_date) if delivery_date else None
+    free = date_free(db, company_settings, ship_date) if ship_date else None
     if free is not None and total_qty > free:
         alternatives = [s for s in _delivery_slots(db, company_settings)
-                        if s["value"] != (delivery_date.isoformat() if delivery_date else "")
+                        if s["value"] != (ship_date.isoformat() if ship_date else "")
                         and (s["free"] is None or s["free"] >= total_qty)]
         if free <= 0:
-            msg = f"На {format_slot_date(delivery_date).lower()} мы уже полностью загружены."
+            msg = f"На {format_slot_date(ship_date).lower()} мы уже полностью загружены."
         else:
-            msg = (f"На {format_slot_date(delivery_date).lower()} осталось "
+            msg = (f"На {format_slot_date(ship_date).lower()} осталось "
                    f"{free} орешков, а в заказе {total_qty}.")
         if alternatives:
             msg += " Ближайшая свободная дата — " + alternatives[0]["label"].lower() + "."
@@ -731,7 +750,9 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
     outlet_key = outlet["key"] if outlet else ""
 
     order_data = {
-        "delivery_date": delivery_date,
+        # Клиент выбирает день ОТГРУЗКИ — слоты и строятся по дням, когда мы
+        # грузим (Настройки → «Дни отгрузки»).
+        "ship_date": ship_date,
         "address": (payload.get("address") or "").strip()[:500]
                    or (outlet["address"] if outlet else "")
                    or cp.actual_address or cp.legal_address or "",
@@ -755,7 +776,7 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
             status_code=502)
 
     _save_cart(db, cp, [], outlet_key)
-    _record_booking(db, cp, delivery_date, total_qty, result["deal_id"], items)
+    _record_booking(db, cp, ship_date, total_qty, result["deal_id"], items)
     log_action(db, "counterparty", cp.id, "updated", None,
                f"Заказ из кабинета клиента ушёл в сделку Bitrix24 #{result['deal_id']}"
                + (" (создана новая карточка)" if result["created"] else ""))
@@ -931,10 +952,10 @@ def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
     if cp.name and cp.name != outlet:
         head.append(cp.name)
 
-    when = format_slot_date(data["delivery_date"]) if data.get("delivery_date") else "не указана"
+    when = format_slot_date(data["ship_date"]) if data.get("ship_date") else "не указана"
     where = data.get("address") or cp.actual_address or cp.legal_address or "не указан"
 
-    body = [f"Когда: {when}", f"Куда: {where}"]
+    body = [f"Отгрузка: {when}", f"Куда: {where}"]
     if data.get("contact"):
         body.append(f"Кто примет: {data['contact']}")
 
