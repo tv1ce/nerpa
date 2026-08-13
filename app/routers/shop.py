@@ -12,10 +12,10 @@
 Безопасность: единственный секрет — токен, поэтому он длинный, страница отдаётся
 с noindex, а на IP висит тот же примитивный rate-limit, что и на /track.
 """
+import asyncio
 import json
 import logging
 import secrets
-import threading
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Request, Depends
@@ -24,9 +24,9 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import (Counterparty, CompanySettings, Product, Order, OrderItem,
+from app.models import (Counterparty, CompanySettings, Product, Order,
                         Notification, ShopCart)
-from app.routers.public import _rate_limited, ensure_public_token
+from app.routers.public import _rate_limited
 from app.utils import log_action
 
 logger = logging.getLogger(__name__)
@@ -254,24 +254,18 @@ async def save_cart(request: Request, token: str, db: Session = Depends(get_db))
     return JSONResponse({"ok": True})
 
 
-def _push_bitrix_bg(order_id: int) -> None:
-    """Создаёт сделку в Bitrix24 в фоновом потоке — клиент не должен ждать CRM."""
-    from app.database import SessionLocal
-    from app.services.bitrix_client import push_shop_order_to_bitrix
-    db = SessionLocal()
-    try:
-        order = db.query(Order).filter(Order.id == order_id).first()
-        company = db.query(CompanySettings).first()
-        if order:
-            push_shop_order_to_bitrix(order, company, db)
-    except Exception as e:
-        logger.error("push_shop_order_to_bitrix bg %s: %s", order_id, e)
-    finally:
-        db.close()
-
-
 @router.post("/{token}/submit")
 async def submit_order(request: Request, token: str, db: Session = Depends(get_db)):
+    """Заказ из кабинета → карточка клиента в Bitrix24, стадия «Заказ согласован».
+
+    Заказ в TMS здесь НЕ создаётся намеренно: он приедет обратно роботом с этой
+    стадии через /api/bitrix/webhook/deal-approved — тем же путём, что и заказы
+    менеджеров. Пиши мы заказ ещё и напрямую, на каждый заказ из кабинета в TMS
+    было бы по два: свой и приехавший из сделки.
+
+    Из-за этого Bitrix здесь — единственный носитель заказа, и обращение к нему
+    синхронное: если CRM недоступна, клиент должен увидеть честную ошибку и
+    повторить, а корзина обязана остаться нетронутой."""
     ip = request.client.host if request.client else "?"
     if _rate_limited(ip):
         return JSONResponse({"ok": False, "error": "Слишком много запросов"}, status_code=429)
@@ -306,7 +300,19 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
         if nut_line(p.name)}
     if not products:
         return JSONResponse({"ok": False, "error": "Товары не найдены"}, status_code=400)
-    wanted = {pid: normalize_qty(qty) for pid, qty in wanted.items() if pid in products}
+
+    items = []
+    total = 0.0
+    for pid, qty in wanted.items():
+        product = products.get(pid)
+        if not product:
+            continue
+        qty = normalize_qty(qty)
+        price = round((product.price or 0) * (1 - discount / 100), 2)
+        total += qty * price
+        items.append((product, qty, price))
+    if not items:
+        return JSONResponse({"ok": False, "error": "Корзина пуста"}, status_code=400)
 
     delivery_date = None
     raw_date = (payload.get("delivery_date") or "").strip()
@@ -318,78 +324,91 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
         except ValueError:
             pass
 
-    comment = (payload.get("comment") or "").strip()[:1000]
-    address = (payload.get("address") or "").strip()[:500]
-    contact = (payload.get("contact") or "").strip()[:200]
+    order_data = {
+        "delivery_date": delivery_date,
+        "address": (payload.get("address") or "").strip()[:500]
+                   or cp.actual_address or cp.legal_address or "",
+        "contact": (payload.get("contact") or "").strip()[:200]
+                   or cp.contact_person or cp.phone or "",
+        "comment": (payload.get("comment") or "").strip()[:1000],
+    }
 
-    from app.routers.orders import _next_order_number
-    order = Order(
-        number=_next_order_number(db),
-        date=date.today(),
-        counterparty_id=cp.id,
-        status="draft",
-        source="client_portal",
-        # Свой менеджер клиента ведёт заказ и становится ответственным по
-        # сделке в Bitrix24 — иначе заказ уйдёт на общего ответственного.
-        sales_manager_id=cp.manager_id,
-        payment_type="prepay",
-        delivery_date=delivery_date,
-        delivery_address=address or cp.actual_address or cp.legal_address,
-        delivery_contact=contact or cp.contact_person or cp.phone,
-        notes=comment or None,
-    )
-    db.add(order)
-    db.flush()
+    company = db.query(CompanySettings).first()
+    from app.services.bitrix_client import apply_shop_order_to_deal
+    result = await asyncio.to_thread(apply_shop_order_to_deal, cp, items, order_data, company, db)
 
-    total = 0.0
-    for pid, qty in wanted.items():
-        product = products.get(pid)
-        if not product:
-            continue
-        price = round(product.price or 0, 2)
-        amount = round(qty * price * (1 - discount / 100), 2)
-        total += amount
-        db.add(OrderItem(order_id=order.id, product_id=pid, quantity=qty, price=price,
-                         discount_pct=discount, vat_rate=product.vat_rate, amount=amount))
+    if not result["ok"]:
+        # Корзину НЕ трогаем: заказ никуда не уехал, клиент повторит отправку.
+        logger.error("Кабинет клиента %s: заказ не ушёл в Bitrix24 — %s", cp.name, result["error"])
+        _notify_telegram(db, cp, total, items, ok=False, detail=result["error"])
+        return JSONResponse(
+            {"ok": False, "error": "Не удалось передать заказ менеджеру. "
+                                   "Попробуйте ещё раз или позвоните нам."},
+            status_code=502)
 
-    log_action(db, "order", order.id, "created", None,
-               f"Заказ собран клиентом в кабинете ({cp.trade_name or cp.name})")
-
-    notif_title = f"🛒 Заказ из кабинета — {cp.trade_name or cp.name}"
-    body = (f"Заказ №{order.number} на {round(total):,} ₽".replace(",", " ") +
-            f", позиций: {len(wanted)}.\nЛежит черновиком — проверьте и подтвердите.")
-    db.add(Notification(type="shop_order", title=notif_title, body=body,
-                        link=f"/orders/{order.id}"))
-
-    ensure_public_token(db, order)
-    # Корзина «переехала» в заказ — очищаем, иначе клиент вернётся в кабинет
-    # и увидит только что отправленный состав как незаконченный черновик.
     _save_cart(db, cp, [])
+    log_action(db, "counterparty", cp.id, "updated", None,
+               f"Заказ из кабинета клиента ушёл в сделку Bitrix24 #{result['deal_id']}"
+               + (" (создана новая карточка)" if result["created"] else ""))
+    db.add(Notification(
+        type="shop_order",
+        title=f"🛒 Заказ из кабинета — {cp.trade_name or cp.name}",
+        body=(f"Сумма {round(total):,} ₽".replace(",", " ") +
+              f", позиций: {len(items)}.\nСделка Bitrix24 #{result['deal_id']} "
+              f"переведена на «Заказ согласован» — заказ приедет в TMS автоматически."),
+        link=f"/counterparties/{cp.id}",
+    ))
     db.commit()
 
-    threading.Thread(target=_push_bitrix_bg, args=(order.id,), daemon=True).start()
-    _notify_telegram(db, order, cp, total)
-
-    return JSONResponse({"ok": True, "order_number": order.number,
-                         "track_url": f"/track/{order.public_token}"})
+    _notify_telegram(db, cp, total, items, ok=True, detail=result["deal_id"])
+    return JSONResponse({"ok": True, "redirect": f"/shop/{token}/done"})
 
 
-def _notify_telegram(db: Session, order: Order, cp: Counterparty, total: float) -> None:
-    """Громкий алерт менеджерам в Telegram — теми же чатами, что и заказы из
-    Bitrix24 (bitrix_alert_chat_ids в Настройках). Отдельный список заводить
-    незачем: адресат тот же."""
+@router.get("/{token}/done", response_class=HTMLResponse)
+async def order_done(request: Request, token: str, db: Session = Depends(get_db)):
+    """Страница «заказ принят».
+
+    Ссылки на трекинг здесь нет намеренно: заказ ещё едет из Bitrix в TMS, и
+    номера у него пока не существует. Обещать клиенту статус, которого нет,
+    хуже, чем честно сказать, что менеджер подтвердит."""
+    cp = _find_counterparty(db, token)
+    if not cp:
+        return templates.TemplateResponse(request, "public/shop_notfound.html",
+                                          {}, status_code=404)
+    company = db.query(CompanySettings).first()
+    return templates.TemplateResponse(request, "public/shop_done.html", {
+        "cp": cp, "company": company, "token": token,
+    })
+
+
+def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
+                     ok: bool, detail: str = "") -> None:
+    """Уведомление менеджерам о заказе из кабинета.
+
+    Канал свой (Настройки → Bitrix24 → «Заказы из кабинета»), отдельно от
+    алертов по сделкам из CRM: у заказов из кабинета другая аудитория и другая
+    срочность. Если канал не задан — молча ничего не шлём."""
     import os
     company = db.query(CompanySettings).first()
     if not company:
         return
-    chat_ids = [c.strip() for c in (company.bitrix_alert_chat_ids or "").split(",") if c.strip()]
+    chat_ids = [c.strip() for c in (company.shop_alert_chat_ids or "").split(",") if c.strip()]
     bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
     if not chat_ids or not bot_token:
         return
-    text = (f"🛒 ЗАКАЗ ИЗ КАБИНЕТА КЛИЕНТА\n"
-            f"№{order.number} — {cp.trade_name or cp.name}\n"
-            f"Сумма: {round(total):,} ₽".replace(",", " ") +
-            "\nСтатус: черновик, нужно подтвердить в TMS")
+
+    lines = [f"{nut_display_name(p.name)} — {qty:g} шт" for p, qty, _ in items]
+    if ok:
+        text = ("🛒 ЗАКАЗ ИЗ КАБИНЕТА КЛИЕНТА\n"
+                f"{cp.trade_name or cp.name}\n"
+                + "\n".join(lines) +
+                f"\nСумма: {round(total):,} ₽".replace(",", " ") +
+                f"\nСделка #{detail} → «Заказ согласован»")
+    else:
+        text = ("⚠️ ЗАКАЗ ИЗ КАБИНЕТА НЕ УШЁЛ В BITRIX24\n"
+                f"{cp.trade_name or cp.name}, сумма {round(total):,} ₽".replace(",", " ") +
+                f"\nПричина: {detail}\nКлиент увидел ошибку — свяжитесь с ним.")
+
     import httpx
     try:
         with httpx.Client(timeout=10.0) as client:

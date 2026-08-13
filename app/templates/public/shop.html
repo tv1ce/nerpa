@@ -326,9 +326,7 @@ document.getElementById('send').addEventListener('click', async () => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Не удалось отправить заказ');
-    // Сразу на страницу трекинга: заказ уже существует, статус видно —
-    // никакого «спасибо, с вами свяжутся».
-    window.location.href = data.track_url;
+    window.location.href = data.redirect;
   } catch (e) {
     alert(e.message || 'Ошибка отправки. Проверьте связь и попробуйте ещё раз.');
     btn.disabled = false; btn.textContent = 'Отправить заказ';

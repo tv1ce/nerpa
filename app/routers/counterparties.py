@@ -635,15 +635,55 @@ async def toggle_shop_access(request: Request, cp_id: int, db: Session = Depends
 
     from app.routers.shop import ensure_shop_token
     enable = not cp.shop_enabled
+    warning = None
     if enable:
         ensure_shop_token(db, cp)
+        # Ссылка кабинета работает только в связке с карточкой клиента в CRM:
+        # заказ из кабинета не создаёт заказ в TMS, а заполняет эту карточку и
+        # двигает её на «Заказ согласован». Нет привязки — заказ уехать некуда,
+        # поэтому ищем компанию по ИНН прямо сейчас, а не в момент заказа.
+        warning = _bind_bitrix_company(db, cp)
     cp.shop_enabled = enable
     log_action(db, "counterparty", cp.id, "updated", request.session.get("user_id"),
                "Кабинет клиента " + ("включён" if enable else "выключен"))
     db.commit()
 
     url = (str(request.base_url).rstrip("/") + f"/shop/{cp.shop_token}") if enable else None
-    return JSONResponse({"ok": True, "enabled": enable, "url": url})
+    return JSONResponse({"ok": True, "enabled": enable, "url": url, "warning": warning})
+
+
+def _bind_bitrix_company(db: Session, cp: Counterparty) -> str | None:
+    """Привязывает контрагента к карточке компании в Bitrix24 по ИНН.
+
+    Возвращает текст предупреждения, если привязать не удалось — кабинет всё
+    равно включится (ссылку можно отдать клиенту заранее), но менеджер должен
+    знать, что заказ по ней уехать не сможет, пока карточки нет."""
+    from app.models import CompanySettings
+    from app.services.bitrix_client import get_bitrix_client, BitrixError
+
+    if cp.external_id_bitrix:
+        return None
+    if not cp.inn:
+        return "У контрагента не заполнен ИНН — карточку в Bitrix24 найти не по чему"
+
+    company = db.query(CompanySettings).first()
+    client = get_bitrix_client(company)
+    if not client:
+        return "Bitrix24 не настроен — заказы из кабинета не смогут уехать в CRM"
+    try:
+        with client:
+            company_id = client.find_company_by_inn(cp.inn)
+    except BitrixError as e:
+        logger.warning("Bitrix24: поиск компании по ИНН %s: %s", cp.inn, e)
+        return f"Bitrix24 не ответил на поиск по ИНН: {e}"
+
+    if not company_id:
+        return f"В Bitrix24 нет компании с ИНН {cp.inn} — заведите карточку, иначе заказ не уедет"
+    cp.external_id_bitrix = f"C{company_id}"
+    cp.synced_to_bitrix_at = msk_now()
+    log_action(db, "counterparty", cp.id, "updated", None,
+               f"Кабинет клиента привязан к компании Bitrix24 #{company_id} (по ИНН)")
+    return None
 
 
 @router.post("/{cp_id}/set-category")

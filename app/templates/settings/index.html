@@ -682,6 +682,27 @@
               <option value="">— только плашка —</option>
             </select>
           </div>
+          <div class="col-12"><hr class="my-2"><div class="fw-semibold" style="font-size:.85rem">
+            <i class="bi bi-shop me-1 text-success"></i>Кабинет клиента (заказы по ссылке)
+          </div></div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Стадия «Заказ согласован»</label>
+            <select name="shop_stage_approved" id="bitrixStageShopApproved" class="form-select form-select-sm">
+              <option value="">— заказы из кабинета выключены —</option>
+            </select>
+            <div class="form-text" style="font-size:.72rem">
+              На эту стадию кабинет переводит карточку клиента. С неё же робот Bitrix24
+              должен дёргать вебхук — иначе заказ не приедет в TMS
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label form-label-sm">Telegram chat_id для заказов из кабинета <span class="text-muted">(через запятую)</span></label>
+            <input type="text" name="shop_alert_chat_ids" class="form-control form-control-sm font-monospace"
+                   placeholder="123456789, -100987654321"
+                   value="{{ company.shop_alert_chat_ids if company and company.shop_alert_chat_ids else '' }}">
+            <div class="form-text" style="font-size:.72rem">Отдельный канал от алертов по сделкам CRM</div>
+          </div>
+          <div class="col-12"><hr class="my-2"></div>
           <div class="col-12">
             <label class="form-label form-label-sm">Telegram chat_id для громкого уведомления о новом заказе <span class="text-muted">(через запятую)</span></label>
             <input type="text" name="bitrix_alert_chat_ids" class="form-control form-control-sm font-monospace"
@@ -1311,6 +1332,7 @@ const BITRIX_SAVED_STAGES = {
   paid: {{ (company.bitrix_stage_paid if company and company.bitrix_stage_paid else '') | tojson }},
   shipped: {{ (company.bitrix_stage_shipped if company and company.bitrix_stage_shipped else '') | tojson }},
   delivered: {{ (company.bitrix_stage_delivered if company and company.bitrix_stage_delivered else '') | tojson }},
+  shopApproved: {{ (company.shop_stage_approved if company and company.shop_stage_approved else '') | tojson }},
 };
 
 async function checkBitrix() {
@@ -1332,6 +1354,7 @@ async function loadBitrixStages() {
     paid: document.getElementById('bitrixStagePaid'),
     shipped: document.getElementById('bitrixStageShipped'),
     delivered: document.getElementById('bitrixStageDelivered'),
+    shopApproved: document.getElementById('bitrixStageShopApproved'),
   };
   el.innerHTML = '<span class="text-muted">Загружаем стадии из Bitrix24…</span>';
   try {
@@ -1363,6 +1386,7 @@ async function loadBitrixStages() {
     selects.paid.value = BITRIX_SAVED_STAGES.paid;
     selects.shipped.value = BITRIX_SAVED_STAGES.shipped;
     selects.delivered.value = BITRIX_SAVED_STAGES.delivered;
+    selects.shopApproved.value = BITRIX_SAVED_STAGES.shopApproved;
     el.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Стадии загружены</span>';
   } catch(e) {
     el.innerHTML = `<span class="text-danger">${e}</span>`;

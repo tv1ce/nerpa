@@ -629,6 +629,14 @@ class CompanySettings(Base):
     bitrix_stock_enabled  = Column(Boolean, default=False)
     bitrix_stock_field    = Column(String(60))      # код свойства товара, напр. PROPERTY_119
     # Авто-выгрузка лидов «Прозвон»/«Поле» в Bitrix24 при статусе «Договор/продажа»
+    # ── Кабинет клиента (/shop/{token}) → Bitrix24 ──
+    # Заказ из кабинета НЕ создаёт сделку и НЕ создаёт заказ в TMS: он
+    # заполняет уже существующую карточку клиента в CRM и двигает её на стадию
+    # «Заказ согласован». Заказ приезжает в TMS обратно — роботом с этой самой
+    # стадии, тем же вебхуком, что и заказы менеджеров. Иначе получались бы
+    # дубли: один заказ в TMS напрямую, второй — из сделки.
+    shop_stage_approved = Column(String(60))    # STAGE_ID «Заказ согласован» (напр. C1:UC_Z7L4EZ)
+    shop_alert_chat_ids = Column(Text)          # Telegram chat_id для уведомлений о заказах из кабинета
     bitrix_lead_export_enabled = Column(Boolean, default=False)
     bitrix_lead_responsible_id = Column(String(20))  # ID пользователя Bitrix24 — ASSIGNED_BY_ID нового CRM-лида, если у торгпреда нет своего User.bitrix_user_id
     # Публичный URL TMS (напр. https://nuttshell.ru) — для обратной ссылки на карточку

@@ -560,6 +560,8 @@ async def save_bitrix(
     bitrix_lead_responsible_id: str = Form(default=""),
     bitrix_stock_enabled: str = Form(default=""),
     bitrix_stock_field: str = Form(default=""),
+    shop_stage_approved: str = Form(default=""),
+    shop_alert_chat_ids: str = Form(default=""),
     public_url: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
@@ -581,6 +583,8 @@ async def save_bitrix(
     company.bitrix_lead_responsible_id = bitrix_lead_responsible_id.strip() or None
     company.bitrix_stock_enabled = (bitrix_stock_enabled == "1")
     company.bitrix_stock_field = bitrix_stock_field.strip() or None
+    company.shop_stage_approved = shop_stage_approved.strip() or None
+    company.shop_alert_chat_ids = shop_alert_chat_ids.strip() or None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1&tab=integrations#bitrix", status_code=302)
 

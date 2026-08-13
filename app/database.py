@@ -397,6 +397,8 @@ def _migrate_db():
         ("counterparties", "shop_token",   "TEXT"),
         ("counterparties", "shop_enabled", "BOOLEAN DEFAULT 0"),
         ("orders", "source", "TEXT DEFAULT 'manual'"),
+        ("company_settings", "shop_stage_approved", "TEXT"),
+        ("company_settings", "shop_alert_chat_ids", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

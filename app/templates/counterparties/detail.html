@@ -113,8 +113,8 @@
         <i class="bi bi-shop me-1 text-success"></i>Кабинет клиента
       </div>
       <div class="text-muted" style="font-size:.78rem">
-        Клиент собирает заказ сам — по ссылке, без логина. Заказ приходит в TMS черновиком
-        и сделкой в Bitrix24.
+        Клиент собирает заказ сам — по ссылке, без логина. Заказ заполняет карточку клиента
+        в Bitrix24 и переводит её на «Заказ согласован»; в TMS он приезжает оттуда роботом.
       </div>
     </div>
     <button class="btn btn-sm {{ 'btn-outline-danger' if shop_url else 'btn-success' }}"
@@ -166,6 +166,7 @@ async function toggleShop(cpId) {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Ошибка');
+    if (data.warning) alert('Кабинет включён, но: ' + data.warning);
     const box = document.getElementById('shop-link-box');
     if (data.enabled) {
       document.getElementById('shop-url').value = data.url;
