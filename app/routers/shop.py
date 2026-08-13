@@ -456,14 +456,18 @@ def production_plan(db: Session, company) -> dict:
     cap = daily_capacity(company)
 
     # ── Что набирают в корзинах прямо сейчас ────────────────────────────────
+    # Через _cart_map, а не разбором JSON на месте: с появлением точек корзина
+    # стала словарём {точка: позиции}, и прямой обход ломался об строковые
+    # ключи — панель на табло молча пропадала.
     in_carts = 0
     for row in db.query(ShopCart).all():
-        try:
-            for it in json.loads(row.items or "[]"):
-                if int(it.get("id", 0)) in nut_names:
-                    in_carts += int(it.get("qty") or 0)
-        except (ValueError, TypeError):
-            continue
+        for items in _cart_map(row).values():
+            for it in items:
+                try:
+                    if int(it.get("id", 0)) in nut_names:
+                        in_carts += int(it.get("qty") or 0)
+                except (TypeError, ValueError, AttributeError):
+                    continue
 
     return {
         "date": format_slot_date(day),
