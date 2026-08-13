@@ -108,7 +108,10 @@
 
   {# Панель появляется, только когда что-то выбрано: пустая полоса внизу
      экрана мешала бы читать список. #}
-  <div id="bulk-bar" class="border-top bg-white p-3 d-none">
+  {# Панель прилипает к низу экрана: список счетов длинный, и спускаться в
+     самый конец ради кнопки — ровно та возня, от которой избавляемся. #}
+  <div id="bulk-bar" class="border-top bg-white p-3 d-none"
+       style="position:sticky; bottom:0; z-index:5; box-shadow:0 -4px 12px rgba(0,0,0,.06)">
     <div class="d-flex align-items-center gap-3 flex-wrap">
       <span class="fw-semibold" style="font-size:.9rem">
         Выбрано: <span id="bulk-count">0</span>
