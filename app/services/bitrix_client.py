@@ -125,23 +125,35 @@ class BitrixClient:
                          select=select or ["ID", "TITLE", "CATEGORY_ID", "STAGE_ID", "CLOSED"],
                          order=order or {"ID": "DESC"}) or []
 
-    def find_company_by_inn(self, inn: str) -> Optional[str]:
-        """ID компании CRM по ИНН — через реквизиты (crm.requisite.list).
+    def find_companies_by_inn(self, inn: str) -> list:
+        """ID компаний CRM с этим ИНН — через реквизиты (crm.requisite.list),
+        свежие первыми.
 
-        В CRM ИНН живёт не в карточке компании, а в её реквизитах, поэтому
-        ищем именно там. Один и тот же ИНН иногда висит на нескольких
-        реквизитах (компанию заводили дважды) — берём последний по ID:
-        это самая свежая карточка, в которой и работает менеджер."""
+        В CRM ИНН живёт не в карточке компании, а в её реквизитах, поэтому ищем
+        именно там. Возвращаем СПИСОК, а не одну карточку: на боевом портале
+        один и тот же ИНН нередко висит на двух компаниях (клиента заводили
+        дважды), причём сделки лежат на одной из них, а не обязательно на
+        самой свежей. Выбор правильной — задача вызывающего кода, который
+        знает, что ищет."""
         inn = (inn or "").strip()
         if not inn:
-            return None
+            return []
         rows = self.call("crm.requisite.list", filter={"RQ_INN": inn},
                          select=["ID", "ENTITY_TYPE_ID", "ENTITY_ID"]) or []
         companies = [r for r in rows if str(r.get("ENTITY_TYPE_ID")) == str(ENTITY_TYPE_COMPANY)]
-        if not companies:
-            return None
-        companies.sort(key=lambda r: int(r.get("ID") or 0))
-        return str(companies[-1].get("ENTITY_ID"))
+        companies.sort(key=lambda r: int(r.get("ID") or 0), reverse=True)
+        seen, out = set(), []
+        for r in companies:
+            cid = str(r.get("ENTITY_ID"))
+            if cid not in seen:
+                seen.add(cid)
+                out.append(cid)
+        return out
+
+    def find_company_by_inn(self, inn: str) -> Optional[str]:
+        """Одна компания по ИНН — самая свежая. Для случаев, где выбирать не из чего."""
+        found = self.find_companies_by_inn(inn)
+        return found[0] if found else None
 
     def add_deal(self, fields: dict) -> str:
         """Создаёт сделку и возвращает её ID.
@@ -815,21 +827,31 @@ def category_from_stage(stage_id: str) -> int:
     return int(m.group(1)) if m else 0
 
 
-def find_client_deal(client: BitrixClient, company_id: str, category_id: int,
+def find_client_deal(client: BitrixClient, company_ids: list, category_id: int,
                      busy_deal_ids: set) -> Optional[dict]:
     """Открытая карточка клиента в нужном направлении, готовая принять заказ.
 
-    Логика — «одна сделка = один заказ». Берём самую свежую ОТКРЫТУЮ сделку
-    компании, по которой в TMS ещё нет заказа. Если единственная открытая
-    сделка уже отработана (клиент заказывает второй раз, а менеджер ещё не
-    довёл первую до отгрузки) — возвращаем None, и вызывающий код заводит
-    новую карточку. Иначе второй заказ клиента потерялся бы: вебхук
-    deal-approved идемпотентен по deal_id и на ту же сделку заказ не создаст."""
-    deals = client.list_deals(
-        filter={"COMPANY_ID": company_id, "CATEGORY_ID": category_id, "CLOSED": "N"})
-    for deal in deals:
-        if str(deal.get("ID")) not in busy_deal_ids:
-            return deal
+    Логика — «одна сделка = один заказ»: берём самую свежую ОТКРЫТУЮ сделку, по
+    которой в TMS ещё нет заказа. Если такой нет (клиент заказывает второй раз,
+    а менеджер не довёл первую сделку до отгрузки) — возвращаем None, и
+    вызывающий код заводит новую карточку. Иначе второй заказ клиента потерялся
+    бы: вебхук deal-approved идемпотентен по deal_id и второй заказ на ту же
+    сделку не создаст.
+
+    company_ids — все карточки компании с этим ИНН, свежие первыми. Перебор
+    нужен из-за дублей в CRM: у клиента может быть две компании с одним ИНН, и
+    сделки при этом лежат на старой. Привязка к «своей» карточке без сделок
+    молча уводила бы каждый заказ в новую сделку на пустом дубле."""
+    for company_id in company_ids:
+        if not company_id:
+            continue
+        deals = client.list_deals(
+            filter={"COMPANY_ID": company_id, "CATEGORY_ID": category_id, "CLOSED": "N"})
+        for deal in deals:
+            if str(deal.get("ID")) not in busy_deal_ids:
+                deal = dict(deal)
+                deal["COMPANY_ID"] = company_id
+                return deal
     return None
 
 
@@ -861,19 +883,24 @@ def apply_shop_order_to_deal(cp, items: list, order_data: dict, company, db) -> 
 
     try:
         with client:
-            # Карточка клиента ищется по ИНН — так её находит и кнопка выдачи
-            # ссылки в TMS, и мы здесь, если привязку с тех пор потеряли.
-            if not company_id and cp.inn:
-                company_id = client.find_company_by_inn(cp.inn)
-                if company_id:
-                    cp.external_id_bitrix = f"C{company_id}"
-            if not company_id:
+            # Кандидаты — привязанная карточка плюс все компании с этим ИНН:
+            # на портале встречаются дубли, и сделки могут лежать не на той
+            # карточке, к которой контрагент привязан.
+            candidates = [company_id] if company_id else []
+            if cp.inn:
+                for cid in client.find_companies_by_inn(cp.inn):
+                    if cid not in candidates:
+                        candidates.append(cid)
+            if not candidates:
                 return fail(f"Клиент не найден в Bitrix24 по ИНН {cp.inn or '—'}")
+            if not company_id:
+                company_id = candidates[0]
+                cp.external_id_bitrix = f"C{company_id}"
 
             from app.models import Order
             busy = {str(d) for (d,) in db.query(Order.bitrix_deal_id)
                     .filter(Order.bitrix_deal_id.isnot(None)).all()}
-            deal = find_client_deal(client, company_id, category_id, busy)
+            deal = find_client_deal(client, candidates, category_id, busy)
 
             uf = client.deal_uf_codes()
             fields = {"OPPORTUNITY": total, "CURRENCY_ID": "RUB", "STAGE_ID": stage}
@@ -894,10 +921,18 @@ def apply_shop_order_to_deal(cp, items: list, order_data: dict, company, db) -> 
                 # Свободных карточек нет — заводим новую сразу в нужном
                 # направлении и на нужной стадии, а не в «первичке».
                 created = True
+                # Заводим её у той компании, где лежит остальная история
+                # клиента: при дублях в CRM привязка может указывать на пустую
+                # карточку, и новая сделка повисла бы в стороне от всех прочих.
+                owner_id = company_id
+                for cid in candidates:
+                    if client.list_deals(filter={"COMPANY_ID": cid, "CATEGORY_ID": category_id}):
+                        owner_id = cid
+                        break
                 new_fields = dict(fields)
                 new_fields.update({
                     "TITLE": f"Заказ из кабинета — {cp.trade_name or cp.name}",
-                    "COMPANY_ID": company_id,
+                    "COMPANY_ID": owner_id,
                     "CATEGORY_ID": category_id,
                     "SOURCE_ID": "WEB",
                     "SOURCE_DESCRIPTION": "TMS — кабинет клиента",
