@@ -498,7 +498,8 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
     if not result["ok"]:
         # Корзину НЕ трогаем: заказ никуда не уехал, клиент повторит отправку.
         logger.error("Кабинет клиента %s: заказ не ушёл в Bitrix24 — %s", cp.name, result["error"])
-        _notify_telegram(db, cp, total, items, ok=False, detail=result["error"])
+        _notify_telegram(db, cp, total, items, ok=False, detail=result["error"],
+                         order_data=order_data)
         return JSONResponse(
             {"ok": False, "error": "Не удалось передать заказ менеджеру. "
                                    "Попробуйте ещё раз или позвоните нам."},
@@ -519,7 +520,8 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
     ))
     db.commit()
 
-    _notify_telegram(db, cp, total, items, ok=True, detail=result["deal_id"])
+    _notify_telegram(db, cp, total, items, ok=True, detail=result["deal_id"],
+                     order_data=order_data)
     return JSONResponse({"ok": True, "redirect": f"/shop/{token}/done"})
 
 
@@ -541,12 +543,16 @@ async def order_done(request: Request, token: str, db: Session = Depends(get_db)
 
 
 def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
-                     ok: bool, detail: str = "") -> None:
+                     ok: bool, detail: str = "", order_data: dict | None = None) -> None:
     """Уведомление менеджерам о заказе из кабинета.
 
     Канал свой (Настройки → Bitrix24 → «Заказы из кабинета»), отдельно от
     алертов по сделкам из CRM: у заказов из кабинета другая аудитория и другая
-    срочность. Если канал не задан — молча ничего не шлём."""
+    срочность. Если канал не задан — молча ничего не шлём.
+
+    В сообщении всё, чтобы принять решение не открывая TMS: заведение и точка,
+    юрлицо-заказчик (вывеска у разных ИП совпадает — по ней одной не поймёшь,
+    кто заказал), дата и адрес доставки, комментарий клиента, состав и сумма."""
     import os
     company = db.query(CompanySettings).first()
     if not company:
@@ -556,17 +562,40 @@ def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
     if not chat_ids or not bot_token:
         return
 
+    data = order_data or {}
+    money = f"{round(total):,} ₽".replace(",", " ")
+
+    outlet = cp.trade_name or cp.name
+    if cp.outlet_name:
+        outlet += f" — {cp.outlet_name}"
+    # Юрлицо показываем отдельной строкой и только если оно отличается от
+    # вывески: у сетей под одной вывеской работают разные ИП, и логисту важно
+    # видеть, от кого именно заказ.
+    head = [outlet]
+    if cp.name and cp.name != outlet:
+        head.append(cp.name)
+
+    when = format_slot_date(data["delivery_date"]) if data.get("delivery_date") else "не указана"
+    where = data.get("address") or cp.actual_address or cp.legal_address or "не указан"
+
+    body = [f"Когда: {when}", f"Куда: {where}"]
+    if data.get("contact"):
+        body.append(f"Кто примет: {data['contact']}")
+
     lines = [f"{nut_display_name(p.name)} — {qty:g} шт" for p, qty, _ in items]
+
     if ok:
-        text = ("🛒 ЗАКАЗ ИЗ КАБИНЕТА КЛИЕНТА\n"
-                f"{cp.trade_name or cp.name}\n"
-                + "\n".join(lines) +
-                f"\nСумма: {round(total):,} ₽".replace(",", " ") +
-                f"\nСделка #{detail} → «Заказ согласован»")
+        parts = ["🛒 ЗАКАЗ ИЗ КАБИНЕТА КЛИЕНТА", *head, "", *body, "", *lines, "", f"Сумма: {money}"]
+        if data.get("comment"):
+            parts.append(f"Примечание клиента: {data['comment']}")
+        parts.append(f"Сделка #{detail} → «Заказ согласован»")
     else:
-        text = ("⚠️ ЗАКАЗ ИЗ КАБИНЕТА НЕ УШЁЛ В BITRIX24\n"
-                f"{cp.trade_name or cp.name}, сумма {round(total):,} ₽".replace(",", " ") +
-                f"\nПричина: {detail}\nКлиент увидел ошибку — свяжитесь с ним.")
+        parts = ["⚠️ ЗАКАЗ ИЗ КАБИНЕТА НЕ УШЁЛ В BITRIX24", *head, "", *body, "",
+                 *lines, "", f"Сумма: {money}"]
+        if data.get("comment"):
+            parts.append(f"Примечание клиента: {data['comment']}")
+        parts += [f"Причина: {detail}", "Клиент увидел ошибку — свяжитесь с ним."]
+    text = "\n".join(parts)
 
     # Отправляем ТОЛЬКО через общий отправитель: он ходит в Telegram через
     # локальный SOCKS-прокси (TMS_PROXY). Напрямую с российского сервера
