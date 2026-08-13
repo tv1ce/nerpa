@@ -828,31 +828,67 @@ def category_from_stage(stage_id: str) -> int:
 
 
 def find_client_deal(client: BitrixClient, company_ids: list, category_id: int,
-                     busy_deal_ids: set) -> Optional[dict]:
+                     busy_deal_ids: set, address: str = "") -> Optional[dict]:
     """Открытая карточка клиента в нужном направлении, готовая принять заказ.
 
-    Логика — «одна сделка = один заказ»: берём самую свежую ОТКРЫТУЮ сделку, по
-    которой в TMS ещё нет заказа. Если такой нет (клиент заказывает второй раз,
-    а менеджер не довёл первую сделку до отгрузки) — возвращаем None, и
-    вызывающий код заводит новую карточку. Иначе второй заказ клиента потерялся
-    бы: вебхук deal-approved идемпотентен по deal_id и второй заказ на ту же
-    сделку не создаст.
+    Логика — «одна сделка = один заказ»: берём ОТКРЫТУЮ сделку, по которой в TMS
+    ещё нет заказа. Если такой нет (клиент заказывает второй раз, а менеджер не
+    довёл первую сделку до отгрузки) — возвращаем None, и вызывающий код заводит
+    новую карточку. Иначе второй заказ клиента потерялся бы: вебхук
+    deal-approved идемпотентен по deal_id и второй заказ на ту же сделку не создаст.
+
+    ВЫБОР ПО АДРЕСУ. У одного юрлица бывает несколько точек, и в CRM под каждую
+    заведена своя сделка со своим адресом доставки. Свободных сделок при этом
+    несколько, и «просто первая» — это заказ, уехавший на чужую точку. Поэтому
+    сначала ищем сделку, адрес которой совпадает с адресом заказа; сравниваем по
+    ключу «улица+дом» (тот же, что в аналитике точек), потому что одна и та же
+    кофейня записана то «г Санкт-Петербург, ул Гончарная, д 2», то «Гончарная 2».
+
+    Если адреса в сделках проставлены, но ни один не совпал — возвращаем None:
+    пусть лучше заведётся новая карточка с верным адресом, чем заказ уедет не
+    туда. Если адресов в сделках нет вовсе (поле не заполняют) — работаем как
+    раньше, по первой свободной: иначе на каждый заказ плодились бы дубли.
 
     company_ids — все карточки компании с этим ИНН, свежие первыми. Перебор
     нужен из-за дублей в CRM: у клиента может быть две компании с одним ИНН, и
-    сделки при этом лежат на старой. Привязка к «своей» карточке без сделок
-    молча уводила бы каждый заказ в новую сделку на пустом дубле."""
+    сделки при этом лежат на старой."""
+    from app.services.outlets import normalize_address
+
+    uf_addr = client.deal_uf_codes().get("delivery_address")
+    select = ["ID", "TITLE", "CATEGORY_ID", "STAGE_ID", "CLOSED"]
+    if uf_addr:
+        select.append(uf_addr)
+
+    free = []
     for company_id in company_ids:
         if not company_id:
             continue
         deals = client.list_deals(
-            filter={"COMPANY_ID": company_id, "CATEGORY_ID": category_id, "CLOSED": "N"})
+            filter={"COMPANY_ID": company_id, "CATEGORY_ID": category_id, "CLOSED": "N"},
+            select=select)
         for deal in deals:
             if str(deal.get("ID")) not in busy_deal_ids:
                 deal = dict(deal)
                 deal["COMPANY_ID"] = company_id
+                free.append(deal)
+
+    if not free:
+        return None
+
+    want = normalize_address(address) if address else ""
+    if uf_addr and want:
+        with_addr = [d for d in free if (d.get(uf_addr) or "").strip()]
+        for deal in with_addr:
+            if normalize_address(deal.get(uf_addr)) == want:
+                logger.info("Bitrix24: сделка %s выбрана по совпадению адреса «%s»",
+                            deal.get("ID"), deal.get(uf_addr))
                 return deal
-    return None
+        if with_addr:
+            logger.info("Bitrix24: среди %d свободных сделок нет адреса «%s» — "
+                        "заведём отдельную карточку", len(with_addr), address)
+            return None
+
+    return free[0]
 
 
 def apply_shop_order_to_deal(cp, items: list, order_data: dict, company, db) -> dict:
@@ -900,7 +936,8 @@ def apply_shop_order_to_deal(cp, items: list, order_data: dict, company, db) -> 
             from app.models import Order
             busy = {str(d) for (d,) in db.query(Order.bitrix_deal_id)
                     .filter(Order.bitrix_deal_id.isnot(None)).all()}
-            deal = find_client_deal(client, candidates, category_id, busy)
+            deal = find_client_deal(client, candidates, category_id, busy,
+                                    address=order_data.get("address") or "")
 
             uf = client.deal_uf_codes()
             fields = {"OPPORTUNITY": total, "CURRENCY_ID": "RUB", "STAGE_ID": stage}

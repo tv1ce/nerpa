@@ -394,8 +394,10 @@
     <div class="dates">
       {% for s in slots %}
       <button type="button" class="date-opt" data-date="{{ s.value }}"
+              data-free="{{ s.free if s.free is not none else '' }}"
               aria-pressed="{{ 'true' if loop.first else 'false' }}">
-        <span class="mark"></span><span>{{ s.label }}</span>
+        <span class="mark"></span>
+        <span>{{ s.label }}{% if s.free is not none %}<small>{% if s.free <= 0 %}день загружен{% else %}свободно {{ s.free }} шт{% endif %}</small>{% endif %}</span>
       </button>
       {% endfor %}
       <button type="button" class="date-opt" id="other-date-btn" data-date="" aria-pressed="false">
@@ -591,6 +593,24 @@ document.querySelectorAll('.date-opt').forEach(btn => btn.addEventListener('clic
 }));
 $('other-date').addEventListener('change', e => { slotDate = e.target.value; });
 
+// Дата с известным остатком мощности: предупреждаем сразу при выборе, а не
+// после того, как клиент нажал «Отправить».
+function checkCapacity() {
+  const btn = document.querySelector('.date-opt[aria-pressed="true"]');
+  const free = btn && btn.dataset.free !== '' && btn.dataset.free !== undefined
+    ? Number(btn.dataset.free) : null;
+  const { pcs } = totals();
+  if (free !== null && pcs > free) {
+    $('err').textContent = free <= 0
+      ? 'На эту дату мы уже полностью загружены — выберите другую.'
+      : `На эту дату осталось ${free} шт, а в заказе ${pcs}. Выберите другую дату.`;
+    return false;
+  }
+  $('err').textContent = '';
+  return true;
+}
+document.querySelectorAll('.date-opt').forEach(b => b.addEventListener('click', checkCapacity));
+
 // ── Оформление ──────────────────────────────────────────────────────────────
 const sheet = $('sheet');
 
@@ -610,6 +630,7 @@ $('close').addEventListener('click', () => sheet.close());
 $('send').addEventListener('click', async () => {
   const btn = $('send');
   if (!slotDate) { $('err').textContent = 'Выберите дату доставки'; return; }
+  if (!checkCapacity()) return;
   btn.disabled = true; btn.textContent = 'Отправляем…'; $('err').textContent = '';
   try {
     const res = await fetch(`/shop/${TOKEN}/submit`, {

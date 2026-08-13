@@ -563,6 +563,7 @@ async def save_bitrix(
     shop_stage_approved: str = Form(default=""),
     shop_alert_chat_ids: str = Form(default=""),
     shipping_weekdays: list[str] = Form(default=[]),
+    daily_nut_capacity: str = Form(default=""),
     public_url: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
@@ -590,6 +591,8 @@ async def save_bitrix(
     # не сохраняем — иначе клиенту в кабинете нечего будет выбрать.
     days = sorted({int(d) for d in shipping_weekdays if d.isdigit() and 0 <= int(d) <= 6})
     company.shipping_weekdays = ",".join(str(d) for d in days) or None
+    _cap = daily_nut_capacity.strip()
+    company.daily_nut_capacity = int(_cap) if _cap.isdigit() and int(_cap) > 0 else None
     db.commit()
     return RedirectResponse(url="/settings/?saved=1&tab=integrations#bitrix", status_code=302)
 

@@ -24,8 +24,8 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import (Counterparty, CompanySettings, Product, Order,
-                        Notification, ShopCart)
+from app.models import (Counterparty, CompanySettings, Product, Order, OrderItem,
+                        Notification, ShopCart, ShopBooking)
 from app.routers.public import _rate_limited
 from app.utils import log_action
 
@@ -221,18 +221,76 @@ def format_slot_date(d: date) -> str:
     return f"{WEEKDAY_NAMES[d.weekday()].capitalize()}, {d.day} {MONTHS_GEN[d.month - 1]}"
 
 
-def _delivery_slots(company) -> list[dict]:
+def daily_capacity(company) -> int:
+    """Сколько орешков цех вывозит одной датой. 0 — без ограничения."""
+    try:
+        return max(0, int(getattr(company, "daily_nut_capacity", None) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def date_load(db: Session, d: date) -> int:
+    """Сколько орешков уже обещано на эту дату — по всем клиентам.
+
+    Складываем два источника, которые не пересекаются по построению:
+      * заказы в TMS с этой датой доставки (они приехали из Bitrix24);
+      * брони кабинета, по сделкам которых заказ в TMS ещё не появился —
+        робот довозит его не мгновенно, и в этом окне дата выглядела бы
+        свободной.
+    Отменённые заказы не считаем: их мощность освободилась."""
+    nut_ids = {p.id for p in db.query(Product.id, Product.name).all() if nut_line(p.name)}
+    if not nut_ids:
+        return 0
+
+    booked = 0
+    rows = (db.query(OrderItem.quantity)
+            .join(Order, Order.id == OrderItem.order_id)
+            .filter(Order.delivery_date == d,
+                    Order.status != "cancelled",
+                    OrderItem.product_id.in_(nut_ids))
+            .all())
+    booked += int(sum(q or 0 for (q,) in rows))
+
+    known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
+                   .filter(Order.bitrix_deal_id.isnot(None)).all()}
+    for b in db.query(ShopBooking).filter(ShopBooking.delivery_date == d).all():
+        if str(b.bitrix_deal_id or "") not in known_deals:
+            booked += int(b.qty or 0)
+    return booked
+
+
+def date_free(db: Session, company, d: date) -> int | None:
+    """Свободная мощность на дату. None — ограничение не задано."""
+    cap = daily_capacity(company)
+    if not cap:
+        return None
+    return max(0, cap - date_load(db, d))
+
+
+def _record_booking(db: Session, cp: Counterparty, d: date, qty: int, deal_id: str) -> None:
+    """Фиксирует бронь и подчищает старые: держать их дольше месяца незачем."""
+    if not d:
+        return
+    db.add(ShopBooking(delivery_date=d, counterparty_id=cp.id, qty=int(qty),
+                       bitrix_deal_id=str(deal_id) if deal_id else None))
+    db.query(ShopBooking).filter(
+        ShopBooking.delivery_date < date.today() - timedelta(days=30)).delete()
+
+
+def _delivery_slots(db: Session, company) -> list[dict]:
     """Ближайшие даты отгрузки — кнопками, вместо пустого календаря.
 
-    Календарь остаётся рядом отдельной опцией: если клиенту нужна дата вне
-    графика, он должен иметь возможность её попросить, а не звонить ради этого
-    менеджеру."""
+    У каждой даты показываем остаток мощности цеха: клиент должен видеть, что
+    день забит, ДО того как соберёт корзину, а не узнавать это при отправке.
+    Календарь остаётся рядом отдельной опцией: если нужна дата вне графика,
+    клиент просит её сам, а не звонит менеджеру."""
     days = shipping_weekdays(company)
     slots, d = [], date.today()
     for _ in range(_SLOT_HORIZON_DAYS):
         d += timedelta(days=1)
         if d.weekday() in days:
-            slots.append({"value": d.isoformat(), "label": format_slot_date(d)})
+            slots.append({"value": d.isoformat(), "label": format_slot_date(d),
+                          "free": date_free(db, company, d)})
             if len(slots) >= _SLOT_COUNT:
                 break
     return slots
@@ -295,9 +353,10 @@ async def shop_page(request: Request, token: str, db: Session = Depends(get_db))
         "catalog": catalog,
         "last_items": last,
         "cart_items": cart,
-        "slots": _delivery_slots(company),
+        "slots": _delivery_slots(db, company),
         "history": history,
         "min_date": (date.today() + timedelta(days=1)).isoformat(),
+        "capacity": daily_capacity(company),
         "discount": cp.default_discount_pct or 0.0,
         "default_address": cp.actual_address or cp.legal_address or "",
         "box_size": BOX_SIZE,
@@ -354,6 +413,8 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
     if not raw_items or len(raw_items) > _MAX_ITEMS:
         return JSONResponse({"ok": False, "error": "Корзина пуста"}, status_code=400)
 
+    company_settings = db.query(CompanySettings).first()
+
     # Цены берём из БД, а не из тела запроса: всё, что пришло с клиента, кроме
     # id товара и количества, доверия не заслуживает.
     discount = cp.default_discount_pct or 0.0
@@ -399,6 +460,28 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
         except ValueError:
             pass
 
+    # ── Мощность цеха на выбранную дату ────────────────────────────────────
+    # Проверяем ПЕРЕД походом в Bitrix: отказ должен быть мгновенным и внятным,
+    # а не после того, как заказ уже уехал в сделку.
+    total_qty = int(sum(qty for _, qty, _ in items))
+    free = date_free(db, company_settings, delivery_date) if delivery_date else None
+    if free is not None and total_qty > free:
+        alternatives = [s for s in _delivery_slots(db, company_settings)
+                        if s["value"] != (delivery_date.isoformat() if delivery_date else "")
+                        and (s["free"] is None or s["free"] >= total_qty)]
+        if free <= 0:
+            msg = f"На {format_slot_date(delivery_date).lower()} мы уже полностью загружены."
+        else:
+            msg = (f"На {format_slot_date(delivery_date).lower()} осталось "
+                   f"{free} орешков, а в заказе {total_qty}.")
+        if alternatives:
+            msg += " Ближайшая свободная дата — " + alternatives[0]["label"].lower() + "."
+        else:
+            msg += " Выберите другую дату или свяжитесь с менеджером."
+        return JSONResponse({"ok": False, "error": msg,
+                             "free": free, "needed": total_qty,
+                             "slots": alternatives}, status_code=409)
+
     order_data = {
         "delivery_date": delivery_date,
         "address": (payload.get("address") or "").strip()[:500]
@@ -408,9 +491,9 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
         "comment": (payload.get("comment") or "").strip()[:1000],
     }
 
-    company = db.query(CompanySettings).first()
     from app.services.bitrix_client import apply_shop_order_to_deal
-    result = await asyncio.to_thread(apply_shop_order_to_deal, cp, items, order_data, company, db)
+    result = await asyncio.to_thread(apply_shop_order_to_deal, cp, items, order_data,
+                                     company_settings, db)
 
     if not result["ok"]:
         # Корзину НЕ трогаем: заказ никуда не уехал, клиент повторит отправку.
@@ -422,6 +505,7 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
             status_code=502)
 
     _save_cart(db, cp, [])
+    _record_booking(db, cp, delivery_date, total_qty, result["deal_id"])
     log_action(db, "counterparty", cp.id, "updated", None,
                f"Заказ из кабинета клиента ушёл в сделку Bitrix24 #{result['deal_id']}"
                + (" (создана новая карточка)" if result["created"] else ""))

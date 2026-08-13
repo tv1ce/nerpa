@@ -714,6 +714,17 @@
             </div>
           </div>
           <div class="col-md-6">
+            <label class="form-label form-label-sm">Максимум орешков на одну дату</label>
+            <input type="number" name="daily_nut_capacity" class="form-control form-control-sm"
+                   min="0" step="42" placeholder="без ограничения"
+                   value="{{ company.daily_nut_capacity if company and company.daily_nut_capacity else '' }}">
+            <div class="form-text" style="font-size:.72rem">
+              Сколько цех успевает отгрузить одним днём. Заказы всех клиентов на дату
+              суммируются; когда лимит выбран, кабинет предлагает клиенту ближайшую
+              свободную дату. Пусто — без ограничения
+            </div>
+          </div>
+          <div class="col-md-6">
             <label class="form-label form-label-sm">Telegram chat_id для заказов из кабинета <span class="text-muted">(через запятую)</span></label>
             <input type="text" name="shop_alert_chat_ids" class="form-control form-control-sm font-monospace"
                    placeholder="123456789, -100987654321"

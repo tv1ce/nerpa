@@ -640,6 +640,10 @@ class CompanySettings(Base):
     # («0,3» — понедельник и четверг). Из них кабинет строит кнопки выбора даты.
     # Пусто — считаем, что возим по будням.
     shipping_weekdays = Column(String(20), default="0,3")
+    # Сколько орешков цех успевает отгрузить одной датой. Кабинет не даёт
+    # набрать сверх этого: заказы всех клиентов на одну дату суммируются.
+    # Пусто или 0 — без ограничения.
+    daily_nut_capacity = Column(Integer)
     shop_alert_chat_ids = Column(Text)          # Telegram chat_id для уведомлений о заказах из кабинета
     bitrix_lead_export_enabled = Column(Boolean, default=False)
     bitrix_lead_responsible_id = Column(String(20))  # ID пользователя Bitrix24 — ASSIGNED_BY_ID нового CRM-лида, если у торгпреда нет своего User.bitrix_user_id
@@ -817,6 +821,26 @@ class ShopCart(Base):
     # иначе клиент увидит вчерашнюю цену, а заказ уедет с сегодняшней.
     items = Column(Text)
     updated_at = Column(DateTime, default=msk_now, onupdate=msk_now)
+
+    counterparty = relationship("Counterparty")
+
+
+class ShopBooking(Base):
+    """Бронь мощности цеха под заказ из кабинета.
+
+    Заказ из кабинета не создаёт заказ в TMS напрямую — он уходит в сделку
+    Bitrix24 и возвращается роботом с задержкой. Всё это время загрузка даты
+    нигде не видна, и два клиента подряд спокойно пробили бы дневной лимит.
+    Бронь закрывает этот разрыв: она пишется сразу при отправке и перестаёт
+    учитываться, как только заказ по её сделке приезжает в TMS (иначе одно и
+    то же количество считалось бы дважды)."""
+    __tablename__ = "shop_bookings"
+    id = Column(Integer, primary_key=True)
+    delivery_date = Column(Date, nullable=False, index=True)
+    counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
+    qty = Column(Integer, nullable=False)          # орешков в заказе, штук
+    bitrix_deal_id = Column(String(20), index=True)  # сделка, в которую уехал заказ
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     counterparty = relationship("Counterparty")
 
