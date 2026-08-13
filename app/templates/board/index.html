@@ -129,7 +129,7 @@
 
     /* ── Карточки-метрики ── */
     .stats-row1{display:grid;grid-template-columns:repeat(3,1fr);gap:1.3vw;margin-bottom:1.3vh}
-    .stats-row2{display:grid;grid-template-columns:1.15fr .95fr 1.4fr;gap:1.3vw;margin-bottom:1.4vh}
+    .stats-row2{display:grid;grid-template-columns:1.05fr .9fr .85fr 1.3fr;gap:1.1vw;margin-bottom:1.4vh}
     .stat-card{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
       padding:1.7vh 1.5vw;text-align:left;box-shadow:var(--shadow);
       transition:background .5s,border-color .5s;
@@ -240,21 +240,31 @@
     .plan-line .q{font-size:2.4vh;font-weight:800;color:var(--purple);min-width:5ch;
       text-align:right;font-variant-numeric:tabular-nums}
     .plan-line .bx{font-size:1.5vh;color:var(--muted);font-weight:600;min-width:6ch}
-    .plan-total{flex:0 0 16vw;border-left:1px solid var(--line);padding-left:1.6vw;
+    .plan-total{flex:0 0 21vw;border-left:1px solid var(--line);padding-left:1.6vw;
       display:flex;flex-direction:column;justify-content:center}
-    .plan-total-qty{display:flex;align-items:baseline;gap:.5vw}
+    .plan-total-qty{display:flex;align-items:baseline;gap:.5vw;white-space:nowrap}
     .plan-total-qty span:first-child{font-size:5vh;font-weight:800;line-height:1.05;
-      color:var(--ink);font-variant-numeric:tabular-nums}
-    .plan-total-qty .u{font-size:1.7vh;color:var(--muted);font-weight:600}
-    .plan-total-sub{font-size:1.6vh;color:var(--muted);font-weight:600}
-    .plan-load{margin-top:1.1vh}
-    .plan-load-bar{height:1.5vh;background:var(--track);border-radius:1vh;overflow:hidden}
-    .plan-load-bar>div{height:100%;border-radius:1vh;transition:width .8s ease,background .4s;
-      background:linear-gradient(90deg,var(--green),#a5d96a)}
-    .plan-load-bar.warn>div{background:linear-gradient(90deg,var(--orange),#f0a868)}
-    .plan-load-bar.full>div{background:linear-gradient(90deg,#E53E3E,#f07070)}
-    .plan-load-txt{font-size:1.5vh;color:var(--muted);font-weight:600;margin-top:.5vh}
-    .plan-carts{font-size:1.5vh;color:var(--lilac);font-weight:700;margin-top:.9vh}
+      color:var(--purple);font-variant-numeric:tabular-nums}
+    .plan-total-qty .u{font-size:1.9vh;color:var(--muted);font-weight:700}
+    .plan-total-qty .u b{color:var(--ink)}
+    .plan-total-sub{font-size:1.5vh;color:var(--muted);font-weight:600;margin-top:.7vh;
+      display:flex;gap:.8vw;white-space:nowrap}
+    /* Полоса сборки: сколько из плана уже лежит на отгрузке */
+    .plan-done-wrap{margin-top:.8vh}
+    .plan-done-bar{height:1.5vh;background:var(--track);border-radius:1vh;overflow:hidden}
+    .plan-done-bar>div{height:100%;width:0;border-radius:1vh;transition:width .8s ease;
+      background:linear-gradient(90deg,var(--purple),var(--lilac))}
+    .plan-done-bar.full>div{background:linear-gradient(90deg,var(--green),#a5d96a)}
+    .plan-done-txt{font-size:1.5vh;color:var(--muted);font-weight:600;margin-top:.5vh}
+    .plan-done-txt b{color:var(--ink)}
+    /* Полоса вкуса двухуровневая: длина — сколько нужно относительно самого
+       крупного, заливка внутри — сколько уже собрано. */
+    .plan-line .rail i{background:var(--track)}
+    .plan-line .rail i > u{display:block;height:100%;border-radius:1vh;text-decoration:none;
+      background:linear-gradient(90deg,var(--purple),var(--lilac));transition:width .8s ease}
+    .plan-line .rail i.full > u{background:linear-gradient(90deg,var(--green),#a5d96a)}
+    .plan-carts{font-size:1.5vh;color:var(--lilac);font-weight:700;margin-top:.7vh;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body data-key="{{ key }}">
@@ -336,12 +346,14 @@
     <div class="plan-body">
       <div class="plan-lines" id="plan-lines"></div>
       <div class="plan-total">
-        <div class="plan-total-qty"><span id="plan-total">0</span><span class="u">шт</span></div>
-        <div class="plan-total-sub" id="plan-boxes"></div>
-        <div class="plan-load" id="plan-load-wrap" style="display:none">
-          <div class="plan-load-bar"><div id="plan-load-fill"></div></div>
-          <div class="plan-load-txt">загрузка дня <b id="plan-load">0</b>%</div>
+        <div class="plan-total-qty">
+          <span id="plan-done">0</span><span class="u">/&nbsp;<b id="plan-total">0</b>&nbsp;шт</span>
         </div>
+        <div class="plan-done-wrap">
+          <div class="plan-done-bar"><div id="plan-done-fill"></div></div>
+          <div class="plan-done-txt">собрано <b id="plan-done-pct">0</b>%</div>
+        </div>
+        <div class="plan-total-sub"><span id="plan-boxes"></span><span id="plan-load-wrap"></span></div>
         <div class="plan-carts" id="plan-carts" style="display:none"></div>
       </div>
     </div>
@@ -355,6 +367,11 @@
       <div class="metric-value qty" id="m-lm-nuts">{{ data.last_month_nuts }} шт</div>
       <div class="metric-label">Выручка</div>
       <div class="metric-value money" id="m-lm-nuts-money">{{ "{:,}".format(data.last_month_revenue).replace(",", " ") }} ₽</div>
+    </div>
+    <div class="stat-card">
+      <div class="card-head">Рекорд дня</div>
+      <div class="metric-value qty" id="m-record">— шт</div>
+      <div class="metric-label" id="m-record-left">—</div>
     </div>
     <div class="stat-card">
       <div class="card-head">Дней без рекламаций</div>
@@ -791,6 +808,19 @@
         c.textContent = d.days_without_claims; cl.textContent = 'дней подряд';
       }
 
+      // Рекорд дня — цель, а не архив: показываем, сколько осталось до него
+      const rec = document.getElementById('m-record');
+      const recLeft = document.getElementById('m-record-left');
+      if (d.record_day > 0){
+        rec.textContent = fmt(d.record_day) + ' шт';
+        const left = d.record_day - d.shipped_today;
+        recLeft.textContent = d.is_record_today
+          ? '🏆 сегодня новый рекорд!'
+          : (left > 0 ? 'до рекорда ' + fmt(left) + ' шт' : 'сегодня ' + fmt(d.shipped_today) + ' шт');
+      } else {
+        rec.textContent = '—'; recLeft.textContent = 'пока нет данных';
+      }
+
       isRecordToday = !!d.is_record_today;
       document.getElementById('record-badge').style.display = isRecordToday ? '' : 'none';
 
@@ -811,6 +841,8 @@
       }
     }
 
+    let planDayDone = false;
+
     function renderPlan(p){
       const card = document.getElementById('plan-card');
       if (!p || !p.date || !p.lines || !p.lines.length){ card.style.display = 'none'; return; }
@@ -823,34 +855,38 @@
       // Полоса у каждого вкуса — относительно самого крупного: видно с другого
       // конца цеха, чего печь больше всего, не вчитываясь в цифры.
       const max = Math.max(...p.lines.map(l => l.qty));
-      document.getElementById('plan-lines').innerHTML = p.lines.map(l => `
+      document.getElementById('plan-lines').innerHTML = p.lines.map(l => {
+        const done = l.done || 0;
+        const ready = done >= l.qty;
+        return `
         <div class="plan-line">
           <span class="nm">${l.name}</span>
-          <span class="rail"><i style="width:${Math.round(l.qty / max * 100)}%"></i></span>
-          <span class="q">${fmt(l.qty)}</span>
-          <span class="bx">${l.boxes} кор.</span>
-        </div>`).join('');
+          <span class="rail"><i class="${ready ? 'full' : ''}" style="width:${Math.round(l.qty / max * 100)}%">
+            <u style="width:${l.qty ? Math.round(done / l.qty * 100) : 0}%"></u></i></span>
+          <span class="q">${ready ? '✓' : fmt(l.qty - done)}</span>
+          <span class="bx">${ready ? 'готово' : 'осталось'}</span>
+        </div>`;
+      }).join('');
 
+      document.getElementById('plan-done').textContent = fmt(p.done || 0);
       document.getElementById('plan-total').textContent = fmt(p.total);
-      document.getElementById('plan-boxes').textContent = p.boxes + ' коробок';
+      document.getElementById('plan-boxes').textContent = p.boxes + ' кор.';
+      document.getElementById('plan-load-wrap').textContent =
+        p.capacity > 0 ? 'загрузка дня ' + p.load_pct + '%' : '';
 
-      const lw = document.getElementById('plan-load-wrap');
-      if (p.capacity > 0){
-        lw.style.display = '';
-        const pct = Math.min(p.load_pct, 100);
-        const bar = lw.querySelector('.plan-load-bar');
-        bar.classList.toggle('warn', p.load_pct >= 70 && p.load_pct < 95);
-        bar.classList.toggle('full', p.load_pct >= 95);
-        document.getElementById('plan-load-fill').style.width = pct + '%';
-        document.getElementById('plan-load').textContent = p.load_pct;
-      } else {
-        lw.style.display = 'none';
-      }
+      const dp = p.done_pct || 0;
+      const dbar = document.querySelector('.plan-done-bar');
+      dbar.classList.toggle('full', dp >= 100);
+      document.getElementById('plan-done-fill').style.width = Math.min(dp, 100) + '%';
+      document.getElementById('plan-done-pct').textContent = dp;
+      // План дня закрыт — тот же праздник, что и по плану месяца
+      if (dp >= 100 && !planDayDone && p.total > 0) launchConfetti();
+      planDayDone = dp >= 100 && p.total > 0;
 
       const carts = document.getElementById('plan-carts');
       if (p.in_carts > 0){
         carts.style.display = '';
-        carts.textContent = '+ ' + fmt(p.in_carts) + ' шт клиенты набирают прямо сейчас';
+        carts.textContent = '+ ' + fmt(p.in_carts) + ' шт набирают сейчас';
       } else {
         carts.style.display = 'none';
       }

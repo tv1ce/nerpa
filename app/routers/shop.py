@@ -48,6 +48,9 @@ LINE_LABELS = {"п1.": "на сливочном масле", "п2.": "на ма�
 # партия по каждому вкусу — 42 шт, шаг — 3 штуки (орешки идут тройками на
 # лотке). Поэтому количество всегда кратно 3 и не меньше 42, а число коробок
 # считается как «сколько тары понадобится»: до 51 включительно — одна.
+# Статусы, после которых позиция уже физически собрана и печь её не нужно.
+ASSEMBLED_STATUSES = ("assembled", "handed", "delivered")
+
 BOX_CAPACITY = 51
 MIN_QTY = 42
 QTY_STEP = 3
@@ -415,14 +418,19 @@ def production_plan(db: Session, company) -> dict:
     day = min(dates)
 
     by_product: dict[int, int] = {}
+    done_product: dict[int, int] = {}
 
-    rows = (db.query(OrderItem.product_id, OrderItem.quantity)
+    # Собранным считаем то, по чему кладовщик уже нажал «Собрано»: с этого
+    # момента позиция физически лежит на отгрузке, а не ждёт печи.
+    rows = (db.query(OrderItem.product_id, OrderItem.quantity, Order.status)
             .join(Order, Order.id == OrderItem.order_id)
             .filter(Order.delivery_date == day, Order.status != "cancelled",
                     OrderItem.product_id.in_(nut_names.keys()))
             .all())
-    for pid, qty in rows:
+    for pid, qty, status in rows:
         by_product[pid] = by_product.get(pid, 0) + int(qty or 0)
+        if status in ASSEMBLED_STATUSES:
+            done_product[pid] = done_product.get(pid, 0) + int(qty or 0)
 
     known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
                    .filter(Order.bitrix_deal_id.isnot(None)).all()}
@@ -444,15 +452,19 @@ def production_plan(db: Session, company) -> dict:
         if qty <= 0:
             continue
         name = nut_names[pid]
+        done = min(done_product.get(pid, 0), qty)
         lines.append({
             "name": f"{_flavor(name).capitalize()} · "
                     f"{'масло' if nut_line(name) == 'п1.' else 'маргарин'}",
             "qty": qty,
+            "done": done,
+            "left": max(0, qty - done),
             "boxes": -(-qty // BOX_CAPACITY),
         })
     lines.sort(key=lambda r: -r["qty"])
 
     total = sum(r["qty"] for r in lines)
+    done_total = sum(r["done"] for r in lines)
     cap = daily_capacity(company)
 
     # ── Что набирают в корзинах прямо сейчас ────────────────────────────────
@@ -475,6 +487,8 @@ def production_plan(db: Session, company) -> dict:
         "days_left": (day - today).days,
         "lines": lines,
         "total": total,
+        "done": done_total,
+        "done_pct": round(done_total / total * 100) if total else 0,
         "boxes": sum(r["boxes"] for r in lines),
         "capacity": cap,
         "load_pct": round(total / cap * 100) if cap else 0,
