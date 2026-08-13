@@ -401,6 +401,7 @@ def _migrate_db():
         ("company_settings", "shop_alert_chat_ids", "TEXT"),
         ("company_settings", "shipping_weekdays", "TEXT DEFAULT '0,3'"),
         ("company_settings", "daily_nut_capacity", "INTEGER"),
+        ("shop_bookings", "items", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

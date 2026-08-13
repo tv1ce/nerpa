@@ -222,7 +222,40 @@
 
     /* ── Конфетти ── */
     #confetti-canvas{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:999}
-  </style>
+  
+    /* ── План на ближайшую отгрузку ── */
+    .plan-card{background:var(--card);border:1px solid var(--line);border-radius:1.8vh;
+      padding:1.8vh 1.6vw;margin-bottom:1.6vh;box-shadow:var(--shadow);}
+    .plan-head{display:flex;align-items:baseline;gap:1.1vw;margin-bottom:1.2vh}
+    .plan-title{font-size:2.1vh;font-weight:800;color:var(--ink)}
+    .plan-date{font-size:2.1vh;font-weight:800;color:var(--purple)}
+    .plan-when{font-size:1.6vh;color:var(--muted);font-weight:600}
+    .plan-body{display:flex;gap:1.8vw;align-items:stretch}
+    .plan-lines{flex:1;display:flex;flex-direction:column;justify-content:center;gap:.9vh}
+    .plan-line{display:flex;align-items:center;gap:1vw}
+    .plan-line .nm{font-size:2vh;font-weight:700;white-space:nowrap;min-width:12vw}
+    .plan-line .rail{flex:1;height:1.5vh;background:var(--track);border-radius:1vh;overflow:hidden}
+    .plan-line .rail i{display:block;height:100%;border-radius:1vh;
+      background:linear-gradient(90deg,var(--purple),var(--lilac));transition:width .8s ease}
+    .plan-line .q{font-size:2.4vh;font-weight:800;color:var(--purple);min-width:5ch;
+      text-align:right;font-variant-numeric:tabular-nums}
+    .plan-line .bx{font-size:1.5vh;color:var(--muted);font-weight:600;min-width:6ch}
+    .plan-total{flex:0 0 16vw;border-left:1px solid var(--line);padding-left:1.6vw;
+      display:flex;flex-direction:column;justify-content:center}
+    .plan-total-qty{display:flex;align-items:baseline;gap:.5vw}
+    .plan-total-qty span:first-child{font-size:5vh;font-weight:800;line-height:1.05;
+      color:var(--ink);font-variant-numeric:tabular-nums}
+    .plan-total-qty .u{font-size:1.7vh;color:var(--muted);font-weight:600}
+    .plan-total-sub{font-size:1.6vh;color:var(--muted);font-weight:600}
+    .plan-load{margin-top:1.1vh}
+    .plan-load-bar{height:1.5vh;background:var(--track);border-radius:1vh;overflow:hidden}
+    .plan-load-bar>div{height:100%;border-radius:1vh;transition:width .8s ease,background .4s;
+      background:linear-gradient(90deg,var(--green),#a5d96a)}
+    .plan-load-bar.warn>div{background:linear-gradient(90deg,var(--orange),#f0a868)}
+    .plan-load-bar.full>div{background:linear-gradient(90deg,#E53E3E,#f07070)}
+    .plan-load-txt{font-size:1.5vh;color:var(--muted);font-weight:600;margin-top:.5vh}
+    .plan-carts{font-size:1.5vh;color:var(--lilac);font-weight:700;margin-top:.9vh}
+</style>
 </head>
 <body data-key="{{ key }}">
 <canvas id="confetti-canvas"></canvas>
@@ -290,6 +323,27 @@
       <div class="metric-value qty" id="m-total">{{ data.shipped_total }} шт</div>
       <div class="metric-label">Выручка</div>
       <div class="metric-value money" id="m-total-money">{{ "{:,}".format(data.shipped_total_money).replace(",", " ") }} ₽</div>
+    </div>
+  </div>
+
+  <!-- План на ближайшую отгрузку -->
+  <div class="plan-card" id="plan-card" style="display:none">
+    <div class="plan-head">
+      <span class="plan-title">Печём к отгрузке</span>
+      <span class="plan-date" id="plan-date"></span>
+      <span class="plan-when" id="plan-when"></span>
+    </div>
+    <div class="plan-body">
+      <div class="plan-lines" id="plan-lines"></div>
+      <div class="plan-total">
+        <div class="plan-total-qty"><span id="plan-total">0</span><span class="u">шт</span></div>
+        <div class="plan-total-sub" id="plan-boxes"></div>
+        <div class="plan-load" id="plan-load-wrap" style="display:none">
+          <div class="plan-load-bar"><div id="plan-load-fill"></div></div>
+          <div class="plan-load-txt">загрузка дня <b id="plan-load">0</b>%</div>
+        </div>
+        <div class="plan-carts" id="plan-carts" style="display:none"></div>
+      </div>
     </div>
   </div>
 
@@ -727,6 +781,8 @@
 
       updateMascot(d.plan_pct);
 
+      renderPlan(d.production);
+
       const c = document.getElementById('m-claims');
       const cl = document.getElementById('m-claims-label');
       if (d.days_without_claims === null || d.days_without_claims === undefined){
@@ -752,6 +808,51 @@
         npWrap.style.display = '';
       } else {
         npWrap.style.display = 'none';
+      }
+    }
+
+    function renderPlan(p){
+      const card = document.getElementById('plan-card');
+      if (!p || !p.date || !p.lines || !p.lines.length){ card.style.display = 'none'; return; }
+      card.style.display = '';
+      document.getElementById('plan-date').textContent = p.date;
+      const dl = p.days_left;
+      document.getElementById('plan-when').textContent =
+        dl === 0 ? 'сегодня' : dl === 1 ? 'завтра' : 'через ' + dl + ' дн.';
+
+      // Полоса у каждого вкуса — относительно самого крупного: видно с другого
+      // конца цеха, чего печь больше всего, не вчитываясь в цифры.
+      const max = Math.max(...p.lines.map(l => l.qty));
+      document.getElementById('plan-lines').innerHTML = p.lines.map(l => `
+        <div class="plan-line">
+          <span class="nm">${l.name}</span>
+          <span class="rail"><i style="width:${Math.round(l.qty / max * 100)}%"></i></span>
+          <span class="q">${fmt(l.qty)}</span>
+          <span class="bx">${l.boxes} кор.</span>
+        </div>`).join('');
+
+      document.getElementById('plan-total').textContent = fmt(p.total);
+      document.getElementById('plan-boxes').textContent = p.boxes + ' коробок';
+
+      const lw = document.getElementById('plan-load-wrap');
+      if (p.capacity > 0){
+        lw.style.display = '';
+        const pct = Math.min(p.load_pct, 100);
+        const bar = lw.querySelector('.plan-load-bar');
+        bar.classList.toggle('warn', p.load_pct >= 70 && p.load_pct < 95);
+        bar.classList.toggle('full', p.load_pct >= 95);
+        document.getElementById('plan-load-fill').style.width = pct + '%';
+        document.getElementById('plan-load').textContent = p.load_pct;
+      } else {
+        lw.style.display = 'none';
+      }
+
+      const carts = document.getElementById('plan-carts');
+      if (p.in_carts > 0){
+        carts.style.display = '';
+        carts.textContent = '+ ' + fmt(p.in_carts) + ' шт клиенты набирают прямо сейчас';
+      } else {
+        carts.style.display = 'none';
       }
     }
 

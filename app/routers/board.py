@@ -398,7 +398,17 @@ def _collect_metrics(db: Session) -> dict:
         and shipped_today > 0
     )
 
+    # План на ближайшую отгрузку — цех видит, что печь, ещё до того как
+    # менеджер что-то подтвердил (см. shop.production_plan).
+    try:
+        from app.routers.shop import production_plan
+        production = production_plan(db, company)
+    except Exception as e:                       # табло не должно падать из-за панели
+        _log.warning("Табло: не удалось собрать план производства: %s", e)
+        production = {"date": None}
+
     return {
+        "production":          production,
         "company_name":        company_name,
         "logo_path":           logo_path,
         "shipped_total":       shipped_total,

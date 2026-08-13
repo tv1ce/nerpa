@@ -268,14 +268,111 @@ def date_free(db: Session, company, d: date) -> int | None:
     return max(0, cap - date_load(db, d))
 
 
-def _record_booking(db: Session, cp: Counterparty, d: date, qty: int, deal_id: str) -> None:
+def _record_booking(db: Session, cp: Counterparty, d: date, qty: int, deal_id: str,
+                    items: list | None = None) -> None:
     """Фиксирует бронь и подчищает старые: держать их дольше месяца незачем."""
     if not d:
         return
+    detail = json.dumps([{"id": p.id, "qty": int(q)} for p, q, _ in (items or [])],
+                        ensure_ascii=False)
     db.add(ShopBooking(delivery_date=d, counterparty_id=cp.id, qty=int(qty),
-                       bitrix_deal_id=str(deal_id) if deal_id else None))
+                       items=detail, bitrix_deal_id=str(deal_id) if deal_id else None))
     db.query(ShopBooking).filter(
         ShopBooking.delivery_date < date.today() - timedelta(days=30)).delete()
+
+
+def production_plan(db: Session, company) -> dict:
+    """Что цеху печь к ближайшей отгрузке — в разрезе вкусов.
+
+    Собирается из трёх источников, каждый со своей ролью:
+      * заказы в TMS с этой датой доставки — подтверждённые, приехали из Bitrix24;
+      * брони кабинета, по сделкам которых заказ ещё не вернулся — клиент их уже
+        отправил, печь надо, а в TMS они появятся с задержкой;
+      * корзины, которые клиенты набирают ПРЯМО СЕЙЧАС, — отдельной строкой и в
+        план не входят: заказ ещё не отправлен и может не отправиться вовсе.
+        Но цех должен видеть, что на него надвигается.
+
+    Дата берётся ближайшая из тех, на которые вообще что-то заказано, а не
+    «завтра»: при отгрузке два раза в неделю завтра обычно пусто."""
+    from app.services.outlets import _flavor
+
+    nut_names = {p.id: p.name for p in db.query(Product.id, Product.name).all()
+                 if nut_line(p.name)}
+    if not nut_names:
+        return {"date": None}
+
+    # ── Ближайшая дата, на которую что-то есть ──────────────────────────────
+    today = date.today()
+    dates = [d for (d,) in db.query(Order.delivery_date)
+             .filter(Order.delivery_date >= today, Order.status != "cancelled").distinct().all() if d]
+    dates += [d for (d,) in db.query(ShopBooking.delivery_date)
+              .filter(ShopBooking.delivery_date >= today).distinct().all() if d]
+    if not dates:
+        return {"date": None}
+    day = min(dates)
+
+    by_product: dict[int, int] = {}
+
+    rows = (db.query(OrderItem.product_id, OrderItem.quantity)
+            .join(Order, Order.id == OrderItem.order_id)
+            .filter(Order.delivery_date == day, Order.status != "cancelled",
+                    OrderItem.product_id.in_(nut_names.keys()))
+            .all())
+    for pid, qty in rows:
+        by_product[pid] = by_product.get(pid, 0) + int(qty or 0)
+
+    known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
+                   .filter(Order.bitrix_deal_id.isnot(None)).all()}
+    for b in db.query(ShopBooking).filter(ShopBooking.delivery_date == day).all():
+        if str(b.bitrix_deal_id or "") in known_deals:
+            continue                      # заказ уже доехал — посчитан выше
+        try:
+            detail = json.loads(b.items or "[]")
+        except (ValueError, TypeError):
+            detail = []
+        for it in detail:
+            pid = int(it.get("id", 0))
+            if pid in nut_names:
+                by_product[pid] = by_product.get(pid, 0) + int(it.get("qty") or 0)
+
+    # ── Строки плана: вкус + линейка, крупно и коротко ──────────────────────
+    lines = []
+    for pid, qty in by_product.items():
+        if qty <= 0:
+            continue
+        name = nut_names[pid]
+        lines.append({
+            "name": f"{_flavor(name).capitalize()} · "
+                    f"{'масло' if nut_line(name) == 'п1.' else 'маргарин'}",
+            "qty": qty,
+            "boxes": -(-qty // BOX_CAPACITY),
+        })
+    lines.sort(key=lambda r: -r["qty"])
+
+    total = sum(r["qty"] for r in lines)
+    cap = daily_capacity(company)
+
+    # ── Что набирают в корзинах прямо сейчас ────────────────────────────────
+    in_carts = 0
+    for row in db.query(ShopCart).all():
+        try:
+            for it in json.loads(row.items or "[]"):
+                if int(it.get("id", 0)) in nut_names:
+                    in_carts += int(it.get("qty") or 0)
+        except (ValueError, TypeError):
+            continue
+
+    return {
+        "date": format_slot_date(day),
+        "date_iso": day.isoformat(),
+        "days_left": (day - today).days,
+        "lines": lines,
+        "total": total,
+        "boxes": sum(r["boxes"] for r in lines),
+        "capacity": cap,
+        "load_pct": round(total / cap * 100) if cap else 0,
+        "in_carts": in_carts,
+    }
 
 
 def _delivery_slots(db: Session, company) -> list[dict]:
@@ -507,7 +604,7 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
             status_code=502)
 
     _save_cart(db, cp, [])
-    _record_booking(db, cp, delivery_date, total_qty, result["deal_id"])
+    _record_booking(db, cp, delivery_date, total_qty, result["deal_id"], items)
     log_action(db, "counterparty", cp.id, "updated", None,
                f"Заказ из кабинета клиента ушёл в сделку Bitrix24 #{result['deal_id']}"
                + (" (создана новая карточка)" if result["created"] else ""))

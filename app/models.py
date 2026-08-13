@@ -839,6 +839,10 @@ class ShopBooking(Base):
     delivery_date = Column(Date, nullable=False, index=True)
     counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
     qty = Column(Integer, nullable=False)          # орешков в заказе, штук
+    # Состав брони: [{"id": 5, "qty": 42}, …]. Нужен табло цеха: пока заказ едет
+    # обратно из Bitrix24, разбивку по вкусам взять больше неоткуда, а печь
+    # нужно конкретный вкус, а не «орешки вообще».
+    items = Column(Text)
     bitrix_deal_id = Column(String(20), index=True)  # сделка, в которую уехал заказ
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
