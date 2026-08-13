@@ -530,7 +530,6 @@ def _run_bitrix_cp_requisites_job():
         db.close()
 
 
-@asynccontextmanager
 async def _resubscribe_tochka_webhook() -> None:
     """Переподписка вебхука Точки в фоне, с потолком по времени.
 
@@ -556,6 +555,7 @@ async def _resubscribe_tochka_webhook() -> None:
         logger.warning("Точка: переподписка вебхука не выполнена: %s", e)
 
 
+@asynccontextmanager
 async def lifespan(_app: FastAPI):
     """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
     # ── startup ──────────────────────────────────────────────────────────────
