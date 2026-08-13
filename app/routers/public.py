@@ -117,8 +117,13 @@ async def track_order(request: Request, token: str, db: Session = Depends(get_db
         AttachedFile.file_type.in_(_CLIENT_FILE_TYPES),
     ).order_by(AttachedFile.uploaded_at.desc()).all()
 
+    # Ссылка в кабинет: клиент зашёл посмотреть статус — самое время дать ему
+    # собрать следующий заказ, не разыскивая ссылку в переписке с менеджером.
+    shop_url = f"/shop/{cp.shop_token}" if cp and cp.shop_enabled and cp.shop_token else None
+
     return templates.TemplateResponse(request, "public/track.html", {
         "order": order,
+        "shop_url": shop_url,
         "company": company,
         "manager": manager,
         "cp": cp,
