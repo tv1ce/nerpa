@@ -156,7 +156,12 @@ def test_outlet_appears_with_metrics(admin_client):
     assert "Тестовая, 7" in r.text
     assert "10.0" in r.text, "должен считаться расход 10 шт/день"
 
-    r = admin_client.get("/analytics/outlets/detail", params={"key": "тестовая:7"})
+    db = SessionLocal()
+    try:
+        key = _find(db, "тестовая:7")["key"]
+    finally:
+        db.close()
+    r = admin_client.get("/analytics/outlets/detail", params={"key": key})
     assert r.status_code == 200
     assert "Кофейня Аналитика" in r.text
     # оба написания адреса склеены в одну точку и показаны в карточке
@@ -180,9 +185,16 @@ def test_ai_failure_does_not_break_page(admin_client, monkeypatch):
     monkeypatch.setattr(openrouter_client, "chat", _boom)
     monkeypatch.setattr(openrouter_client, "chat_json", _boom)
 
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        key = _find(db, "тестовая:7")["key"]
+    finally:
+        db.close()
+
     csrf = _csrf(admin_client, "/analytics/outlets")
     r = admin_client.post("/analytics/outlets/analyze",
-                          data={"key": "тестовая:7", "csrf_token": csrf},
+                          data={"key": key, "csrf_token": csrf},
                           follow_redirects=False)
     assert r.status_code == 302
     assert "error=" in r.headers["location"]
@@ -191,6 +203,12 @@ def test_ai_failure_does_not_break_page(admin_client, monkeypatch):
                           follow_redirects=False)
     assert r.status_code == 302
     assert "error=" in r.headers["location"]
+
+
+def _find(db, address_key):
+    """Точка по адресной части ключа (ключ теперь «адрес#контрагент»)."""
+    from app.routers.analytics import _outlets
+    return next(o for o in _outlets(db) if o["address_key"] == address_key)
 
 
 def _csrf(client, path):
@@ -297,7 +315,7 @@ def test_zero_price_delivery_marked_as_claim(admin_client):
                              quantity=qty, price=price, amount=qty * price))
         db.commit()
 
-        outlet = next(o for o in _outlets(db) if o["key"] == "бракованная:5")
+        outlet = _find(db, "бракованная:5")
         assert outlet["free_count"] == 1
         assert [d["free"] for d in outlet["deliveries"]] == [False, True, False]
 
@@ -307,7 +325,12 @@ def test_zero_price_delivery_marked_as_claim(admin_client):
     finally:
         db.close()
 
-    r = admin_client.get("/analytics/outlets/detail", params={"key": "бракованная:5"})
+    db = SessionLocal()
+    try:
+        key = _find(db, "бракованная:5")["key"]
+    finally:
+        db.close()
+    r = admin_client.get("/analytics/outlets/detail", params={"key": key})
     assert r.status_code == 200
     assert "рекламация" in r.text
 
@@ -579,12 +602,84 @@ def test_detail_renders_for_every_status(admin_client):
 
     db = SessionLocal()
     try:
-        by_key = {o["key"]: o for o in _outlets(db)}
+        by_address = {o["address_key"]: o for o in _outlets(db)}
     finally:
         db.close()
 
     for street, (_, expected) in cases.items():
-        key = f"{street}:1"
-        assert by_key[key]["status"] == expected, f"{key}: ожидали {expected}"
+        outlet = by_address[f"{street}:1"]
+        assert outlet["status"] == expected, f"{street}: ожидали {expected}"
+        r = admin_client.get("/analytics/outlets/detail", params={"key": outlet["key"]})
+        assert r.status_code == 200, f"{street} ({expected}) → {r.status_code}"
+
+
+def test_two_counterparties_at_one_address_are_separate_outlets(admin_client):
+    """Брантовская 3: два заведения разных контрагентов на одном адресе.
+
+    Раньше их поставки складывались в одну точку и расход считался общий на двоих.
+    Теперь это две точки со своими цифрами, а координата на карте у них общая."""
+    from app.database import SessionLocal
+    from app.models import Counterparty, Order, OrderItem, Product
+    from app.routers.analytics import _outlets
+
+    addr = "г Санкт-Петербург, Брантовская дорога, д 3"
+    start = date.today() - timedelta(days=30)
+
+    db = SessionLocal()
+    try:
+        product = Product(name="П1.Орешки с кокосовой начинкой", price=52.0)
+        db.add(product)
+        db.flush()
+        # Первый ест 10 шт/день (140 шт за 14 дней), второй — 2 шт/день (28 за 14)
+        for i, (name, qty) in enumerate([("ИП Первый", 140), ("ООО Второй", 28)]):
+            cp = Counterparty(name=name, trade_name=name, inn=f"78000000{i:04d}")
+            db.add(cp)
+            db.flush()
+            for n in range(2):
+                order = Order(number=f"BRANT-{i}-{n}", date=start + timedelta(days=14 * n),
+                              counterparty_id=cp.id, status="delivered",
+                              delivery_address=addr)
+                db.add(order)
+                db.flush()
+                db.add(OrderItem(order_id=order.id, product_id=product.id,
+                                 quantity=qty, price=52.0, amount=qty * 52.0))
+        db.commit()
+
+        outlets = [o for o in _outlets(db) if o["address_key"] == "брантовская:3"]
+        assert len(outlets) == 2, "на одном адресе должно быть две отдельные точки"
+
+        by_client = {o["client_label"]: o for o in outlets}
+        assert by_client["ИП Первый"]["daily_rate"] == pytest.approx(10.0)
+        assert by_client["ООО Второй"]["daily_rate"] == pytest.approx(2.0)
+        # адрес общий, ключи разные
+        assert len({o["key"] for o in outlets}) == 2
+        assert {o["address_key"] for o in outlets} == {"брантовская:3"}
+
+        keys = [o["key"] for o in outlets]
+    finally:
+        db.close()
+
+    # Обе карточки открываются и показывают своего контрагента
+    for key, client in zip(keys, ("ИП Первый", "ООО Второй")):
         r = admin_client.get("/analytics/outlets/detail", params={"key": key})
-        assert r.status_code == 200, f"{key} ({expected}) → {r.status_code}"
+        assert r.status_code == 200
+
+
+def test_map_splits_markers_at_same_address(admin_client):
+    """Маркеры двух точек одного адреса раздвинуты, иначе кликается только верхний."""
+    from app.database import SessionLocal
+    from app.models import OutletGeo
+
+    db = SessionLocal()
+    try:
+        if not db.query(OutletGeo).filter(OutletGeo.address_key == "брантовская:3").first():
+            db.add(OutletGeo(address_key="брантовская:3", lat=59.95, lng=30.45,
+                             query="Брантовская дорога 3"))
+            db.commit()
+    finally:
+        db.close()
+
+    rows = [r for r in admin_client.get("/analytics/outlets/map/data").json()
+            if r["key"].startswith("брантовская:3#")]
+    assert len(rows) == 2
+    assert rows[0]["lat"] != rows[1]["lat"] or rows[0]["lng"] != rows[1]["lng"]

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ o.label }}{% endblock %}
-{% block page_title %}{{ o.label }}{% endblock %}
+{% block title %}{{ o.label }} — {{ o.client_label }}{% endblock %}
+{% block page_title %}{{ o.label }} <span class="text-muted" style="font-size:1rem">· {{ o.client_label }}</span>{% endblock %}
 {% block topbar_actions %}
   {% if request.session.get('user_role') != 'viewer' %}
   <form method="post" action="/analytics/outlets/analyze" class="d-inline me-2">
@@ -13,6 +13,19 @@
 
 {% block content %}
 {% if error %}<div class="alert alert-warning py-2">{{ error }}</div>{% endif %}
+
+{# На одном адресе может работать несколько заведений — считаем их по отдельности #}
+{% if neighbours %}
+<div class="alert alert-light border py-2 mb-3" style="font-size:.85rem">
+  <i class="bi bi-info-circle me-1"></i>
+  По этому адресу работает ещё
+  {{ neighbours | length }} {{ 'точка' if neighbours|length == 1 else 'точки' }} другого контрагента —
+  цифры у каждой свои:
+  {% for n in neighbours %}
+  <a href="/analytics/outlets/detail?key={{ n.key | urlencode }}">{{ n.client_label }}</a>{% if not loop.last %}, {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
 
 {# ── Вердикт: одной строкой, что с точкой делать ──────────────────────────── #}
 {% set st = o.status %}

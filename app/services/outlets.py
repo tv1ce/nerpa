@@ -1,8 +1,9 @@
 """Аналитика по точкам (адресам доставки).
 
-Точка — это физический адрес, куда возят орешки, а не контрагент: один ИП может
-держать две кофейни, а одна кофейня за год смениться собственником. Поэтому все
-метрики здесь считаются по адресу доставки заказа.
+Точка — это пара «адрес доставки + контрагент». Адрес сам по себе точкой не
+является: по одному адресу могут работать два разных заведения разных сетей
+(так на Брантовской 3), и общий расход на двоих не значит ничего. Контрагент сам
+по себе — тоже: один ИП держит две кофейни, и цифры у них разные.
 
 Главная цифра — **средний расход орешков в день**. Считается по методике «сколько
 съели между поставками»: объём поставки делится на число дней до следующей
@@ -179,8 +180,24 @@ def _flavor(name: str) -> str:
     return "прочее"
 
 
+def outlet_key(address_key: str, counterparty_id: int | None) -> str:
+    """Ключ точки: «адрес#контрагент».
+
+    По одному адресу могут работать два разных заведения (разные ИП, разные
+    сети — так на Брантовской 3): у них свой ассортимент, свой ритм и свой
+    расход, поэтому и точки должны быть разные. Адресная часть ключа остаётся
+    отдельно (address_key) — по ней хранятся координаты, они общие."""
+    return f"{address_key}#{counterparty_id or 0}"
+
+
+def split_key(key: str) -> tuple[str, int]:
+    """Обратная операция: «гончарная:2#17» → («гончарная:2», 17)."""
+    address_key, _, cp_id = key.partition("#")
+    return address_key, int(cp_id) if cp_id.isdigit() else 0
+
+
 def collect_deliveries(db: Session) -> dict[str, dict]:
-    """Группирует заказы по точкам. Возвращает {ключ адреса: сырые данные точки}."""
+    """Группирует заказы по точкам (адрес + контрагент)."""
     nut_ids = _nut_product_ids(db)
     rows = (
         db.query(Order)
@@ -190,13 +207,15 @@ def collect_deliveries(db: Session) -> dict[str, dict]:
     )
     points: dict[str, dict] = {}
     for order in rows:
-        key = normalize_address(order.delivery_address)
-        if not key:
+        address_key = normalize_address(order.delivery_address)
+        if not address_key:
             continue
+        key = outlet_key(address_key, order.counterparty_id)
         qty = sum(i.quantity or 0 for i in order.items if i.product_id in nut_ids)
         amount = order.total_amount
         p = points.setdefault(key, {
-            "key": key, "raw_addresses": set(), "deliveries": [],
+            "key": key, "address_key": address_key,
+            "raw_addresses": set(), "deliveries": [],
             "counterparties": {}, "flavors": defaultdict(float), "revenue": 0.0,
         })
         p["raw_addresses"].add((order.delivery_address or "").strip())
@@ -284,18 +303,21 @@ def outlet_metrics(point: dict, today: date | None = None) -> dict:
     else:
         status = "ok"
 
+    cps = list(point["counterparties"].values())
+    networks = {cp.network.name for cp in cps if cp.network_id and cp.network}
     free_count = sum(1 for d in deliveries if d.get("free"))
     flavors = dict(point["flavors"])
     flavor_total = sum(flavors.values()) or 1
     flavor_mix = {k: round(v / flavor_total * 100) for k, v in
                   sorted(flavors.items(), key=lambda kv: -kv[1])}
 
-    cps = list(point["counterparties"].values())
-    networks = {cp.network.name for cp in cps if cp.network_id and cp.network}
-
+    address_key = point.get("address_key") or split_key(point["key"])[0]
     return {
         "key": point["key"],
-        "label": address_label(point["key"]),
+        "address_key": address_key,
+        "label": address_label(address_key),
+        # Подпись, когда по одному адресу работают несколько контрагентов
+        "client_label": ", ".join((cp.trade_name or cp.name) for cp in cps) or "без контрагента",
         "raw_addresses": sorted(a for a in point["raw_addresses"] if a),
         "counterparties": cps,
         "networks": sorted(networks),
@@ -431,7 +453,7 @@ def _city_of(raw_addresses: list[str]) -> str:
     return ""
 
 
-def geocode_queries(key: str, raw_addresses: list[str]) -> list[str]:
+def geocode_queries(address_key: str, raw_addresses: list[str]) -> list[str]:
     """Варианты запроса к геокодеру, от подробного к простому.
 
     Полный адрес из заказа («…лит.Б, ТРК "Академ-Парк", помещение F6») геокодер
@@ -441,7 +463,7 @@ def geocode_queries(key: str, raw_addresses: list[str]) -> list[str]:
     variants = []
     if raw_addresses:
         variants.append(max(raw_addresses, key=len))
-    street, _, house = key.partition(":")
+    street, _, house = address_key.partition(":")
     city = _city_of(raw_addresses)
     clean = f"{street} {house}".strip()
     if city:

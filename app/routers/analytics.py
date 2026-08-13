@@ -92,6 +92,7 @@ def _filtered(outlets: list[dict], q: str, status: str, network_id: str) -> list
         needle = q.lower()
         res = [o for o in res
                if needle in o["label"].lower()
+               or needle in o.get("client_label", "").lower()
                or any(needle in a.lower() for a in o["raw_addresses"])
                or any(needle in (cp.trade_name or cp.name or "").lower()
                       for cp in o["counterparties"])]
@@ -134,16 +135,21 @@ async def outlets_list(request: Request, q: str = "", status: str = "",
 @router.get("/outlets/detail", response_class=HTMLResponse)
 @login_required
 async def outlet_detail(request: Request, key: str = "", db: Session = Depends(get_db)):
-    outlet = next((o for o in _outlets(db) if o["key"] == key), None)
+    outlets = _outlets(db)
+    outlet = next((o for o in outlets if o["key"] == key), None)
     if not outlet:
         return RedirectResponse(url="/analytics/outlets", status_code=302)
+    # Соседи по адресу: на одном адресе может работать несколько контрагентов
+    neighbours = [o for o in outlets
+                  if o["address_key"] == outlet["address_key"] and o["key"] != key]
     insights = (db.query(OutletInsight)
                 .filter(OutletInsight.scope == "outlet", OutletInsight.address_key == key)
                 .order_by(OutletInsight.created_at.desc()).limit(5).all())
-    geo = db.query(OutletGeo).filter(OutletGeo.address_key == key).first()
+    geo = (db.query(OutletGeo)
+           .filter(OutletGeo.address_key == outlet["address_key"]).first())
     return templates.TemplateResponse(request, "analytics/outlet_detail.html", {
         "o": outlet, "statuses": OUTLET_STATUSES, "status_colors": STATUS_COLORS,
-        "insights": insights, "geo": geo,
+        "insights": insights, "geo": geo, "neighbours": neighbours,
         "error": request.query_params.get("error"),
     })
 
@@ -154,7 +160,7 @@ def _outlet_facts(o: dict) -> str:
     """Цифры точки для модели — обычным текстом, без markdown."""
     fmt = lambda v, s="": f"{v:.1f}{s}" if isinstance(v, (int, float)) else "нет данных"
     lines = [
-        f"Точка: {o['label']}",
+        f"Точка: {o['label']} — {o['client_label']}",
         f"Адреса в заказах: {'; '.join(o['raw_addresses'])}",
         f"Контрагент(ы), на кого оформлены заказы:",
     ]
@@ -287,7 +293,7 @@ _geo_state: dict = {"running": False, "done": 0, "total": 0, "found": 0, "error"
 
 def _geo_queries(outlet: dict) -> list[str]:
     """Варианты адреса для геокодера — от написания в заказе к очищенному."""
-    return geocode_queries(outlet["key"], outlet["raw_addresses"]) or [outlet["label"]]
+    return geocode_queries(outlet["address_key"], outlet["raw_addresses"]) or [outlet["label"]]
 
 
 def _geocode_worker(items: list[tuple[str, str]]) -> None:
@@ -360,7 +366,12 @@ async def outlets_geocode(request: Request, db: Session = Depends(get_db)):
 
     known = {g.address_key for g in db.query(OutletGeo).filter(
         (OutletGeo.lat.isnot(None)) | (OutletGeo.not_found == True))}  # noqa: E712
-    pending = [(o["key"], _geo_queries(o)) for o in _outlets(db) if o["key"] not in known]
+    # Ключ координат — адрес: у двух контрагентов на одном адресе точка на карте одна
+    pending = {}
+    for o in _outlets(db):
+        if o["address_key"] not in known:
+            pending.setdefault(o["address_key"], _geo_queries(o))
+    pending = list(pending.items())
     if not pending:
         return JSONResponse({**_geo_state, "total": 0, "done": 0})
 
@@ -390,10 +401,11 @@ async def outlets_geocode_status(request: Request):
 async def outlets_map(request: Request, db: Session = Depends(get_db)):
     outlets = _outlets(db)
     geo = {g.address_key: g for g in db.query(OutletGeo).all()}
-    located = sum(1 for o in outlets if geo.get(o["key"]) and geo[o["key"]].lat)
-    not_found = sum(1 for o in outlets if geo.get(o["key"]) and geo[o["key"]].not_found)
+    addresses = {o["address_key"] for o in outlets}
+    located = sum(1 for a in addresses if geo.get(a) and geo[a].lat)
+    not_found = sum(1 for a in addresses if geo.get(a) and geo[a].not_found)
     return templates.TemplateResponse(request, "analytics/map.html", {
-        "total": len(outlets), "located": located, "not_found": not_found,
+        "total": len(addresses), "located": located, "not_found": not_found,
         "statuses": OUTLET_STATUSES, "status_colors": STATUS_COLORS,
         "geo_state": dict(_geo_state),
     })
@@ -407,12 +419,18 @@ async def outlets_map_data(request: Request, db: Session = Depends(get_db)):
     geo = {g.address_key: g for g in db.query(OutletGeo).all()
            if g.lat is not None and g.lng is not None}
     rows = []
+    seen_at_address: dict[str, int] = {}
     for o in outlets:
-        g = geo.get(o["key"])
+        g = geo.get(o["address_key"])
         if not g:
             continue
+        # Два контрагента на одном адресе получили бы маркеры друг под другом —
+        # раздвигаем их на несколько метров, чтобы кликались оба
+        n = seen_at_address.get(o["address_key"], 0)
+        seen_at_address[o["address_key"]] = n + 1
+        lat, lng = g.lat + n * 0.00012, g.lng + n * 0.00022
         rows.append({
-            "key": o["key"], "label": o["label"], "lat": g.lat, "lng": g.lng,
+            "key": o["key"], "label": o["label"], "lat": lat, "lng": lng,
             "status": o["status"], "status_label": OUTLET_STATUSES[o["status"]],
             "daily_rate": round(o["daily_rate"], 1) if o["daily_rate"] else None,
             "days_left": round(o["days_left"]) if o["days_left"] is not None else None,
