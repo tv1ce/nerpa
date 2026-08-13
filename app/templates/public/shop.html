@@ -308,8 +308,8 @@
   <section id="view-order" role="tabpanel" aria-labelledby="tab-order">
     <p class="note">
       <span>
-        В коробке <b>{{ box_size }} орешков</b> — это же минимальный заказ по каждому вкусу.
-        Дальше количество меняется по <b>{{ qty_step }} шт</b>.
+        Вместимость коробки — <b>{{ box_capacity }} шт</b>. Минимальный заказ —
+        <b>{{ min_qty }} шт</b> по каждому вкусу, дальше шаг <b>{{ qty_step }} шт</b>.
       </span>
     </p>
 
@@ -433,7 +433,7 @@ const CATALOG = {{ catalog|tojson }};
 const LAST = {{ last_items|tojson }};
 const SAVED_CART = {{ cart_items|tojson }};
 const TOKEN = {{ token|tojson }};
-const BOX = {{ box_size }}, MIN = {{ min_qty }}, STEP = {{ qty_step }};
+const BOX = {{ box_capacity }}, MIN = {{ min_qty }}, STEP = {{ qty_step }};
 
 const $ = id => document.getElementById(id);
 const BY_ID = Object.fromEntries(CATALOG.map(p => [p.id, p]));
@@ -455,9 +455,10 @@ function plural(n, one, few, many) {
   return many;
 }
 
-// Коробки считаем целыми и округляем ВВЕРХ: 42 шт — одна коробка, всё, что
-// сверх неё, едет во второй, пусть и неполной. Остаток отдельной строкой
-// («1 коробка + 9 шт») не пишем: в машине початая коробка занимает место
+// Коробки — это тара: сколько ящиков понадобится под такое количество.
+// Считаем по вместимости (51 шт) с округлением вверх, целыми числами: до 51
+// включительно — одна коробка, 54 — уже две. Остаток отдельной строкой
+// («1 коробка + 3 шт») не пишем: в машине початая коробка занимает место
 // целой, и логисту важно число мест, а не как они заполнены.
 function boxes(qty) {
   const n = Math.ceil(qty / BOX);
@@ -508,7 +509,7 @@ function row(p) {
     : `<button class="add" data-plus="${p.id}">В заказ</button>`;
   const sub = q > 0
     ? `<span class="num">${boxes(q)}</span> · <span class="amt num">${money(p.price * q)}</span>`
-    : `коробка — ${BOX} шт`;
+    : `минимум ${MIN} шт`;
   return `<div class="item${q ? ' on' : ''}">
       <div class="info">
         <div class="nm">${nm}</div>

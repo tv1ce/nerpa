@@ -44,10 +44,11 @@ _MAX_ITEMS = 200
 NUT_PREFIXES = ("п1.", "п2.")
 LINE_LABELS = {"п1.": "на сливочном масле", "п2.": "на маргарине"}
 
-# Коробка — 42 орешка, она же минимальный заказ по каждому виду: меньше
-# коробки цех не собирает. Шаг — 3 штуки (орешки идут тройками на лотке),
-# поэтому любое количество кратно 3 и не меньше 42.
-BOX_SIZE = 42
+# В коробку влезает 51 орешек — это ТАРА, а не минимальный заказ. Минимальная
+# партия по каждому вкусу — 42 шт, шаг — 3 штуки (орешки идут тройками на
+# лотке). Поэтому количество всегда кратно 3 и не меньше 42, а число коробок
+# считается как «сколько тары понадобится»: до 51 включительно — одна.
+BOX_CAPACITY = 51
 MIN_QTY = 42
 QTY_STEP = 3
 
@@ -359,7 +360,7 @@ async def shop_page(request: Request, token: str, db: Session = Depends(get_db))
         "capacity": daily_capacity(company),
         "discount": cp.default_discount_pct or 0.0,
         "default_address": cp.actual_address or cp.legal_address or "",
-        "box_size": BOX_SIZE,
+        "box_capacity": BOX_CAPACITY,
         "min_qty": MIN_QTY,
         "qty_step": QTY_STEP,
     })
