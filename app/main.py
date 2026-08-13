@@ -531,6 +531,31 @@ def _run_bitrix_cp_requisites_job():
 
 
 @asynccontextmanager
+async def _resubscribe_tochka_webhook() -> None:
+    """Переподписка вебхука Точки в фоне, с потолком по времени.
+
+    Блокирующий httpx уводим в поток, чтобы он не занимал event loop, и режем
+    по таймауту: недоступный банк — это повод для строчки в логе, а не для
+    неподнявшегося сервера."""
+    def _work():
+        from app.database import SessionLocal
+        from app.services.tochka_client import ensure_webhook_saved
+        db = SessionLocal()
+        try:
+            return ensure_webhook_saved(db)
+        finally:
+            db.close()
+
+    try:
+        r = await asyncio.wait_for(asyncio.to_thread(_work), timeout=60)
+        if r.get("ok"):
+            logger.info("Точка: вебхук переподписан (%s)", r.get("url"))
+    except asyncio.TimeoutError:
+        logger.warning("Точка: переподписка вебхука не уложилась в 60с — пропускаем")
+    except Exception as e:
+        logger.warning("Точка: переподписка вебхука не выполнена: %s", e)
+
+
 async def lifespan(_app: FastAPI):
     """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
     # ── startup ──────────────────────────────────────────────────────────────
@@ -570,19 +595,16 @@ async def lifespan(_app: FastAPI):
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
 
-    # Переподписка вебхука Точки по сохранённому адресу (переживает рестарт/деплой)
-    try:
-        from app.database import SessionLocal
-        from app.services.tochka_client import ensure_webhook_saved
-        _wdb = SessionLocal()
-        try:
-            r = ensure_webhook_saved(_wdb)
-            if r.get("ok"):
-                logger.info("Точка: вебхук переподписан (%s)", r.get("url"))
-        finally:
-            _wdb.close()
-    except Exception as e:
-        logger.warning("Точка: переподписка вебхука не выполнена: %s", e)
+    # Переподписка вебхука Точки по сохранённому адресу (переживает рестарт/деплой).
+    #
+    # УХОДИТ В ФОН НАМЕРЕННО. Это сетевой вызов к чужому API, и раньше он висел
+    # прямо в lifespan: 13.08.2026 у сервера отвалилась исходящая сеть, вызов не
+    # вернулся, startup не завершился — и uvicorn не открыл порт. Приложение
+    # числилось «active» у systemd, планировщик крутился, а сайт лежал целиком
+    # из-за необязательной переподписки вебхука.
+    #
+    # Ничто, что зависит от третьей стороны, не должно решать, поднимется ли TMS.
+    asyncio.create_task(_resubscribe_tochka_webhook())
 
     yield
     # ── shutdown (ничего освобождать не нужно) ────────────────────────────────
