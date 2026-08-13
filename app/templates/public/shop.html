@@ -78,11 +78,9 @@
     }
 
     /* ── Точки доставки ────────────────────────────────────────────────── */
-    .outlets {
-      display: flex; gap: 8px; overflow-x: auto; margin: 14px 0 2px;
-      padding-bottom: 4px; scrollbar-width: none;
-    }
-    .outlets::-webkit-scrollbar { display: none; }
+    /* Плашки переносятся на новую строку, а не уезжают за край: обрезанный
+       адрес — это адрес, который клиент не прочитал. */
+    .outlets { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 2px; }
     .outlet {
       display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
       min-height: 40px; padding: 0 14px; border-radius: 999px;
@@ -93,6 +91,46 @@
     .outlet:hover { border-color: var(--ink); color: var(--ink); }
     .outlet.on { background: var(--ink); border-color: var(--ink); color: #fff; }
     .outlet svg { flex-shrink: 0; }
+
+    /* Много точек — компактный выбор со шторкой */
+    .outlet-pick {
+      display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+      margin: 14px 0 2px; padding: 12px 14px; min-height: 58px;
+      background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md);
+      transition: border-color 180ms ease;
+    }
+    .outlet-pick:hover { border-color: var(--ink); }
+    .outlet-pick .ic { color: var(--ink-2); display: flex; flex-shrink: 0; }
+    .outlet-pick .txt { flex: 1; min-width: 0; }
+    .outlet-pick .lab {
+      display: block; font-size: .72rem; font-weight: 700; letter-spacing: .07em;
+      text-transform: uppercase; color: var(--ink-2);
+    }
+    .outlet-pick .val {
+      display: block; font-weight: 600; font-size: .95rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .outlet-pick > svg { color: var(--ink-2); flex-shrink: 0; }
+
+    .outlet-list { display: grid; gap: 8px; margin-top: 14px; max-height: 52vh; overflow-y: auto; }
+    .outlet-row {
+      display: flex; align-items: center; gap: 12px; min-height: 56px;
+      padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-sm);
+      text-decoration: none; color: var(--ink); transition: border-color 180ms ease;
+    }
+    .outlet-row:hover { border-color: var(--ink); }
+    .outlet-row.on { border-color: var(--ink); background: var(--sunk); }
+    .outlet-row .mark {
+      width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-2);
+      flex-shrink: 0; display: grid; place-items: center;
+    }
+    .outlet-row.on .mark { border-color: var(--ink); }
+    .outlet-row.on .mark::after {
+      content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--ink);
+    }
+    .outlet-row .who { min-width: 0; }
+    .outlet-row .a { display: block; font-weight: 600; font-size: .92rem; }
+    .outlet-row small { color: var(--ink-2); font-size: .78rem; }
 
     /* ── Офлайн ────────────────────────────────────────────────────────── */
     .offline {
@@ -331,20 +369,59 @@
     </svg>
     <span id="offline-txt">Нет связи — можно спокойно собирать заказ, отправим, когда сеть вернётся</span>
   </div>
-  {% if outlets|length > 1 %}
+  {% macro pin(size) %}
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>
+  </svg>
+  {% endmacro %}
+
+  {# До трёх точек влезают плашками — переключение в один тап. Больше — они
+     превращаются в кашу и режутся по краю экрана, поэтому список уезжает в
+     шторку, где адрес виден целиком, а не обрезанным ярлыком. #}
+  {% if outlets|length > 1 and outlets|length <= 3 %}
   <nav class="outlets" aria-label="Точка доставки">
     {% for o in outlets %}
     <a class="outlet{% if o.key == outlet_key %} on{% endif %}"
        href="/shop/{{ token }}?p={{ o.key|urlencode }}"
        {% if o.key == outlet_key %}aria-current="page"{% endif %}>
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>
-      </svg>
-      {{ o.label }}
+      {{ pin(15) }}{{ o.label }}
     </a>
     {% endfor %}
   </nav>
+  {% elif outlets|length > 3 %}
+  <button class="outlet-pick" id="outlet-pick" aria-haspopup="dialog">
+    <span class="ic">{{ pin(18) }}</span>
+    <span class="txt">
+      <span class="lab">Точка доставки</span>
+      <span class="val">{{ outlet.address if outlet else '' }}</span>
+    </span>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M6 9l6 6 6-6"/>
+    </svg>
+  </button>
+
+  <dialog id="outlet-sheet" aria-labelledby="outlet-sheet-title">
+    <div class="sheet">
+      <div class="grip"></div>
+      <h2 id="outlet-sheet-title">Куда везём</h2>
+      <p class="lead">У каждой точки свой заказ и своя история.</p>
+      <div class="outlet-list">
+        {% for o in outlets %}
+        <a class="outlet-row{% if o.key == outlet_key %} on{% endif %}"
+           href="/shop/{{ token }}?p={{ o.key|urlencode }}">
+          <span class="mark"></span>
+          <span class="who">
+            <span class="a">{{ o.address }}</span>
+            {% if o.orders %}<small>{{ o.orders }} заказ{{ '' if o.orders == 1 else 'а' if o.orders < 5 else 'ов' }}</small>{% endif %}
+          </span>
+        </a>
+        {% endfor %}
+      </div>
+      <button class="ghost" id="outlet-close">Закрыть</button>
+    </div>
+  </dialog>
   {% endif %}
 
   <div class="tabs" role="tablist">
@@ -659,6 +736,14 @@ if ($('repeat')) $('repeat').addEventListener('click', () => {
   save(); render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
+
+// ── Выбор точки ─────────────────────────────────────────────────────────────
+const outletPick = $('outlet-pick');
+if (outletPick) {
+  const outletSheet = $('outlet-sheet');
+  outletPick.addEventListener('click', () => outletSheet.showModal());
+  $('outlet-close').addEventListener('click', () => outletSheet.close());
+}
 
 // ── Разделы ─────────────────────────────────────────────────────────────────
 function showTab(which) {
