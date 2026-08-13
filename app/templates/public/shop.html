@@ -9,7 +9,7 @@
   <style>
     :root {
       --bg: #f1f5f9; --card: #fff; --ink: #0f172a; --muted: #64748b;
-      --line: #e2e8f0; --brand: #16a34a; --brand-soft: #dcfce7; --warn: #f59e0b;
+      --line: #e2e8f0; --brand: #16a34a; --brand-soft: #dcfce7;
     }
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
@@ -24,6 +24,13 @@
     .pill { background: var(--brand-soft); color: var(--brand); font-weight: 600;
             font-size: .78rem; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
 
+    .rule {
+      display: flex; gap: 10px; align-items: flex-start; background: #fffbeb;
+      border: 1px solid #fde68a; border-radius: 14px; padding: 12px 14px; margin-bottom: 12px;
+      font-size: .84rem; color: #713f12;
+    }
+    .rule b { white-space: nowrap; }
+
     .repeat {
       display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
       background: var(--card); border: 1px solid var(--line); border-radius: 16px;
@@ -35,18 +42,8 @@
     .repeat .t { font-weight: 700; }
     .repeat .s { color: var(--muted); font-size: .84rem; }
 
-    .search { width: 100%; padding: 13px 14px; border: 1px solid var(--line);
-              border-radius: 14px; font-size: 1rem; background: var(--card); margin-bottom: 10px; }
-    .search:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
-
-    .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
-    .tab { flex: 1; padding: 10px; text-align: center; border-radius: 12px; font-weight: 600;
-           font-size: .92rem; background: var(--card); border: 1px solid var(--line);
-           color: var(--muted); cursor: pointer; }
-    .tab.on { background: var(--ink); border-color: var(--ink); color: #fff; }
-
     .group { font-size: .74rem; text-transform: uppercase; letter-spacing: .05em;
-             color: var(--muted); font-weight: 700; margin: 18px 4px 8px; }
+             color: var(--muted); font-weight: 700; margin: 20px 4px 8px; }
     .item {
       display: flex; align-items: center; gap: 12px; background: var(--card);
       border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
@@ -56,8 +53,6 @@
     .nm { font-weight: 600; font-size: .95rem; }
     .meta { color: var(--muted); font-size: .8rem; margin-top: 2px; }
     .price { font-weight: 700; white-space: nowrap; }
-    .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-    .dot.in { background: var(--brand); } .dot.low { background: var(--warn); } .dot.order { background: #cbd5e1; }
 
     .stepper { display: flex; align-items: center; gap: 2px; }
     .stepper button {
@@ -65,7 +60,7 @@
       background: #f8fafc; font-size: 1.25rem; font-weight: 600; color: var(--ink); cursor: pointer;
     }
     .stepper button:active { background: var(--brand-soft); }
-    .stepper .q { min-width: 34px; text-align: center; font-weight: 700; font-size: 1rem; }
+    .stepper .q { min-width: 42px; text-align: center; font-weight: 700; font-size: 1rem; }
     .add { padding: 9px 16px; border-radius: 10px; border: 1px solid var(--brand);
            background: var(--brand-soft); color: var(--brand); font-weight: 700; cursor: pointer; font-size: .9rem; }
 
@@ -104,9 +99,9 @@
            border-bottom: 1px solid var(--line); font-size: .9rem; }
     .row .r-n { flex: 1; }
     .row .r-q { color: var(--muted); white-space: nowrap; }
-    .empty { text-align: center; color: var(--muted); padding: 40px 20px; }
     .link { background: none; border: 0; color: var(--muted); font: inherit;
             text-decoration: underline; cursor: pointer; padding: 12px; width: 100%; }
+    .saved { color: var(--muted); font-size: .75rem; text-align: center; margin: 14px 0 4px; min-height: 1.1em; }
   </style>
 </head>
 <body>
@@ -119,6 +114,14 @@
     {% if discount %}<span class="pill">ваша скидка {{ discount|round(0)|int }}%</span>{% endif %}
   </div>
 
+  <div class="rule">
+    <span>📦</span>
+    <span>
+      В одной коробке <b>{{ box_size }} орешков</b> — это же и минимальный заказ по каждому виду.
+      Дальше количество меняется шагом по <b>{{ qty_step }} шт</b>.
+    </span>
+  </div>
+
   {% if last_items %}
   <button class="repeat" id="repeat">
     <span class="ico">🔁</span>
@@ -129,14 +132,9 @@
   </button>
   {% endif %}
 
-  <input class="search" id="q" type="search" placeholder="Поиск по названию или артикулу" autocomplete="off">
-
-  <div class="tabs">
-    <div class="tab on" data-tab="mine">Мои товары</div>
-    <div class="tab" data-tab="all">Весь каталог</div>
-  </div>
-
   <div id="list"></div>
+
+  <div class="saved" id="saved"></div>
 </div>
 
 <div class="bar">
@@ -182,70 +180,61 @@
 
 <script>
 const CATALOG = {{ catalog|tojson }};
-const MINE = {{ mine_ids|tojson }};
 const LAST = {{ last_items|tojson }};
+const SAVED_CART = {{ cart_items|tojson }};
 const TOKEN = {{ token|tojson }};
-const KEY = 'shop_cart_' + TOKEN;
+const BOX = {{ box_size }}, MIN = {{ min_qty }}, STEP = {{ qty_step }};
 
 const BY_ID = Object.fromEntries(CATALOG.map(p => [p.id, p]));
-// Корзина живёт в localStorage: товаровед начал набирать на складе, отвлёкся,
-// вернулся через час — набранное на месте.
-let cart = {};
-try { cart = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) { cart = {}; }
-for (const id of Object.keys(cart)) { if (!BY_ID[id]) delete cart[id]; }
+const GROUPS = [['butter', 'На сливочном масле'], ['margarine', 'На маргарине']];
 
-let tab = MINE.length ? 'mine' : 'all';
-if (!MINE.length) { document.querySelector('[data-tab="mine"]').classList.remove('on');
-                    document.querySelector('[data-tab="all"]').classList.add('on'); }
-let query = '';
+// Корзина сетевая: приезжает с сервера вместе со страницей и туда же
+// сохраняется. Набрал половину с телефона на складе — дособрал с компьютера.
+let cart = {};
+for (const it of SAVED_CART) cart[it.id] = it.qty;
 
 const fmt = n => new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
-const STOCK = { in: 'есть на складе', low: 'мало', order: 'под заказ' };
+const esc = s => String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 
-function save() { localStorage.setItem(KEY, JSON.stringify(cart)); }
-
-function visible() {
-  let items = tab === 'mine' && MINE.length
-    ? MINE.map(id => BY_ID[id]).filter(Boolean)
-    : CATALOG;
-  if (query) {
-    const q = query.toLowerCase();
-    items = CATALOG.filter(p => p.name.toLowerCase().includes(q) || (p.article || '').toLowerCase().includes(q));
-  }
-  return items;
+// ── Сохранение корзины на сервер, с задержкой ───────────────────────────────
+let saveTimer = null;
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    const box = document.getElementById('saved');
+    try {
+      await fetch(`/shop/${TOKEN}/cart`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })) }),
+      });
+      box.textContent = 'Корзина сохранена — можно продолжить с другого устройства';
+    } catch (e) {
+      box.textContent = 'Нет связи: корзина сохранится, когда сеть вернётся';
+    }
+  }, 700);
 }
 
 function render() {
-  const items = visible();
-  const list = document.getElementById('list');
-  if (!items.length) {
-    list.innerHTML = '<div class="empty">Ничего не нашлось.<br>Попробуйте другое слово или откройте весь каталог.</div>';
-  } else {
-    // В «Моих товарах» и поиске порядок осмысленный (частота / релевантность) —
-    // группировку по категориям включаем только в полном каталоге.
-    const grouped = (tab === 'all' && !query);
-    let html = '', group = null;
-    for (const p of items) {
-      if (grouped && p.category !== group) { group = p.category; html += `<div class="group">${esc(group)}</div>`; }
-      html += row(p);
-    }
-    list.innerHTML = html;
+  let html = '';
+  for (const [line, title] of GROUPS) {
+    const items = CATALOG.filter(p => p.line === line);
+    if (!items.length) continue;
+    html += `<div class="group">${title}</div>`;
+    for (const p of items) html += row(p);
   }
+  document.getElementById('list').innerHTML = html || '<div class="group">Каталог пуст</div>';
   updateBar();
 }
 
-function esc(s) { return String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
-
 function row(p) {
   const q = cart[p.id] || 0;
-  const box = p.per_box > 1 ? ` · короб ${p.per_box} ${esc(p.unit)}` : '';
   const ctl = q > 0
     ? `<div class="stepper"><button data-minus="${p.id}">−</button><span class="q">${q}</span><button data-plus="${p.id}">+</button></div>`
     : `<button class="add" data-plus="${p.id}">В заказ</button>`;
   return `<div class="item${q ? ' in-cart' : ''}">
       <div class="info">
         <div class="nm">${esc(p.name)}</div>
-        <div class="meta"><span class="dot ${p.stock}"></span>${STOCK[p.stock]}${box}</div>
+        <div class="meta">${q > 0 ? (q / BOX % 1 === 0 ? (q / BOX) + ' кор.' : (q / BOX).toFixed(1) + ' кор.') : 'коробка — ' + BOX + ' шт'}</div>
       </div>
       <div style="text-align:right">
         <div class="price">${fmt(p.price)}</div>
@@ -255,25 +244,35 @@ function row(p) {
     </div>`;
 }
 
+// Первый плюс сразу выкладывает коробку — меньше цех не собирает.
+// Дальше шаг по 3 шт, и ниже коробки количество не опускается: минус с 42
+// убирает позицию целиком, а не оставляет неотгружаемый остаток.
 function step(id, delta) {
-  const p = BY_ID[id]; if (!p) return;
-  // Шагаем коробами: 7 шт при коробе в 12 склад всё равно не соберёт.
-  const inc = p.per_box > 1 ? p.per_box : 1;
-  const next = (cart[id] || 0) + delta * inc;
-  if (next > 0) cart[id] = next; else delete cart[id];
+  const cur = cart[id] || 0;
+  if (delta > 0) {
+    cart[id] = cur === 0 ? MIN : cur + STEP;
+  } else {
+    const next = cur - STEP;
+    if (next < MIN) delete cart[id]; else cart[id] = next;
+  }
   save(); render();
 }
 
 function totals() {
-  let sum = 0, n = 0;
-  for (const [id, q] of Object.entries(cart)) { const p = BY_ID[id]; if (p) { sum += p.price * q; n++; } }
-  return { sum, n };
+  let sum = 0, n = 0, pcs = 0;
+  for (const [id, q] of Object.entries(cart)) {
+    const p = BY_ID[id];
+    if (p) { sum += p.price * q; n++; pcs += q; }
+  }
+  return { sum, n, pcs };
 }
 
 function updateBar() {
-  const { sum, n } = totals();
+  const { sum, n, pcs } = totals();
   document.getElementById('total').textContent = fmt(sum);
-  document.getElementById('count').textContent = n ? `${n} поз. · с учётом вашей скидки` : 'корзина пуста';
+  document.getElementById('count').textContent = n
+    ? `${n} вид${n === 1 ? '' : (n < 5 ? 'а' : 'ов')} · ${pcs} шт`
+    : 'корзина пуста';
   document.getElementById('checkout').disabled = !n;
 }
 
@@ -282,13 +281,6 @@ document.getElementById('list').addEventListener('click', e => {
   if (plus) step(plus.dataset.plus, +1);
   if (minus) step(minus.dataset.minus, -1);
 });
-
-document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.remove('on'));
-  t.classList.add('on'); tab = t.dataset.tab; render();
-}));
-
-document.getElementById('q').addEventListener('input', e => { query = e.target.value.trim(); render(); });
 
 const repeatBtn = document.getElementById('repeat');
 if (repeatBtn) repeatBtn.addEventListener('click', () => {
@@ -310,7 +302,7 @@ document.getElementById('checkout').addEventListener('click', () => {
   const { sum } = totals();
   document.getElementById('rows').innerHTML = Object.entries(cart).map(([id, q]) => {
     const p = BY_ID[id];
-    return `<div class="row"><span class="r-n">${esc(p.name)}</span><span class="r-q">${q} ${esc(p.unit)} · ${fmt(p.price * q)}</span></div>`;
+    return `<div class="row"><span class="r-n">${esc(p.name)}</span><span class="r-q">${q} шт · ${fmt(p.price * q)}</span></div>`;
   }).join('');
   document.getElementById('sheet-total').textContent = fmt(sum);
   sheet.showModal();
@@ -334,7 +326,6 @@ document.getElementById('send').addEventListener('click', async () => {
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Не удалось отправить заказ');
-    localStorage.removeItem(KEY);
     // Сразу на страницу трекинга: заказ уже существует, статус видно —
     // никакого «спасибо, с вами свяжутся».
     window.location.href = data.track_url;

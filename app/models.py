@@ -786,6 +786,29 @@ class Claim(Base):
     created_by = relationship("User")
 
 
+class ShopCart(Base):
+    """Незавершённая корзина клиента в кабинете /shop/{token} — «сетевая»,
+    то есть живёт на сервере, а не в браузере.
+
+    Товаровед начинает набирать заказ с телефона на складе, отвлекается,
+    дособирает вечером с компьютера — корзина должна быть та же. Плюс менеджер
+    видит, что клиент прямо сейчас что-то набирает, но не отправил.
+
+    Одна корзина на контрагента: кабинет один, и разделять её по устройствам
+    как раз не нужно — в этом весь смысл."""
+    __tablename__ = "shop_carts"
+    id = Column(Integer, primary_key=True)
+    counterparty_id = Column(Integer, ForeignKey("counterparties.id"),
+                             unique=True, nullable=False, index=True)
+    # JSON вида [{"id": 5, "qty": 42}, …] — состав корзины. Цены здесь НЕ
+    # храним: они берутся из карточки товара в момент показа и отправки,
+    # иначе клиент увидит вчерашнюю цену, а заказ уедет с сегодняшней.
+    items = Column(Text)
+    updated_at = Column(DateTime, default=msk_now, onupdate=msk_now)
+
+    counterparty = relationship("Counterparty")
+
+
 class Notification(Base):
     __tablename__ = "notifications"
     id = Column(Integer, primary_key=True)
