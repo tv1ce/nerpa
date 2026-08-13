@@ -239,7 +239,11 @@
       background:linear-gradient(90deg,var(--purple),var(--lilac));transition:width .8s ease}
     .plan-line .q{font-size:2.4vh;font-weight:800;color:var(--purple);min-width:5ch;
       text-align:right;font-variant-numeric:tabular-nums}
-    .plan-line .bx{font-size:1.5vh;color:var(--muted);font-weight:600;min-width:6ch}
+    .plan-line .bx{font-size:1.5vh;color:var(--muted);font-weight:600;min-width:7ch}
+    /* Общее количество к отгрузке — рядом с остатком, чтобы «осталось 261»
+       читалось в масштабе задачи, а не само по себе. */
+    .plan-line .tot{font-size:1.7vh;color:var(--ink);font-weight:700;min-width:7ch;
+      text-align:right;font-variant-numeric:tabular-nums}
     .plan-total{flex:0 0 21vw;border-left:1px solid var(--line);padding-left:1.6vw;
       display:flex;flex-direction:column;justify-content:center}
     .plan-total-qty{display:flex;align-items:baseline;gap:.5vw;white-space:nowrap}
@@ -865,6 +869,7 @@
             <u style="width:${l.qty ? Math.round(done / l.qty * 100) : 0}%"></u></i></span>
           <span class="q">${ready ? '✓' : fmt(l.qty - done)}</span>
           <span class="bx">${ready ? 'готово' : 'осталось'}</span>
+          <span class="tot">из ${fmt(l.qty)}</span>
         </div>`;
       }).join('');
 

@@ -42,11 +42,23 @@
       </div>
     </form>
   </div>
+  {% if paid_done %}
+  <div class="alert alert-success alert-dismissible fade show py-2 px-3 m-3 mb-0" style="font-size:.88rem">
+    Отмечено оплаченными: <b>{{ paid_done }}</b>
+    <button type="button" class="btn-close btn-sm" data-bs-dismiss="alert"></button>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/invoices/bulk-paid" id="bulk-paid-form">
+  <input type="hidden" name="back" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query | replace('&paid_done=' ~ paid_done, '') | replace('paid_done=' ~ paid_done, '') }}{% endif %}">
   <div class="table-responsive">
     <table class="table tms-table mb-0">
       <thead>
         <tr>
-          <th class="ps-3">№ счёта</th>
+          <th class="ps-3" style="width:1%">
+            <input type="checkbox" class="form-check-input" id="bulk-all" title="Выбрать все неоплаченные">
+          </th>
+          <th>№ счёта</th>
           <th>Клиент</th>
           <th>Дата</th>
           <th>Оплатить до</th>
@@ -58,7 +70,12 @@
       <tbody>
         {% for inv in invoices %}
         <tr>
-          <td class="ps-3"><a href="/invoices/{{ inv.id }}" class="fw-semibold text-decoration-none">{{ inv.number }}</a></td>
+          <td class="ps-3">
+            {% if inv.status in ('issued', 'overdue', 'partial') %}
+            <input type="checkbox" class="form-check-input bulk-pick" name="invoice_ids" value="{{ inv.id }}">
+            {% endif %}
+          </td>
+          <td><a href="/invoices/{{ inv.id }}" class="fw-semibold text-decoration-none">{{ inv.number }}</a></td>
           <td><a href="/invoices/{{ inv.id }}" class="text-decoration-none">{{ inv.counterparty.trade_name or inv.counterparty.name }}</a></td>
           <td>{{ inv.date | date_fmt }}</td>
           <td>
@@ -83,10 +100,65 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="text-center py-4 text-muted">Счетов не найдено</td></tr>
+        <tr><td colspan="8" class="text-center py-4 text-muted">Счетов не найдено</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {# Панель появляется, только когда что-то выбрано: пустая полоса внизу
+     экрана мешала бы читать список. #}
+  <div id="bulk-bar" class="border-top bg-white p-3 d-none">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <span class="fw-semibold" style="font-size:.9rem">
+        Выбрано: <span id="bulk-count">0</span>
+      </span>
+      <div class="d-flex align-items-center gap-2">
+        <label class="text-muted" style="font-size:.85rem">Дата оплаты</label>
+        <input type="date" name="paid_date" class="form-control form-control-sm"
+               style="width:auto" value="{{ today.isoformat() }}">
+      </div>
+      <button class="btn btn-sm btn-success"
+              data-confirm="Отметить выбранные счета оплаченными?">
+        <i class="bi bi-check2-circle me-1"></i>Отметить оплаченными
+      </button>
+      <button type="button" class="btn btn-sm btn-link text-muted" id="bulk-clear">Снять выделение</button>
+    </div>
+  </div>
+  </form>
 </div>
+
+<script>
+(function () {
+  const form = document.getElementById('bulk-paid-form');
+  if (!form) return;
+  const all = document.getElementById('bulk-all');
+  const bar = document.getElementById('bulk-bar');
+  const count = document.getElementById('bulk-count');
+  const boxes = () => Array.from(form.querySelectorAll('.bulk-pick'));
+
+  function sync() {
+    const picked = boxes().filter(b => b.checked);
+    count.textContent = picked.length;
+    bar.classList.toggle('d-none', picked.length === 0);
+    if (all) {
+      all.checked = picked.length > 0 && picked.length === boxes().length;
+      all.indeterminate = picked.length > 0 && picked.length < boxes().length;
+    }
+  }
+
+  if (all) all.addEventListener('change', () => {
+    boxes().forEach(b => { b.checked = all.checked; });
+    sync();
+  });
+  form.addEventListener('change', e => {
+    if (e.target.classList.contains('bulk-pick')) sync();
+  });
+  document.getElementById('bulk-clear').addEventListener('click', () => {
+    boxes().forEach(b => { b.checked = false; });
+    sync();
+  });
+  sync();
+})();
+</script>
 {% endblock %}

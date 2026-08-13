@@ -653,6 +653,13 @@ async def change_status(request: Request, order_id: int,
         # Момент передачи поставщику — дата отгрузки в отчётах.
         if status == "handed" and order.handed_at is None:
             order.handed_at = datetime.now()
+        # Откат назад — снимаем отметки времени. Иначе заказ, собранный 10-го,
+        # возвращённый на сборку и собранный заново 14-го, зачтётся табло и
+        # отчётам десятым числом: отметка ставится только при ПЕРВОМ переходе.
+        if status not in ("assembled", "handed", "delivered"):
+            order.assembled_at = None
+        if status not in ("handed", "delivered"):
+            order.handed_at = None
         log_action(db, "order", order_id, "status_changed",
                    request.session.get("user_id"),
                    f"Статус: {ORDER_STATUSES.get(old_status, old_status)} → {ORDER_STATUSES.get(status, status)}",

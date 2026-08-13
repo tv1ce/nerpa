@@ -7,7 +7,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import login_required, role_required
+from app.utils import log_action
+from app.auth import login_required, role_required, safe_redirect
 from app.models import Invoice, InvoiceItem, Counterparty, Order, Product, CompanySettings, Contract, Comment, AuditLog, User
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,7 @@ async def list_invoices(
     date_to: str = "",
     counterparty_id: int = 0,
     overdue: str = "",
+    paid_done: int = 0,
     db: Session = Depends(get_db),
 ):
     from datetime import date as _date
@@ -129,6 +131,7 @@ async def list_invoices(
         "date_from": date_from, "date_to": date_to,
         "counterparty_id": counterparty_id, "overdue": overdue,
         "counterparties": counterparties, "today": today,
+        "paid_done": paid_done,
     })
 
 
@@ -348,6 +351,9 @@ async def change_status(request: Request, invoice_id: int,
             # При повторном сохранении уже оплаченного счёта дату не трогаем.
             if old_status != "paid" or invoice.paid_date is None:
                 invoice.paid_date = date.today()
+            # Сумму закрываем вместе со статусом — иначе оплаченный счёт
+            # остаётся долгом в дебиторке (там долг = итог минус оплачено).
+            invoice.paid_amount = invoice.total_amount
             # Подтягиваем статус связанного заказа (предоплата → «Оплачен»)
             if invoice.order:
                 from app.utils import sync_order_paid_status
@@ -358,6 +364,66 @@ async def change_status(request: Request, invoice_id: int,
             invoice.paid_date = None
         db.commit()
     return RedirectResponse(url=f"/invoices/{invoice_id}", status_code=302)
+
+
+@router.post("/bulk-paid")
+@role_required("manager")
+async def bulk_mark_paid(request: Request,
+                         invoice_ids: list[str] = Form(default=[]),
+                         paid_date: str = Form(default=""),
+                         back: str = Form(default=""),
+                         db: Session = Depends(get_db)):
+    """Массовая отметка счетов оплаченными.
+
+    Часть оплат не подхватывается автоматически из банка (платёж без узнаваемого
+    назначения, оплата с чужого счёта, приход мимо интеграции), и такие счета
+    приходится закрывать руками. По одному это значит зайти в каждый счёт и
+    выбрать статус — на десятке счетов занятие бессмысленное.
+
+    Дата оплаты общая на всю пачку: закрывают обычно задним числом, по выписке
+    за конкретный день. Уже оплаченные и отменённые счета пропускаются."""
+    ids = []
+    for raw in invoice_ids:
+        if str(raw).isdigit():
+            ids.append(int(raw))
+    if not ids:
+        return RedirectResponse(url=safe_redirect(back, "/invoices/"), status_code=302)
+
+    try:
+        when = date.fromisoformat(paid_date) if paid_date else date.today()
+    except ValueError:
+        when = date.today()
+
+    user_id = request.session.get("user_id")
+    invoices = db.query(Invoice).filter(Invoice.id.in_(ids)).all()
+    updated, order_ids = 0, []
+    for invoice in invoices:
+        if invoice.status in ("paid", "cancelled"):
+            continue
+        invoice.status = "paid"
+        invoice.paid_date = when
+        # Закрываем и сумму: иначе счёт считается оплаченным, но продолжает
+        # висеть долгом в дебиторке и сводках по сетям, где долг это
+        # total_amount - paid_amount.
+        invoice.paid_amount = invoice.total_amount
+        updated += 1
+        log_action(db, "invoice", invoice.id, "status", user_id,
+                   f"Отмечен оплаченным ({when.strftime('%d.%m.%Y')}), массово из списка счетов")
+        if invoice.order:
+            from app.utils import sync_order_paid_status
+            sync_order_paid_status(db, invoice.order, user_id)
+            if invoice.order.bitrix_deal_id:
+                order_ids.append(invoice.order_id)
+    db.commit()
+
+    # Bitrix дёргаем в фоне: на пачке счетов это десятки секунд, и держать
+    # менеджера на белом экране ради CRM незачем.
+    for order_id in order_ids:
+        threading.Thread(target=_push_bitrix_paid_bg, args=(order_id,), daemon=True).start()
+
+    target = safe_redirect(back, "/invoices/")
+    sep = "&" if "?" in target else "?"
+    return RedirectResponse(url=f"{target}{sep}paid_done={updated}", status_code=302)
 
 
 @router.get("/{invoice_id}/pdf")
