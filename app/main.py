@@ -202,15 +202,23 @@ def _notify_due_invoices() -> int:
         db.close()
 
 
+def _overdue_pass() -> None:
+    """Один проход по просрочкам и напоминаниям — синхронный, для потока."""
+    _mark_overdue_invoices()
+    _mark_expired_contracts()
+    _notify_expiring_contracts()
+    _notify_due_invoices()
+    _notify_unfilled_metrics()
+
+
 async def _overdue_loop():
-    """Фоновая задача: просрочка счетов/договоров + напоминания, каждый час."""
+    """Фоновая задача: просрочка счетов/договоров + напоминания, каждый час.
+
+    В потоке по той же причине, что и эскалации: внутри синхронная работа с БД
+    и отправка уведомлений, которой нечего делать в event loop."""
     while True:
         try:
-            _mark_overdue_invoices()
-            _mark_expired_contracts()
-            _notify_expiring_contracts()
-            _notify_due_invoices()
-            _notify_unfilled_metrics()
+            await asyncio.to_thread(_overdue_pass)
         except Exception as e:
             logger.error("overdue_loop: %s", e)
         await asyncio.sleep(3600)  # раз в час
@@ -273,10 +281,16 @@ def _escalate_bitrix_alerts(threshold_minutes: int = 10) -> int:
 
 
 async def _bitrix_escalation_loop():
-    """Фоновая задача: проверка непрочитанных заказов из Bitrix24, каждые 5 минут."""
+    """Фоновая задача: проверка непрочитанных заказов из Bitrix24, каждые 5 минут.
+
+    _escalate_bitrix_alerts — СИНХРОННАЯ функция с блокирующими запросами в
+    Telegram, поэтому уводим её в поток. 13.08.2026 у сервера отвалилась
+    исходящая сеть: каждый запрос умирал по таймауту в 10с, а так как они шли
+    прямо в event loop, тот стоял колом — uvicorn не мог завершить startup и
+    не открывал порт. TMS лежал целиком из-за необязательных напоминаний."""
     while True:
         try:
-            _escalate_bitrix_alerts()
+            await asyncio.to_thread(_escalate_bitrix_alerts)
         except Exception as e:
             logger.error("bitrix_escalation_loop: %s", e)
         await asyncio.sleep(300)
@@ -559,12 +573,11 @@ async def _resubscribe_tochka_webhook() -> None:
 async def lifespan(_app: FastAPI):
     """FastAPI lifespan: заменяет устаревший @app.on_event('startup')."""
     # ── startup ──────────────────────────────────────────────────────────────
-    _mark_overdue_invoices()          # перевести просроченные счета
-    _mark_expired_contracts()         # перевести истёкшие договора
-    _notify_expiring_contracts()      # уведомления об истечении договоров
-    _notify_due_invoices()            # напоминания об оплате счетов
-    _rotate_generated(max_age_days=90)  # удалить старые docx
-    asyncio.create_task(_overdue_loop())  # фоновый цикл каждый час
+    # Стартовый проход по просрочкам и чистка старых docx — в фоне: раньше они
+    # шли синхронно и задерживали открытие порта, а при недоступной сети
+    # (уведомления уходят в Telegram) могли задержать его на минуты.
+    _rotate_generated(max_age_days=90)  # удалить старые docx — только диск, быстро
+    asyncio.create_task(_overdue_loop())  # первый проход делает сам цикл
     asyncio.create_task(_bitrix_escalation_loop())  # напоминания о необработанных заказах Bitrix24
     board.start_now_playing()         # поллер «сейчас играет» на табло
 
