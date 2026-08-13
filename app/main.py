@@ -678,6 +678,23 @@ async def pwa_service_worker():
     )
 
 
+@app.get("/shop-sw.js", include_in_schema=False)
+async def shop_service_worker():
+    """Service worker кабинета клиента.
+
+    Отдаётся с корня, потому что scope не может быть шире пути самого файла:
+    лежи он в /static/js/, кабинет по /shop/… он бы не покрыл. Заголовок
+    Service-Worker-Allowed разрешает объявленный при регистрации scope '/shop/'."""
+    return FileResponse(
+        "app/static/js/shop-sw.js",
+        media_type="application/javascript",
+        headers={
+            "Service-Worker-Allowed": "/shop/",
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 # ── Автообновление Android-приложения ────────────────────────────────────────
 # Приложение при запуске запрашивает /app/version.json и сравнивает versionCode
 # с установленным. Если на сервере новее — скачивает APK с /app/download.

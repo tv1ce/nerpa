@@ -77,6 +77,31 @@
       color: var(--ink); background: var(--surface); white-space: nowrap;
     }
 
+    /* ── Точки доставки ────────────────────────────────────────────────── */
+    .outlets {
+      display: flex; gap: 8px; overflow-x: auto; margin: 14px 0 2px;
+      padding-bottom: 4px; scrollbar-width: none;
+    }
+    .outlets::-webkit-scrollbar { display: none; }
+    .outlet {
+      display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+      min-height: 40px; padding: 0 14px; border-radius: 999px;
+      border: 1px solid var(--line-2); background: var(--surface);
+      color: var(--ink-2); text-decoration: none; font-size: .88rem; font-weight: 600;
+      transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+    }
+    .outlet:hover { border-color: var(--ink); color: var(--ink); }
+    .outlet.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+    .outlet svg { flex-shrink: 0; }
+
+    /* ── Офлайн ────────────────────────────────────────────────────────── */
+    .offline {
+      display: none; align-items: center; gap: 10px;
+      background: var(--sunk); border: 1px solid var(--line-2); border-radius: var(--r-md);
+      padding: 10px 14px; margin: 14px 0 0; font-size: .86rem; color: var(--ink-2);
+    }
+    body.is-offline .offline { display: flex; }
+
     /* ── Переключатель разделов ────────────────────────────────────────── */
     .tabs {
       display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
@@ -297,6 +322,31 @@
 </header>
 
 <main class="wrap">
+  <div class="offline" id="offline" role="status">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M1 1l22 22"/><path d="M16.7 13.7A5 5 0 0 0 12 11"/>
+      <path d="M5 12.5a10 10 0 0 1 4-2.4"/><path d="M2 8.8a15 15 0 0 1 5-3"/>
+      <path d="M17 8a15 15 0 0 1 5 3"/><path d="M12 20h.01"/>
+    </svg>
+    <span id="offline-txt">Нет связи — можно спокойно собирать заказ, отправим, когда сеть вернётся</span>
+  </div>
+  {% if outlets|length > 1 %}
+  <nav class="outlets" aria-label="Точка доставки">
+    {% for o in outlets %}
+    <a class="outlet{% if o.key == outlet_key %} on{% endif %}"
+       href="/shop/{{ token }}?p={{ o.key|urlencode }}"
+       {% if o.key == outlet_key %}aria-current="page"{% endif %}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>
+      </svg>
+      {{ o.label }}
+    </a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
   <div class="tabs" role="tablist">
     <button role="tab" id="tab-order" aria-selected="true" aria-controls="view-order">Новый заказ</button>
     <button role="tab" id="tab-history" aria-selected="false" aria-controls="view-history">
@@ -433,6 +483,7 @@ const CATALOG = {{ catalog|tojson }};
 const LAST = {{ last_items|tojson }};
 const SAVED_CART = {{ cart_items|tojson }};
 const TOKEN = {{ token|tojson }};
+const OUTLET = {{ outlet_key|tojson }};
 const BOX = {{ box_capacity }}, MIN = {{ min_qty }}, STEP = {{ qty_step }};
 
 const $ = id => document.getElementById(id);
@@ -443,6 +494,14 @@ const GROUPS = [['butter', 'На сливочном масле'], ['margarine', 
 // сохраняется — набрал половину с телефона, дособрал с компьютера.
 let cart = {};
 for (const it of SAVED_CART) cart[it.id] = it.qty;
+// Страница могла прийти из кэша service worker'а — тогда состав корзины в ней
+// вчерашний. Локальный буфер свежее: он пишется на каждое изменение.
+try {
+  const raw = (() => { try { return localStorage.getItem(`shop_cart_${TOKEN}_${OUTLET}`); }
+                       catch (e) { return null; } })();
+  const local = JSON.parse(raw || 'null');
+  if (local && Object.keys(local).length && !SAVED_CART.length) cart = local;
+} catch (e) {}
 
 const nf = new Intl.NumberFormat('ru-RU');
 const money = n => nf.format(Math.round(n)) + ' ₽';
@@ -465,21 +524,55 @@ function boxes(qty) {
   return `${n} ${plural(n, 'коробка', 'коробки', 'коробок')}`;
 }
 
+// ── Офлайн ──────────────────────────────────────────────────────────────────
+// Кофейня бывает в подвале, и связь пропадает ровно тогда, когда товаровед
+// начал собирать заказ. Всё, что можно сделать локально, делается локально:
+// корзина живёт в браузере и досылается на сервер, когда сеть вернётся,
+// а отправленный без связи заказ ждёт своей минуты и уходит сам.
+const LS_CART = `shop_cart_${TOKEN}_${OUTLET}`;
+const LS_PENDING = `shop_pending_${TOKEN}_${OUTLET}`;
+
+// Обёртка над localStorage: в приватном режиме и при отключённых куках любое
+// обращение к нему бросает исключение. Без обёртки такой бросок в середине
+// успешной отправки заказа выглядел бы как обрыв связи — и заказ ушёл бы в
+// очередь, хотя он уже принят. Хранилище — вещь необязательная: нет так нет.
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+
+function setOffline(off) {
+  document.body.classList.toggle('is-offline', off);
+}
+setOffline(!navigator.onLine);
+
+function localSave() {
+  store.set(LS_CART, JSON.stringify(cart));
+}
+
 // ── Сохранение корзины на сервер ────────────────────────────────────────────
 let saveTimer = null;
 function save() {
+  localSave();
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    try {
-      await fetch(`/shop/${TOKEN}/cart`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })) }),
-      });
-      $('saved').textContent = 'Корзина сохранена — можно продолжить с другого устройства';
-    } catch (e) {
-      $('saved').textContent = 'Нет связи: корзина сохранится, когда сеть вернётся';
-    }
-  }, 700);
+  saveTimer = setTimeout(pushCart, 700);
+}
+
+async function pushCart() {
+  try {
+    const res = await fetch(`/shop/${TOKEN}/cart`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ outlet: OUTLET,
+        items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })) }),
+    });
+    if (!res.ok) throw new Error();
+    setOffline(false);
+    $('saved').textContent = 'Корзина сохранена — можно продолжить с другого устройства';
+  } catch (e) {
+    setOffline(true);
+    $('saved').textContent = 'Нет связи: корзина сохранена на телефоне, отправим её позже';
+  }
 }
 
 function render() {
@@ -631,30 +724,102 @@ $('checkout').addEventListener('click', () => {
 });
 $('close').addEventListener('click', () => sheet.close());
 
+// Отправка заказа. Отдельно разбираем два случая: сервер ответил отказом
+// (показываем причину — она осмысленная) и связи не было вовсе (заказ кладём
+// в очередь и досылаем; молча терять его нельзя).
+async function submitOrder(payload, { silent = false } = {}) {
+  const res = await fetch(`/shop/${TOKEN}/submit`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({ ok: false, error: 'Сервер не ответил' }));
+  if (!data.ok) { const err = new Error(data.error || 'Не удалось отправить заказ'); err.server = true; throw err; }
+  return data;
+}
+
+// Очередь держим и в памяти, и в хранилище. Память — чтобы обещание «отправим
+// сами» сработало даже там, где localStorage запрещён (приватный режим);
+// хранилище — чтобы заказ пережил закрытие страницы.
+let pendingOrder = null;
+
+function queueOrder(payload) {
+  pendingOrder = payload;
+  store.set(LS_PENDING, JSON.stringify({ at: Date.now(), payload }));
+}
+
+async function flushPending() {
+  let payload = pendingOrder;
+  if (!payload) {
+    let saved = null;
+    try { saved = JSON.parse(store.get(LS_PENDING) || 'null'); } catch (e) {}
+    payload = saved && saved.payload;
+  }
+  if (!payload) return;
+  try {
+    const data = await submitOrder(payload);
+    pendingOrder = null;
+    store.del(LS_PENDING);
+    store.del(LS_CART);
+    window.location.href = data.redirect;
+  } catch (e) {
+    // Сервер отказал по существу (например, дата переполнена) — очередь чистим,
+    // иначе заказ будет вечно биться в закрытую дверь.
+    if (e.server) {
+      pendingOrder = null;
+      store.del(LS_PENDING);
+      $('err').textContent = e.message;
+      if (!sheet.open) sheet.showModal();
+    }
+  }
+}
+
 $('send').addEventListener('click', async () => {
   const btn = $('send');
   if (!slotDate) { $('err').textContent = 'Выберите дату доставки'; return; }
   if (!checkCapacity()) return;
   btn.disabled = true; btn.textContent = 'Отправляем…'; $('err').textContent = '';
+
+  const payload = {
+    outlet: OUTLET,
+    items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })),
+    delivery_date: slotDate,
+    address: $('address').value,
+    contact: $('contact').value,
+    comment: $('comment').value,
+  };
+
   try {
-    const res = await fetch(`/shop/${TOKEN}/submit`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })),
-        delivery_date: slotDate,
-        address: $('address').value,
-        contact: $('contact').value,
-        comment: $('comment').value,
-      }),
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'Не удалось отправить заказ');
+    const data = await submitOrder(payload);
+    store.del(LS_CART);
     window.location.href = data.redirect;
   } catch (e) {
-    $('err').textContent = e.message || 'Ошибка отправки, попробуйте ещё раз';
-    btn.disabled = false; btn.textContent = 'Отправить заказ';
+    if (e.server) {
+      $('err').textContent = e.message;
+      btn.disabled = false; btn.textContent = 'Отправить заказ';
+    } else {
+      queueOrder(payload);
+      setOffline(true);
+      $('offline-txt').textContent = 'Заказ ждёт связи — отправим его сами, как только появится интернет';
+      $('err').textContent = 'Нет связи. Заказ сохранён и уйдёт автоматически, когда интернет вернётся.';
+      btn.textContent = 'Ждём связи…';
+    }
   }
 });
+
+window.addEventListener('online', () => {
+  setOffline(false);
+  pushCart();
+  flushPending();
+});
+window.addEventListener('offline', () => setOffline(true));
+
+// Страницу могли открыть заново уже со связью — досылаем то, что не ушло
+if (navigator.onLine) flushPending();
+
+// Service worker: без него страница кабинета просто не откроется без сети.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/shop-sw.js', { scope: '/shop/' }).catch(() => {});
+}
 
 render();
 </script>

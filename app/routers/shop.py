@@ -108,7 +108,58 @@ def _find_counterparty(db: Session, token: str) -> Counterparty | None:
     return cp
 
 
-def _catalog(db: Session, cp: Counterparty) -> tuple[list, list]:
+def client_outlets(db: Session, cp: Counterparty) -> list[dict]:
+    """Точки клиента — по адресам его прошлых заказов.
+
+    У одного юрлица бывает несколько кофеен, и заказывают на них по-разному.
+    Отдельные ссылки на точку заводить не стали: товаровед один, ссылка у него
+    одна, а точку он выбирает внутри. Список берём из истории заказов, а не из
+    Bitrix24 — это локально, быстро и не ломается, когда CRM недоступна.
+
+    Ключ точки — «улица:дом» (та же нормализация, что в аналитике точек):
+    один и тот же адрес пишут по-разному, и без нормализации «Гончарная 2» и
+    «г Санкт-Петербург, ул Гончарная, д 2» стали бы двумя точками."""
+    from app.services.outlets import normalize_address, address_label
+
+    rows = (db.query(Order.delivery_address)
+            .filter(Order.counterparty_id == cp.id,
+                    Order.status != "cancelled",
+                    Order.delivery_address.isnot(None))
+            .order_by(Order.date.desc(), Order.id.desc())
+            .all())
+
+    found: dict[str, dict] = {}
+    for (addr,) in rows:
+        key = normalize_address(addr)
+        if not key:
+            continue
+        if key not in found:
+            # Первым идёт самое свежее написание адреса — его и показываем
+            found[key] = {"key": key, "address": (addr or "").strip(),
+                          "label": address_label(key), "orders": 0}
+        found[key]["orders"] += 1
+
+    fallback = (cp.actual_address or cp.legal_address or "").strip()
+    if fallback:
+        key = normalize_address(fallback)
+        if key and key not in found:
+            found[key] = {"key": key, "address": fallback,
+                          "label": address_label(key), "orders": 0}
+
+    return sorted(found.values(), key=lambda o: (-o["orders"], o["label"]))
+
+
+def pick_outlet(outlets: list[dict], key: str | None) -> dict | None:
+    """Выбранная точка: из ссылки, иначе самая ходовая."""
+    if not outlets:
+        return None
+    for o in outlets:
+        if o["key"] == key:
+            return o
+    return outlets[0]
+
+
+def _catalog(db: Session, cp: Counterparty, outlet: dict | None = None) -> tuple[list, list]:
     """(витрина орешков, позиции последнего заказа для кнопки «Повторить»).
 
     Остатки склада здесь намеренно НЕ участвуют: орешки печём под заказ, и
@@ -140,12 +191,14 @@ def _catalog(db: Session, cp: Counterparty) -> tuple[list, list]:
 
     known = {c["id"] for c in catalog}
 
-    # ── Последний заказ клиента — для кнопки «Повторить» ────────────────────
-    last_order = (db.query(Order)
-                  .filter(Order.counterparty_id == cp.id,
-                          Order.status != "cancelled")
-                  .order_by(Order.date.desc(), Order.id.desc())
-                  .first())
+    # ── Последний заказ ЭТОЙ точки — для кнопки «Повторить» ─────────────────
+    # Точки заказывают по-разному, и повтор заказа с соседней кофейни сбивал бы
+    # с толку сильнее, чем помогал.
+    orders = (db.query(Order)
+              .filter(Order.counterparty_id == cp.id, Order.status != "cancelled")
+              .order_by(Order.date.desc(), Order.id.desc())
+              .limit(50).all())
+    last_order = _first_of_outlet(orders, outlet)
     last = []
     if last_order:
         for item in last_order.items:
@@ -155,18 +208,40 @@ def _catalog(db: Session, cp: Counterparty) -> tuple[list, list]:
     return catalog, last
 
 
-def _load_cart(db: Session, cp: Counterparty, known: set[int]) -> list[dict]:
-    """Сохранённая корзина контрагента, очищенная от товаров, которых больше
-    нет на витрине (номенклатуру могли выключить, пока клиент думал)."""
-    row = db.query(ShopCart).filter(ShopCart.counterparty_id == cp.id).first()
+def _first_of_outlet(orders: list, outlet: dict | None):
+    """Первый заказ, относящийся к точке. Без точки — просто первый."""
+    if not outlet:
+        return orders[0] if orders else None
+    from app.services.outlets import normalize_address
+    for o in orders:
+        if normalize_address(o.delivery_address) == outlet["key"]:
+            return o
+    return None
+
+
+def _cart_map(row: ShopCart | None) -> dict:
+    """Корзины контрагента как {ключ точки: [позиции]}.
+
+    Исторически в поле лежал плоский список — это корзина клиента до появления
+    точек. Читаем оба формата, пишем всегда новый."""
     if not row or not row.items:
-        return []
+        return {}
     try:
         raw = json.loads(row.items)
     except (ValueError, TypeError):
-        return []
+        return {}
+    if isinstance(raw, list):
+        return {"": raw}
+    if isinstance(raw, dict):
+        return {str(k): v for k, v in raw.items() if isinstance(v, list)}
+    return {}
+
+
+def _clean_items(raw: list, known: set[int]) -> list[dict]:
+    """Отбрасывает товары, которых больше нет на витрине (номенклатуру могли
+    выключить, пока клиент думал), и приводит количества к правилам."""
     out = []
-    for it in raw if isinstance(raw, list) else []:
+    for it in raw or []:
         try:
             pid, qty = int(it.get("id")), float(it.get("qty") or 0)
         except (TypeError, ValueError, AttributeError):
@@ -176,12 +251,26 @@ def _load_cart(db: Session, cp: Counterparty, known: set[int]) -> list[dict]:
     return out
 
 
-def _save_cart(db: Session, cp: Counterparty, items: list[dict]) -> None:
+def _load_cart(db: Session, cp: Counterparty, known: set[int],
+               outlet_key: str = "") -> list[dict]:
+    """Корзина выбранной точки. Наследует старую «безточечную», если своей ещё нет."""
+    carts = _cart_map(db.query(ShopCart).filter(ShopCart.counterparty_id == cp.id).first())
+    raw = carts.get(outlet_key)
+    if raw is None and outlet_key and "" in carts:
+        raw = carts[""]          # корзина, набранная до появления точек
+    return _clean_items(raw or [], known)
+
+
+def _save_cart(db: Session, cp: Counterparty, items: list[dict],
+               outlet_key: str = "") -> None:
     row = db.query(ShopCart).filter(ShopCart.counterparty_id == cp.id).first()
     if not row:
         row = ShopCart(counterparty_id=cp.id)
         db.add(row)
-    row.items = json.dumps(items, ensure_ascii=False)
+    carts = _cart_map(row)
+    carts.pop("", None)          # старый формат больше не поддерживаем на запись
+    carts[outlet_key] = items
+    row.items = json.dumps(carts, ensure_ascii=False)
     db.commit()
 
 
@@ -394,7 +483,8 @@ def _delivery_slots(db: Session, company) -> list[dict]:
     return slots
 
 
-def _order_history(db: Session, cp: Counterparty, limit: int = 12) -> list[dict]:
+def _order_history(db: Session, cp: Counterparty, outlet: dict | None = None,
+                   limit: int = 12) -> list[dict]:
     """История заказов клиента — то, что он уже у нас заказывал.
 
     Берём заказы из TMS: они приезжают туда из Bitrix24 после согласования, то
@@ -406,8 +496,12 @@ def _order_history(db: Session, cp: Counterparty, limit: int = 12) -> list[dict]
     orders = (db.query(Order)
               .filter(Order.counterparty_id == cp.id, Order.status != "cancelled")
               .order_by(Order.date.desc(), Order.id.desc())
-              .limit(limit)
+              .limit(limit * 4 if outlet else limit)
               .all())
+    if outlet:
+        from app.services.outlets import normalize_address
+        orders = [o for o in orders
+                  if normalize_address(o.delivery_address) == outlet["key"]][:limit]
     out = []
     for o in orders:
         # Ключ намеренно не "items": в Jinja `o.items` разрешается в метод
@@ -430,7 +524,7 @@ def _order_history(db: Session, cp: Counterparty, limit: int = 12) -> list[dict]
 
 
 @router.get("/{token}", response_class=HTMLResponse)
-async def shop_page(request: Request, token: str, db: Session = Depends(get_db)):
+async def shop_page(request: Request, token: str, p: str = "", db: Session = Depends(get_db)):
     ip = request.client.host if request.client else "?"
     if _rate_limited(ip):
         return HTMLResponse("Слишком много запросов, попробуйте через минуту", status_code=429)
@@ -440,10 +534,14 @@ async def shop_page(request: Request, token: str, db: Session = Depends(get_db))
         return templates.TemplateResponse(request, "public/shop_notfound.html",
                                           {}, status_code=404)
 
-    catalog, last = _catalog(db, cp)
-    cart = _load_cart(db, cp, {c["id"] for c in catalog})
+    outlets = client_outlets(db, cp)
+    outlet = pick_outlet(outlets, p)
+    outlet_key = outlet["key"] if outlet else ""
+
+    catalog, last = _catalog(db, cp, outlet)
+    cart = _load_cart(db, cp, {c["id"] for c in catalog}, outlet_key)
     company = db.query(CompanySettings).first()
-    history = _order_history(db, cp)
+    history = _order_history(db, cp, outlet)
     return templates.TemplateResponse(request, "public/shop.html", {
         "cp": cp,
         "company": company,
@@ -456,7 +554,11 @@ async def shop_page(request: Request, token: str, db: Session = Depends(get_db))
         "min_date": (date.today() + timedelta(days=1)).isoformat(),
         "capacity": daily_capacity(company),
         "discount": cp.default_discount_pct or 0.0,
-        "default_address": cp.actual_address or cp.legal_address or "",
+        "default_address": (outlet["address"] if outlet
+                            else (cp.actual_address or cp.legal_address or "")),
+        "outlets": outlets,
+        "outlet": outlet,
+        "outlet_key": outlet_key,
         "box_capacity": BOX_CAPACITY,
         "min_qty": MIN_QTY,
         "qty_step": QTY_STEP,
@@ -482,7 +584,7 @@ async def save_cart(request: Request, token: str, db: Session = Depends(get_db))
             continue
         if qty > 0:
             items.append({"id": pid, "qty": normalize_qty(qty)})
-    _save_cart(db, cp, items)
+    _save_cart(db, cp, items, str(payload.get("outlet") or ""))
     return JSONResponse({"ok": True})
 
 
@@ -580,9 +682,14 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
                              "free": free, "needed": total_qty,
                              "slots": alternatives}, status_code=409)
 
+    outlets = client_outlets(db, cp)
+    outlet = pick_outlet(outlets, str(payload.get("outlet") or ""))
+    outlet_key = outlet["key"] if outlet else ""
+
     order_data = {
         "delivery_date": delivery_date,
         "address": (payload.get("address") or "").strip()[:500]
+                   or (outlet["address"] if outlet else "")
                    or cp.actual_address or cp.legal_address or "",
         "contact": (payload.get("contact") or "").strip()[:200]
                    or cp.contact_person or cp.phone or "",
@@ -603,7 +710,7 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
                                    "Попробуйте ещё раз или позвоните нам."},
             status_code=502)
 
-    _save_cart(db, cp, [])
+    _save_cart(db, cp, [], outlet_key)
     _record_booking(db, cp, delivery_date, total_qty, result["deal_id"], items)
     log_action(db, "counterparty", cp.id, "updated", None,
                f"Заказ из кабинета клиента ушёл в сделку Bitrix24 #{result['deal_id']}"
