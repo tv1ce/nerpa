@@ -777,6 +777,113 @@ async def order_done(request: Request, token: str, db: Session = Depends(get_db)
     })
 
 
+def notify_abandoned_carts(db: Session) -> int:
+    """Напоминает менеджеру о корзинах, которые клиент набрал и бросил.
+
+    Сетевая корзина дала побочный эффект, которого раньше не было: видно не
+    только отправленные заказы, но и начатые. Клиент, собравший корзину и
+    не нажавший «Отправить», — это деньги, лежащие на полу: он отвлёкся,
+    у него упала связь или он споткнулся на оформлении. Менеджеру достаточно
+    позвонить.
+
+    Повторно по той же корзине не пишем: отметка notified_at сравнивается с
+    updated_at, поэтому новое напоминание уйдёт, только если клиент трогал
+    корзину уже после прошлого. Возвращает число отправленных напоминаний."""
+    from datetime import datetime, timedelta
+
+    company = db.query(CompanySettings).first()
+    hours = 0
+    try:
+        hours = int(getattr(company, "shop_abandon_hours", None) or 0)
+    except (TypeError, ValueError):
+        hours = 0
+    if not company or hours <= 0:
+        return 0
+
+    cutoff = datetime.now() - timedelta(hours=hours)
+    sent = 0
+    for row in db.query(ShopCart).all():
+        if not row.updated_at or row.updated_at > cutoff:
+            continue                      # ещё свежая — клиент, может, и не бросал
+        if row.notified_at and row.notified_at >= row.updated_at:
+            continue                      # по этой версии корзины уже напоминали
+
+        cp = row.counterparty
+        if not cp or not cp.shop_enabled:
+            continue
+
+        products = {p.id: p for p in db.query(Product).all()}
+        lines, total, qty_total = [], 0.0, 0
+        discount = cp.default_discount_pct or 0.0
+        for key, items in _cart_map(row).items():
+            for it in items:
+                try:
+                    product = products.get(int(it.get("id")))
+                    qty = int(it.get("qty") or 0)
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                if not product or qty <= 0 or not nut_line(product.name):
+                    continue
+                price = round((product.price or 0) * (1 - discount / 100), 2)
+                total += price * qty
+                qty_total += qty
+                lines.append((key, nut_display_name(product.name), qty))
+        if not lines:
+            continue
+
+        hours_idle = int((datetime.now() - row.updated_at).total_seconds() // 3600)
+        _notify_abandoned(db, cp, lines, qty_total, total, hours_idle)
+        row.notified_at = datetime.now()
+        sent += 1
+
+    if sent:
+        db.commit()
+    return sent
+
+
+def _notify_abandoned(db: Session, cp: Counterparty, lines: list,
+                      qty_total: int, total: float, hours_idle: int) -> None:
+    """Уведомление о брошенной корзине — в TMS и в тот же Telegram-канал,
+    что и заказы из кабинета."""
+    import os
+    from app.services.outlets import address_label
+
+    company = db.query(CompanySettings).first()
+    who = cp.trade_name or cp.name
+    money = f"{round(total):,} ₽".replace(",", " ")
+
+    body = []
+    seen_outlets = {k for k, _, _ in lines if k}
+    if seen_outlets:
+        body.append("Точка: " + ", ".join(address_label(k) for k in sorted(seen_outlets)))
+    body += [f"{nm} — {q} шт" for _, nm, q in lines]
+    body.append(f"Всего {qty_total} шт на {money}")
+
+    db.add(Notification(
+        type="shop_abandoned",
+        title=f"🕓 Корзина брошена — {who}",
+        body=(f"Клиент набрал заказ и не отправил его уже {hours_idle} ч.\n"
+              + "\n".join(body) + "\nПозвоните — возможно, что-то не получилось."),
+        link=f"/counterparties/{cp.id}",
+    ))
+
+    chat_ids = [c.strip() for c in (company.shop_alert_chat_ids or "").split(",") if c.strip()]
+    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    if not chat_ids or not bot_token:
+        return
+
+    text = ("🕓 БРОШЕННАЯ КОРЗИНА\n"
+            f"{who}\n{cp.name}\n\n"
+            + "\n".join(body) +
+            f"\n\nВисит без отправки {hours_idle} ч — стоит позвонить.")
+    from app.services.telegram_send import send_topic_message
+    for chat_id in chat_ids:
+        try:
+            send_topic_message(int(chat_id), text, bot_token)
+        except Exception as e:
+            logger.warning("Брошенная корзина: не удалось отправить в %s: %s", chat_id, e)
+
+
 def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
                      ok: bool, detail: str = "", order_data: dict | None = None) -> None:
     """Уведомление менеджерам о заказе из кабинета.

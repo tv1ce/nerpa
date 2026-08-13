@@ -545,6 +545,24 @@ def _run_bitrix_cp_requisites_job():
         db.close()
 
 
+def _run_shop_abandoned_job():
+    """Напоминания о брошенных корзинах кабинета — раз в 15 минут.
+
+    Функция синхронная и ходит в Telegram, поэтому живёт в APScheduler
+    (отдельный поток), а не в event loop."""
+    from app.database import SessionLocal
+    from app.routers.shop import notify_abandoned_carts
+    db = SessionLocal()
+    try:
+        n = notify_abandoned_carts(db)
+        if n:
+            logger.info("Кабинет: напомнили о %d брошенных корзинах", n)
+    except Exception as e:
+        logger.error("shop abandoned job error: %s", e)
+    finally:
+        db.close()
+
+
 async def _resubscribe_tochka_webhook() -> None:
     """Переподписка вебхука Точки в фоне, с потолком по времени.
 
@@ -604,8 +622,10 @@ async def lifespan(_app: FastAPI):
         # настройках и может меняться без перезапуска сервера
         _scheduler.add_job(_run_outlets_digest_job, "interval", minutes=5, id="outlets_digest",
                            misfire_grace_time=300)
+        _scheduler.add_job(_run_shop_abandoned_job, "interval", minutes=15, id="shop_abandoned",
+                           misfire_grace_time=300)
         _scheduler.start()
-        logger.info("APScheduler: задачи 1c_sync, 1c_fast_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status, sbis_edo_status, versta_status, outlets_digest запущены")
+        logger.info("APScheduler: задачи 1c_sync, 1c_fast_sync, bitrix_lead_retry, bitrix_cp_requisites, saby_tms_status, sbis_edo_status, versta_status, outlets_digest, shop_abandoned запущены")
     except ImportError:
         logger.warning("apscheduler не установлен — автосинхронизация 1С выключена")
 
