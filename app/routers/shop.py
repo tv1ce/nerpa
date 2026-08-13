@@ -184,21 +184,93 @@ def _save_cart(db: Session, cp: Counterparty, items: list[dict]) -> None:
     db.commit()
 
 
-def _delivery_slots() -> list[dict]:
-    """3 ближайших рабочих дня — вместо свободного календаря, куда клиент
-    обязательно вобьёт воскресенье или вчерашнее число."""
-    days = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
+WEEKDAY_NAMES = ["понедельник", "вторник", "среда", "четверг",
+                 "пятница", "суббота", "воскресенье"]
+MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля",
+              "августа", "сентября", "октября", "ноября", "декабря"]
+
+# Сколько ближайших дат отгрузки предлагать кнопками.
+_SLOT_COUNT = 3
+# Как далеко вперёд имеет смысл искать: при одном дне отгрузки в неделю трёх
+# дат хватает на месяц, дальше искать нечего.
+_SLOT_HORIZON_DAYS = 60
+
+
+def shipping_weekdays(company) -> list[int]:
+    """Дни недели, по которым мы отгружаем: [0, 3] — понедельник и четверг.
+
+    Настраивается в Настройках → Bitrix24 → «Кабинет клиента»: график машин
+    меняется, и захардкоженные «будни» заставляли бы клиента выбирать дату, в
+    которую никто никуда не едет."""
+    raw = (getattr(company, "shipping_weekdays", None) or "").strip()
+    days = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit() and 0 <= int(part) <= 6 and int(part) not in days:
+            days.append(int(part))
+    if not days:
+        days = [0, 1, 2, 3, 4]      # настройка пуста — возим по будням
+    return sorted(days)
+
+
+def format_slot_date(d: date) -> str:
+    """«Понедельник, 18 августа» — день недели словом и целиком.
+
+    Сокращения вида «Пн, 18.08» экономят место, но читаются как код: клиент
+    выбирает день, когда ему привезут товар, и должен видеть его без расшифровки."""
+    return f"{WEEKDAY_NAMES[d.weekday()].capitalize()}, {d.day} {MONTHS_GEN[d.month - 1]}"
+
+
+def _delivery_slots(company) -> list[dict]:
+    """Ближайшие даты отгрузки — кнопками, вместо пустого календаря.
+
+    Календарь остаётся рядом отдельной опцией: если клиенту нужна дата вне
+    графика, он должен иметь возможность её попросить, а не звонить ради этого
+    менеджеру."""
+    days = shipping_weekdays(company)
     slots, d = [], date.today()
-    while len(slots) < 3:
+    for _ in range(_SLOT_HORIZON_DAYS):
         d += timedelta(days=1)
-        if d.weekday() >= 5:      # выходные машины не ходят
-            continue
-        if len(slots) == 0:
-            label = "Завтра" if (d - date.today()).days == 1 else f"{d.day:02d}.{d.month:02d}"
-        else:
-            label = f"{days[d.weekday()][:2]}, {d.day:02d}.{d.month:02d}"
-        slots.append({"value": d.isoformat(), "label": label})
+        if d.weekday() in days:
+            slots.append({"value": d.isoformat(), "label": format_slot_date(d)})
+            if len(slots) >= _SLOT_COUNT:
+                break
     return slots
+
+
+def _order_history(db: Session, cp: Counterparty, limit: int = 12) -> list[dict]:
+    """История заказов клиента — то, что он уже у нас заказывал.
+
+    Берём заказы из TMS: они приезжают туда из Bitrix24 после согласования, то
+    есть в истории клиент видит именно подтверждённые заказы, а не свои
+    неотправленные черновики. Отменённые не показываем — это не история
+    покупок, а шум."""
+    from app.routers.public import PUBLIC_STATUS_LABELS
+
+    orders = (db.query(Order)
+              .filter(Order.counterparty_id == cp.id, Order.status != "cancelled")
+              .order_by(Order.date.desc(), Order.id.desc())
+              .limit(limit)
+              .all())
+    out = []
+    for o in orders:
+        # Ключ намеренно не "items": в Jinja `o.items` разрешается в метод
+        # словаря dict.items, а не в наши строки заказа.
+        lines = [{"name": nut_display_name(i.product.name) if i.product else "Товар",
+                  "qty": i.quantity,
+                  "amount": i.amount or 0}
+                 for i in o.items]
+        out.append({
+            "number": o.number,
+            "date": f"{o.date.day} {MONTHS_GEN[o.date.month - 1]} {o.date.year}" if o.date else "",
+            "status": PUBLIC_STATUS_LABELS.get(o.status, o.status),
+            "status_code": o.status,
+            "delivery_date": format_slot_date(o.delivery_date) if o.delivery_date else "",
+            "lines": lines,
+            "total": round(sum(i["amount"] for i in lines), 2),
+            "track_url": f"/track/{o.public_token}" if o.public_token else "",
+        })
+    return out
 
 
 @router.get("/{token}", response_class=HTMLResponse)
@@ -215,6 +287,7 @@ async def shop_page(request: Request, token: str, db: Session = Depends(get_db))
     catalog, last = _catalog(db, cp)
     cart = _load_cart(db, cp, {c["id"] for c in catalog})
     company = db.query(CompanySettings).first()
+    history = _order_history(db, cp)
     return templates.TemplateResponse(request, "public/shop.html", {
         "cp": cp,
         "company": company,
@@ -222,7 +295,9 @@ async def shop_page(request: Request, token: str, db: Session = Depends(get_db))
         "catalog": catalog,
         "last_items": last,
         "cart_items": cart,
-        "slots": _delivery_slots(),
+        "slots": _delivery_slots(company),
+        "history": history,
+        "min_date": (date.today() + timedelta(days=1)).isoformat(),
         "discount": cp.default_discount_pct or 0.0,
         "default_address": cp.actual_address or cp.legal_address or "",
         "box_size": BOX_SIZE,

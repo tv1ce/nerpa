@@ -1,3 +1,14 @@
+{# Кабинет клиента: витрина заказа + история.
+
+   Дизайн: монохром — белый фон, графитовый текст, чёрные действия, тонкие
+   серые линии. Цветом не разговариваем вообще: смысл несут размер, вес и
+   расстояние, поэтому интерфейс не стареет и не выглядит шаблоном. Цифры —
+   табличные, чтобы столбцы количеств и сумм стояли ровно.
+
+   Иконки — инлайновый SVG (Lucide), не эмодзи: эмодзи в интерфейсе выдают
+   поделку и по-разному рисуются на Android и iOS. Внешних шрифтов нет
+   намеренно — лишний запрос к чужому CDN на мобильном интернете точки стоит
+   дороже, чем любая гарнитура. #}
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -8,173 +19,410 @@
   <link rel="icon" href="/static/favicon.ico">
   <style>
     :root {
-      --bg: #f1f5f9; --card: #fff; --ink: #0f172a; --muted: #64748b;
-      --line: #e2e8f0; --brand: #16a34a; --brand-soft: #dcfce7;
+      --bg:      #ffffff;
+      --surface: #ffffff;
+      --sunk:    #f4f4f5;
+      --ink:     #09090b;
+      --ink-2:   #71717a;
+      --line:    #e4e4e7;
+      --line-2:  #d4d4d8;
+      --accent:  #09090b;
+      --accent-hover: #27272a;
+      --danger:  #b91c1c;
+
+      --r-sm: 8px;
+      --r-md: 10px;
+      --r-lg: 14px;
+      --bar-h: 84px;
     }
-    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
-      margin: 0; font-family: -apple-system, "Segoe UI", "Fira Sans", Roboto, sans-serif;
-      background: var(--bg); color: var(--ink); line-height: 1.45;
-      -webkit-font-smoothing: antialiased; padding-bottom: 96px;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 16px; line-height: 1.5;
+      background: var(--bg); color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      touch-action: manipulation;
+      overscroll-behavior-y: contain;
+      padding-bottom: calc(var(--bar-h) + env(safe-area-inset-bottom));
     }
-    .wrap { max-width: 620px; margin: 0 auto; padding: 12px 12px 0; }
-    .head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 6px 2px 14px; }
-    .head .who { font-weight: 700; font-size: 1.05rem; }
-    .head .sub { color: var(--muted); font-size: .82rem; }
-    .pill { background: var(--brand-soft); color: var(--brand); font-weight: 600;
-            font-size: .78rem; padding: 4px 10px; border-radius: 999px; white-space: nowrap; }
+    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px; }
 
-    .rule {
-      display: flex; gap: 10px; align-items: flex-start; background: #fffbeb;
-      border: 1px solid #fde68a; border-radius: 14px; padding: 12px 14px; margin-bottom: 12px;
-      font-size: .84rem; color: #713f12;
+    button, input, textarea, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+    /* ── Шапка ─────────────────────────────────────────────────────────── */
+    header {
+      position: sticky; top: 0; z-index: 30;
+      background: rgba(255, 255, 255, .88);
+      backdrop-filter: saturate(140%) blur(10px);
+      border-bottom: 1px solid var(--line);
     }
-    .rule b { white-space: nowrap; }
+    .head-in {
+      display: flex; align-items: center; gap: 12px;
+      padding: 14px 0 12px; max-width: 640px; margin: 0 auto;
+    }
+    .head-in > div:first-child { flex: 1; min-width: 0; }
+    .client {
+      font-size: 1.06rem; font-weight: 650; letter-spacing: -.015em;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .vendor { font-size: .78rem; color: var(--ink-2); letter-spacing: .01em; }
+    .chip {
+      border: 1px solid var(--line-2); border-radius: 999px;
+      padding: 5px 11px; font-size: .74rem; font-weight: 600;
+      color: var(--ink); background: var(--surface); white-space: nowrap;
+    }
 
+    /* ── Переключатель разделов ────────────────────────────────────────── */
+    .tabs {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+      background: var(--sunk); border-radius: var(--r-md); padding: 4px; margin: 16px 0 20px;
+    }
+    .tabs button {
+      border: 0; background: transparent; border-radius: var(--r-sm);
+      padding: 10px 8px; min-height: 44px; font-size: .92rem; font-weight: 600;
+      color: var(--ink-2); transition: background 180ms ease, color 180ms ease;
+    }
+    .tabs button[aria-selected="true"] {
+      background: var(--surface); color: var(--ink);
+      box-shadow: 0 1px 2px rgba(9, 9, 11, .08);
+    }
+
+    /* ── Заметка о коробке ─────────────────────────────────────────────── */
+    .note {
+      display: flex; gap: 10px; align-items: flex-start;
+      border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px;
+      color: var(--ink-2); font-size: .86rem; margin-bottom: 20px;
+    }
+    .note b { color: var(--ink); font-weight: 650; }
+
+    /* ── Повтор заказа ─────────────────────────────────────────────────── */
     .repeat {
-      display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
-      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
-      padding: 16px; margin-bottom: 12px; cursor: pointer; font: inherit; color: inherit;
-      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+      display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--r-lg); padding: 16px; margin-bottom: 24px;
+      transition: border-color 180ms ease, background 180ms ease;
     }
-    .repeat:active { transform: scale(.99); }
-    .repeat .ico { font-size: 1.6rem; }
-    .repeat .t { font-weight: 700; }
-    .repeat .s { color: var(--muted); font-size: .84rem; }
+    .repeat:hover { border-color: var(--ink); }
+    .repeat .ic { color: var(--ink); flex-shrink: 0; }
+    .repeat .t { font-weight: 650; letter-spacing: -.01em; }
+    .repeat .s { color: var(--ink-2); font-size: .84rem; }
+    .repeat .go { color: var(--ink-2); flex-shrink: 0; }
 
-    .group { font-size: .74rem; text-transform: uppercase; letter-spacing: .05em;
-             color: var(--muted); font-weight: 700; margin: 20px 4px 8px; }
+    /* ── Список товаров ────────────────────────────────────────────────── */
+    .group {
+      display: flex; align-items: baseline; gap: 10px;
+      margin: 26px 0 10px;
+    }
+    .group h2 {
+      margin: 0; font-size: .74rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .09em; color: var(--ink-2);
+    }
+    .group .rule { flex: 1; height: 1px; background: var(--line); }
+
     .item {
-      display: flex; align-items: center; gap: 12px; background: var(--card);
-      border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--r-md); padding: 13px 14px; margin-bottom: 8px;
+      border-left: 3px solid transparent;
+      transition: border-color 180ms ease;
     }
-    .item.in-cart { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
-    .info { flex: 1; min-width: 0; }
-    .nm { font-weight: 600; font-size: .95rem; }
-    .meta { color: var(--muted); font-size: .8rem; margin-top: 2px; }
-    .price { font-weight: 700; white-space: nowrap; }
+    .item.on { border-color: var(--line-2); border-left-color: var(--ink); }
+    .item .info { flex: 1; min-width: 0; }
+    .item .nm { font-weight: 600; font-size: .96rem; letter-spacing: -.01em; }
+    .item .sub { color: var(--ink-2); font-size: .8rem; margin-top: 3px; }
+    .item .sub .amt { color: var(--ink); font-weight: 600; }
+    .item .price { font-weight: 650; white-space: nowrap; }
+    .item .per { color: var(--ink-2); font-size: .76rem; }
 
-    .stepper { display: flex; align-items: center; gap: 2px; }
+    .stepper { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .stepper button {
-      width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line);
-      background: #f8fafc; font-size: 1.25rem; font-weight: 600; color: var(--ink); cursor: pointer;
+      width: 44px; height: 44px; border-radius: var(--r-sm);
+      border: 1px solid var(--line-2); background: var(--surface);
+      display: grid; place-items: center; color: var(--ink);
+      transition: background 180ms ease, border-color 180ms ease;
     }
-    .stepper button:active { background: var(--brand-soft); }
-    .stepper .q { min-width: 42px; text-align: center; font-weight: 700; font-size: 1rem; }
-    .add { padding: 9px 16px; border-radius: 10px; border: 1px solid var(--brand);
-           background: var(--brand-soft); color: var(--brand); font-weight: 700; cursor: pointer; font-size: .9rem; }
+    .stepper button:hover { background: var(--sunk); border-color: var(--ink); }
+    .stepper .q { min-width: 46px; text-align: center; font-weight: 650; }
+    .add {
+      min-height: 44px; padding: 0 18px; border-radius: var(--r-sm);
+      border: 1px solid var(--ink); background: var(--surface);
+      color: var(--ink); font-weight: 650; font-size: .9rem;
+      transition: background 180ms ease, color 180ms ease;
+    }
+    .add:hover { background: var(--ink); color: #fff; }
 
+    /* ── Нижняя панель ─────────────────────────────────────────────────── */
     .bar {
-      position: fixed; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,.97);
-      border-top: 1px solid var(--line); padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
-      backdrop-filter: blur(8px);
+      position: fixed; inset: auto 0 0 0; z-index: 40;
+      background: rgba(255, 255, 255, .94);
+      backdrop-filter: saturate(140%) blur(10px);
+      border-top: 1px solid var(--line);
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+      transform: translateY(0); transition: transform 220ms ease;
     }
-    .bar .inner { max-width: 620px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
-    .bar .sum { flex: 1; }
-    .bar .sum .t { font-weight: 700; font-size: 1.15rem; }
-    .bar .sum .s { color: var(--muted); font-size: .8rem; }
+    .bar[hidden] { display: block; transform: translateY(110%); pointer-events: none; }
+    .bar-in { max-width: 640px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+    .bar .sum { flex: 1; min-width: 0; }
+    .bar .total { font-size: 1.28rem; font-weight: 700; letter-spacing: -.02em; }
+    .bar .cnt { color: var(--ink-2); font-size: .8rem; }
+
     .btn {
-      background: var(--brand); color: #fff; border: 0; border-radius: 14px;
-      padding: 14px 24px; font-size: 1rem; font-weight: 700; cursor: pointer;
+      min-height: 52px; padding: 0 26px; border: 0; border-radius: var(--r-md);
+      background: var(--accent); color: #fff; font-weight: 650; font-size: 1rem;
+      transition: background 180ms ease, opacity 180ms ease;
     }
-    .btn:disabled { background: #cbd5e1; cursor: default; }
+    .btn:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn:disabled { background: var(--sunk); color: var(--ink-2); cursor: default; }
     .btn.wide { width: 100%; }
 
+    /* ── Шторка оформления ─────────────────────────────────────────────── */
     dialog {
-      border: 0; border-radius: 20px 20px 0 0; padding: 0; width: 100%; max-width: 620px;
-      margin: auto auto 0; background: var(--card);
+      border: 0; padding: 0; width: 100%; max-width: 640px;
+      margin: auto auto 0; background: var(--surface); color: var(--ink);
+      border-radius: var(--r-lg) var(--r-lg) 0 0;
+      max-height: 92vh;
     }
-    dialog::backdrop { background: rgba(15,23,42,.45); }
-    .sheet { padding: 20px 18px calc(20px + env(safe-area-inset-bottom)); }
-    .sheet h2 { margin: 0 0 4px; font-size: 1.15rem; }
-    .lbl { font-size: .8rem; color: var(--muted); font-weight: 600; margin: 16px 0 6px; }
-    .fld { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
-           font-size: 1rem; font-family: inherit; background: #f8fafc; }
-    .slots { display: flex; gap: 8px; }
-    .slot { flex: 1; padding: 12px 6px; text-align: center; border: 1px solid var(--line);
-            border-radius: 12px; font-weight: 600; font-size: .88rem; cursor: pointer; background: #f8fafc; }
-    .slot.on { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
-    .rows { max-height: 34vh; overflow-y: auto; margin-top: 10px; }
-    .row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0;
-           border-bottom: 1px solid var(--line); font-size: .9rem; }
-    .row .r-n { flex: 1; }
-    .row .r-q { color: var(--muted); white-space: nowrap; }
-    .link { background: none; border: 0; color: var(--muted); font: inherit;
-            text-decoration: underline; cursor: pointer; padding: 12px; width: 100%; }
-    .saved { color: var(--muted); font-size: .75rem; text-align: center; margin: 14px 0 4px; min-height: 1.1em; }
+    dialog::backdrop { background: rgba(9, 9, 11, .5); }
+    .sheet { padding: 8px 18px calc(20px + env(safe-area-inset-bottom)); }
+    .grip { width: 40px; height: 4px; border-radius: 2px; background: var(--line-2); margin: 8px auto 14px; }
+    .sheet h2 { margin: 0 0 4px; font-size: 1.2rem; letter-spacing: -.02em; }
+    .sheet .lead { color: var(--ink-2); font-size: .86rem; margin: 0 0 4px; }
+    .lbl {
+      display: block; font-size: .74rem; font-weight: 700; letter-spacing: .07em;
+      text-transform: uppercase; color: var(--ink-2); margin: 20px 0 8px;
+    }
+    .fld {
+      width: 100%; min-height: 48px; padding: 12px 14px;
+      border: 1px solid var(--line-2); border-radius: var(--r-sm);
+      background: #fdfbf8;
+    }
+    .fld:focus { border-color: var(--ink); background: #fff; }
+    textarea.fld { min-height: 64px; resize: vertical; }
+
+    .dates { display: grid; gap: 8px; }
+    .date-opt {
+      display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+      min-height: 52px; padding: 12px 14px; background: var(--surface);
+      border: 1px solid var(--line-2); border-radius: var(--r-sm); font-weight: 600;
+      transition: border-color 180ms ease, background 180ms ease;
+    }
+    .date-opt[aria-pressed="true"] { border-color: var(--ink); background: var(--sunk); }
+    .date-opt .mark {
+      width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-2);
+      flex-shrink: 0; display: grid; place-items: center;
+    }
+    .date-opt[aria-pressed="true"] .mark { border-color: var(--ink); }
+    .date-opt[aria-pressed="true"] .mark::after {
+      content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--ink);
+    }
+    .date-opt small { display: block; font-weight: 400; color: var(--ink-2); font-size: .78rem; }
+
+    .lines { margin-top: 6px; border-top: 1px solid var(--line); }
+    .line {
+      display: flex; justify-content: space-between; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid var(--line); font-size: .9rem;
+    }
+    .line .r { color: var(--ink-2); white-space: nowrap; }
+    .grand {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin: 16px 0 18px; font-size: 1.15rem; font-weight: 700; letter-spacing: -.02em;
+    }
+    .ghost {
+      width: 100%; min-height: 48px; background: none; border: 0;
+      color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px;
+      margin-top: 6px; font-size: .9rem;
+    }
+    .err { color: var(--danger); font-size: .86rem; margin-top: 10px; min-height: 1.2em; }
+
+    /* ── История ───────────────────────────────────────────────────────── */
+    .order {
+      background: var(--surface); border: 1px solid var(--line);
+      border-radius: var(--r-md); padding: 16px; margin-bottom: 10px;
+    }
+    .order-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .order .no { font-weight: 650; letter-spacing: -.01em; }
+    .order .when { color: var(--ink-2); font-size: .82rem; margin-top: 2px; }
+    .pill {
+      border-radius: 999px; padding: 4px 11px; font-size: .74rem; font-weight: 650;
+      border: 1px solid var(--line-2); color: var(--ink-2); white-space: nowrap;
+    }
+    .pill.done { border-color: var(--ink); background: var(--ink); color: #fff; }
+    .pill.way  { border-color: var(--line-2); background: var(--sunk); color: var(--ink); }
+    .order ul { list-style: none; margin: 12px 0 0; padding: 0; }
+    .order li {
+      display: flex; justify-content: space-between; gap: 12px;
+      font-size: .87rem; padding: 5px 0; color: var(--ink-2);
+    }
+    .order li span:first-child { color: var(--ink); }
+    .order li span:last-child { white-space: nowrap; }
+    .order-foot {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line);
+    }
+    .order-foot .t { font-weight: 700; }
+    .order-foot a { color: var(--ink); font-size: .86rem; text-underline-offset: 3px; }
+
+    .empty {
+      text-align: center; color: var(--ink-2); padding: 56px 24px;
+      border: 1px dashed var(--line-2); border-radius: var(--r-lg);
+    }
+    .empty .ic { color: var(--line-2); margin-bottom: 12px; }
+    .empty p { margin: 0; font-size: .9rem; }
+
+    .saved {
+      text-align: center; color: var(--ink-2); font-size: .76rem;
+      margin: 18px 0 8px; min-height: 1.1em;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
+    }
   </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="head">
+
+<header>
+  <div class="wrap head-in">
     <div>
-      <div class="who">{{ cp.trade_name or cp.name }}</div>
-      <div class="sub">{{ company.short_name or company.name or '' }}{% if cp.outlet_name %} · {{ cp.outlet_name }}{% endif %}</div>
+      <div class="client">{{ cp.trade_name or cp.name }}</div>
+      <div class="vendor">{{ company.short_name or company.name or '' }}{% if cp.outlet_name %} · {{ cp.outlet_name }}{% endif %}</div>
     </div>
-    {% if discount %}<span class="pill">ваша скидка {{ discount|round(0)|int }}%</span>{% endif %}
+    {% if discount %}<span class="chip">скидка {{ discount|round(0)|int }}%</span>{% endif %}
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-order" aria-selected="true" aria-controls="view-order">Новый заказ</button>
+    <button role="tab" id="tab-history" aria-selected="false" aria-controls="view-history">
+      История{% if history %} · {{ history|length }}{% endif %}
+    </button>
   </div>
 
-  <div class="rule">
-    <span>📦</span>
-    <span>
-      В одной коробке <b>{{ box_size }} орешков</b> — это же и минимальный заказ по каждому виду.
-      Дальше количество меняется шагом по <b>{{ qty_step }} шт</b>.
-    </span>
-  </div>
+  {# ── Новый заказ ────────────────────────────────────────────────────── #}
+  <section id="view-order" role="tabpanel" aria-labelledby="tab-order">
+    <p class="note">
+      <span>
+        В коробке <b>{{ box_size }} орешков</b> — это же минимальный заказ по каждому вкусу.
+        Дальше количество меняется по <b>{{ qty_step }} шт</b>.
+      </span>
+    </p>
 
-  {% if last_items %}
-  <button class="repeat" id="repeat">
-    <span class="ico">🔁</span>
-    <span>
-      <span class="t">Повторить прошлый заказ</span><br>
-      <span class="s">{{ last_items|length }} позиц{{ 'ия' if last_items|length == 1 else 'ии' if last_items|length < 5 else 'ий' }} — добавим в корзину, потом поправите</span>
-    </span>
-  </button>
-  {% endif %}
+    {% if last_items %}
+    <button class="repeat" id="repeat">
+      <svg class="ic" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 6.7 3H21"/><path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-6.7-3H3"/><path d="M3 21v-5h5"/>
+      </svg>
+      <span style="flex:1">
+        <span class="t">Повторить прошлый заказ</span><br>
+        <span class="s">{{ last_items|length }} позиц{{ 'ия' if last_items|length == 1 else 'ии' if last_items|length < 5 else 'ий' }} — добавим в корзину, потом поправите</span>
+      </span>
+      <svg class="go" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M9 18l6-6-6-6"/>
+      </svg>
+    </button>
+    {% endif %}
 
-  <div id="list"></div>
+    <div id="list"></div>
+    <p class="saved" id="saved" role="status" aria-live="polite"></p>
+  </section>
 
-  <div class="saved" id="saved"></div>
-</div>
+  {# ── История ────────────────────────────────────────────────────────── #}
+  <section id="view-history" role="tabpanel" aria-labelledby="tab-history" hidden>
+    {% if history %}
+      {% for o in history %}
+      <article class="order">
+        <div class="order-top">
+          <div>
+            <div class="no">Заказ № {{ o.number }}</div>
+            <div class="when">
+              от {{ o.date }}{% if o.delivery_date %} · доставка {{ o.delivery_date|lower }}{% endif %}
+            </div>
+          </div>
+          <span class="pill {{ 'done' if o.status_code == 'delivered' else 'way' }}">{{ o.status }}</span>
+        </div>
+        {% if o.lines %}
+        <ul>
+          {% for it in o.lines %}
+          <li><span>{{ it.name }}</span><span class="num">{{ it.qty|round(0)|int }} шт</span></li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        <div class="order-foot">
+          <span class="t num">{{ '{:,.0f}'.format(o.total).replace(',', ' ') }} ₽</span>
+          {% if o.track_url %}<a href="{{ o.track_url }}">Статус заказа</a>{% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    {% else %}
+      <div class="empty">
+        <svg class="ic" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/>
+        </svg>
+        <p>Здесь появятся ваши заказы,<br>как только менеджер подтвердит первый.</p>
+      </div>
+    {% endif %}
+  </section>
+</main>
 
-<div class="bar">
-  <div class="inner">
+<div class="bar" id="bar">
+  <div class="bar-in">
     <div class="sum">
-      <div class="t" id="total">0 ₽</div>
-      <div class="s" id="count">корзина пуста</div>
+      <div class="total num" id="total">0 ₽</div>
+      <div class="cnt" id="count">корзина пуста</div>
     </div>
     <button class="btn" id="checkout" disabled>Оформить</button>
   </div>
 </div>
 
-<dialog id="sheet">
+<dialog id="sheet" aria-labelledby="sheet-title">
   <div class="sheet">
-    <h2>Оформление заказа</h2>
-    <div class="sub" style="color:var(--muted);font-size:.85rem">Заказ уйдёт вашему менеджеру — он подтвердит состав и сумму.</div>
+    <div class="grip"></div>
+    <h2 id="sheet-title">Оформление заказа</h2>
+    <p class="lead">Заказ уйдёт вашему менеджеру — он подтвердит состав, сумму и дату.</p>
 
-    <div class="lbl">Когда доставить</div>
-    <div class="slots">
+    <span class="lbl">Когда доставить</span>
+    <div class="dates">
       {% for s in slots %}
-      <div class="slot{% if loop.first %} on{% endif %}" data-date="{{ s.value }}">{{ s.label }}</div>
+      <button type="button" class="date-opt" data-date="{{ s.value }}"
+              aria-pressed="{{ 'true' if loop.first else 'false' }}">
+        <span class="mark"></span><span>{{ s.label }}</span>
+      </button>
       {% endfor %}
+      <button type="button" class="date-opt" id="other-date-btn" data-date="" aria-pressed="false">
+        <span class="mark"></span>
+        <span>Другая дата<small>Согласуем с менеджером</small></span>
+      </button>
+      <input type="date" class="fld" id="other-date" min="{{ min_date }}" hidden
+             aria-label="Выберите дату доставки">
     </div>
 
-    <div class="lbl">Адрес доставки</div>
+    <label class="lbl" for="address">Адрес доставки</label>
     <input class="fld" id="address" value="{{ default_address }}" placeholder="Город, улица, дом">
 
-    <div class="lbl">Кто примет</div>
-    <input class="fld" id="contact" value="{{ cp.contact_person or '' }}{% if cp.contact_person and cp.phone %}, {% endif %}{{ cp.phone or '' }}" placeholder="Имя и телефон">
+    <label class="lbl" for="contact">Кто примет</label>
+    <input class="fld" id="contact" placeholder="Имя и телефон"
+           value="{{ cp.contact_person or '' }}{% if cp.contact_person and cp.phone %}, {% endif %}{{ cp.phone or '' }}">
 
-    <div class="lbl">Комментарий</div>
+    <label class="lbl" for="comment">Комментарий</label>
     <textarea class="fld" id="comment" rows="2" placeholder="Пожелания по доставке или составу"></textarea>
 
-    <div class="rows" id="rows"></div>
+    <span class="lbl">Состав</span>
+    <div class="lines" id="lines"></div>
+    <div class="grand"><span>Итого</span><span class="num" id="sheet-total">0 ₽</span></div>
 
-    <div style="display:flex;justify-content:space-between;font-weight:700;font-size:1.1rem;margin:14px 0 16px">
-      <span>Итого</span><span id="sheet-total">0 ₽</span>
-    </div>
     <button class="btn wide" id="send">Отправить заказ</button>
-    <button class="link" id="close">Вернуться к товарам</button>
+    <p class="err" id="err" role="alert"></p>
+    <button class="ghost" id="close">Вернуться к товарам</button>
   </div>
 </dialog>
 
@@ -185,31 +433,49 @@ const SAVED_CART = {{ cart_items|tojson }};
 const TOKEN = {{ token|tojson }};
 const BOX = {{ box_size }}, MIN = {{ min_qty }}, STEP = {{ qty_step }};
 
+const $ = id => document.getElementById(id);
 const BY_ID = Object.fromEntries(CATALOG.map(p => [p.id, p]));
 const GROUPS = [['butter', 'На сливочном масле'], ['margarine', 'На маргарине']];
 
 // Корзина сетевая: приезжает с сервера вместе со страницей и туда же
-// сохраняется. Набрал половину с телефона на складе — дособрал с компьютера.
+// сохраняется — набрал половину с телефона, дособрал с компьютера.
 let cart = {};
 for (const it of SAVED_CART) cart[it.id] = it.qty;
 
-const fmt = n => new Intl.NumberFormat('ru-RU').format(Math.round(n)) + ' ₽';
+const nf = new Intl.NumberFormat('ru-RU');
+const money = n => nf.format(Math.round(n)) + ' ₽';
 const esc = s => String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 
-// ── Сохранение корзины на сервер, с задержкой ───────────────────────────────
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+// Коробки считаем целыми, остаток — штуками: «1 коробка + 9 шт».
+// Дробные коробки («1.2 кор.») читаются как ошибка счёта — на складе
+// коробка либо целая, либо её нет.
+function boxes(qty) {
+  const full = Math.floor(qty / BOX), rest = qty % BOX;
+  const head = full ? `${full} ${plural(full, 'коробка', 'коробки', 'коробок')}` : '';
+  if (full && rest) return `${head} + ${rest} шт`;
+  return head || `${rest} шт`;
+}
+
+// ── Сохранение корзины на сервер ────────────────────────────────────────────
 let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    const box = document.getElementById('saved');
     try {
       await fetch(`/shop/${TOKEN}/cart`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })) }),
       });
-      box.textContent = 'Корзина сохранена — можно продолжить с другого устройства';
+      $('saved').textContent = 'Корзина сохранена — можно продолжить с другого устройства';
     } catch (e) {
-      box.textContent = 'Нет связи: корзина сохранится, когда сеть вернётся';
+      $('saved').textContent = 'Нет связи: корзина сохранится, когда сеть вернётся';
     }
   }, 700);
 }
@@ -219,42 +485,49 @@ function render() {
   for (const [line, title] of GROUPS) {
     const items = CATALOG.filter(p => p.line === line);
     if (!items.length) continue;
-    html += `<div class="group">${title}</div>`;
+    html += `<div class="group"><h2>${title}</h2><span class="rule"></span></div>`;
     for (const p of items) html += row(p);
   }
-  document.getElementById('list').innerHTML = html || '<div class="group">Каталог пуст</div>';
+  $('list').innerHTML = html || '<div class="empty"><p>Каталог пока пуст.</p></div>';
   updateBar();
 }
 
+const ICON_MINUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/></svg>';
+const ICON_PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+
 function row(p) {
   const q = cart[p.id] || 0;
+  const nm = esc(p.name);
   const ctl = q > 0
-    ? `<div class="stepper"><button data-minus="${p.id}">−</button><span class="q">${q}</span><button data-plus="${p.id}">+</button></div>`
+    ? `<div class="stepper">
+         <button data-minus="${p.id}" aria-label="Убавить: ${nm}">${ICON_MINUS}</button>
+         <span class="q num">${q}</span>
+         <button data-plus="${p.id}" aria-label="Добавить: ${nm}">${ICON_PLUS}</button>
+       </div>`
     : `<button class="add" data-plus="${p.id}">В заказ</button>`;
-  return `<div class="item${q ? ' in-cart' : ''}">
+  const sub = q > 0
+    ? `<span class="num">${boxes(q)}</span> · <span class="amt num">${money(p.price * q)}</span>`
+    : `коробка — ${BOX} шт`;
+  return `<div class="item${q ? ' on' : ''}">
       <div class="info">
-        <div class="nm">${esc(p.name)}</div>
-        <div class="meta">${q > 0 ? (q / BOX % 1 === 0 ? (q / BOX) + ' кор.' : (q / BOX).toFixed(1) + ' кор.') : 'коробка — ' + BOX + ' шт'}</div>
+        <div class="nm">${nm}</div>
+        <div class="sub">${sub}</div>
       </div>
       <div style="text-align:right">
-        <div class="price">${fmt(p.price)}</div>
-        <div class="meta">за ${esc(p.unit)}</div>
+        <div class="price num">${money(p.price)}</div>
+        <div class="per">за ${esc(p.unit)}</div>
       </div>
       ${ctl}
     </div>`;
 }
 
-// Первый плюс сразу выкладывает коробку — меньше цех не собирает.
-// Дальше шаг по 3 шт, и ниже коробки количество не опускается: минус с 42
-// убирает позицию целиком, а не оставляет неотгружаемый остаток.
+// Первый плюс сразу выкладывает коробку — меньше цех не собирает. Дальше шаг
+// по 3 шт, а минус с 42 убирает позицию целиком: неотгружаемых остатков не бывает.
 function step(id, delta) {
   const cur = cart[id] || 0;
-  if (delta > 0) {
-    cart[id] = cur === 0 ? MIN : cur + STEP;
-  } else {
-    const next = cur - STEP;
-    if (next < MIN) delete cart[id]; else cart[id] = next;
-  }
+  if (delta > 0) cart[id] = cur === 0 ? MIN : cur + STEP;
+  else if (cur - STEP < MIN) delete cart[id];
+  else cart[id] = cur - STEP;
   save(); render();
 }
 
@@ -269,66 +542,91 @@ function totals() {
 
 function updateBar() {
   const { sum, n, pcs } = totals();
-  document.getElementById('total').textContent = fmt(sum);
-  document.getElementById('count').textContent = n
-    ? `${n} вид${n === 1 ? '' : (n < 5 ? 'а' : 'ов')} · ${pcs} шт`
+  $('total').textContent = money(sum);
+  $('count').textContent = n
+    ? `${n} ${plural(n, 'вкус', 'вкуса', 'вкусов')} · ${pcs} шт · ${boxes(pcs)}`
     : 'корзина пуста';
-  document.getElementById('checkout').disabled = !n;
+  $('checkout').disabled = !n;
 }
 
-document.getElementById('list').addEventListener('click', e => {
+$('list').addEventListener('click', e => {
   const plus = e.target.closest('[data-plus]'), minus = e.target.closest('[data-minus]');
   if (plus) step(plus.dataset.plus, +1);
   if (minus) step(minus.dataset.minus, -1);
 });
 
-const repeatBtn = document.getElementById('repeat');
-if (repeatBtn) repeatBtn.addEventListener('click', () => {
+if ($('repeat')) $('repeat').addEventListener('click', () => {
   for (const it of LAST) if (BY_ID[it.id]) cart[it.id] = it.qty;
   save(); render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
-// ── Оформление ──────────────────────────────────────────────────────────────
-const sheet = document.getElementById('sheet');
-let slotDate = document.querySelector('.slot')?.dataset.date || '';
+// ── Разделы ─────────────────────────────────────────────────────────────────
+function showTab(which) {
+  const isOrder = which === 'order';
+  $('tab-order').setAttribute('aria-selected', isOrder);
+  $('tab-history').setAttribute('aria-selected', !isOrder);
+  $('view-order').hidden = !isOrder;
+  $('view-history').hidden = isOrder;
+  $('bar').hidden = !isOrder;
+  window.scrollTo({ top: 0 });
+}
+$('tab-order').addEventListener('click', () => showTab('order'));
+$('tab-history').addEventListener('click', () => showTab('history'));
 
-document.querySelectorAll('.slot').forEach(s => s.addEventListener('click', () => {
-  document.querySelectorAll('.slot').forEach(x => x.classList.remove('on'));
-  s.classList.add('on'); slotDate = s.dataset.date;
+// ── Дата доставки ───────────────────────────────────────────────────────────
+let slotDate = document.querySelector('.date-opt')?.dataset.date || '';
+
+document.querySelectorAll('.date-opt').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('.date-opt').forEach(b => b.setAttribute('aria-pressed', 'false'));
+  btn.setAttribute('aria-pressed', 'true');
+  const custom = btn.id === 'other-date-btn';
+  $('other-date').hidden = !custom;
+  if (custom) {
+    slotDate = $('other-date').value || '';
+    $('other-date').showPicker ? $('other-date').showPicker() : $('other-date').focus();
+  } else {
+    slotDate = btn.dataset.date;
+  }
 }));
+$('other-date').addEventListener('change', e => { slotDate = e.target.value; });
 
-document.getElementById('checkout').addEventListener('click', () => {
+// ── Оформление ──────────────────────────────────────────────────────────────
+const sheet = $('sheet');
+
+$('checkout').addEventListener('click', () => {
   const { sum } = totals();
-  document.getElementById('rows').innerHTML = Object.entries(cart).map(([id, q]) => {
+  $('lines').innerHTML = Object.entries(cart).map(([id, q]) => {
     const p = BY_ID[id];
-    return `<div class="row"><span class="r-n">${esc(p.name)}</span><span class="r-q">${q} шт · ${fmt(p.price * q)}</span></div>`;
+    return `<div class="line"><span>${esc(p.name)}</span>
+      <span class="r num">${q} шт · ${money(p.price * q)}</span></div>`;
   }).join('');
-  document.getElementById('sheet-total').textContent = fmt(sum);
+  $('sheet-total').textContent = money(sum);
+  $('err').textContent = '';
   sheet.showModal();
 });
+$('close').addEventListener('click', () => sheet.close());
 
-document.getElementById('close').addEventListener('click', () => sheet.close());
-
-document.getElementById('send').addEventListener('click', async () => {
-  const btn = document.getElementById('send');
-  btn.disabled = true; btn.textContent = 'Отправляем…';
+$('send').addEventListener('click', async () => {
+  const btn = $('send');
+  if (!slotDate) { $('err').textContent = 'Выберите дату доставки'; return; }
+  btn.disabled = true; btn.textContent = 'Отправляем…'; $('err').textContent = '';
   try {
     const res = await fetch(`/shop/${TOKEN}/submit`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         items: Object.entries(cart).map(([id, qty]) => ({ id: Number(id), qty })),
         delivery_date: slotDate,
-        address: document.getElementById('address').value,
-        contact: document.getElementById('contact').value,
-        comment: document.getElementById('comment').value,
+        address: $('address').value,
+        contact: $('contact').value,
+        comment: $('comment').value,
       }),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Не удалось отправить заказ');
     window.location.href = data.redirect;
   } catch (e) {
-    alert(e.message || 'Ошибка отправки. Проверьте связь и попробуйте ещё раз.');
+    $('err').textContent = e.message || 'Ошибка отправки, попробуйте ещё раз';
     btn.disabled = false; btn.textContent = 'Отправить заказ';
   }
 });

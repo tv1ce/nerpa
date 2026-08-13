@@ -636,6 +636,10 @@ class CompanySettings(Base):
     # стадии, тем же вебхуком, что и заказы менеджеров. Иначе получались бы
     # дубли: один заказ в TMS напрямую, второй — из сделки.
     shop_stage_approved = Column(String(60))    # STAGE_ID «Заказ согласован» (напр. C1:UC_Z7L4EZ)
+    # Дни недели, по которым мы отгружаем: номера через запятую, 0 = понедельник
+    # («0,3» — понедельник и четверг). Из них кабинет строит кнопки выбора даты.
+    # Пусто — считаем, что возим по будням.
+    shipping_weekdays = Column(String(20), default="0,3")
     shop_alert_chat_ids = Column(Text)          # Telegram chat_id для уведомлений о заказах из кабинета
     bitrix_lead_export_enabled = Column(Boolean, default=False)
     bitrix_lead_responsible_id = Column(String(20))  # ID пользователя Bitrix24 — ASSIGNED_BY_ID нового CRM-лида, если у торгпреда нет своего User.bitrix_user_id

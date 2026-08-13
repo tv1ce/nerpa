@@ -399,6 +399,7 @@ def _migrate_db():
         ("orders", "source", "TEXT DEFAULT 'manual'"),
         ("company_settings", "shop_stage_approved", "TEXT"),
         ("company_settings", "shop_alert_chat_ids", "TEXT"),
+        ("company_settings", "shipping_weekdays", "TEXT DEFAULT '0,3'"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
