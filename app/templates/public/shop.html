@@ -455,14 +455,13 @@ function plural(n, one, few, many) {
   return many;
 }
 
-// Коробки считаем целыми, остаток — штуками: «1 коробка + 9 шт».
-// Дробные коробки («1.2 кор.») читаются как ошибка счёта — на складе
-// коробка либо целая, либо её нет.
+// Коробки считаем целыми и округляем ВВЕРХ: 42 шт — одна коробка, всё, что
+// сверх неё, едет во второй, пусть и неполной. Остаток отдельной строкой
+// («1 коробка + 9 шт») не пишем: в машине початая коробка занимает место
+// целой, и логисту важно число мест, а не как они заполнены.
 function boxes(qty) {
-  const full = Math.floor(qty / BOX), rest = qty % BOX;
-  const head = full ? `${full} ${plural(full, 'коробка', 'коробки', 'коробок')}` : '';
-  if (full && rest) return `${head} + ${rest} шт`;
-  return head || `${rest} шт`;
+  const n = Math.ceil(qty / BOX);
+  return `${n} ${plural(n, 'коробка', 'коробки', 'коробок')}`;
 }
 
 // ── Сохранение корзины на сервер ────────────────────────────────────────────
@@ -534,19 +533,23 @@ function step(id, delta) {
 }
 
 function totals() {
-  let sum = 0, n = 0, pcs = 0;
+  let sum = 0, n = 0, pcs = 0, box = 0;
   for (const [id, q] of Object.entries(cart)) {
     const p = BY_ID[id];
-    if (p) { sum += p.price * q; n++; pcs += q; }
+    // Коробки складываем по позициям, а не считаем от общего числа штук:
+    // вкусы не пересыпают в одну коробку, поэтому 45 + 45 шт — это четыре
+    // коробки в машине, а не три.
+    if (p) { sum += p.price * q; n++; pcs += q; box += Math.ceil(q / BOX); }
   }
-  return { sum, n, pcs };
+  return { sum, n, pcs, box };
 }
 
 function updateBar() {
-  const { sum, n, pcs } = totals();
+  const { sum, n, pcs, box } = totals();
   $('total').textContent = money(sum);
   $('count').textContent = n
-    ? `${n} ${plural(n, 'вкус', 'вкуса', 'вкусов')} · ${pcs} шт · ${boxes(pcs)}`
+    ? `${n} ${plural(n, 'вкус', 'вкуса', 'вкусов')} · ${pcs} шт · ` +
+      `${box} ${plural(box, 'коробка', 'коробки', 'коробок')}`
     : 'корзина пуста';
   $('checkout').disabled = !n;
 }
