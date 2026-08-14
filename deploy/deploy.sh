@@ -143,8 +143,8 @@ if [[ ! -f "$APP_DIR/.env" ]]; then
     echo "  │    nano /opt/tms/.env                        │"
     echo "  │                                              │"
     echo "  │  Минимум укажите:                            │"
-    echo "  │    TMS_BOT_TOKEN  — токен Telegram-бота      │"
-    echo "  │    TMS_CHAT_IDS   — ваш Telegram chat_id     │"
+    echo "  │    NERPA_BOT_TOKEN — токен Telegram-бота     │"
+    echo "  │    NERPA_CHAT_IDS  — ваш Telegram chat_id    │"
     echo "  └─────────────────────────────────────────────┘"
     echo ""
 else
@@ -242,12 +242,14 @@ info "Запуск сервисов..."
 systemctl restart tms
 systemctl is-active --quiet tms && ok "tms запущен" || warn "tms не запустился — проверьте: journalctl -u tms -n 50"
 
-# Бот запускаем только если TMS_BOT_TOKEN задан в .env
-if grep -q "^TMS_BOT_TOKEN=.\+" "$APP_DIR/.env" 2>/dev/null; then
+# Бот запускаем только если токен задан в .env. Имя переменной проверяем в обоих
+# вариантах: свежая установка получает .env из .env.example с NERPA_BOT_TOKEN, а в
+# давно работающем .env может лежать прежний TMS_BOT_TOKEN (приложение читает оба).
+if grep -qE "^(NERPA|TMS)_BOT_TOKEN=.+" "$APP_DIR/.env" 2>/dev/null; then
     systemctl restart tms-bot
     systemctl is-active --quiet tms-bot && ok "tms-bot запущен" || warn "tms-bot не запустился — проверьте: journalctl -u tms-bot -n 50"
 else
-    warn "TMS_BOT_TOKEN не задан — tms-bot не запущен. Добавьте токен в .env и запустите: sudo systemctl start tms-bot"
+    warn "NERPA_BOT_TOKEN не задан — tms-bot не запущен. Добавьте токен в .env и запустите: sudo systemctl start tms-bot"
 fi
 
 # Nginx перезагружаем только если конфиг валиден
