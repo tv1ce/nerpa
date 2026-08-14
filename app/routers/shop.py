@@ -54,6 +54,13 @@ ASSEMBLED_STATUSES = ("assembled", "handed", "delivered")
 
 # Сколько держать на табло закрытую дату, прежде чем показать следующую.
 _PLAN_HOLD_MINUTES = 60
+
+# Сколько бронь кабинета считается актуальной, пока заказ по ней не вернулся из
+# Bitrix24. Робот отрабатывает за секунды, так что три часа — с большим запасом
+# на сбой сети и повторы. Дальше бронь протухает и в расчётах не участвует:
+# заказ либо потерян, либо сделку удалили, и висящая бронь только врёт цеху про
+# то, что надо печь (ровно так на табло появилась суббота от тестовой сделки).
+_BOOKING_TTL_HOURS = 3
 # На сколько дат вперёд заглядывать в поисках незакрытой.
 _PLAN_LOOKAHEAD = 5
 
@@ -369,6 +376,27 @@ def daily_capacity(company) -> int:
         return 0
 
 
+def active_bookings(db: Session, day=None) -> list:
+    """Брони, которые ещё имеет смысл учитывать: заказ по ним не приехал и
+    они не протухли. Опция day ограничивает одной датой отгрузки."""
+    from datetime import datetime, timedelta
+
+    q = db.query(ShopBooking)
+    if day is not None:
+        q = q.filter(ShopBooking.ship_date == day)
+    known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
+                   .filter(Order.bitrix_deal_id.isnot(None)).all()}
+    fresh_after = datetime.now() - timedelta(hours=_BOOKING_TTL_HOURS)
+    out = []
+    for b in q.all():
+        if str(b.bitrix_deal_id or "") in known_deals:
+            continue                      # заказ доехал — считается по нему
+        if b.created_at and b.created_at < fresh_after:
+            continue                      # протухла: заказ так и не вернулся
+        out.append(b)
+    return out
+
+
 def date_load(db: Session, d: date) -> int:
     """Сколько орешков уже обещано на эту дату — по всем клиентам.
 
@@ -391,11 +419,8 @@ def date_load(db: Session, d: date) -> int:
             .all())
     booked += int(sum(q or 0 for (q,) in rows))
 
-    known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
-                   .filter(Order.bitrix_deal_id.isnot(None)).all()}
-    for b in db.query(ShopBooking).filter(ShopBooking.ship_date == d).all():
-        if str(b.bitrix_deal_id or "") not in known_deals:
-            booked += int(b.qty or 0)
+    for b in active_bookings(db, d):
+        booked += int(b.qty or 0)
     return booked
 
 
@@ -446,8 +471,7 @@ def production_plan(db: Session, company) -> dict:
     today = date.today()
     dates = {d for (d,) in db.query(shipment_date_col())
              .filter(shipment_date_col() >= today, Order.status != "cancelled").distinct().all() if d}
-    dates |= {d for (d,) in db.query(ShopBooking.ship_date)
-              .filter(ShopBooking.ship_date >= today).distinct().all() if d}
+    dates |= {b.ship_date for b in active_bookings(db) if b.ship_date >= today}
     if not dates:
         return {"date": None}
 
@@ -484,11 +508,7 @@ def _plan_for_date(db: Session, company, day, nut_names: dict, dummy_names: dict
         if status in ASSEMBLED_STATUSES:
             done_product[pid] = done_product.get(pid, 0) + int(qty or 0)
 
-    known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
-                   .filter(Order.bitrix_deal_id.isnot(None)).all()}
-    for b in db.query(ShopBooking).filter(ShopBooking.ship_date == day).all():
-        if str(b.bitrix_deal_id or "") in known_deals:
-            continue                      # заказ уже доехал — посчитан выше
+    for b in active_bookings(db, day):
         try:
             detail = json.loads(b.items or "[]")
         except (ValueError, TypeError):
@@ -879,6 +899,72 @@ async def order_done(request: Request, token: str, db: Session = Depends(get_db)
     return templates.TemplateResponse(request, "public/shop_done.html", {
         "cp": cp, "company": company, "token": token,
     })
+
+
+def notify_lost_orders(db: Session) -> int:
+    """Сообщает менеджеру о заказах, которые ушли в сделку и не вернулись в TMS.
+
+    Кабинет не создаёт заказ сам: он заполняет карточку в Bitrix24 и двигает её
+    на «Заказ согласован», откуда робот приводит заказ обратно. Если робота
+    отключили, сделку удалили или стадия настроена не так — клиент считает, что
+    заказал, а в TMS ничего нет. Молчать про это нельзя: заказ просто пропадёт.
+
+    Триггер — протухшая бронь: заказ по ней не появился дольше отведённого
+    времени. Пишем один раз на бронь."""
+    from datetime import datetime, timedelta
+
+    company = db.query(CompanySettings).first()
+    if not company:
+        return 0
+
+    known_deals = {str(x) for (x,) in db.query(Order.bitrix_deal_id)
+                   .filter(Order.bitrix_deal_id.isnot(None)).all()}
+    stale_before = datetime.now() - timedelta(hours=_BOOKING_TTL_HOURS)
+    sent = 0
+    for b in db.query(ShopBooking).filter(ShopBooking.lost_notified_at.is_(None)).all():
+        if not b.created_at or b.created_at > stale_before:
+            continue                       # ещё есть время доехать
+        if str(b.bitrix_deal_id or "") in known_deals:
+            continue                       # заказ на месте
+        cp = b.counterparty
+        who = (cp.trade_name or cp.name) if cp else "клиент"
+        hours = int((datetime.now() - b.created_at).total_seconds() // 3600)
+
+        db.add(Notification(
+            type="shop_lost_order",
+            title=f"⚠️ Заказ из кабинета не дошёл до TMS — {who}",
+            body=(f"Клиент отправил заказ на {b.qty} шт (отгрузка {b.ship_date:%d.%m}), "
+                  f"он ушёл в сделку Bitrix24 #{b.bitrix_deal_id}, но заказ в TMS так и не "
+                  f"появился за {hours} ч.\nПроверьте сделку: возможно, робот на стадии "
+                  f"«Заказ согласован» не сработал."),
+            link=f"/counterparties/{cp.id}" if cp else None,
+        ))
+        _notify_lost_telegram(db, company, who, b, hours)
+        b.lost_notified_at = datetime.now()
+        sent += 1
+
+    if sent:
+        db.commit()
+    return sent
+
+
+def _notify_lost_telegram(db: Session, company, who: str, booking, hours: int) -> None:
+    import os
+    chat_ids = [c.strip() for c in (company.shop_alert_chat_ids or "").split(",") if c.strip()]
+    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    if not chat_ids or not bot_token:
+        return
+    text = ("⚠️ ЗАКАЗ ИЗ КАБИНЕТА НЕ ДОШЁЛ ДО TMS\n"
+            f"{who}\n"
+            f"{booking.qty} шт, отгрузка {booking.ship_date:%d.%m}\n"
+            f"Сделка #{booking.bitrix_deal_id} — заказа в TMS нет уже {hours} ч.\n"
+            "Проверьте, сработал ли робот на стадии «Заказ согласован».")
+    from app.services.telegram_send import send_topic_message
+    for chat_id in chat_ids:
+        try:
+            send_topic_message(int(chat_id), text, bot_token)
+        except Exception as e:
+            logger.warning("Потерянный заказ: не удалось отправить в %s: %s", chat_id, e)
 
 
 def notify_abandoned_carts(db: Session) -> int:

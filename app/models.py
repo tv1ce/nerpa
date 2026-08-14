@@ -853,6 +853,8 @@ class ShopBooking(Base):
     # нужно конкретный вкус, а не «орешки вообще».
     items = Column(Text)
     bitrix_deal_id = Column(String(20), index=True)  # сделка, в которую уехал заказ
+    # Когда сказали менеджеру, что заказ ушёл в сделку и не вернулся в TMS.
+    lost_notified_at = Column(DateTime)
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
     counterparty = relationship("Counterparty")

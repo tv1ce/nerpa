@@ -551,12 +551,15 @@ def _run_shop_abandoned_job():
     Функция синхронная и ходит в Telegram, поэтому живёт в APScheduler
     (отдельный поток), а не в event loop."""
     from app.database import SessionLocal
-    from app.routers.shop import notify_abandoned_carts
+    from app.routers.shop import notify_abandoned_carts, notify_lost_orders
     db = SessionLocal()
     try:
         n = notify_abandoned_carts(db)
         if n:
             logger.info("Кабинет: напомнили о %d брошенных корзинах", n)
+        lost = notify_lost_orders(db)
+        if lost:
+            logger.warning("Кабинет: %d заказов ушли в Bitrix24 и не вернулись в TMS", lost)
     except Exception as e:
         logger.error("shop abandoned job error: %s", e)
     finally:
