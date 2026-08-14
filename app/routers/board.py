@@ -2,11 +2,10 @@
 
 Страница доступна без логина — её показывает Android-TV приставка, которая
 не умеет авторизовываться. Поэтому доступ защищён токеном в URL: ?key=...
-Токен задаётся переменной окружения TMS_BOARD_KEY (по умолчанию — для разработки).
+Токен задаётся переменной окружения NERPA_BOARD_KEY (по умолчанию — для разработки).
 
 URL для liqvid:  https://<сервер>/board?key=<токен>
 """
-import os
 import re
 import ssl
 import socket
@@ -22,17 +21,18 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.models import Order, OrderItem, Invoice, Claim, CompanySettings, Product, User
+from app.env import getenv as env_get
 
 router = APIRouter(prefix="/board", tags=["board"])
 templates = Jinja2Templates(directory="app/templates")
 
-# Токен доступа к табло. Задать переменную окружения TMS_BOARD_KEY (обязательно).
-_board_key_raw = os.environ.get("TMS_BOARD_KEY", "")
+# Токен доступа к табло. Задать переменную окружения NERPA_BOARD_KEY (обязательно).
+_board_key_raw = env_get("NERPA_BOARD_KEY", "")
 if not _board_key_raw:
     import sys
     print(
-        "FATAL: переменная окружения TMS_BOARD_KEY не задана. "
-        "Задайте её в .env (например: TMS_BOARD_KEY=<случайная строка>). "
+        "FATAL: переменная окружения NERPA_BOARD_KEY не задана. "
+        "Задайте её в .env (например: NERPA_BOARD_KEY=<случайная строка>). "
         "Табло будет недоступно без этого ключа.",
         file=sys.stderr,
     )
@@ -150,7 +150,7 @@ def _fetch_icy_title(url: str, timeout: float = 8.0) -> str | None:
             f"GET {path} HTTP/1.0\r\n"
             f"Host: {host}\r\n"
             "Icy-MetaData: 1\r\n"
-            "User-Agent: TMS-Board/1.0\r\n"
+            "User-Agent: NERPA-Board/1.0\r\n"
             "Connection: close\r\n"
             "\r\n"
         )

@@ -5,7 +5,7 @@
 ONEC_PUSH_KEY). Тело запроса — сырые байты файла (PDF/XML), метаданные — в
 query-параметрах: так на стороне 1С не нужно собирать multipart вручную.
 
-Заказ в TMS определяется по одному из GUID 1С (в порядке приоритета):
+Заказ в NERPA определяется по одному из GUID 1С (в порядке приоритета):
   order_ref     — Document_ЗаказПокупателя.Ref_Key  → Order.external_id_1c
   shipment_ref  — Document_РасходнаяНакладная.Ref_Key → Order.shipment_id_1c
   invoice_ref   — Document_СчетНаОплату.Ref_Key       → Invoice.external_id_1c → заказ
@@ -46,7 +46,7 @@ def _check_key(request: Request) -> bool:
 
 @router.post("/order-document")
 async def receive_order_document(request: Request, db: Session = Depends(get_db)):
-    """Принимает файл документа из 1С и прикладывает к заказу TMS."""
+    """Принимает файл документа из 1С и прикладывает к заказу NERPA."""
     # 1. Аутентификация
     if not os.environ.get("ONEC_PUSH_KEY"):
         return JSONResponse({"ok": False, "error": "ONEC_PUSH_KEY не задан на сервере"},
@@ -88,10 +88,10 @@ async def receive_order_document(request: Request, db: Session = Depends(get_db)
         key_ref = invoice_ref
 
     if not order:
-        # Заказ ещё не синхронизирован в TMS — отдаём понятную 1С ошибку
+        # Заказ ещё не синхронизирован в NERPA — отдаём понятную 1С ошибку
         return JSONResponse(
-            {"ok": False, "error": "Заказ не найден в TMS по переданным GUID. "
-             "Проверьте, что заказ выгружен из TMS в 1С (есть external_id_1c)."},
+            {"ok": False, "error": "Заказ не найден в NERPA по переданным GUID. "
+             "Проверьте, что заказ выгружен из NERPA в 1С (есть external_id_1c)."},
             status_code=404,
         )
 
@@ -120,7 +120,7 @@ async def receive_order_document(request: Request, db: Session = Depends(get_db)
         logger.error("receive_order_document: %s", e)
         return JSONResponse({"ok": False, "error": f"Ошибка сохранения: {e}"}, status_code=500)
 
-    logger.info("1С→TMS: заказ #%s получен %s (%s байт)", order.number, file_type, len(data))
+    logger.info("1С→NERPA: заказ #%s получен %s (%s байт)", order.number, file_type, len(data))
     return JSONResponse({
         "ok": True,
         "order_id": order.id,

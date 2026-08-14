@@ -187,7 +187,7 @@
     {% if assembly_queue %}<span class="badge bg-info text-dark ms-2">{{ assembly_queue|length }}</span>{% endif %}
   </div>
   <div class="table-responsive">
-    <table class="table table-sm tms-table mb-0">
+    <table class="table table-sm nerpa-table mb-0">
       <thead>
         <tr>
           <th class="ps-4">№ заказа</th>
@@ -238,7 +238,7 @@
         <span class="text-muted fw-normal ms-2" style="font-size:.82rem">{{ products|length }} позиций</span>
       </div>
       <div class="table-responsive">
-        <table class="table table-sm tms-table mb-0">
+        <table class="table table-sm nerpa-table mb-0">
           <thead>
             <tr>
               <th class="ps-4">Наименование</th>
@@ -296,7 +296,7 @@
         <a href="/warehouse/journal" class="btn btn-xs btn-outline-secondary" style="font-size:.75rem; padding:2px 8px">Все</a>
       </div>
       <div class="table-responsive">
-        <table class="table table-sm tms-table mb-0">
+        <table class="table table-sm nerpa-table mb-0">
           <tbody>
             {% for mv in recent %}
             <tr>

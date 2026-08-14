@@ -1,4 +1,4 @@
-# АУДИТ TMS — ПОЛНЫЙ ОТЧЁТ ПО БАГАМ И УЯЗВИМОСТЯМ
+# АУДИТ NERPA — ПОЛНЫЙ ОТЧЁТ ПО БАГАМ И УЯЗВИМОСТЯМ
 > Дата: 03.06.2026 | Ветка: add-readme | Проверено: 4 параллельных агента
 
 ---
@@ -78,7 +78,7 @@
 | M-12 | `app/routers/warehouse.py` | 211 | `date.fromisoformat()` без try/except → HTTP 500 при неверной дате |
 | M-13 | `bot/main.py` | 88–131 | Нет try/except при чтении БД в командах бота |
 | M-14 | `bot/main.py` | 50–54 | `int(x.strip())` для CHAT_IDS без try/except → крэш |
-| M-15 | `bot/main.py` | 60–63 | Парсинг времени без try/except → крэш при `TMS_DAILY_TIME=8` |
+| M-15 | `bot/main.py` | 60–63 | Парсинг времени без try/except → крэш при `NERPA_DAILY_TIME=8` |
 | M-16 | `app/routers/logistics.py` | 64, 101, 105, 115 | Многочисленные `except Exception: pass` в парсерах Метафоры |
 
 ### Валидация данных
@@ -135,7 +135,7 @@
 | L-11 | `app.css` | Класс `btn-xs` не существует в Bootstrap 5 (остался от BS3) |
 | L-12 | `app/templates/warehouse/index.html` 79–82 | Нет confirm при нажатии «Собрано» — одно касание переводит заказ необратимо |
 | L-13 | `requirements-bot.txt` | Зависимости без верхней границы версий (`>=21.0`) |
-| L-14 | `.env.example` | `TMS_CALLBACK_TIME` не задокументирована |
+| L-14 | `.env.example` | `NERPA_CALLBACK_TIME` не задокументирована |
 | L-15 | `app/utils/xml_upd.py` 42–46 | `_esc()` не экранирует одинарную кавычку `'` — невалидный XML в атрибутах |
 | L-16 | `app/routers/contracts.py` 27–30 | `_next_contract_number` = `max(id)+1` — номер повторяется после удаления |
 
@@ -221,7 +221,7 @@
 | M-26 | ✅ | _esc() в formatters.py для имён клиентов и продуктов |
 | M-27 | ✅ | `ParseMode.MARKDOWN_V2` в broadcast(); `_esc()` в formatters.py экранирует все спецсимволы MarkdownV2 |
 | M-28 | ✅ | read_timeout/write_timeout на send_message |
-| M-29 | ✅ | `_today()` с `ZoneInfo(TMS_TZ)` в metrics.py; все функции используют её вместо `date.today()` |
+| M-29 | ✅ | `_today()` с `ZoneInfo(NERPA_TZ)` в metrics.py; все функции используют её вместо `date.today()` |
 | M-30 | ✅ | `_col_def_re` regex-whitelist на тип+DEFAULT+REFERENCES; вместе с `_ident` все три части DDL валидированы |
 | M-31 | ✅ | WAL + `busy_timeout=10000` + `synchronous=NORMAL` + `cache_size` + `wal_autocheckpoint`; архитектурно 2 процесса остаются, но блокировок при нормальной нагрузке нет |
 | M-32 | ✅ | `engine.raw_connection()` — единый engine, без отдельного sqlite3 соединения |
@@ -245,7 +245,7 @@
 | L-11 | ✅ | `.btn-xs` определён в `app.css` как кастомный класс поверх Bootstrap 5 |
 | L-12 | ✅ | data-confirm при кнопке «Собрано» на мобильном |
 | L-13 | ✅ | `>=21.0,<22.0` и `>=1.0,<2.0` в requirements-bot.txt |
-| L-14 | ✅ | `TMS_CALLBACK_TIME=09:00` с описанием добавлена в `.env.example` |
+| L-14 | ✅ | `NERPA_CALLBACK_TIME=09:00` с описанием добавлена в `.env.example` |
 | L-15 | ✅ | _esc() экранирует &apos; |
 | L-16 | ✅ | UUID temp-номер → flush → ID fallback; исправлено совместно с M-35 |
 

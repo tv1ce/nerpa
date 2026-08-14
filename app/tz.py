@@ -1,4 +1,4 @@
-"""Единое «сейчас» для TMS — наивный datetime в московском времени.
+"""Единое «сейчас» для NERPA — наивный datetime в московском времени.
 
 Компания работает в одном часовом поясе, интерфейс показывает время как есть,
 без пересчёта. Поэтому в БД всё должно лежать в МСК.
@@ -7,17 +7,17 @@
 из-за этого уведомления и журналы отставали на 3 часа. Все новые записи идут
 через `now()` отсюда.
 
-Пояс берётся из TMS_TZ (как в боте), фолбэк — фиксированный UTC+3: в Windows-
+Пояс берётся из NERPA_TZ (как в боте), фолбэк — фиксированный UTC+3: в Windows-
 окружении без пакета tzdata ZoneInfo недоступен, а перевода часов в Москве нет
 с 2014 года, так что смещение постоянное.
 """
 import logging
-import os
 from datetime import datetime, timedelta, timezone
+from app.env import getenv as env_get
 
 logger = logging.getLogger(__name__)
 
-TZ_NAME = os.getenv("TMS_TZ", "Europe/Moscow")
+TZ_NAME = env_get("NERPA_TZ", "Europe/Moscow")
 
 try:
     from zoneinfo import ZoneInfo

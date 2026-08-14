@@ -1,4 +1,4 @@
-# Зависимости Telegram-бота TMS
+# Зависимости Telegram-бота NERPA
 # Установка: pip install -r requirements-bot.txt
 python-telegram-bot[job-queue]>=21.0,<22.0
 python-dotenv>=1.0,<2.0

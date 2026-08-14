@@ -1,4 +1,4 @@
-# TMS - zapusk servera
+# NERPA - zapusk servera
 # Zapusk: pravoy knopkoy -> "Zapustit s pomoschyu PowerShell"
 #         ili iz terminala: powershell -File start.ps1
 
@@ -13,7 +13,7 @@ function Sep  { Write-Host "  ================================================" 
 
 Clear-Host
 Sep
-Write-Host "   TMS -- Sistema upravleniya postavkami" -ForegroundColor White
+Write-Host "   NERPA -- Sistema upravleniya postavkami" -ForegroundColor White
 Sep
 
 # 1. Proverka Python

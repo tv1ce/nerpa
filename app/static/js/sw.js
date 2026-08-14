@@ -1,11 +1,11 @@
-/* TMS Склад — Service Worker
+/* NERPA Склад — Service Worker
    Стратегия:
    - навигация (HTML): network-first, при оффлайне — /static/offline.html из кеша;
    - статика (/static/, шрифты, CDN): stale-while-revalidate;
    - POST и прочее: всегда сеть (не кэшируем мутации).
    Кэш намеренно лёгкий — это инструмент локальной сети, данные всегда свежие. */
 
-const VERSION      = 'tms-wh-v7';
+const VERSION      = 'nerpa-wh-v8';
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL  = '/static/offline.html';
 

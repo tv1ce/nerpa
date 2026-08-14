@@ -14,7 +14,7 @@ Saby (СБИС) «Управление транспортом» — API зака
   6. СБИС.СписокИзменений / ПрочитатьДокумент — статусы/чтение
 
 ВАЖНО про подпись: шаг 5 требует закрытого ключа ЭП. При физическом сертификате
-(КриптоПро/токен) сервер подписать не может — TMS доводит документ до ЧЕРНОВИКА
+(КриптоПро/токен) сервер подписать не может — NERPA доводит документ до ЧЕРНОВИКА
 (шаги 2-3, опц. 4), а подписание и отправку менеджер делает вручную в кабинете СБИС
 по ссылке. Метод execute_action оставлен для будущей клиентской подписи (плагин
 КриптоПро) и в текущем MVP не вызывается автоматически.
@@ -118,7 +118,7 @@ class SabyTmsClient:
         if "error" in data:
             raise SabyTmsError(f"Ошибка авторизации Saby: {data['error'].get('message', data['error'])}")
         self._session_id = data["result"]
-        logger.info("Saby TMS: авторизация успешна")
+        logger.info("Saby NERPA: авторизация успешна")
         return self._session_id
 
     # ── Базовый вызов транспортного эндпоинта ───────────────────────────────
@@ -138,10 +138,10 @@ class SabyTmsClient:
             code = err.get("code", 0)
             msg = err.get("message", str(err))
             if code in (401, -1) and retry:
-                logger.warning("Saby TMS: сессия протухла, переавторизуюсь")
+                logger.warning("Saby NERPA: сессия протухла, переавторизуюсь")
                 self._session_id = None
                 return self._call(method, params, retry=False)
-            raise SabyTmsError(f"Saby TMS API [{code}]: {msg}")
+            raise SabyTmsError(f"Saby NERPA API [{code}]: {msg}")
         return data["result"]
 
     # ── Шаг 2: генерация вложения из подстановок ─────────────────────────────
@@ -299,7 +299,7 @@ def poll_saby_tms_statuses(db) -> dict:
         try:
             result = client.list_changes(doc_type, date_from=date_from, page_size=50)
         except SabyTmsError as e:
-            logger.warning("Saby TMS поллинг [%s]: %s", doc_type, e)
+            logger.warning("Saby NERPA поллинг [%s]: %s", doc_type, e)
             return
         docs = (result or {}).get("Документ") or []
         if isinstance(docs, dict):

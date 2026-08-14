@@ -3,7 +3,7 @@
 Раздел «Метрика» в HR-отчёте собирался текстом раз в полмесяца, и по нему нельзя
 было ответить на главный вопрос: у скольких людей метрика растёт. Здесь метрика —
 это числовой ряд по неделям: руководитель подразделения раз в неделю вносит цифры
-по своим людям (в TMS или по постоянной внешней ссылке), а система сама считает
+по своим людям (в NERPA или по постоянной внешней ссылке), а система сама считает
 динамику, выполнение цели и сводную метрику HR.
 
 Неделя везде хранится датой понедельника (ISO) — так недели сравниваются и
@@ -14,7 +14,6 @@ import asyncio
 import csv
 import io
 import logging
-import os
 import re
 import secrets
 import time
@@ -29,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.tz import now as msk_now
 from app.database import get_db
 from app.auth import login_required
+from app.env import getenv as env_get
 from app.models import (
     HrEmployee, HrMetric, HrMetricValue, HrMetricToken, CompanySettings,
     HR_METRIC_MONTH_AGGS,
@@ -891,7 +891,7 @@ async def metric_link(request: Request, manager_id: int, refresh: int = 0,
                          "used": tok.last_used_at.strftime("%d.%m.%Y") if tok.last_used_at else None})
 
 
-# ── Публичная еженедельная форма руководителя (без входа в TMS) ──────────────
+# ── Публичная еженедельная форма руководителя (без входа в NERPA) ──────────────
 
 _RATE_WINDOW = 60
 _RATE_MAX = 60
@@ -1113,7 +1113,7 @@ async def _send_report(db: Session, chat_ids: str, text: str) -> str:
     if not ids:
         return "nochat"
 
-    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    bot_token = (company.tg_bot_token or "").strip() or env_get("NERPA_BOT_TOKEN", "").strip()
     if not bot_token:
         return "notoken"
 

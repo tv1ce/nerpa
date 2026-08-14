@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from app.routers import auth, dashboard, counterparties, networks, analytics, products, orders, invoices, contracts, settings, reports, warehouse, warehouse_shipping, warehouse_receiving, warehouse_transfers, warehouse_writeoffs, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, api_carrier, api_metafora, hr, hr_metrics, shop, landing
 from app.database import init_db
+from app.env import getenv as env_get
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +234,7 @@ async def _overdue_loop():
 
 def _escalate_bitrix_alerts(threshold_minutes: int = 10) -> int:
     """Повторно шлёт Telegram-напоминание по непрочитанным уведомлениям bitrix_order —
-    чтобы менеджер точно не пропустил новый заказ, даже если не открывал TMS в браузере.
+    чтобы менеджер точно не пропустил новый заказ, даже если не открывал NERPA в браузере.
     Не чаще раза в threshold_minutes на одно уведомление (escalated_at)."""
     import os
     from datetime import timedelta
@@ -244,7 +245,7 @@ def _escalate_bitrix_alerts(threshold_minutes: int = 10) -> int:
     try:
         company = db.query(CompanySettings).first()
         chat_ids = [c.strip() for c in (company.bitrix_alert_chat_ids or "").split(",") if c.strip()] if company else []
-        bot_token = ((company.tg_bot_token or "").strip() if company else "") or os.getenv("TMS_BOT_TOKEN", "").strip()
+        bot_token = ((company.tg_bot_token or "").strip() if company else "") or env_get("NERPA_BOT_TOKEN", "").strip()
         if not chat_ids or not bot_token:
             return 0
 
@@ -262,13 +263,13 @@ def _escalate_bitrix_alerts(threshold_minutes: int = 10) -> int:
         if not pending:
             return 0
 
-        # Через общий отправитель — он ходит через SOCKS-прокси (TMS_PROXY).
+        # Через общий отправитель — он ходит через SOCKS-прокси (NERPA_PROXY).
         # Прямой httpx отсюда всегда падал с «Network is unreachable»:
         # api.telegram.org с российского сервера напрямую недоступен.
         from app.services.telegram_send import send_topic_message
         sent = 0
         for n in pending:
-            text = f"⏰ Напоминание: заказ из Bitrix24 всё ещё не обработан!\n{n.title}\nОткройте TMS → Уведомления."
+            text = f"⏰ Напоминание: заказ из Bitrix24 всё ещё не обработан!\n{n.title}\nОткройте NERPA → Уведомления."
             try:
                 for chat_id in chat_ids:
                     send_topic_message(int(chat_id), text, bot_token)
@@ -295,7 +296,7 @@ async def _bitrix_escalation_loop():
     Telegram, поэтому уводим её в поток. 13.08.2026 у сервера отвалилась
     исходящая сеть: каждый запрос умирал по таймауту в 10с, а так как они шли
     прямо в event loop, тот стоял колом — uvicorn не мог завершить startup и
-    не открывал порт. TMS лежал целиком из-за необязательных напоминаний."""
+    не открывал порт. NERPA лежал целиком из-за необязательных напоминаний."""
     while True:
         try:
             await asyncio.to_thread(_escalate_bitrix_alerts)
@@ -428,7 +429,7 @@ def _run_1c_fast_sync_job():
     ждёт «прямо сейчас» — задачи на приёмку/перемещение из 1С и остатки по
     складам. Специально отделено от тяжёлого 15-минутного _run_1c_sync_job
     (каталоги/счета/файлы), чтобы новая приходная накладная или перемещение,
-    созданные в 1С, попадали кладовщику в TMS быстро, а не раз в 15 минут."""
+    созданные в 1С, попадали кладовщику в NERPA быстро, а не раз в 15 минут."""
     from app.database import SessionLocal
     from app.services.onec_client import (
         sync_receiving_tasks_from_1c, sync_transfer_tasks_from_1c, sync_stock_balances_from_1c,
@@ -477,7 +478,7 @@ def _run_bitrix_lead_retry_job():
 
 def _run_saby_status_job():
     """Фоновая задача APScheduler: опрашивает статусы заказов-заявок и ЭТрН в Saby
-    (СБИС.СписокИзменений) и обновляет их в TMS, уведомляя менеджера при
+    (СБИС.СписокИзменений) и обновляет их в NERPA, уведомляя менеджера при
     утверждении/отклонении перевозчиком."""
     from app.database import SessionLocal
     from app.services.saby_tms_client import poll_saby_tms_statuses
@@ -511,7 +512,7 @@ def _run_sbis_edo_status_job():
 def _run_versta_status_job():
     """Фоновая задача APScheduler: опрашивает статус доставки заказов, оформленных
     через экспедитора Versta24 (POST /Track по номеру заказа Versta), и обновляет
-    статус/курьера в TMS."""
+    статус/курьера в NERPA."""
     from app.database import SessionLocal
     from app.services.versta_client import poll_versta_statuses
     db = SessionLocal()
@@ -566,7 +567,7 @@ def _run_shop_abandoned_job():
             logger.info("Кабинет: напомнили о %d брошенных корзинах", n)
         lost = notify_lost_orders(db)
         if lost:
-            logger.warning("Кабинет: %d заказов ушли в Bitrix24 и не вернулись в TMS", lost)
+            logger.warning("Кабинет: %d заказов ушли в Bitrix24 и не вернулись в NERPA", lost)
     except Exception as e:
         logger.error("shop abandoned job error: %s", e)
     finally:
@@ -647,7 +648,7 @@ async def lifespan(_app: FastAPI):
     # числилось «active» у systemd, планировщик крутился, а сайт лежал целиком
     # из-за необязательной переподписки вебхука.
     #
-    # Ничто, что зависит от третьей стороны, не должно решать, поднимется ли TMS.
+    # Ничто, что зависит от третьей стороны, не должно решать, поднимется ли NERPA.
     asyncio.create_task(_resubscribe_tochka_webhook())
 
     yield
@@ -655,7 +656,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="TMS — Управление поставками",
+    title="NERPA — Управление поставками",
     lifespan=lifespan,
     # /docs и /redoc закрыты в production — схема API не должна быть публичной
     docs_url=None,

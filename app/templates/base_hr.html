@@ -11,15 +11,15 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="TMS HR">
+  <meta name="apple-mobile-web-app-title" content="NERPA HR">
   <meta name="theme-color" content="#1E1B40" id="metaThemeColor">
-  <title>{% block title %}HR{% endblock %} — TMS</title>
+  <title>{% block title %}HR{% endblock %} — NERPA</title>
 
   {# Тему ставим до отрисовки — иначе тёмный экран моргнёт белым #}
   <script>
     (function () {
       try {
-        var t = localStorage.getItem('tms-theme');
+        var t = localStorage.getItem('nerpa-theme') || localStorage.getItem('tms-theme');
         if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.setAttribute('data-theme', t);
         document.documentElement.setAttribute('data-bs-theme', t);
@@ -207,7 +207,7 @@ var hrTheme = (function () {
   }
   function toggle() {
     var next = current() === 'dark' ? 'light' : 'dark';
-    try { localStorage.setItem('tms-theme', next); } catch (e) {}
+    try { localStorage.setItem('nerpa-theme', next); } catch (e) {}
     apply(next);
   }
 

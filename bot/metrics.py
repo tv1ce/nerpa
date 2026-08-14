@@ -1,5 +1,5 @@
 """
-Функции сбора метрик из базы TMS.
+Функции сбора метрик из базы NERPA.
 Каждая функция принимает db-сессию и возвращает словарь с данными.
 """
 from __future__ import annotations
@@ -8,9 +8,10 @@ import calendar
 import os
 from datetime import date, timedelta
 from zoneinfo import ZoneInfo
+from app.env import getenv as env_get
 
 # Дата берётся в TZ бота, чтобы отчёт в 20:00 МСК был за сегодня, а не завтра
-_TZ = ZoneInfo(os.getenv("TMS_TZ", "Europe/Moscow"))
+_TZ = ZoneInfo(env_get("NERPA_TZ", "Europe/Moscow"))
 
 
 def _today() -> date:

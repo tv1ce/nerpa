@@ -1,5 +1,5 @@
 /* ============================================================================
-   TMS — Design System · Nuttinelle Brand
+   NERPA — Design System · Nuttinelle Brand
    Style: Data-Dense Dashboard · Palette: Nuttinelle purple + gold
    Font: Fira Sans · Built on top of Bootstrap 5
    ========================================================================== */
@@ -239,8 +239,8 @@ a:hover { text-decoration: none; }
 }
 
 /* ── Tables ─────────────────────────────────────────────────────────────── */
-.tms-table { font-size: .86rem; color: var(--text-soft); }
-.tms-table thead th {
+.nerpa-table { font-size: .86rem; color: var(--text-soft); }
+.nerpa-table thead th {
   background: #F9F7F4;
   font-weight: 600;
   color: var(--text-muted);
@@ -252,15 +252,15 @@ a:hover { text-decoration: none; }
   white-space: nowrap;
   padding-top: 11px; padding-bottom: 11px;
 }
-.tms-table tbody td {
+.nerpa-table tbody td {
   border-bottom: 1px solid #EDE8DF;
   vertical-align: middle;
   padding-top: 10px; padding-bottom: 10px;
 }
-.tms-table tbody tr { transition: background .12s ease; }
-.tms-table tbody tr:hover { background: var(--brand-50); }
-.tms-table a { color: var(--brand); font-weight: 600; }
-.tms-table a:hover { color: var(--brand-600); text-decoration: underline; }
+.nerpa-table tbody tr { transition: background .12s ease; }
+.nerpa-table tbody tr:hover { background: var(--brand-50); }
+.nerpa-table a { color: var(--brand); font-weight: 600; }
+.nerpa-table a:hover { color: var(--brand-600); text-decoration: underline; }
 
 /* ── Status badges ──────────────────────────────────────────────────────── */
 .badge {
