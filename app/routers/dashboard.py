@@ -111,12 +111,24 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         total_nuts_sold = 0.0
         nuts_this_month = 0.0
 
+    # Рекламации — отгрузки с нулевой суммой (везём замену брака бесплатно).
+    # Это не продажа, поэтому в разбивку по вкусам такие заказы не берём.
+    _claim_orders = (
+        db.query(OrderItem.order_id)
+        .group_by(OrderItem.order_id)
+        .having(func.coalesce(func.sum(OrderItem.amount), 0) == 0)
+        .scalar_subquery()
+    )
+
     top_products = db.query(
         Product.name,
         func.sum(OrderItem.quantity).label("qty"),
     ).join(OrderItem, OrderItem.product_id == Product.id).join(
         Order, OrderItem.order_id == Order.id
-    ).filter(Order.status.in_(_sold_orders)).group_by(Product.id).order_by(
+    ).filter(
+        Order.status.in_(_sold_orders),
+        ~Order.id.in_(_claim_orders),
+    ).group_by(Product.id).order_by(
         func.sum(OrderItem.quantity).desc()
     ).limit(6).all()
 
