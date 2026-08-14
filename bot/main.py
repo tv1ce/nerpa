@@ -1,18 +1,18 @@
 """
-TMS Telegram Bot — ежедневные/еженедельные/ежемесячные отчёты.
+NERPA Telegram Bot — ежедневные/еженедельные/ежемесячные отчёты.
 
 Запуск:
     python bot/main.py
 
 Переменные окружения (.env):
-    TMS_BOT_TOKEN   — токен бота от @BotFather
-    TMS_CHAT_IDS    — список chat_id через запятую (напр. 123456789,987654321)
-    TMS_DAILY_TIME  — время ежедневного отчёта, формат HH:MM (по умолчанию 20:00)
-    TMS_WEEKLY_TIME — время пятничного отчёта, формат HH:MM (по умолчанию 18:00)
-    TMS_MONTHLY_TIME— время отчёта в последний день месяца (по умолчанию 20:00)
-    TMS_TZ          — временная зона (по умолчанию Europe/Moscow)
-    TMS_HR_METRIC_REMIND_TIME — пятничное напоминание руководителям о метрике (12:00)
-    TMS_HR_METRIC_CHECK_TIME  — пятничная сводка «кто не сдал метрику» (17:30)
+    NERPA_BOT_TOKEN   — токен бота от @BotFather
+    NERPA_CHAT_IDS    — список chat_id через запятую (напр. 123456789,987654321)
+    NERPA_DAILY_TIME  — время ежедневного отчёта, формат HH:MM (по умолчанию 20:00)
+    NERPA_WEEKLY_TIME — время пятничного отчёта, формат HH:MM (по умолчанию 18:00)
+    NERPA_MONTHLY_TIME— время отчёта в последний день месяца (по умолчанию 20:00)
+    NERPA_TZ          — временная зона (по умолчанию Europe/Moscow)
+    NERPA_HR_METRIC_REMIND_TIME — пятничное напоминание руководителям о метрике (12:00)
+    NERPA_HR_METRIC_CHECK_TIME  — пятничная сводка «кто не сдал метрику» (17:30)
 """
 from __future__ import annotations
 
@@ -48,6 +48,7 @@ from bot.metrics import (
     get_callbacks_today,
 )
 from bot.formatters import format_daily, format_weekly, format_monthly, _esc as _esc_md
+from app.env import getenv as env_get
 
 load_dotenv()
 
@@ -59,11 +60,11 @@ logger = logging.getLogger(__name__)
 
 # ── Конфигурация ──────────────────────────────────────────────────────────────
 
-BOT_TOKEN = os.getenv("TMS_BOT_TOKEN", "")
+BOT_TOKEN = env_get("NERPA_BOT_TOKEN", "")
 
 
 def _parse_chat_ids(raw: str) -> list[int]:
-    """Парсит TMS_CHAT_IDS, пропуская нечисловые значения без падения."""
+    """Парсит NERPA_CHAT_IDS, пропуская нечисловые значения без падения."""
     result = []
     for x in raw.split(","):
         x = x.strip()
@@ -72,13 +73,13 @@ def _parse_chat_ids(raw: str) -> list[int]:
         try:
             result.append(int(x))
         except ValueError:
-            logger.warning("TMS_CHAT_IDS: пропущено нечисловое значение %r", x)
+            logger.warning("NERPA_CHAT_IDS: пропущено нечисловое значение %r", x)
     return result
 
 
-CHAT_IDS = _parse_chat_ids(os.getenv("TMS_CHAT_IDS", ""))
+CHAT_IDS = _parse_chat_ids(env_get("NERPA_CHAT_IDS", ""))
 
-TZ_NAME = os.getenv("TMS_TZ", "Europe/Moscow")
+TZ_NAME = env_get("NERPA_TZ", "Europe/Moscow")
 try:
     TZ = ZoneInfo(TZ_NAME)
 except Exception:
@@ -89,7 +90,7 @@ except Exception:
 
 def _parse_time(env_var: str, default: str) -> time:
     """Парсит HH:MM из env. При ошибке — использует значение по умолчанию."""
-    raw = os.getenv(env_var, default)
+    raw = env_get(env_var, default)
     try:
         h, m = map(int, raw.split(":"))
         if not (0 <= h <= 23 and 0 <= m <= 59):
@@ -101,14 +102,14 @@ def _parse_time(env_var: str, default: str) -> time:
     return time(hour=h, minute=m, tzinfo=TZ)
 
 
-DAILY_TIME    = _parse_time("TMS_DAILY_TIME",    "20:00")
-WEEKLY_TIME   = _parse_time("TMS_WEEKLY_TIME",   "18:00")
-MONTHLY_TIME  = _parse_time("TMS_MONTHLY_TIME",  "20:00")
-CALLBACK_TIME = _parse_time("TMS_CALLBACK_TIME", "09:30")
+DAILY_TIME    = _parse_time("NERPA_DAILY_TIME",    "20:00")
+WEEKLY_TIME   = _parse_time("NERPA_WEEKLY_TIME",   "18:00")
+MONTHLY_TIME  = _parse_time("NERPA_MONTHLY_TIME",  "20:00")
+CALLBACK_TIME = _parse_time("NERPA_CALLBACK_TIME", "09:30")
 # Метрика сотрудников (пятница): напоминание руководителям и вечерняя сводка
 # «кто не сдал» для HR. Включаются в «Настройки → Telegram», см. cb_hr_metric_*.
-HR_METRIC_REMIND_TIME = _parse_time("TMS_HR_METRIC_REMIND_TIME", "12:00")
-HR_METRIC_CHECK_TIME  = _parse_time("TMS_HR_METRIC_CHECK_TIME",  "17:30")
+HR_METRIC_REMIND_TIME = _parse_time("NERPA_HR_METRIC_REMIND_TIME", "12:00")
+HR_METRIC_CHECK_TIME  = _parse_time("NERPA_HR_METRIC_CHECK_TIME",  "17:30")
 
 
 # ── Отправка сообщения всем подписчикам ───────────────────────────────────────
@@ -218,7 +219,7 @@ async def _send_plain(bot: Bot, chat_ids: list[int], text: str) -> None:
 
 
 def _authorized(update: Update) -> bool:
-    """Команды бота доступны только подписчикам из TMS_CHAT_IDS.
+    """Команды бота доступны только подписчикам из NERPA_CHAT_IDS.
     Если список пуст — доступ запрещён всем (безопасно по умолчанию)."""
     chat = update.effective_chat
     return bool(chat and chat.id in CHAT_IDS)
@@ -441,7 +442,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _authorized(update):
         return await _deny(update)
     await update.message.reply_text(
-        "👋 *TMS Report Bot*\n\n"
+        "👋 *NERPA Report Bot*\n\n"
         "Доступные команды:\n"
         "/daily — отчёт за сегодня\n"
         "/weekly — отчёт за текущую неделю\n"
@@ -654,7 +655,7 @@ async def on_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if _intake_channel() != "telegram":
         await update.message.reply_text(
             "📥 Приём документов через Telegram выключен.\n"
-            "Включите в TMS: Настройки → Интеграция 1С → «Приём документов» → Telegram."
+            "Включите в NERPA: Настройки → Интеграция 1С → «Приём документов» → Telegram."
         )
         return
 
@@ -778,9 +779,9 @@ async def on_carrier_delivery_confirm(update: Update, context: ContextTypes.DEFA
 # пересылает сообщение в служебный чат: ответ forwardMessage содержит сам
 # Message с текстом. Пересланное тут же удаляем, чтобы не мусорить.
 #
-# Служебный чат: TMS_SERVICE_CHAT_ID, по умолчанию — первый из TMS_CHAT_IDS.
+# Служебный чат: NERPA_SERVICE_CHAT_ID, по умолчанию — первый из NERPA_CHAT_IDS.
 
-SERVICE_CHAT_ID = os.getenv("TMS_SERVICE_CHAT_ID", "").strip() or (str(CHAT_IDS[0]) if CHAT_IDS else "")
+SERVICE_CHAT_ID = env_get("NERPA_SERVICE_CHAT_ID", "").strip() or (str(CHAT_IDS[0]) if CHAT_IDS else "")
 
 
 async def _read_message_text(context: ContextTypes.DEFAULT_TYPE, chat_id: int, message_id: int) -> str | None:
@@ -789,7 +790,7 @@ async def _read_message_text(context: ContextTypes.DEFAULT_TYPE, chat_id: int, m
     Bot API не умеет читать сообщение по id, но forwardMessage возвращает
     пересланный Message целиком. Копию сразу удаляем."""
     if not SERVICE_CHAT_ID:
-        logger.error("reaction: не задан TMS_SERVICE_CHAT_ID/TMS_CHAT_IDS — текст сообщения не прочитать")
+        logger.error("reaction: не задан NERPA_SERVICE_CHAT_ID/NERPA_CHAT_IDS — текст сообщения не прочитать")
         return None
     fwd = None
     try:
@@ -863,15 +864,15 @@ async def on_delivery_reaction(update: Update, context: ContextTypes.DEFAULT_TYP
 
 def main() -> None:
     if not BOT_TOKEN:
-        logger.error("TMS_BOT_TOKEN не задан. Укажите токен в файле .env")
+        logger.error("NERPA_BOT_TOKEN не задан. Укажите токен в файле .env")
         sys.exit(1)
 
     if not CHAT_IDS:
-        logger.warning("TMS_CHAT_IDS не задан — отчёты никуда не отправятся")
+        logger.warning("NERPA_CHAT_IDS не задан — отчёты никуда не отправятся")
 
     # SOCKS5-прокси через Shadowsocks (обход блокировки Telegram в РФ).
     # sslocal слушает на 127.0.0.1:1080 (systemd-сервис shadowsocks.service).
-    proxy_url = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080")
+    proxy_url = env_get("NERPA_PROXY", "socks5://127.0.0.1:1080")
     request = HTTPXRequest(proxy=proxy_url) if proxy_url else None
 
     builder = Application.builder().token(BOT_TOKEN)

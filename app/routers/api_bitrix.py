@@ -10,7 +10,7 @@ GET  /api/bitrix/categories              — список направлений
 GET  /api/bitrix/stages                  — список стадий сделки для направления (admin)
 POST /api/bitrix/ensure-userfields       — создать UF-поля «Оплачено»/«Доставлено» (admin)
 
-Авторизация вебхука Bitrix24 → TMS — статический ключ в query-параметре ?key=
+Авторизация вебхука Bitrix24 → NERPA — статический ключ в query-параметре ?key=
 (значение из env BITRIX_PUSH_KEY), аналогично приёму документов из 1С.
 """
 import logging
@@ -32,6 +32,7 @@ from app.services.bitrix_client import (
     refresh_counterparty_requisites, extract_delivery_from_deal, normalize_product_name,
 )
 from app.utils import log_action
+from app.env import getenv as env_get
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +49,11 @@ def _json(ok: bool, **kw):
     return JSONResponse({"ok": ok, **kw})
 
 
-# ── Сопоставление товарных позиций сделки с номенклатурой TMS ─────────────
+# ── Сопоставление товарных позиций сделки с номенклатурой NERPA ─────────────
 # Название товара в Bitrix24 часто не совпадает буква-в-букву с названием в
-# TMS/1С, поэтому одного точного сравнения строк недостаточно (см. историю
+# NERPA/1С, поэтому одного точного сравнения строк недостаточно (см. историю
 # случая, когда позиция «не подсосалась» в заказ). Порядок попыток:
-#   1. Уже запомненная привязка PRODUCT_ID → товар TMS (bitrix_product_links).
+#   1. Уже запомненная привязка PRODUCT_ID → товар NERPA (bitrix_product_links).
 #   2. Код/артикул из карточки товара Bitrix (XML_ID) против article/external_id_1c.
 #   3. Точное совпадение по нормализованному названию (регистр/пробелы/пунктуация).
 # Как только (2) или (3) сработали — привязка сохраняется, и в следующий раз
@@ -66,7 +67,7 @@ _normalize_product_name = normalize_product_name
 
 def _build_product_name_index(db: Session) -> dict:
     """{нормализованное имя: Product}, без неоднозначных совпадений (когда двум
-    разным товарам TMS соответствует одно и то же нормализованное имя)."""
+    разным товарам NERPA соответствует одно и то же нормализованное имя)."""
     idx, ambiguous = {}, set()
     for p in db.query(Product).filter(Product.is_active == True).all():  # noqa: E712
         norm = _normalize_product_name(p.name)
@@ -111,7 +112,7 @@ def _price_and_discount(row: dict) -> tuple:
     """(цена до скидки, % скидки) из товарной строки сделки.
 
     PRICE в Bitrix24 — это цена УЖЕ со скидкой, поэтому позиция со 100% скидкой
-    (подарок, дегустационный образец) приезжала в TMS с нулевой ценой и без следа
+    (подарок, дегустационный образец) приезжала в NERPA с нулевой ценой и без следа
     того, что скидка вообще была. Цена до скидки лежит в PRICE_BRUTTO (с налогом)
     или PRICE_NETTO (без него) — какое из полей соответствует PRICE, говорит флаг
     TAX_INCLUDED.
@@ -250,7 +251,7 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         if not cp.external_id_bitrix:
             cp.external_id_bitrix = cp_data["external_id_bitrix"]
         # Дозаполняем ПУСТЫЕ реквизиты свежими данными из сделки. Bitrix24 —
-        # источник истины там, где данные есть; введённое в TMS не затираем.
+        # источник истины там, где данные есть; введённое в NERPA не затираем.
         for field in ("inn", "kpp", "ogrn", "phone", "email", "actual_address", "legal_address",
                       "bank_name", "bank_bik", "bank_account", "bank_corr_account"):
             val = cp_data.get(field)
@@ -321,7 +322,7 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
         if not product:
             # Сохраняем QTY/PRICE прямо в тексте — иначе при ручном добавлении
             # позиции менеджер вынужден гадать количество (товар мог появиться
-            # в каталоге TMS уже ПОСЛЕ пуша сделки, минуты решают).
+            # в каталоге NERPA уже ПОСЛЕ пуша сделки, минуты решают).
             qty_s = f"{qty:g}"
             price_s = f"{price:g}"
             disc_s = f" со скидкой {discount_pct:g}%" if discount_pct else ""
@@ -369,7 +370,7 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
             db.add(Notification(type="bitrix_order", title=notif_title, body=body,
                                  link=f"/orders/{order.id}", user_id=int(uid)))
     else:
-        # Настройка не задана — уведомление системное, видят все пользователи TMS
+        # Настройка не задана — уведомление системное, видят все пользователи NERPA
         db.add(Notification(type="bitrix_order", title=notif_title, body=body,
                              link=f"/orders/{order.id}"))
     db.commit()
@@ -381,20 +382,20 @@ async def deal_approved(request: Request, db: Session = Depends(get_db)):
 
 
 async def _send_bitrix_alert(company, order, cp, actions) -> None:
-    """Немедленная Telegram-рассылка о новом заказе — параллельно с уведомлением в TMS."""
+    """Немедленная Telegram-рассылка о новом заказе — параллельно с уведомлением в NERPA."""
     if not company:
         return
     chat_ids = [c.strip() for c in (company.bitrix_alert_chat_ids or "").split(",") if c.strip()]
-    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    bot_token = (company.tg_bot_token or "").strip() or env_get("NERPA_BOT_TOKEN", "").strip()
     if not chat_ids or not bot_token:
         return
     text = (
         f"🔴 НОВЫЙ ЗАКАЗ ИЗ BITRIX24\n"
         f"Заказ №{order.number} — {cp.trade_name or cp.name}\n"
         f"Нужно создать: {' + '.join(actions)}\n"
-        f"Открыть: смотрите вкладку «Уведомления» в TMS"
+        f"Открыть: смотрите вкладку «Уведомления» в NERPA"
     )
-    # Через общий отправитель (SOCKS-прокси TMS_PROXY): напрямую
+    # Через общий отправитель (SOCKS-прокси NERPA_PROXY): напрямую
     # api.telegram.org с российского сервера недоступен. Отправка блокирующая,
     # поэтому уводим её в поток, чтобы не держать event loop.
     import asyncio
@@ -464,8 +465,8 @@ async def ensure_userfields(request: Request, db: Session = Depends(get_db)):
         return _json(False, error="Bitrix24 не настроен")
     try:
         with client:
-            paid_code = client.ensure_userfield("TMS_PAID", "Оплачено (TMS)")
-            delivered_code = client.ensure_userfield("TMS_DELIVERED", "Доставлено (TMS)")
+            paid_code = client.ensure_userfield("TMS_PAID", "Оплачено (NERPA)")
+            delivered_code = client.ensure_userfield("TMS_DELIVERED", "Доставлено (NERPA)")
     except BitrixError as e:
         return _json(False, error=str(e))
     company.bitrix_field_paid = paid_code

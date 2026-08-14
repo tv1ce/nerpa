@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import secrets
 import time
 from collections import defaultdict
@@ -16,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.tz import now as msk_now
 from app.database import get_db
 from app.auth import login_required
+from app.env import getenv as env_get
 from app.models import (
     HrEmployee, HrRecord, HrVacancy, HrPosition, HrSurvey, HrSurveyToken,
     HrEmployeeInsight, HrTeamAchievement, HrQuestion, Notification, User, CompanySettings,
@@ -909,7 +909,7 @@ async def send_ai_report(
     if not ids:
         return RedirectResponse(url=f"/hr/?period={period}&report=nochat", status_code=302)
 
-    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    bot_token = (company.tg_bot_token or "").strip() or env_get("NERPA_BOT_TOKEN", "").strip()
     if not bot_token:
         return RedirectResponse(url=f"/hr/?period={period}&report=notoken", status_code=302)
 
@@ -1037,7 +1037,7 @@ async def send_enps_managers_report(
     if not ids:
         return RedirectResponse(url=f"/hr/?period={period}&report=nochat", status_code=302)
 
-    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    bot_token = (company.tg_bot_token or "").strip() or env_get("NERPA_BOT_TOKEN", "").strip()
     if not bot_token:
         return RedirectResponse(url=f"/hr/?period={period}&report=notoken", status_code=302)
 
@@ -1711,7 +1711,7 @@ async def survey_delete(request: Request, survey_id: int, db: Session = Depends(
     return RedirectResponse(url="/hr/surveys", status_code=302)
 
 
-# ── Публичная форма опроса (без входа в TMS) ─────────────────────────────────
+# ── Публичная форма опроса (без входа в NERPA) ─────────────────────────────────
 
 _RATE_WINDOW = 60
 _RATE_MAX = 60
@@ -1737,7 +1737,7 @@ def _load_token(db: Session, token: str) -> HrSurveyToken | None:
 
 
 def _notify_survey_answered(db: Session, tok: HrSurveyToken) -> None:
-    """Уведомляет HR/admin (колокольчик в TMS) о первом ответе сотрудника на раунд."""
+    """Уведомляет HR/admin (колокольчик в NERPA) о первом ответе сотрудника на раунд."""
     survey = tok.survey
     title = f"✅ {tok.employee.full_name} ответил(а) на опрос «{survey.title or 'Опрос'}»"
     recipients = db.query(User).filter(User.role.in_(("hr", "admin")), User.is_active == True).all()

@@ -16,6 +16,7 @@ from app.models import Order, OrderItem, Counterparty, Product, CompanySettings,
 from app.utils import log_action
 import logging
 import threading
+from app.env import getenv as env_get
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def _push_order_bg(order_id: int) -> None:
 
 
 def _push_bitrix_event_bg(order_id: int, event: str) -> None:
-    """Двигает стадию/плашку сделки Bitrix24 в фоновом потоке (не блокирует смену статуса в TMS)."""
+    """Двигает стадию/плашку сделки Bitrix24 в фоновом потоке (не блокирует смену статуса в NERPA)."""
     from app.database import SessionLocal
     from app.services.bitrix_client import push_order_event
     db = SessionLocal()
@@ -826,7 +827,7 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
     company = db.query(CompanySettings).first()
     bot_token = (company.tg_bot_token or "").strip() if company else ""
     if not bot_token:
-        bot_token = os.getenv("TMS_BOT_TOKEN", "").strip()
+        bot_token = env_get("NERPA_BOT_TOKEN", "").strip()
     if not bot_token:
         return JSONResponse({"ok": False, "error": "Токен Telegram-бота не настроен. Укажите его в Настройки → Telegram-бот"}, status_code=500)
 
@@ -863,7 +864,7 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
 
     text = "\n".join(lines)
 
-    proxy_url = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080") or None
+    proxy_url = env_get("NERPA_PROXY", "socks5://127.0.0.1:1080") or None
     tg_error = None
     try:
         async with httpx.AsyncClient(timeout=10.0, proxy=proxy_url) as client:

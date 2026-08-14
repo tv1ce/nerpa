@@ -11,7 +11,7 @@
    - POST и всё остальное: только сеть. Заказ, «отправленный» из кэша, был бы
      хуже честной ошибки.
 */
-const VERSION = 'tms-shop-v1';
+const VERSION = 'nerpa-shop-v2';
 const CACHE = `${VERSION}-pages`;
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -20,7 +20,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
       .then((names) => Promise.all(
-        names.filter((n) => n.startsWith('tms-shop-') && n !== CACHE)
+        names.filter((n) => (n.startsWith('nerpa-shop-') || n.startsWith('tms-shop-')) && n !== CACHE)
              .map((n) => caches.delete(n))
       ))
       .then(() => self.clients.claim())

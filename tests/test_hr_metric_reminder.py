@@ -177,7 +177,7 @@ def test_remind_text_lists_debt_per_manager(admin_client):
 
 
 def test_messages_never_carry_personal_form_links(admin_client):
-    """Ссылка /hr/w/{token} пускает в метрику подразделения без входа в TMS —
+    """Ссылка /hr/w/{token} пускает в метрику подразделения без входа в NERPA —
     в общий чат она уходить не должна ни в одном из сообщений."""
     from app.database import SessionLocal
     from app.models import HrMetricToken

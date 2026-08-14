@@ -644,7 +644,7 @@ def test_month_lines_in_hr_report_include_rollup(admin_client):
 
 
 def test_public_week_form_shows_department(admin_client):
-    """Ссылка руководителя открывает метрики его подчинённых без входа в TMS."""
+    """Ссылка руководителя открывает метрики его подчинённых без входа в NERPA."""
     import secrets
     from app.database import SessionLocal
     from app.models import HrEmployee, HrMetric, HrMetricToken

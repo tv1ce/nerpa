@@ -4,8 +4,8 @@
 товаровед точки собирает заказ сам с телефона. Пароля нет намеренно: в B2B
 любой логин означает, что ссылкой не будут пользоваться.
 
-Заказ приземляется в TMS ЧЕРНОВИКОМ (status='draft', source='client_portal') —
-подтверждает его менеджер в TMS, он же и запускает штатную цепочку «подтверждён
+Заказ приземляется в NERPA ЧЕРНОВИКОМ (status='draft', source='client_portal') —
+подтверждает его менеджер в NERPA, он же и запускает штатную цепочку «подтверждён
 → 1С → сборка». Параллельно в Bitrix24 создаётся сделка на компанию клиента, в
 то же направление и стадию, куда падают сделки менеджеров.
 
@@ -29,6 +29,7 @@ from app.models import (Counterparty, CompanySettings, Product, Order, OrderItem
                         Notification, ShopCart, ShopBooking)
 from app.routers.public import _rate_limited
 from app.utils import log_action
+from app.env import getenv as env_get
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ def nut_display_name(name: str) -> str:
     сливочном масле». Клиенту не нужно знать про внутренние коды линеек, но
     разница между маслом и маргарином для него важна — выносим её словами.
 
-    Внутри TMS, в 1С и в сделке Bitrix остаётся исходное название номенклатуры:
+    Внутри NERPA, в 1С и в сделке Bitrix остаётся исходное название номенклатуры:
     склад и бухгалтерия работают со справочником, а не с витриной."""
     raw = (name or "").strip()
     low = raw.lower()
@@ -401,8 +402,8 @@ def date_load(db: Session, d: date) -> int:
     """Сколько орешков уже обещано на эту дату — по всем клиентам.
 
     Складываем два источника, которые не пересекаются по построению:
-      * заказы в TMS с этой датой доставки (они приехали из Bitrix24);
-      * брони кабинета, по сделкам которых заказ в TMS ещё не появился —
+      * заказы в NERPA с этой датой доставки (они приехали из Bitrix24);
+      * брони кабинета, по сделкам которых заказ в NERPA ещё не появился —
         робот довозит его не мгновенно, и в этом окне дата выглядела бы
         свободной.
     Отменённые заказы не считаем: их мощность освободилась."""
@@ -449,9 +450,9 @@ def production_plan(db: Session, company) -> dict:
     """Что цеху печь к ближайшей отгрузке — в разрезе вкусов.
 
     Собирается из трёх источников, каждый со своей ролью:
-      * заказы в TMS с этой датой доставки — подтверждённые, приехали из Bitrix24;
+      * заказы в NERPA с этой датой доставки — подтверждённые, приехали из Bitrix24;
       * брони кабинета, по сделкам которых заказ ещё не вернулся — клиент их уже
-        отправил, печь надо, а в TMS они появятся с задержкой;
+        отправил, печь надо, а в NERPA они появятся с задержкой;
       * корзины, которые клиенты набирают ПРЯМО СЕЙЧАС, — отдельной строкой и в
         план не входят: заказ ещё не отправлен и может не отправиться вовсе.
         Но цех должен видеть, что на него надвигается.
@@ -627,7 +628,7 @@ def _order_history(db: Session, cp: Counterparty, outlet: dict | None = None,
                    limit: int = 12) -> list[dict]:
     """История заказов клиента — то, что он уже у нас заказывал.
 
-    Берём заказы из TMS: они приезжают туда из Bitrix24 после согласования, то
+    Берём заказы из NERPA: они приезжают туда из Bitrix24 после согласования, то
     есть в истории клиент видит именно подтверждённые заказы, а не свои
     неотправленные черновики. Отменённые не показываем — это не история
     покупок, а шум."""
@@ -744,9 +745,9 @@ async def save_cart(request: Request, token: str, db: Session = Depends(get_db))
 async def submit_order(request: Request, token: str, db: Session = Depends(get_db)):
     """Заказ из кабинета → карточка клиента в Bitrix24, стадия «Заказ согласован».
 
-    Заказ в TMS здесь НЕ создаётся намеренно: он приедет обратно роботом с этой
+    Заказ в NERPA здесь НЕ создаётся намеренно: он приедет обратно роботом с этой
     стадии через /api/bitrix/webhook/deal-approved — тем же путём, что и заказы
-    менеджеров. Пиши мы заказ ещё и напрямую, на каждый заказ из кабинета в TMS
+    менеджеров. Пиши мы заказ ещё и напрямую, на каждый заказ из кабинета в NERPA
     было бы по два: свой и приехавший из сделки.
 
     Из-за этого Bitrix здесь — единственный носитель заказа, и обращение к нему
@@ -874,7 +875,7 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
         title=f"🛒 Заказ из кабинета — {cp.trade_name or cp.name}",
         body=(f"Сумма {round(total):,} ₽".replace(",", " ") +
               f", позиций: {len(items)}.\nСделка Bitrix24 #{result['deal_id']} "
-              f"переведена на «Заказ согласован» — заказ приедет в TMS автоматически."),
+              f"переведена на «Заказ согласован» — заказ приедет в NERPA автоматически."),
         link=f"/counterparties/{cp.id}",
     ))
     db.commit()
@@ -888,7 +889,7 @@ async def submit_order(request: Request, token: str, db: Session = Depends(get_d
 async def order_done(request: Request, token: str, db: Session = Depends(get_db)):
     """Страница «заказ принят».
 
-    Ссылки на трекинг здесь нет намеренно: заказ ещё едет из Bitrix в TMS, и
+    Ссылки на трекинг здесь нет намеренно: заказ ещё едет из Bitrix в NERPA, и
     номера у него пока не существует. Обещать клиенту статус, которого нет,
     хуже, чем честно сказать, что менеджер подтвердит."""
     cp = _find_counterparty(db, token)
@@ -902,12 +903,12 @@ async def order_done(request: Request, token: str, db: Session = Depends(get_db)
 
 
 def notify_lost_orders(db: Session) -> int:
-    """Сообщает менеджеру о заказах, которые ушли в сделку и не вернулись в TMS.
+    """Сообщает менеджеру о заказах, которые ушли в сделку и не вернулись в NERPA.
 
     Кабинет не создаёт заказ сам: он заполняет карточку в Bitrix24 и двигает её
     на «Заказ согласован», откуда робот приводит заказ обратно. Если робота
     отключили, сделку удалили или стадия настроена не так — клиент считает, что
-    заказал, а в TMS ничего нет. Молчать про это нельзя: заказ просто пропадёт.
+    заказал, а в NERPA ничего нет. Молчать про это нельзя: заказ просто пропадёт.
 
     Триггер — протухшая бронь: заказ по ней не появился дольше отведённого
     времени. Пишем один раз на бронь."""
@@ -932,9 +933,9 @@ def notify_lost_orders(db: Session) -> int:
 
         db.add(Notification(
             type="shop_lost_order",
-            title=f"⚠️ Заказ из кабинета не дошёл до TMS — {who}",
+            title=f"⚠️ Заказ из кабинета не дошёл до NERPA — {who}",
             body=(f"Клиент отправил заказ на {b.qty} шт (отгрузка {b.ship_date:%d.%m}), "
-                  f"он ушёл в сделку Bitrix24 #{b.bitrix_deal_id}, но заказ в TMS так и не "
+                  f"он ушёл в сделку Bitrix24 #{b.bitrix_deal_id}, но заказ в NERPA так и не "
                   f"появился за {hours} ч.\nПроверьте сделку: возможно, робот на стадии "
                   f"«Заказ согласован» не сработал."),
             link=f"/counterparties/{cp.id}" if cp else None,
@@ -951,13 +952,13 @@ def notify_lost_orders(db: Session) -> int:
 def _notify_lost_telegram(db: Session, company, who: str, booking, hours: int) -> None:
     import os
     chat_ids = [c.strip() for c in (company.shop_alert_chat_ids or "").split(",") if c.strip()]
-    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    bot_token = (company.tg_bot_token or "").strip() or env_get("NERPA_BOT_TOKEN", "").strip()
     if not chat_ids or not bot_token:
         return
-    text = ("⚠️ ЗАКАЗ ИЗ КАБИНЕТА НЕ ДОШЁЛ ДО TMS\n"
+    text = ("⚠️ ЗАКАЗ ИЗ КАБИНЕТА НЕ ДОШЁЛ ДО NERPA\n"
             f"{who}\n"
             f"{booking.qty} шт, отгрузка {booking.ship_date:%d.%m}\n"
-            f"Сделка #{booking.bitrix_deal_id} — заказа в TMS нет уже {hours} ч.\n"
+            f"Сделка #{booking.bitrix_deal_id} — заказа в NERPA нет уже {hours} ч.\n"
             "Проверьте, сработал ли робот на стадии «Заказ согласован».")
     from app.services.telegram_send import send_topic_message
     for chat_id in chat_ids:
@@ -1033,7 +1034,7 @@ def notify_abandoned_carts(db: Session) -> int:
 
 def _notify_abandoned(db: Session, cp: Counterparty, lines: list,
                       qty_total: int, total: float, hours_idle: int) -> None:
-    """Уведомление о брошенной корзине — в TMS и в тот же Telegram-канал,
+    """Уведомление о брошенной корзине — в NERPA и в тот же Telegram-канал,
     что и заказы из кабинета."""
     import os
     from app.services.outlets import address_label
@@ -1058,7 +1059,7 @@ def _notify_abandoned(db: Session, cp: Counterparty, lines: list,
     ))
 
     chat_ids = [c.strip() for c in (company.shop_alert_chat_ids or "").split(",") if c.strip()]
-    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    bot_token = (company.tg_bot_token or "").strip() or env_get("NERPA_BOT_TOKEN", "").strip()
     if not chat_ids or not bot_token:
         return
 
@@ -1082,7 +1083,7 @@ def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
     алертов по сделкам из CRM: у заказов из кабинета другая аудитория и другая
     срочность. Если канал не задан — молча ничего не шлём.
 
-    В сообщении всё, чтобы принять решение не открывая TMS: заведение и точка,
+    В сообщении всё, чтобы принять решение не открывая NERPA: заведение и точка,
     юрлицо-заказчик (вывеска у разных ИП совпадает — по ней одной не поймёшь,
     кто заказал), дата и адрес доставки, комментарий клиента, состав и сумма."""
     import os
@@ -1090,7 +1091,7 @@ def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
     if not company:
         return
     chat_ids = [c.strip() for c in (company.shop_alert_chat_ids or "").split(",") if c.strip()]
-    bot_token = (company.tg_bot_token or "").strip() or os.getenv("TMS_BOT_TOKEN", "").strip()
+    bot_token = (company.tg_bot_token or "").strip() or env_get("NERPA_BOT_TOKEN", "").strip()
     if not chat_ids or not bot_token:
         return
 
@@ -1130,7 +1131,7 @@ def _notify_telegram(db: Session, cp: Counterparty, total: float, items: list,
     text = "\n".join(parts)
 
     # Отправляем ТОЛЬКО через общий отправитель: он ходит в Telegram через
-    # локальный SOCKS-прокси (TMS_PROXY). Напрямую с российского сервера
+    # локальный SOCKS-прокси (NERPA_PROXY). Напрямую с российского сервера
     # api.telegram.org не отвечает, и собственный httpx-клиент здесь молча
     # падал с «Network is unreachable», хотя бот и остальные уведомления
     # работали.

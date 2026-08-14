@@ -58,7 +58,7 @@
     <div class="card border-0 shadow-sm p-4">
       <div class="form-section-title">Позиции счёта</div>
       <div class="table-responsive">
-        <table class="table tms-table mb-0">
+        <table class="table nerpa-table mb-0">
           {% set has_discount = invoice.items | selectattr("discount_pct", "gt", 0) | list | length > 0 %}
           <thead>
             <tr><th>№</th><th>Наименование</th><th class="text-end">Кол-во</th><th>Ед.</th>
@@ -111,7 +111,7 @@
       </div>
       {% if invoice.payments %}
       <div class="table-responsive">
-        <table class="table tms-table mb-0" style="font-size:.86rem">
+        <table class="table nerpa-table mb-0" style="font-size:.86rem">
           <thead>
             <tr><th>Дата</th><th class="text-end">Сумма</th><th>Плательщик</th><th>Источник</th><th>Назначение</th></tr>
           </thead>
