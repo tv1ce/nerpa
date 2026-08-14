@@ -21,6 +21,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -51,6 +52,11 @@ LINE_LABELS = {"п1.": "на сливочном масле", "п2.": "на ма�
 # Статусы, после которых позиция уже физически собрана и печь её не нужно.
 ASSEMBLED_STATUSES = ("assembled", "handed", "delivered")
 
+# Сколько держать на табло закрытую дату, прежде чем показать следующую.
+_PLAN_HOLD_MINUTES = 60
+# На сколько дат вперёд заглядывать в поисках незакрытой.
+_PLAN_LOOKAHEAD = 5
+
 
 def shipment_date(order) -> "date | None":
     """Дата ОТГРУЗКИ заказа — день, когда мы грузим машину.
@@ -67,7 +73,6 @@ def shipment_date(order) -> "date | None":
 
 def shipment_date_col():
     """То же самое, но выражением для SQL-запросов."""
-    from sqlalchemy import func
     return func.coalesce(Order.dispatch_date, Order.delivery_date)
 
 BOX_CAPACITY = 51
@@ -428,23 +433,40 @@ def production_plan(db: Session, company) -> dict:
 
     Дата берётся ближайшая из тех, на которые вообще что-то заказано, а не
     «завтра»: при отгрузке два раза в неделю завтра обычно пусто."""
-    from app.services.outlets import _flavor
-
     products = db.query(Product.id, Product.name, Product.category).all()
     nut_names = {p.id: p.name for p in products if nut_line(p.name)}
     dummy_names = {p.id: p.name for p in products if is_dummy(p)}
     if not nut_names and not dummy_names:
         return {"date": None}
 
-    # ── Ближайшая дата, на которую что-то есть ──────────────────────────────
+    # ── Ближайшая дата, на которую есть что готовить ────────────────────────
+    # Закрытую дату держим ещё час: цех должен увидеть, что день закрыт, а не
+    # обнаружить, что панель молча перескочила на следующую отгрузку в тот же
+    # миг, когда кладовщик нажал «Собрано» на последнем заказе.
     today = date.today()
-    dates = [d for (d,) in db.query(shipment_date_col())
-             .filter(shipment_date_col() >= today, Order.status != "cancelled").distinct().all() if d]
-    dates += [d for (d,) in db.query(ShopBooking.ship_date)
-              .filter(ShopBooking.ship_date >= today).distinct().all() if d]
+    dates = {d for (d,) in db.query(shipment_date_col())
+             .filter(shipment_date_col() >= today, Order.status != "cancelled").distinct().all() if d}
+    dates |= {d for (d,) in db.query(ShopBooking.ship_date)
+              .filter(ShopBooking.ship_date >= today).distinct().all() if d}
     if not dates:
         return {"date": None}
-    day = min(dates)
+
+    # Смотрим вперёд на несколько дат: подряд закрытые дни (например, отгрузили
+    # и пятницу, и субботу) не должны останавливать перебор.
+    for day in sorted(dates)[:_PLAN_LOOKAHEAD]:
+        plan = _plan_for_date(db, company, day, nut_names, dummy_names, today)
+        if plan is None:
+            continue                     # на эту дату орешков и муляжей нет
+        if plan["closed"] and plan["closed_ago_min"] >= _PLAN_HOLD_MINUTES:
+            continue                     # день закрыт больше часа назад — дальше
+        return plan
+    return {"date": None}
+
+
+def _plan_for_date(db: Session, company, day, nut_names: dict, dummy_names: dict,
+                   today) -> dict | None:
+    """План на конкретную дату отгрузки. None — печь на неё нечего."""
+    from app.services.outlets import _flavor
 
     by_product: dict[int, int] = {}
     done_product: dict[int, int] = {}
@@ -502,10 +524,31 @@ def production_plan(db: Session, company) -> dict:
     lines.sort(key=lambda r: -r["qty"])
     dummies.sort(key=lambda r: -r["qty"])
 
+    if not lines and not dummies:
+        return None
+
     # Итог — по орешкам: муляжи не печём, в мощность цеха они не упираются.
     total = sum(r["qty"] for r in lines)
     done_total = sum(r["done"] for r in lines)
     cap = daily_capacity(company)
+
+    # ── Закрыт ли день и как давно ──────────────────────────────────────────
+    # Закрытым считаем, когда собрано всё: и орешки, и муляжи. Момент закрытия —
+    # последняя отметка «Собрано» среди заказов этой даты. Если отметок нет
+    # вовсе (старые данные), считаем, что закрыли давно: держать на табло день,
+    # про который мы даже не знаем когда его собрали, смысла нет.
+    dummies_qty = sum(r["qty"] for r in dummies)
+    dummies_done = sum(r["done"] for r in dummies)
+    closed = (total + dummies_qty) > 0 and done_total >= total and dummies_done >= dummies_qty
+
+    closed_ago_min = 0
+    if closed:
+        from datetime import datetime
+        last = (db.query(func.max(Order.assembled_at))
+                .filter(shipment_date_col() == day,
+                        Order.status.in_(ASSEMBLED_STATUSES)).scalar())
+        closed_ago_min = (int((datetime.now() - last).total_seconds() // 60)
+                          if last else _PLAN_HOLD_MINUTES + 1)
 
     # ── Что набирают в корзинах прямо сейчас ────────────────────────────────
     # Через _cart_map, а не разбором JSON на месте: с появлением точек корзина
@@ -525,6 +568,8 @@ def production_plan(db: Session, company) -> dict:
         "date": format_slot_date(day),
         "date_iso": day.isoformat(),
         "days_left": (day - today).days,
+        "closed": closed,
+        "closed_ago_min": closed_ago_min,
         "lines": lines,
         "dummies": dummies,
         "dummies_total": sum(r["qty"] for r in dummies),

@@ -230,6 +230,7 @@
     .plan-title{font-size:2.1vh;font-weight:800;color:var(--ink)}
     .plan-date{font-size:2.1vh;font-weight:800;color:var(--purple)}
     .plan-when{font-size:1.6vh;color:var(--muted);font-weight:600}
+    .plan-when.done{color:var(--green);font-weight:800}
     .plan-body{display:flex;gap:1.8vw;align-items:stretch}
     .plan-col{flex:1;display:flex;flex-direction:column;justify-content:center;gap:1vh;min-width:0}
     .plan-lines{display:flex;flex-direction:column;gap:.9vh}
@@ -871,8 +872,13 @@
       card.style.display = '';
       document.getElementById('plan-date').textContent = p.date;
       const dl = p.days_left;
-      document.getElementById('plan-when').textContent =
-        dl === 0 ? 'сегодня' : dl === 1 ? 'завтра' : 'через ' + dl + ' дн.';
+      const when = document.getElementById('plan-when');
+      // Закрытый день висит ещё час — цех должен увидеть, что смена сделана,
+      // а не обнаружить, что панель молча перескочила на следующую отгрузку.
+      when.textContent = p.closed
+        ? '✓ день закрыт'
+        : (dl === 0 ? 'сегодня' : dl === 1 ? 'завтра' : 'через ' + dl + ' дн.');
+      when.classList.toggle('done', !!p.closed);
 
       // Полоса у каждого вкуса — относительно самого крупного: видно с другого
       // конца цеха, чего печь больше всего, не вчитываясь в цифры.
