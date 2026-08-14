@@ -208,7 +208,7 @@ def build_check(db: Session, ws: date | None = None) -> str | None:
         o = data["orphan"]
         names = _names(o["pending"])
         tail = f" (нет данных: {names})" if names else ""
-        lines += ["", f"⚠️ Без руководителя: {o['filled']} из {o['total']}{tail}"]
+        lines += ["", f"⚠️ Топ менеджмент: {o['filled']} из {o['total']}{tail}"]
 
     lines += ["", f"Итого за неделю: {data['filled']} из {data['total']} показателей"]
     if base:

@@ -27,26 +27,33 @@ _APP_START = _time.monotonic()
 # ── Авто-перевод просроченных счетов в статус overdue ────────────────────────
 
 def _mark_overdue_invoices() -> int:
-    """Переводит счета issued→overdue если due_date < сегодня.
+    """Переводит счета issued→overdue, когда вышел срок оплаты.
+
+    Срок — это due_date плюс индивидуальная отсрочка контрагента, та же дата,
+    по которой считает раздел дебиторки. Иначе счёт с отсрочкой висит
+    «Просрочен» в списке счетов и «в сроке» в дебиторке одновременно.
     Возвращает количество обновлённых записей."""
     from app.database import SessionLocal
     from app.models import Invoice
-    from sqlalchemy import and_
+    from app.routers.receivables import overdue_deadline
 
     today = _date.today()
     db = SessionLocal()
     try:
-        updated = (
+        candidates = (
             db.query(Invoice)
             .filter(
                 Invoice.status.in_(["issued", "partial"]),
                 Invoice.due_date != None,
-                Invoice.due_date < today,
             )
             .all()
         )
-        for inv in updated:
-            inv.status = "overdue"
+        updated = []
+        for inv in candidates:
+            deadline = overdue_deadline(inv)
+            if deadline and deadline < today:
+                inv.status = "overdue"
+                updated.append(inv)
         if updated:
             db.commit()
             logger.info("Авто-просрочка: %d счетов → overdue", len(updated))

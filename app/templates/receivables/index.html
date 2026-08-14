@@ -4,120 +4,196 @@
 
 {% block content %}
 
-{# ── Сводка ─────────────────────────────────────────────────────────────────── #}
-<div class="row g-3 mb-4">
-  <div class="col-sm-6 col-lg-3">
+{# ── Деньги вперёд: четыре числа, на которые смотрят каждый день ───────────── #}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
     <div class="card border-0 shadow-sm p-3 h-100">
-      <div class="text-muted small mb-1"><i class="bi bi-receipt me-1"></i>Всего счетов к оплате</div>
-      <div class="fs-4 fw-semibold">{{ rows | length }}</div>
+      <div class="text-muted small mb-1"><i class="bi bi-calendar-week me-1"></i>Придёт за 7 дней</div>
+      <div class="fs-4 fw-semibold text-success">{{ due_7d | money }} ₽</div>
+      <div class="text-muted" style="font-size:.75rem">по сроку с учётом отсрочки</div>
     </div>
   </div>
-  <div class="col-sm-6 col-lg-3">
+  <div class="col-6 col-lg-3">
     <div class="card border-0 shadow-sm p-3 h-100">
-      <div class="text-muted small mb-1"><i class="bi bi-cash-stack me-1"></i>Сумма задолженности</div>
-      <div class="fs-4 fw-semibold text-primary">{{ total_amount | money }} ₽</div>
+      <div class="text-muted small mb-1"><i class="bi bi-calendar-month me-1"></i>До конца месяца</div>
+      <div class="fs-4 fw-semibold text-success">{{ due_month | money }} ₽</div>
+      <div class="text-muted" style="font-size:.75rem">по {{ month_end | date_fmt }}</div>
     </div>
   </div>
-  <div class="col-sm-6 col-lg-3">
+  <div class="col-6 col-lg-3">
     <div class="card border-0 shadow-sm p-3 h-100 {% if overdue_count %}border-start border-danger border-3{% endif %}">
-      <div class="text-muted small mb-1"><i class="bi bi-exclamation-triangle me-1 text-danger"></i>Просрочено счетов</div>
-      <div class="fs-4 fw-semibold {% if overdue_count %}text-danger{% endif %}">{{ overdue_count }}</div>
-      {% if overdue_count %}
-      <div class="text-danger small">{{ overdue_amount | money }} ₽</div>
-      {% endif %}
+      <div class="text-muted small mb-1"><i class="bi bi-exclamation-triangle me-1 text-danger"></i>Срок сорван</div>
+      <div class="fs-4 fw-semibold {% if overdue_count %}text-danger{% endif %}">{{ overdue_amount | money }} ₽</div>
+      <div class="{% if overdue_count %}text-danger{% else %}text-muted{% endif %}" style="font-size:.75rem">
+        {% if overdue_count %}{{ overdue_count }} сч. · до {{ max_overdue_days }} дн.{% else %}просрочек нет{% endif %}
+      </div>
     </div>
   </div>
-  <div class="col-sm-6 col-lg-3">
+  <div class="col-6 col-lg-3">
     <div class="card border-0 shadow-sm p-3 h-100">
-      <div class="text-muted small mb-1"><i class="bi bi-calendar-x me-1"></i>Макс. просрочка</div>
-      <div class="fs-4 fw-semibold {% if max_overdue_days > 30 %}text-danger{% elif max_overdue_days > 0 %}text-warning{% endif %}">
-        {% if max_overdue_days %}{{ max_overdue_days }} дн.{% else %}—{% endif %}
-      </div>
-      <div class="text-muted small">Отсрочка — индивидуально по КА</div>
+      <div class="text-muted small mb-1"><i class="bi bi-cash-stack me-1"></i>Всего долга</div>
+      <div class="fs-4 fw-semibold">{{ total_amount | money }} ₽</div>
+      <div class="text-muted" style="font-size:.75rem">{{ rows | length }} сч. · остаток к получению</div>
     </div>
   </div>
 </div>
 
-{# ── Прогноз кассового потока по неделям ─────────────────────────────────────── #}
-<div class="card border-0 shadow-sm mb-4">
-  <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex align-items-center flex-wrap gap-2">
-    <span class="fw-semibold"><i class="bi bi-graph-up-arrow me-2 text-success"></i>Прогноз поступлений · {{ forecast.n_weeks }} недель</span>
-    <span class="text-muted ms-auto" style="font-size:.85rem">
-      Ожидается всего: <strong class="text-success">{{ forecast.expected_total | money }} ₽</strong>
-    </span>
-  </div>
-  <div class="px-4 pb-3">
-
-    {% if forecast.overdue.count %}
-    <div class="alert alert-danger d-flex align-items-center gap-2 py-2 px-3 mb-3" style="font-size:.88rem">
-      <i class="bi bi-exclamation-triangle-fill"></i>
-      <span>Просрочено и ожидается сейчас: <strong>{{ forecast.overdue.total | money }} ₽</strong> ({{ forecast.overdue.count }} сч.)</span>
-    </div>
-    {% endif %}
-
-    {# ── Гистограмма по неделям ── #}
-    <div class="d-flex align-items-end gap-2 mb-2" style="height:130px">
-      {% for w in forecast.weeks %}
-      {% set pct = (w.total / forecast.max_week * 100) if forecast.max_week else 0 %}
-      <div class="flex-fill d-flex flex-column align-items-center justify-content-end h-100" style="min-width:0"
-           title="{{ w.start | date_fmt }} – {{ w.end | date_fmt }}: {{ w.total | money }} ₽, счетов: {{ w.count }}">
-        <div class="text-muted mb-1 text-truncate w-100 text-center" style="font-size:.66rem">
-          {% if w.total %}{{ (w.total / 1000) | round | int }}к{% endif %}
-        </div>
-        <div class="w-100 rounded-top position-relative"
-             style="height:{{ pct if pct > 0 else 0 }}%; min-height:{% if w.total %}4px{% else %}0{% endif %};
-                    background:{% if w.is_gap %}repeating-linear-gradient(45deg,#fef2f2,#fef2f2 4px,#fee2e2 4px,#fee2e2 8px){% elif w.index == 0 %}#16a34a{% else %}#86efac{% endif %}">
-        </div>
-        {% if w.is_gap %}
-        <div class="text-danger mt-1" style="font-size:.6rem" title="Неделя без ожидаемых поступлений — возможный кассовый разрыв"><i class="bi bi-dash-circle"></i></div>
-        {% endif %}
-      </div>
+{# ── Прогноз поступлений ───────────────────────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-header bg-white border-0 pt-3 pb-0 px-4 d-flex align-items-center flex-wrap gap-2">
+    <span class="fw-semibold"><i class="bi bi-graph-up-arrow me-2 text-success"></i>Прогноз поступлений</span>
+    <div class="btn-group btn-group-sm ms-2" role="group">
+      {% for h in horizons %}
+      <a href="?weeks={{ h }}" class="btn btn-outline-secondary {% if h == n_weeks %}active{% endif %}"
+         style="font-size:.75rem">{{ h }} нед.</a>
       {% endfor %}
     </div>
+    <div class="form-check form-switch ms-auto mb-0" title="Просроченные счета — деньги, срок которых уже сорван. По умолчанию в план не входят.">
+      <input class="form-check-input" type="checkbox" id="withOverdue">
+      <label class="form-check-label text-muted" for="withOverdue" style="font-size:.8rem">учитывать просрочку</label>
+    </div>
+  </div>
 
-    {# ── Таблица недель ── #}
-    <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0" style="font-size:.84rem">
-        <thead class="text-muted">
-          <tr>
-            <th>Неделя</th>
-            <th class="text-end">Ожидается, ₽</th>
-            <th class="text-center">Счетов</th>
-            <th class="text-end">Накопительно, ₽</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for w in forecast.weeks %}
-          <tr class="{% if w.is_gap %}table-danger{% elif w.index == 0 %}table-success{% endif %}">
-            <td class="text-nowrap">
-              {% if w.index == 0 %}<span class="badge bg-success me-1" style="font-size:.62rem">тек.</span>{% endif %}
-              {{ w.start | date_fmt }} – {{ w.end | date_fmt }}
-              {% if w.is_gap %}<span class="text-danger ms-1" style="font-size:.78rem" title="Возможный кассовый разрыв">провал</span>{% endif %}
-            </td>
-            <td class="text-end fw-semibold {% if not w.total %}text-muted{% endif %}">{{ w.total | money }}</td>
-            <td class="text-center text-muted">{{ w.count or '—' }}</td>
-            <td class="text-end text-muted">{{ w.cumulative | money }}</td>
-          </tr>
-          {% endfor %}
-          {% if forecast.later.count %}
-          <tr class="text-muted">
-            <td class="text-nowrap">Позже {{ forecast.n_weeks }} нед.</td>
-            <td class="text-end">{{ forecast.later.total | money }}</td>
-            <td class="text-center">{{ forecast.later.count }}</td>
-            <td></td>
-          </tr>
-          {% endif %}
-        </tbody>
-      </table>
+  <div class="px-4 pt-2 pb-3">
+    <div class="d-flex flex-wrap gap-4 mb-2" style="font-size:.85rem">
+      <span class="text-muted">По плану за {{ n_weeks }} нед.:
+        <strong class="text-success">{{ forecast.planned_total | money }} ₽</strong></span>
+      {% if forecast.later.count %}
+      <span class="text-muted">Позже горизонта:
+        <strong>{{ forecast.later.total | money }} ₽</strong>
+        <span class="text-muted">({{ forecast.later.count }} сч.)</span></span>
+      {% endif %}
+      {% if forecast.overdue.count %}
+      <span class="text-muted">Сорван срок:
+        <strong class="text-danger">{{ forecast.overdue.total | money }} ₽</strong>
+        <span class="text-muted">({{ forecast.overdue.count }} сч.)</span></span>
+      {% endif %}
+      {% if forecast.no_date.count %}
+      <span class="text-muted" title="У счёта не заполнен срок оплаты — попасть в прогноз он не может">
+        Без срока оплаты:
+        <strong class="text-warning">{{ forecast.no_date.total | money }} ₽</strong>
+        <span class="text-muted">({{ forecast.no_date.count }} сч.)</span></span>
+      {% endif %}
+      {% if forecast.first_gap %}
+      <span class="text-danger" title="Неделя без единого ожидаемого поступления">
+        <i class="bi bi-dash-circle me-1"></i>Первый провал: {{ forecast.first_gap.start | date_fmt }}</span>
+      {% endif %}
+    </div>
+
+    {# height обязателен: без него Chart.js в этой вёрстке считает ширину нулевой #}
+    <canvas id="cashChart" height="80"></canvas>
+
+    {# Детализация — не дубль графика, а разворот в конкретные счета недели #}
+    <div class="accordion accordion-flush mt-3" id="weekDetails">
+      {% for w in forecast.weeks if w.count %}
+      <div class="accordion-item">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed py-2" type="button" data-bs-toggle="collapse"
+                  data-bs-target="#wk{{ w.index }}" style="font-size:.85rem">
+            <span class="text-nowrap">{{ w.start | date_fmt }} – {{ w.end | date_fmt }}</span>
+            {% if w.index == 0 %}<span class="badge bg-success ms-2" style="font-size:.62rem">текущая</span>{% endif %}
+            <span class="ms-auto me-3 fw-semibold">{{ w.total | money }} ₽</span>
+            <span class="text-muted" style="font-size:.78rem">{{ w.count }} сч.</span>
+          </button>
+        </h2>
+        <div id="wk{{ w.index }}" class="accordion-collapse collapse" data-bs-parent="#weekDetails">
+          <div class="accordion-body py-2">
+            <table class="table table-sm mb-0 align-middle" style="font-size:.82rem">
+              <tbody>
+                {% for r in w.rows %}
+                <tr>
+                  <td class="text-nowrap">{{ r.deadline | date_fmt }}</td>
+                  <td><a href="/invoices/{{ r.invoice.id }}" class="text-reset">№ {{ r.invoice.number }}</a></td>
+                  <td class="text-truncate" style="max-width:280px">
+                    {{ (r.invoice.counterparty.short_name or r.invoice.counterparty.name) if r.invoice.counterparty else '—' }}
+                  </td>
+                  <td class="text-end fw-semibold text-nowrap">{{ r.outstanding | money }} ₽</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+
+      {% for bucket, title, tone in [
+           (forecast.overdue, 'Срок сорван — ждём сейчас', 'danger'),
+           (forecast.no_date, 'Без срока оплаты — в прогноз не попадают', 'warning'),
+           (forecast.later,   'Позже горизонта', 'secondary')] %}
+      {% if bucket.count %}
+      <div class="accordion-item">
+        <h2 class="accordion-header">
+          <button class="accordion-button collapsed py-2 text-{{ tone }}" type="button" data-bs-toggle="collapse"
+                  data-bs-target="#bkt{{ loop.index }}" style="font-size:.85rem">
+            <span>{{ title }}</span>
+            <span class="ms-auto me-3 fw-semibold">{{ bucket.total | money }} ₽</span>
+            <span class="text-muted" style="font-size:.78rem">{{ bucket.count }} сч.</span>
+          </button>
+        </h2>
+        <div id="bkt{{ loop.index }}" class="accordion-collapse collapse" data-bs-parent="#weekDetails">
+          <div class="accordion-body py-2">
+            <table class="table table-sm mb-0 align-middle" style="font-size:.82rem">
+              <tbody>
+                {% for r in bucket.rows %}
+                <tr>
+                  <td class="text-nowrap">{{ r.deadline | date_fmt if r.deadline else '—' }}</td>
+                  <td><a href="/invoices/{{ r.invoice.id }}" class="text-reset">№ {{ r.invoice.number }}</a></td>
+                  <td class="text-truncate" style="max-width:280px">
+                    {{ (r.invoice.counterparty.short_name or r.invoice.counterparty.name) if r.invoice.counterparty else '—' }}
+                  </td>
+                  <td class="text-center">
+                    {% if r.is_overdue %}<span class="badge bg-danger">{{ r.days_overdue }} дн.</span>{% endif %}
+                  </td>
+                  <td class="text-end fw-semibold text-nowrap">{{ r.outstanding | money }} ₽</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      {% endfor %}
     </div>
   </div>
 </div>
+
+{# ── Старение просрочки: насколько реальны деньги из корзины «срок сорван» ──── #}
+{% if overdue_count %}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-3">
+    <div class="d-flex align-items-center mb-2">
+      <span class="fw-semibold" style="font-size:.9rem"><i class="bi bi-hourglass-split me-1 text-danger"></i>Возраст просрочки</span>
+      <span class="text-muted ms-auto" style="font-size:.78rem">чем старше долг, тем ниже шанс получить деньги</span>
+    </div>
+    <div class="progress mb-2" style="height:14px">
+      {% set tones = ['#fbbf24', '#f97316', '#ef4444', '#7f1d1d'] %}
+      {% for b in aging %}
+      {% if b.total %}
+      <div class="progress-bar" style="width:{{ b.pct }}%;background:{{ tones[loop.index0] }}"
+           title="{{ b.label }}: {{ b.total | money }} ₽, {{ b.count }} сч."></div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    <div class="d-flex flex-wrap gap-3" style="font-size:.8rem">
+      {% for b in aging %}
+      <span class="{% if not b.total %}text-muted{% endif %}">
+        <span class="d-inline-block rounded-circle me-1" style="width:8px;height:8px;background:{{ tones[loop.index0] }}"></span>
+        {{ b.label }}: <strong>{{ b.total | money }} ₽</strong>
+        {% if b.count %}<span class="text-muted">· {{ b.count }} сч.</span>{% endif %}
+      </span>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {# ── Долг по сетям: точки одной вывески по отдельности выглядят мелочью ────── #}
 {% if networks_debt %}
 <div class="card border-0 shadow-sm mb-3">
   <div class="card-body py-3">
-    <div class="fw-bold mb-2" style="font-size:.9rem">
+    <div class="fw-semibold mb-2" style="font-size:.9rem">
       <i class="bi bi-diagram-3 me-1" style="color:var(--brand)"></i>Долг по сетям
     </div>
     <div class="d-flex flex-wrap gap-2">
@@ -125,7 +201,7 @@
       <a href="/networks/{{ n.id }}" class="text-decoration-none">
         <div class="border rounded px-3 py-2 {% if n.overdue_total %}border-danger{% endif %}">
           <div class="fw-semibold" style="font-size:.85rem">{{ n.name }}</div>
-          <div class="{% if n.overdue_total %}text-danger fw-bold{% else %}text-primary fw-bold{% endif %}" style="font-size:.95rem">
+          <div class="{% if n.overdue_total %}text-danger{% else %}text-primary{% endif %} fw-bold" style="font-size:.95rem">
             {{ n.total | money }} ₽
           </div>
           <div class="text-muted" style="font-size:.72rem">
@@ -139,29 +215,41 @@
 </div>
 {% endif %}
 
-{# ── Таблица, сгруппированная по контрагентам ───────────────────────────────── #}
+{# ── Реестр долгов ─────────────────────────────────────────────────────────── #}
 {% if rows %}
 <div class="card border-0 shadow-sm">
+  <div class="card-header bg-white border-0 pt-3 pb-2 px-3 d-flex align-items-center flex-wrap gap-2">
+    <span class="fw-semibold" style="font-size:.9rem"><i class="bi bi-list-ul me-1"></i>Реестр долгов</span>
+    <div class="btn-group btn-group-sm ms-2" role="group">
+      <button type="button" class="btn btn-outline-secondary active" data-filter="all" style="font-size:.75rem">Все</button>
+      <button type="button" class="btn btn-outline-danger" data-filter="overdue" style="font-size:.75rem">Просроченные</button>
+      <button type="button" class="btn btn-outline-secondary" data-filter="current" style="font-size:.75rem">В сроке</button>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+      <input id="debtSearch" type="search" class="form-control form-control-sm" placeholder="Контрагент или № счёта"
+             style="width:220px;font-size:.8rem">
+      <button id="toggleAll" class="btn btn-sm btn-outline-secondary" style="font-size:.75rem">Развернуть все</button>
+    </div>
+  </div>
   <div class="table-responsive">
-    <table class="table tms-table mb-0 align-middle">
+    <table class="table tms-table mb-0 align-middle" id="debtTable">
       <thead>
         <tr>
-          <th style="width:40px"></th>
+          <th style="width:36px"></th>
           <th>Контрагент / Счёт №</th>
-          <th>Дата</th>
           <th>Срок оплаты</th>
           <th>Отсрочка</th>
-          <th class="text-end">Сумма, ₽</th>
+          <th class="text-end">Остаток, ₽</th>
           <th class="text-center">Просрочка</th>
-          <th>Статус</th>
-          <th></th>
+          <th style="width:36px"></th>
         </tr>
       </thead>
       <tbody>
         {% for g in groups %}
-        {# ── Строка-заголовок группы (кликабельна, раскрывает счета) ── #}
-        <tr class="table-light fw-semibold" style="cursor:pointer"
-            data-bs-toggle="collapse" data-bs-target=".grp-{{ g.cp_id }}" role="button">
+        <tr class="table-light fw-semibold grp-head" style="cursor:pointer"
+            data-bs-toggle="collapse" data-bs-target=".grp-{{ g.cp_id }}" role="button"
+            data-overdue="{{ 1 if g.overdue_count else 0 }}"
+            data-search="{{ g.cp_name | lower }} {% for r in g.rows %}{{ r.invoice.number | lower }} {% endfor %}">
           <td class="text-center"><i class="bi bi-chevron-down text-muted" style="font-size:.75rem"></i></td>
           <td>
             <a href="/counterparties/{{ g.cp_id }}" class="text-reset text-decoration-none" onclick="event.stopPropagation()">
@@ -176,52 +264,54 @@
             </a>
             {% endif %}
           </td>
-          <td colspan="3" class="text-muted" style="font-size:.82rem">
+          <td colspan="2" class="text-muted fw-normal" style="font-size:.82rem">
             {% if g.overdue_count %}
               <span class="text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ g.overdue_count }} просрочено, до {{ g.max_overdue }} дн.</span>
+            {% elif g.nearest %}
+              ближайший срок {{ g.nearest | date_fmt }}
             {% else %}
-              <span class="text-muted">просрочек нет</span>
+              срок не указан
             {% endif %}
           </td>
           <td class="text-end fw-bold text-nowrap {% if g.overdue_count %}text-danger{% else %}text-primary{% endif %}">{{ g.total | money }}</td>
-          <td colspan="3"></td>
+          <td colspan="2"></td>
         </tr>
-        {# ── Счета группы (свёрнуты по умолчанию) ── #}
-        {% for row in g.rows %}
-        {% set inv = row.invoice %}
-        <tr class="collapse grp-{{ g.cp_id }} {% if row.is_overdue %}table-danger{% endif %}">
+        {% for r in g.rows %}
+        {% set inv = r.invoice %}
+        <tr class="collapse grp-{{ g.cp_id }} grp-row {% if r.is_overdue %}table-danger{% endif %}"
+            data-overdue="{{ 1 if r.is_overdue else 0 }}">
           <td></td>
           <td class="ps-4">
             <a href="/invoices/{{ inv.id }}" class="text-reset text-decoration-none">№ {{ inv.number }}</a>
+            <span class="text-muted ms-1" style="font-size:.75rem">от {{ inv.date | date_fmt }}</span>
+            {% if r.is_partial %}
+            <span class="badge bg-info-subtle text-info-emphasis border ms-1" style="font-size:.66rem"
+                  title="Оплачено {{ inv.paid_amount | money }} ₽ из {{ inv.total_amount | money }} ₽">
+              частично оплачен
+            </span>
+            {% endif %}
           </td>
-          <td class="text-nowrap">{{ inv.date | date_fmt }}</td>
-          <td class="text-nowrap {% if row.is_overdue %}text-danger fw-semibold{% endif %}">
-            {{ inv.due_date | date_fmt if inv.due_date else '—' }}
+          <td class="text-nowrap {% if r.is_overdue %}text-danger fw-semibold{% endif %}">
+            {{ r.deadline | date_fmt if r.deadline else '—' }}
           </td>
           <td class="text-nowrap text-muted" style="font-size:.82rem">
-            {% if row.delay_days %}
-              {{ row.delay_days }} {{ 'банк.' if row.delay_type == 'banking' else 'кал.' }} дн.
-            {% else %}
-              <span class="text-muted">—</span>
+            {% if r.delay_days %}{{ r.delay_days }} {{ 'банк.' if r.delay_type == 'banking' else 'кал.' }} дн.{% else %}—{% endif %}
+          </td>
+          <td class="text-end fw-semibold text-nowrap">
+            {{ r.outstanding | money }}
+            {% if r.is_partial %}
+            <div class="text-muted fw-normal" style="font-size:.72rem">из {{ inv.total_amount | money }}</div>
             {% endif %}
           </td>
-          <td class="text-end fw-semibold text-nowrap">{{ inv.total_amount | money }}</td>
           <td class="text-center">
-            {% if row.is_overdue %}
-              <span class="badge bg-danger">{{ row.days_overdue }} дн.</span>
-            {% elif row.days_left == 0 %}
+            {% if r.is_overdue %}
+              <span class="badge bg-danger">{{ r.days_overdue }} дн.</span>
+            {% elif r.days_left == 0 %}
               <span class="badge bg-warning text-dark">сегодня</span>
-            {% elif row.days_left and row.days_left > 0 %}
-              <span class="badge bg-light text-secondary border">через {{ row.days_left }} дн.</span>
+            {% elif r.days_left is not none %}
+              <span class="badge bg-light text-secondary border">через {{ r.days_left }} дн.</span>
             {% else %}
               <span class="text-muted">—</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if inv.status == 'overdue' %}
-              <span class="badge bg-danger">Просрочен</span>
-            {% else %}
-              <span class="badge bg-warning text-dark">Выставлен</span>
             {% endif %}
           </td>
           <td>
@@ -235,9 +325,9 @@
       </tbody>
       <tfoot class="table-light">
         <tr>
-          <td colspan="5" class="fw-semibold text-end">Итого:</td>
+          <td colspan="4" class="fw-semibold text-end">Итого остаток:</td>
           <td class="text-end fw-bold text-nowrap">{{ total_amount | money }} ₽</td>
-          <td colspan="3"></td>
+          <td colspan="2"></td>
         </tr>
       </tfoot>
     </table>
@@ -250,4 +340,126 @@
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+const weeks = {{ forecast.weeks | map(attribute='total') | list | tojson }};
+const labels = {{ forecast.weeks | map(attribute='start') | map('string') | list | tojson }};
+const overdueTotal = {{ forecast.overdue.total | round(2) }};
+
+const fmt = v => new Intl.NumberFormat('ru-RU', {maximumFractionDigits: 0}).format(v) + ' ₽';
+const shortLabel = s => {
+  const d = new Date(s);
+  return d.toLocaleDateString('ru-RU', {day: '2-digit', month: '2-digit'});
+};
+
+// Накопительно: просрочку в план не включаем, пока пользователь сам не попросит —
+// иначе сорванный срок выглядит как деньги, которые уже в пути.
+function cumulative(withOverdue) {
+  let running = withOverdue ? overdueTotal : 0;
+  return weeks.map(v => (running += v));
+}
+
+const chart = new Chart(document.getElementById('cashChart'), {
+  data: {
+    labels: labels.map(shortLabel),
+    datasets: [
+      {
+        type: 'bar', label: 'Поступления за неделю', data: weeks, order: 2,
+        backgroundColor: weeks.map((v, i) => v === 0 ? '#fee2e2' : (i === 0 ? '#16a34a' : '#86efac')),
+        borderRadius: 4, yAxisID: 'y',
+      },
+      {
+        type: 'line', label: 'Накопительно', data: cumulative(false), order: 1,
+        borderColor: '#575BA6', backgroundColor: '#575BA6', borderWidth: 2,
+        pointRadius: 3, tension: .25, yAxisID: 'y',
+      },
+    ],
+  },
+  options: {
+    responsive: true,
+    // Пропорция вместо фиксированной высоты: на узком экране график иначе
+    // сплющивается в полоску, в которой не видно ни столбцов, ни провалов.
+    aspectRatio: window.innerWidth < 768 ? 1.5 : 3.6,
+    interaction: {mode: 'index', intersect: false},
+    plugins: {
+      legend: {labels: {boxWidth: 12, font: {size: 11}}},
+      tooltip: {
+        callbacks: {
+          title: items => {
+            const start = new Date(labels[items[0].dataIndex]);
+            const end = new Date(start); end.setDate(end.getDate() + 6);
+            return start.toLocaleDateString('ru-RU') + ' – ' + end.toLocaleDateString('ru-RU');
+          },
+          label: ctx => ctx.dataset.label + ': ' + fmt(ctx.parsed.y),
+          afterBody: items => weeks[items[0].dataIndex] === 0
+            ? 'Провал: на этой неделе поступлений не ждём' : '',
+        },
+      },
+    },
+    scales: {
+      y: {beginAtZero: true, ticks: {callback: v => v >= 1000 ? (v / 1000) + 'к' : v, font: {size: 11}}},
+      x: {grid: {display: false}, ticks: {font: {size: 11}}},
+    },
+  },
+});
+
+document.getElementById('withOverdue').addEventListener('change', e => {
+  chart.data.datasets[1].data = cumulative(e.target.checked);
+  chart.data.datasets[1].label = e.target.checked ? 'Накопительно (с просрочкой)' : 'Накопительно';
+  chart.update();
+});
+
+// ── Реестр: фильтр по просрочке + поиск по контрагенту и номеру счёта ────────
+const table = document.getElementById('debtTable');
+if (table) {
+  let filter = 'all';
+  let query = '';
+
+  const apply = () => {
+    table.querySelectorAll('tr.grp-head').forEach(head => {
+      const rows = table.querySelectorAll('.grp-' + head.dataset.bsTarget.replace('.grp-', ''));
+      const hasOverdue = head.dataset.overdue === '1';
+      let show = query ? head.dataset.search.includes(query) : true;
+      if (show && filter === 'overdue') show = hasOverdue;
+      if (show && filter === 'current') show = !hasOverdue;
+      head.style.display = show ? '' : 'none';
+      rows.forEach(r => {
+        // Внутри группы в режиме «просроченные» прячем строки в сроке
+        const rowOk = filter === 'overdue' ? r.dataset.overdue === '1'
+                    : filter === 'current' ? r.dataset.overdue === '0' : true;
+        r.dataset.hidden = (show && rowOk) ? '' : '1';
+        if (!show || !rowOk) r.style.display = 'none';
+        else r.style.display = r.classList.contains('show') ? '' : 'none';
+      });
+    });
+  };
+
+  table.closest('.card').querySelectorAll('[data-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      table.closest('.card').querySelectorAll('[data-filter]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      filter = btn.dataset.filter;
+      apply();
+    });
+  });
+
+  document.getElementById('debtSearch').addEventListener('input', e => {
+    query = e.target.value.trim().toLowerCase();
+    apply();
+  });
+
+  const toggleBtn = document.getElementById('toggleAll');
+  let expanded = false;
+  toggleBtn.addEventListener('click', () => {
+    expanded = !expanded;
+    table.querySelectorAll('tr.grp-row').forEach(r => {
+      r.classList.toggle('show', expanded);
+      if (r.dataset.hidden !== '1') r.style.display = expanded ? '' : 'none';
+    });
+    toggleBtn.textContent = expanded ? 'Свернуть все' : 'Развернуть все';
+  });
+}
+</script>
 {% endblock %}

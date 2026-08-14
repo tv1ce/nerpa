@@ -625,7 +625,7 @@ def _group_by_manager(rows: list[dict]) -> list[tuple[str, list[dict]]]:
     groups: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         mgr = r["employee"].manager
-        groups[mgr.full_name if mgr else "Без руководителя"].append(r)
+        groups[mgr.full_name if mgr else "Топ менеджмент"].append(r)
     return sorted(groups.items())
 
 
@@ -1066,7 +1066,7 @@ def _format_week_report(rows: list[dict], kpi: dict, ws: date) -> str:
     by_manager: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
         mgr = r["employee"].manager
-        by_manager[mgr.full_name if mgr else "Без руководителя"].append(r)
+        by_manager[mgr.full_name if mgr else "Топ менеджмент"].append(r)
 
     for manager, group in sorted(by_manager.items()):
         lines.append(f"**{manager}**")
