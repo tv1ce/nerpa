@@ -231,7 +231,19 @@
     .plan-date{font-size:2.1vh;font-weight:800;color:var(--purple)}
     .plan-when{font-size:1.6vh;color:var(--muted);font-weight:600}
     .plan-body{display:flex;gap:1.8vw;align-items:stretch}
-    .plan-lines{flex:1;display:flex;flex-direction:column;justify-content:center;gap:.9vh}
+    .plan-col{flex:1;display:flex;flex-direction:column;justify-content:center;gap:1vh;min-width:0}
+    .plan-lines{display:flex;flex-direction:column;gap:.9vh}
+    /* Муляжи — витрина, а не выпечка: строкой помельче и без коробок, чтобы
+       не спорили вниманием с тем, что цеху реально печь. */
+    .plan-dummies{display:flex;align-items:center;gap:1vw;padding-top:.9vh;
+      border-top:1px dashed var(--line)}
+    .dm-head{font-size:1.4vh;font-weight:700;color:var(--muted);text-transform:uppercase;
+      letter-spacing:.06em;white-space:nowrap}
+    .dm-list{display:flex;flex-wrap:wrap;gap:.4vw 1.4vw;align-items:baseline}
+    .dm-item{font-size:1.7vh;font-weight:700;color:var(--ink);white-space:nowrap;
+      font-variant-numeric:tabular-nums}
+    .dm-item span{color:var(--muted);font-weight:600;font-size:1.5vh}
+    .dm-item.ready{color:var(--green)}
     .plan-line{display:flex;align-items:center;gap:1vw}
     .plan-line .nm{font-size:2vh;font-weight:700;white-space:nowrap;min-width:12vw}
     .plan-line .rail{flex:1;height:1.5vh;background:var(--track);border-radius:1vh;overflow:hidden}
@@ -348,7 +360,13 @@
       <span class="plan-when" id="plan-when"></span>
     </div>
     <div class="plan-body">
-      <div class="plan-lines" id="plan-lines"></div>
+      <div class="plan-col">
+        <div class="plan-lines" id="plan-lines"></div>
+        <div class="plan-dummies" id="plan-dummies" style="display:none">
+          <span class="dm-head">Муляжи</span>
+          <div class="dm-list" id="plan-dummy-list"></div>
+        </div>
+      </div>
       <div class="plan-total">
         <div class="plan-total-qty">
           <span id="plan-done">0</span><span class="u">/&nbsp;<b id="plan-total">0</b>&nbsp;шт</span>
@@ -872,6 +890,20 @@
           <span class="tot">из ${fmt(l.qty)}</span>
         </div>`;
       }).join('');
+
+      const dm = document.getElementById('plan-dummies');
+      const dmList = p.dummies || [];
+      if (dmList.length){
+        dm.style.display = '';
+        document.getElementById('plan-dummy-list').innerHTML = dmList.map(d => {
+          const left = d.qty - (d.done || 0);
+          return left > 0
+            ? `<span class="dm-item">${fmt(left)} <span>${d.name}</span></span>`
+            : `<span class="dm-item ready">✓ <span>${d.name}</span></span>`;
+        }).join('');
+      } else {
+        dm.style.display = 'none';
+      }
 
       document.getElementById('plan-done').textContent = fmt(p.done || 0);
       document.getElementById('plan-total').textContent = fmt(p.total);

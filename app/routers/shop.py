@@ -90,6 +90,15 @@ def nut_display_name(name: str) -> str:
     return raw
 
 
+def is_dummy(product) -> bool:
+    """Муляж — витринный орех, который едет с заказом, но не печётся.
+
+    Считается отдельно от орешков: коробок у него нет, в лимит мощности цеха он
+    не входит, а к отгрузке готовить надо — поэтому в плане он идёт своим блоком."""
+    return ("муляж" in (product.name or "").lower()
+            or "муляж" in (product.category or "").lower())
+
+
 def nut_line(name: str) -> str:
     """Линейка товара для группировки витрины: 'п1.' / 'п2.' / '' (не орешек)."""
     low = (name or "").lower()
@@ -421,9 +430,10 @@ def production_plan(db: Session, company) -> dict:
     «завтра»: при отгрузке два раза в неделю завтра обычно пусто."""
     from app.services.outlets import _flavor
 
-    nut_names = {p.id: p.name for p in db.query(Product.id, Product.name).all()
-                 if nut_line(p.name)}
-    if not nut_names:
+    products = db.query(Product.id, Product.name, Product.category).all()
+    nut_names = {p.id: p.name for p in products if nut_line(p.name)}
+    dummy_names = {p.id: p.name for p in products if is_dummy(p)}
+    if not nut_names and not dummy_names:
         return {"date": None}
 
     # ── Ближайшая дата, на которую что-то есть ──────────────────────────────
@@ -441,10 +451,11 @@ def production_plan(db: Session, company) -> dict:
 
     # Собранным считаем то, по чему кладовщик уже нажал «Собрано»: с этого
     # момента позиция физически лежит на отгрузке, а не ждёт печи.
+    interesting = set(nut_names) | set(dummy_names)
     rows = (db.query(OrderItem.product_id, OrderItem.quantity, Order.status)
             .join(Order, Order.id == OrderItem.order_id)
             .filter(shipment_date_col() == day, Order.status != "cancelled",
-                    OrderItem.product_id.in_(nut_names.keys()))
+                    OrderItem.product_id.in_(interesting))
             .all())
     for pid, qty, status in rows:
         by_product[pid] = by_product.get(pid, 0) + int(qty or 0)
@@ -462,26 +473,36 @@ def production_plan(db: Session, company) -> dict:
             detail = []
         for it in detail:
             pid = int(it.get("id", 0))
-            if pid in nut_names:
+            if pid in nut_names:      # в кабинете продаются только орешки
                 by_product[pid] = by_product.get(pid, 0) + int(it.get("qty") or 0)
 
     # ── Строки плана: вкус + линейка, крупно и коротко ──────────────────────
-    lines = []
+    lines, dummies = [], []
     for pid, qty in by_product.items():
         if qty <= 0:
             continue
-        name = nut_names[pid]
         done = min(done_product.get(pid, 0), qty)
-        lines.append({
-            "name": f"{_flavor(name).capitalize()} · "
-                    f"{'масло' if nut_line(name) == 'п1.' else 'маргарин'}",
-            "qty": qty,
-            "done": done,
-            "left": max(0, qty - done),
-            "boxes": -(-qty // BOX_CAPACITY),
-        })
+        if pid in nut_names:
+            name = nut_names[pid]
+            lines.append({
+                "name": f"{_flavor(name).capitalize()} · "
+                        f"{'масло' if nut_line(name) == 'п1.' else 'маргарин'}",
+                "qty": qty,
+                "done": done,
+                "left": max(0, qty - done),
+                "boxes": -(-qty // BOX_CAPACITY),
+            })
+        else:
+            dummies.append({
+                "name": _flavor(dummy_names[pid]).capitalize(),
+                "qty": qty,
+                "done": done,
+                "left": max(0, qty - done),
+            })
     lines.sort(key=lambda r: -r["qty"])
+    dummies.sort(key=lambda r: -r["qty"])
 
+    # Итог — по орешкам: муляжи не печём, в мощность цеха они не упираются.
     total = sum(r["qty"] for r in lines)
     done_total = sum(r["done"] for r in lines)
     cap = daily_capacity(company)
@@ -505,6 +526,9 @@ def production_plan(db: Session, company) -> dict:
         "date_iso": day.isoformat(),
         "days_left": (day - today).days,
         "lines": lines,
+        "dummies": dummies,
+        "dummies_total": sum(r["qty"] for r in dummies),
+        "dummies_done": sum(r["done"] for r in dummies),
         "total": total,
         "done": done_total,
         "done_pct": round(done_total / total * 100) if total else 0,
