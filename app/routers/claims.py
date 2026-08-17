@@ -24,6 +24,21 @@ STATUS_COLORS = {
 }
 
 
+def _int_arg(raw: str | int | None, default: int = 0) -> int:
+    """Числовой query-параметр, который спокойно переживает пустую строку.
+
+    Селект «Все контрагенты» в фильтрах отправляет `cp_id=` без значения, и то же
+    самое попадает в ссылки плиток и переключателя вида. Со строгой аннотацией
+    `int` FastAPI отвечал на это 422 — фильтр и канбан просто не открывались.
+    """
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 def _next_number(db: Session) -> str:
     year = date.today().year
     prefix = f"РЕК-{year}-"
@@ -45,7 +60,7 @@ def _outlet_from_order(db: Session, order_id: int) -> tuple[str | None, str | No
 @login_required
 async def list_claims(
     request: Request,
-    cp_id: int = 0,
+    cp_id: str = "",
     status: str = "",
     ctype: str = "",
     severity: str = "",
@@ -61,6 +76,7 @@ async def list_claims(
     разбор), «kanban» — по статусам (так видно поток). Плоской таблицы больше нет:
     у клиента с двадцатью адресами она ничего не объясняла.
     """
+    cp_id = _int_arg(cp_id)
     query = db.query(Claim).order_by(Claim.date.desc(), Claim.id.desc())
     if cp_id:
         query = query.filter(Claim.counterparty_id == cp_id)
@@ -121,7 +137,7 @@ async def list_claims(
 
 @router.get("/open", response_class=JSONResponse)
 @login_required
-async def open_claims_json(request: Request, counterparty_id: int = 0,
+async def open_claims_json(request: Request, counterparty_id: str = "",
                            delivery_address: str = "", db: Session = Depends(get_db)):
     """Нерешённые рекламации клиента — для напоминания в форме заказа, где
     клиента и адрес выбирают на лету и перерисовать баннер на сервере нечем.
@@ -131,7 +147,7 @@ async def open_claims_json(request: Request, counterparty_id: int = 0,
     менеджер видел в первую очередь то, что относится к его заказу.
     """
     from app.utils import open_claims_for_counterparty
-    items = open_claims_for_counterparty(db, counterparty_id)
+    items = open_claims_for_counterparty(db, _int_arg(counterparty_id))
     key = normalize_address(delivery_address) if delivery_address else None
 
     def _pack(c):
@@ -165,10 +181,10 @@ async def open_claims_json(request: Request, counterparty_id: int = 0,
 
 @router.get("/outlets", response_class=JSONResponse)
 @login_required
-async def counterparty_outlets_json(request: Request, cp_id: int = 0,
+async def counterparty_outlets_json(request: Request, cp_id: str = "",
                                     db: Session = Depends(get_db)):
     """Точки контрагента для выбора в форме рекламации."""
-    outlets = claims_service.counterparty_outlets(db, cp_id)
+    outlets = claims_service.counterparty_outlets(db, _int_arg(cp_id))
     return JSONResponse([{
         "address_key": o["address_key"],
         "label": o["label"],
@@ -187,10 +203,11 @@ async def counterparty_outlets_json(request: Request, cp_id: int = 0,
 
 @router.get("/new", response_class=HTMLResponse)
 @login_required
-async def new_claim(request: Request, cp_id: int = 0, order_id: int = 0,
+async def new_claim(request: Request, cp_id: str = "", order_id: str = "",
                     address_key: str = "", db: Session = Depends(get_db)):
     """Форма рекламации. Может быть вызвана из карточки заказа (order_id) или
     точки (address_key) — тогда привязка уже заполнена и менять её не нужно."""
+    cp_id, order_id = _int_arg(cp_id), _int_arg(order_id)
     counterparties = (db.query(Counterparty).filter(Counterparty.is_active == True)
                       .order_by(Counterparty.name).all())
     preselect_order = db.query(Order).filter(Order.id == order_id).first() if order_id else None
@@ -402,8 +419,8 @@ async def delete_claim(request: Request, claim_id: int, db: Session = Depends(ge
 
 @router.get("/by-order/{order_id}")
 @login_required
-async def orders_by_cp(request: Request, order_id: int, cp_id: int = 0, db: Session = Depends(get_db)):
+async def orders_by_cp(request: Request, order_id: int, cp_id: str = "", db: Session = Depends(get_db)):
     """AJAX: вернуть заказы контрагента для динамического select."""
-    orders = (db.query(Order).filter(Order.counterparty_id == cp_id)
+    orders = (db.query(Order).filter(Order.counterparty_id == _int_arg(cp_id))
               .order_by(Order.date.desc()).limit(50).all())
     return JSONResponse([{"id": o.id, "number": o.number, "date": str(o.date)} for o in orders])

@@ -203,6 +203,32 @@ def test_registry_renders_in_both_views(admin_client, sample):
         assert "Рекламная, 5" in r.text, "точка должна быть видна в реестре"
 
 
+def test_registry_survives_empty_filter_params(admin_client, sample):
+    """Пустой cp_id не должен ломать реестр.
+
+    Селект «Все контрагенты» и ссылки плиток отправляют `cp_id=` без значения —
+    со строгой аннотацией int роут отвечал на это 422, и канбан с фильтрами не
+    открывались вовсе.
+    """
+    r = admin_client.get("/claims/", params={
+        "cp_id": "", "status": "", "ctype": "", "severity": "",
+        "address_key": "", "q": "", "only": "", "view": "kanban",
+    })
+    assert r.status_code == 200
+
+
+def test_registry_links_are_all_alive(admin_client, sample):
+    """Все ссылки реестра открываются — включая плитки и переключатель вида."""
+    import re
+    page = admin_client.get("/claims/").text
+    links = {u.replace("&amp;", "&")
+             for u in re.findall(r'href="(/claims/\?[^"]*)"', page)}
+    assert links, "в реестре должны быть ссылки фильтров"
+    broken = [(admin_client.get(u).status_code, u) for u in links
+              if admin_client.get(u).status_code != 200]
+    assert not broken, f"битые ссылки: {broken}"
+
+
 def test_registry_filters_by_outlet(admin_client, sample):
     r = admin_client.get("/claims/", params={"address_key": sample["key_a"]})
     assert r.status_code == 200

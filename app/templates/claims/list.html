@@ -6,7 +6,16 @@
 {% endblock %}
 
 {% block content %}
-{% set base_qs = '&cp_id=' ~ (filter_cp_id or '') ~ '&status=' ~ filter_status ~ '&ctype=' ~ filter_type ~ '&severity=' ~ filter_severity ~ '&q=' ~ (filter_q or '') ~ '&address_key=' ~ (filter_address_key or '') %}
+{# Хвост ссылок собираем только из заполненных фильтров: пустое «cp_id=» роут
+   раньше принимал за число и отвечал 422 — плитки и канбан не открывались. #}
+{% set base_parts = [] %}
+{% if filter_cp_id %}{% set _ = base_parts.append('cp_id=' ~ filter_cp_id) %}{% endif %}
+{% if filter_status %}{% set _ = base_parts.append('status=' ~ filter_status) %}{% endif %}
+{% if filter_type %}{% set _ = base_parts.append('ctype=' ~ filter_type) %}{% endif %}
+{% if filter_severity %}{% set _ = base_parts.append('severity=' ~ filter_severity) %}{% endif %}
+{% if filter_q %}{% set _ = base_parts.append('q=' ~ (filter_q | urlencode)) %}{% endif %}
+{% if filter_address_key %}{% set _ = base_parts.append('address_key=' ~ (filter_address_key | urlencode)) %}{% endif %}
+{% set base_qs = ('&' ~ base_parts | join('&')) if base_parts else '' %}
 
 {# ── Плитки: что горит. Клик — это и есть фильтр ──────────────────────────── #}
 <div class="row g-2 mb-3">
