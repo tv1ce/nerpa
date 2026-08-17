@@ -917,9 +917,20 @@ _templates.env.globals["hr_mobile"] = _hr_mobile
 # Справочники рекламаций доступны всем шаблонам: напоминание о нерешённой
 # рекламации показывается не только в разделе «Рекламации», но и в карточке
 # и форме заказа. Явно переданный контекст по-прежнему имеет приоритет.
-from app.models import CLAIM_STATUSES as _CLAIM_STATUSES, CLAIM_TYPES as _CLAIM_TYPES
+from app.models import (CLAIM_STATUSES as _CLAIM_STATUSES, CLAIM_TYPES as _CLAIM_TYPES,
+                        CLAIM_SEVERITIES as _CLAIM_SEVERITIES)
+from app.services.claims import SEVERITY_COLORS as _SEVERITY_COLORS
 _templates.env.globals["claim_statuses"] = _CLAIM_STATUSES
 _templates.env.globals["claim_types"] = _CLAIM_TYPES
+_templates.env.globals["claim_severities"] = _CLAIM_SEVERITIES
+_templates.env.globals["severity_colors"] = _SEVERITY_COLORS
+_templates.env.globals["claim_status_colors"] = {
+    "new": "info", "in_progress": "warning", "resolved": "success", "rejected": "danger",
+}
+# Подпись точки по ключу «улица:дом» — нужна в баннерах и списках, где под рукой
+# только сама рекламация
+from app.services.outlets import address_label as _address_label
+_templates.env.filters["outlet_label"] = _address_label
 
 
 def _safe_url(v):

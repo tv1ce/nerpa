@@ -2,104 +2,279 @@
 {% block title %}{{ claim.number }}{% endblock %}
 {% block page_title %}{{ claim.number }}{% endblock %}
 {% block topbar_actions %}
-  <a href="/counterparties/{{ claim.counterparty_id }}#tab-claims" class="btn btn-sm btn-outline-secondary me-1">
-    <i class="bi bi-person me-1"></i>Карточка клиента
+  {% if claim.address_key %}
+  <a href="/analytics/outlets/detail?key={{ claim.address_key }}%23{{ claim.counterparty_id }}"
+     class="btn btn-sm btn-outline-secondary me-1">
+    <i class="bi bi-geo-alt me-1"></i>Карточка точки
   </a>
-  <a href="/claims/" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-arrow-left me-1"></i>Назад</a>
+  {% endif %}
+  <a href="/counterparties/{{ claim.counterparty_id }}#tab-claims" class="btn btn-sm btn-outline-secondary me-1">
+    <i class="bi bi-person me-1"></i>Клиент
+  </a>
+  <a href="/claims/" class="btn btn-sm btn-outline-secondary me-1"><i class="bi bi-arrow-left me-1"></i>Реестр</a>
+  {% if request.session.get('user_role') == 'admin' %}
   <form method="post" action="/claims/{{ claim.id }}/delete" class="d-inline"
         data-confirm="Удалить рекламацию {{ claim.number }}? Это действие необратимо.">
-    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Удалить</button>
+    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
   </form>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
+{% set can_edit = request.session.get('user_role') in ('manager', 'admin', 'director') %}
+
+{# ── Шапка: точка крупно, потому что разбор начинается с неё ──────────────── #}
+<div class="card border-0 shadow-sm mb-3 border-start border-4 border-{{ severity_colors.get(claim.severity or 'normal', 'secondary') }}">
+  <div class="card-body py-3 d-flex flex-wrap align-items-center gap-3">
+    <div style="min-width:0">
+      <div class="text-muted" style="font-size:.72rem; text-transform:uppercase; letter-spacing:.05em">Точка</div>
+      <div class="fw-bold" style="font-size:1.15rem; line-height:1.2">
+        {% if claim.address_key %}
+          <i class="bi bi-geo-alt me-1 text-muted"></i>{{ claim.address_key | outlet_label }}
+        {% else %}
+          <span class="text-muted fst-italic" style="font-size:1rem">Претензия к клиенту в целом</span>
+        {% endif %}
+      </div>
+      <div class="text-muted" style="font-size:.8rem">
+        <a href="/counterparties/{{ claim.counterparty_id }}" class="text-muted">
+          {{ claim.counterparty.trade_name or claim.counterparty.name if claim.counterparty else '—' }}
+        </a>
+        {% if claim.delivery_address %}· {{ claim.delivery_address }}{% endif %}
+      </div>
+    </div>
+
+    <div class="ms-auto d-flex flex-wrap align-items-center gap-3">
+      <div class="text-center">
+        <div class="badge bg-{{ status_colors.get(claim.status, 'secondary') }} px-3 py-2" style="font-size:.85rem">
+          {{ claim_statuses.get(claim.status, claim.status) }}
+        </div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size:.72rem">Критичность</div>
+        <div class="fw-semibold text-{{ severity_colors.get(claim.severity or 'normal', 'secondary') }}"
+             style="font-size:.9rem">{{ claim_severities.get(claim.severity or 'normal', '—') }}</div>
+      </div>
+      <div>
+        <div class="text-muted" style="font-size:.72rem">Срок разбора</div>
+        {% if claim.status in ('new', 'in_progress') %}
+          {% if sla.overdue %}
+          <div class="fw-semibold text-danger" style="font-size:.9rem">
+            <i class="bi bi-alarm me-1"></i>просрочка {{ sla.overdue_by }} дн.
+          </div>
+          {% else %}
+          <div class="fw-semibold" style="font-size:.9rem">
+            {{ sla.age_days }} из {{ sla.limit_days }} дн.
+          </div>
+          {% endif %}
+        {% elif sla.closed_in is not none %}
+          <div class="fw-semibold text-success" style="font-size:.9rem">закрыта за {{ sla.closed_in }} дн.</div>
+        {% else %}
+          <div class="text-muted" style="font-size:.9rem">—</div>
+        {% endif %}
+      </div>
+      {% if claim.amount %}
+      <div>
+        <div class="text-muted" style="font-size:.72rem">Сумма претензии</div>
+        <div class="fw-bold text-danger" style="font-size:1.05rem">{{ claim.amount | money }} ₽</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# ── Повтор по точке: главный сигнал, поэтому баннером ────────────────────── #}
+{% if history %}
+<div class="alert {% if history_open %}alert-danger{% else %}alert-warning{% endif %} border-0 shadow-sm d-flex align-items-start gap-2">
+  <i class="bi bi-arrow-repeat fs-5 lh-1 mt-1"></i>
+  <div class="flex-grow-1">
+    <div class="fw-semibold">
+      По этой точке жалуются не первый раз — всего {{ history | length + 1 }}
+      {%- if history_open %}, открытых ещё {{ history_open | length }}{% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      {% for h in history[:8] %}
+      <a href="/claims/{{ h.id }}" class="badge text-decoration-none
+                bg-{{ status_colors.get(h.status, 'secondary') }}{% if h.status in ('resolved','rejected') %}-subtle text-dark border{% endif %}"
+         style="font-size:.72rem">
+        {{ h.number }} · {{ claim_types.get(h.type, h.type) }} · {{ h.date | date_fmt }}
+      </a>
+      {% endfor %}
+      {% if history | length > 8 %}
+      <a href="/claims/?address_key={{ claim.address_key }}" class="badge bg-dark text-decoration-none" style="font-size:.72rem">
+        ещё {{ history | length - 8 }}
+      </a>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-3">
 
-  {# ── Левая колонка: данные рекламации ─────────────────────────────────── #}
+  {# ── Левая колонка: суть + таймлайн ─────────────────────────────────────── #}
   <div class="col-lg-8">
     <div class="card border-0 shadow-sm p-4 mb-3">
-      <div class="d-flex align-items-start justify-content-between mb-3">
-        <div>
-          <span class="badge bg-{{ status_colors.get(claim.status, 'secondary') }} fs-6 px-3 py-2">
-            {{ claim_statuses.get(claim.status, claim.status) }}
-          </span>
-          {% if claim.status in ('new', 'in_progress') %}
-          <span class="text-muted ms-2" style="font-size:.82rem">
-            <i class="bi bi-clock me-1"></i>Открыта {{ claim.created_at | date_fmt }}
-          </span>
-          {% endif %}
-        </div>
-        <span class="badge bg-light text-dark border" style="font-size:.82rem">
-          {{ claim_types.get(claim.type, claim.type) }}
-        </span>
-      </div>
-
       <div class="row g-3" style="font-size:.9rem">
-        <div class="col-md-6">
-          <span class="text-muted">Контрагент:</span><br>
-          <a href="/counterparties/{{ claim.counterparty_id }}" class="fw-semibold">
-            {{ claim.counterparty.trade_name or claim.counterparty.name if claim.counterparty else '—' }}
-          </a>
-        </div>
         <div class="col-md-3">
-          <span class="text-muted">Дата:</span><br>
+          <span class="text-muted" style="font-size:.78rem">Дата обращения</span><br>
           <span class="fw-semibold">{{ claim.date | date_fmt }}</span>
         </div>
         <div class="col-md-3">
-          <span class="text-muted">Сумма претензии:</span><br>
-          <span class="fw-semibold {% if claim.amount %}text-danger{% endif %}">
-            {{ claim.amount | money if claim.amount else '—' }} {% if claim.amount %}₽{% endif %}
+          <span class="text-muted" style="font-size:.78rem">Тип</span><br>
+          <span class="fw-semibold">{{ claim_types.get(claim.type, claim.type) }}</span>
+        </div>
+        <div class="col-md-3">
+          <span class="text-muted" style="font-size:.78rem">Номенклатура</span><br>
+          <span class="fw-semibold">
+            {{ claim.product.name if claim.product else '—' }}
+            {%- if claim.quantity %} · {{ claim.quantity | format_number }} шт{% endif %}
           </span>
         </div>
-        {% if claim.order %}
-        <div class="col-12">
-          <span class="text-muted">Привязанный заказ:</span>
-          <a href="/orders/{{ claim.order_id }}" class="ms-1">{{ claim.order.number }}</a>
-          <span class="text-muted ms-1" style="font-size:.82rem">от {{ claim.order.date | date_fmt }}</span>
+        <div class="col-md-3">
+          <span class="text-muted" style="font-size:.78rem">Поставка</span><br>
+          {% if claim.order %}
+          <a href="/orders/{{ claim.order_id }}" class="fw-semibold">{{ claim.order.number }}</a>
+          <span class="text-muted" style="font-size:.8rem">от {{ claim.order.date | date_fmt }}</span>
+          {% else %}<span class="text-muted">без привязки</span>{% endif %}
         </div>
-        {% endif %}
       </div>
 
       {% if claim.description %}
       <div class="mt-3 pt-3 border-top">
-        <div class="text-muted mb-1" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.05em">Описание</div>
+        <div class="text-muted mb-1" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.05em">Суть претензии</div>
         <div style="font-size:.92rem; white-space:pre-wrap">{{ claim.description }}</div>
       </div>
       {% endif %}
 
       {% if claim.resolution %}
       <div class="mt-3 pt-3 border-top">
-        <div class="text-muted mb-1" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.05em">Решение / резолюция</div>
+        <div class="text-muted mb-1" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.05em">Решение</div>
         <div style="font-size:.92rem; white-space:pre-wrap">{{ claim.resolution }}</div>
       </div>
       {% endif %}
     </div>
+
+    {# Таймлайн разбора: комментарии и смены статуса одной лентой #}
+    <div class="card border-0 shadow-sm p-4">
+      <div class="fw-semibold mb-3" style="font-size:.9rem">
+        <i class="bi bi-list-ul me-1"></i>Ход разбора
+      </div>
+
+      {% if can_edit %}
+      <form method="post" action="/activity/comments/new" class="mb-4">
+        <input type="hidden" name="entity_type" value="claim">
+        <input type="hidden" name="entity_id" value="{{ claim.id }}">
+        <input type="hidden" name="redirect_url" value="/claims/{{ claim.id }}">
+        <div class="input-group">
+          <input type="text" name="body" class="form-control" required
+                 placeholder="Что сделали: позвонили, забрали образец, согласовали замену…">
+          <button class="btn btn-outline-secondary"><i class="bi bi-send"></i></button>
+        </div>
+      </form>
+      {% endif %}
+
+      <div class="claim-timeline">
+        {% for e in timeline %}
+        <div class="d-flex gap-3 pb-3 claim-tl-item">
+          <div class="claim-tl-dot bg-{{ 'success' if e.kind == 'status' else ('brand' if e.kind == 'comment' else 'secondary') }}"></div>
+          <div style="min-width:0">
+            <div style="font-size:.88rem; white-space:pre-wrap">
+              {% if e.kind == 'status' %}<i class="bi bi-arrow-right-circle me-1 text-success"></i>{% endif %}
+              {{ e.text or '—' }}
+            </div>
+            <div class="text-muted" style="font-size:.74rem">
+              {{ e.at | datetime_fmt }}{% if e.user %} · {{ e.user.full_name }}{% endif %}
+            </div>
+          </div>
+          {% if e.kind == 'comment' and can_edit %}
+          <form method="post" action="/activity/comments/{{ e.id }}/delete" class="ms-auto"
+                data-confirm="Удалить комментарий?">
+            <input type="hidden" name="redirect_url" value="/claims/{{ claim.id }}">
+            <button class="btn btn-sm btn-link text-muted p-0" style="font-size:.75rem">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
   </div>
 
-  {# ── Правая колонка: смена статуса ──────────────────────────────────── #}
+  {# ── Правая колонка: действия ──────────────────────────────────────────── #}
   <div class="col-lg-4">
-    <div class="card border-0 shadow-sm p-3">
-      <div class="fw-semibold mb-3">Изменить статус</div>
-      <form method="post" action="/claims/{{ claim.id }}/status">
-        <div class="mb-3">
-          <label class="form-label">Новый статус</label>
-          <select name="status" class="form-select">
-            {% for val, label in claim_statuses.items() %}
-            <option value="{{ val }}" {% if claim.status == val %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
+    {% if can_edit %}
+    {# Статус — кнопками: разбор это три движения, а не выпадающий список #}
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2" style="font-size:.88rem">Куда двигаем</div>
+      <form method="post" action="/claims/{{ claim.id }}/status" id="statusForm">
+        <textarea name="resolution" class="form-control mb-2" rows="3"
+          placeholder="Комментарий к решению (попадёт в ленту разбора)…">{{ claim.resolution or '' }}</textarea>
+        <input type="hidden" name="status" id="statusValue" value="{{ claim.status }}">
+        <div class="d-grid gap-2">
+          {% for val, label in claim_statuses.items() %}
+          {% if val != claim.status %}
+          <button type="submit" class="btn btn-sm btn-outline-{{ status_colors.get(val, 'secondary') }}"
+                  onclick="document.getElementById('statusValue').value='{{ val }}'">
+            {% if val == 'in_progress' %}<i class="bi bi-play-fill me-1"></i>Взять в работу
+            {% elif val == 'resolved' %}<i class="bi bi-check-lg me-1"></i>Решена
+            {% elif val == 'rejected' %}<i class="bi bi-x-lg me-1"></i>Отклонить
+            {% else %}<i class="bi bi-arrow-counterclockwise me-1"></i>Вернуть в новые{% endif %}
+          </button>
+          {% endif %}
+          {% endfor %}
+          <button type="submit" class="btn btn-sm btn-link text-muted"
+                  onclick="document.getElementById('statusValue').value='{{ claim.status }}'">
+            Только сохранить комментарий
+          </button>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Комментарий / резолюция</label>
-          <textarea name="resolution" class="form-control" rows="4"
-            placeholder="Опишите принятые меры или причину отклонения…">{{ claim.resolution or '' }}</textarea>
-        </div>
-        <button type="submit" class="btn btn-accent w-100"><i class="bi bi-check-lg me-1"></i>Сохранить</button>
       </form>
     </div>
 
-    {# Статусная шкала #}
-    <div class="card border-0 shadow-sm p-3 mt-3">
+    {# Параметры разбора. Привязка точки правится здесь: у рекламаций, заведённых
+       до перехода на точки, адреса нет — его надо иметь возможность указать. #}
+    <div class="card border-0 shadow-sm p-3 mb-3">
+      <div class="fw-semibold mb-2" style="font-size:.88rem">Параметры</div>
+      <form method="post" action="/claims/{{ claim.id }}/update">
+        <label class="form-label" style="font-size:.8rem">Точка</label>
+        <select name="address_key" class="form-select form-select-sm mb-2">
+          <option value="">— по клиенту в целом —</option>
+          {% for o in outlets %}
+          <option value="{{ o.address_key }}" {% if o.address_key == claim.address_key %}selected{% endif %}>
+            {{ o.label }}{% if o.claims_total %} · рекламаций {{ o.claims_total }}{% endif %}
+          </option>
+          {% endfor %}
+          {% if claim.address_key and claim.address_key not in outlets | map(attribute='address_key') | list %}
+          <option value="{{ claim.address_key }}" selected>{{ claim.address_key | outlet_label }} (нет поставок)</option>
+          {% endif %}
+        </select>
+
+        <label class="form-label" style="font-size:.8rem">Критичность</label>
+        <select name="severity" class="form-select form-select-sm mb-2">
+          {% for val, label in claim_severities.items() %}
+          <option value="{{ val }}" {% if val == (claim.severity or 'normal') %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+
+        <label class="form-label" style="font-size:.8rem">Ответственный</label>
+        <select name="assignee_id" class="form-select form-select-sm mb-2">
+          <option value="0">— не назначен —</option>
+          {% for u in users %}
+          <option value="{{ u.id }}" {% if u.id == claim.assignee_id %}selected{% endif %}>{{ u.full_name }}</option>
+          {% endfor %}
+        </select>
+
+        <label class="form-label" style="font-size:.8rem">Сумма претензии, ₽</label>
+        <input type="number" name="amount" class="form-control form-control-sm mb-3"
+               step="0.01" min="0" value="{{ claim.amount or '' }}">
+
+        <button class="btn btn-sm btn-outline-secondary w-100">Сохранить параметры</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {# Воронка #}
+    <div class="card border-0 shadow-sm p-3">
       <div class="fw-semibold mb-3" style="font-size:.85rem">Воронка</div>
       {% set status_order = ['new', 'in_progress', 'resolved'] %}
       {% set cur_idx = status_order.index(claim.status) if claim.status in status_order else -1 %}
@@ -126,8 +301,47 @@
         <span style="font-size:.82rem;color:var(--text);font-weight:600">Отклонена</span>
       </div>
       {% endif %}
+
+      <div class="border-top mt-2 pt-2 text-muted" style="font-size:.76rem">
+        Завёл: {{ claim.created_by.full_name if claim.created_by else '—' }} ·
+        {{ claim.created_at | datetime_fmt }}
+        {% if claim.assignee %}<br>Разбирает: {{ claim.assignee.full_name }}{% endif %}
+      </div>
     </div>
+
+    {% if outlet %}
+    <div class="card border-0 shadow-sm p-3 mt-3">
+      <div class="fw-semibold mb-2" style="font-size:.85rem">
+        <i class="bi bi-geo-alt me-1"></i>{{ outlet.label }}
+      </div>
+      <div class="text-muted" style="font-size:.8rem">
+        Поставок: <strong>{{ outlet.orders | length }}</strong>{% if outlet.last_date %},
+        последняя {{ outlet.last_date | date_fmt }}{% endif %}<br>
+        Рекламаций по точке: <strong>{{ outlet.claims_total }}</strong>
+        {%- if outlet.claims_open %}, открытых {{ outlet.claims_open }}{% endif %}
+      </div>
+      <div class="d-grid gap-2 mt-2">
+        <a href="/claims/?address_key={{ claim.address_key }}" class="btn btn-sm btn-outline-secondary">
+          Все рекламации точки
+        </a>
+        <a href="/claims/new?cp_id={{ claim.counterparty_id }}&address_key={{ claim.address_key }}"
+           class="btn btn-sm btn-outline-danger">Ещё одна по этой точке</a>
+      </div>
+    </div>
+    {% endif %}
   </div>
 
 </div>
+
+<style>
+  .claim-timeline { position:relative; padding-left:.25rem }
+  .claim-tl-item { position:relative }
+  .claim-tl-item:not(:last-child)::before {
+    content:''; position:absolute; left:5px; top:14px; bottom:0; width:2px; background:#e2e8f0;
+  }
+  .claim-tl-dot {
+    width:12px; height:12px; border-radius:50%; flex-shrink:0; margin-top:4px; z-index:1;
+  }
+  .claim-tl-dot.bg-brand { background:var(--brand) }
+</style>
 {% endblock %}

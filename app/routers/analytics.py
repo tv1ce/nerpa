@@ -117,8 +117,12 @@ async def outlets_list(request: Request, q: str = "", status: str = "",
                        network_id: str = "", db: Session = Depends(get_db)):
     outlets = _outlets(db)
     rows = _filtered(outlets, q, status, network_id)
+    from app.services.claims import outlet_claim_stats
     return templates.TemplateResponse(request, "analytics/outlets.html", {
         "outlets": rows,
+        # Рекламации по адресам — бейджем в списке: точка с открытой претензией
+        # видна до того, как ей начнут звонить с предложением завоза
+        "claim_stats": outlet_claim_stats(db),
         "summary": summary(outlets),
         "statuses": OUTLET_STATUSES,
         "status_colors": STATUS_COLORS,
@@ -147,9 +151,18 @@ async def outlet_detail(request: Request, key: str = "", db: Session = Depends(g
                 .order_by(OutletInsight.created_at.desc()).limit(5).all())
     geo = (db.query(OutletGeo)
            .filter(OutletGeo.address_key == outlet["address_key"]).first())
+    # Рекламации этой точки — того же контрагента: разбор адреса без истории
+    # претензий по нему неполон (и наоборот — карточка рекламации ведёт сюда).
+    from app.services import claims as claims_service
+    cp_id = outlet["counterparties"][0].id if outlet["counterparties"] else 0
+    outlet_claims = claims_service.outlet_history(db, outlet["address_key"], counterparty_id=cp_id)
     return templates.TemplateResponse(request, "analytics/outlet_detail.html", {
         "o": outlet, "statuses": OUTLET_STATUSES, "status_colors": STATUS_COLORS,
         "insights": insights, "geo": geo, "neighbours": neighbours,
+        "outlet_claims": outlet_claims,
+        "outlet_claims_open": [c for c in outlet_claims if c.status in claims_service.OPEN_STATUSES],
+        "claim_cp_id": cp_id,
+        "sla": {c.id: claims_service.sla_state(c) for c in outlet_claims},
         "error": request.query_params.get("error"),
     })
 

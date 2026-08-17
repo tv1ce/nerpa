@@ -483,41 +483,70 @@ document.addEventListener('DOMContentLoaded', function() {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function render(items) {
-    if (!items.length) { box.innerHTML = ''; return; }
-    const rows = items.map(function (c) {
+  // Подробно — только по точке, которая стоит в адресе доставки прямо сейчас;
+  // остальные точки клиента сворачиваются в строку чипсов. У сетевого клиента с
+  // десятком открытых рекламаций плоский список читать невозможно.
+  function render(d) {
+    const same = d.same || [], other = d.other || [];
+    if (!same.length && !other.length) { box.innerHTML = ''; return; }
+
+    const rows = same.map(function (c) {
       const src = c.order_id
         ? ' · по заказу <a href="/orders/' + c.order_id + '" class="text-decoration-none">' + esc(c.order_number) + '</a>'
         : ' · без привязки к заказу';
       return '<div class="mt-1" style="font-size:.86rem">'
         + '<a href="/claims/' + c.id + '" class="fw-semibold text-decoration-none">' + esc(c.number) + '</a>'
         + ' <span class="badge bg-warning text-dark">' + esc(c.status) + '</span> '
+        + (c.severity === 'critical' ? '<span class="badge bg-danger">критичная</span> ' : '')
         + '<span class="text-muted">' + esc(c.type) + ' · от ' + esc(c.date) + src + '</span>'
         + (c.description ? '<div style="white-space:pre-wrap">' + esc(c.description) + '</div>' : '')
         + '</div>';
     }).join('');
+
+    const chips = other.map(function (c) {
+      return '<a href="/claims/' + c.id + '" class="badge bg-light text-dark border text-decoration-none" '
+        + 'style="font-size:.72rem">' + esc(c.number) + ' · ' + esc(c.outlet || 'без точки')
+        + ' · ' + esc(c.type) + '</a>';
+    }).join(' ');
+
+    const head = same.length
+      ? (same.length === 1
+          ? 'Нерешённая рекламация по этой точке' + (d.outlet ? ' — ' + esc(d.outlet) : '')
+          : 'Нерешённых рекламаций по этой точке — ' + same.length)
+      : 'У клиента открыто рекламаций по другим точкам — ' + other.length;
+
     box.innerHTML =
-      '<div class="alert alert-warning border-0 shadow-sm d-flex gap-2 align-items-start">'
+      '<div class="alert ' + (same.length ? 'alert-danger' : 'alert-warning')
+      + ' border-0 shadow-sm d-flex gap-2 align-items-start">'
       + '<i class="bi bi-exclamation-triangle-fill fs-5 lh-1 mt-1"></i>'
       + '<div class="flex-grow-1" style="min-width:0">'
-      + '<div class="fw-semibold">' + (items.length === 1
-          ? 'По клиенту есть нерешённая рекламация'
-          : 'По клиенту есть нерешённые рекламации — ' + items.length) + '</div>'
+      + '<div class="fw-semibold">' + head + '</div>'
       + rows
-      + '<div class="text-muted mt-1" style="font-size:.78rem">Напоминание пропадёт, когда рекламации проставят статус «Решена» или «Отклонена».</div>'
+      + (other.length && same.length
+          ? '<details class="mt-2 pt-2 border-top"><summary class="text-muted" style="cursor:pointer;font-size:.84rem">'
+            + 'Ещё ' + other.length + ' по другим точкам клиента</summary>'
+            + '<div class="mt-1 d-flex flex-wrap gap-2">' + chips + '</div></details>'
+          : (other.length ? '<div class="mt-1 d-flex flex-wrap gap-2">' + chips + '</div>' : ''))
+      + '<div class="text-muted mt-2" style="font-size:.76rem">Напоминание пропадёт, когда рекламации проставят статус «Решена» или «Отклонена».</div>'
       + '</div></div>';
   }
 
   function refresh() {
     const id = cpSel.value;
     if (!id) { box.innerHTML = ''; return; }
-    fetch('/claims/open?counterparty_id=' + encodeURIComponent(id))
-      .then(function (r) { return r.ok ? r.json() : { items: [] }; })
-      .then(function (d) { render(d.items || []); })
+    const addrEl = document.querySelector('input[name="delivery_address"]');
+    const addr = addrEl ? addrEl.value : '';
+    fetch('/claims/open?counterparty_id=' + encodeURIComponent(id)
+          + '&delivery_address=' + encodeURIComponent(addr))
+      .then(function (r) { return r.ok ? r.json() : {}; })
+      .then(render)
       .catch(function () { /* напоминание не критично — молча пропускаем */ });
   }
 
   cpSel.addEventListener('change', refresh);
+  // Адрес меняют после выбора клиента — баннер должен переехать на новую точку
+  const addrInput = document.querySelector('input[name="delivery_address"]');
+  if (addrInput) addrInput.addEventListener('change', refresh);
   refresh();
 })();
 

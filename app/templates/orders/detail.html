@@ -22,6 +22,13 @@
     <button class="btn btn-outline-secondary btn-sm me-1" title="Создать копию заказа с теми же позициями"><i class="bi bi-copy me-1"></i>Создать похожий</button>
   </form>
   {% endif %}
+  {% if _role != 'warehouse' %}
+  {# Рекламация из заказа: точка и поставка подставятся сами #}
+  <a href="/claims/new?order_id={{ order.id }}" class="btn btn-outline-danger btn-sm me-1"
+     title="Завести рекламацию по этой поставке — точка подставится из адреса доставки">
+    <i class="bi bi-clipboard-x me-1"></i>Рекламация
+  </a>
+  {% endif %}
   <a href="/warehouse/orders/{{ order.id }}/label" target="_blank" class="btn btn-outline-primary btn-sm me-1"><i class="bi bi-printer me-1"></i>Наклейка</a>
   <a href="/orders" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-left me-1"></i>Назад</a>
 {% endblock %}
@@ -32,21 +39,34 @@
    МОБИЛЬНАЯ КАРТОЧКА ЗАКАЗА ДЛЯ КЛАДОВЩИКА
    ═══════════════════════════════════════════════════════════════ #}
 
-{# Нерешённая рекламация клиента — кладовщику важно знать до сборки
-   (например, в прошлый раз был пересорт или брак у этого же клиента) #}
-{% if open_claims %}
+{# Нерешённая рекламация — кладовщику важно знать до сборки. На телефоне места
+   мало, поэтому подробно показываем только претензии по точке ЭТОГО заказа
+   (пересорт или брак именно туда, куда сейчас собираем), а остальные — счётчиком. #}
+{% set wm_same  = order_claims.same  if order_claims else (open_claims or []) %}
+{% set wm_other = order_claims.other if order_claims else [] %}
+{% if wm_same or wm_other %}
 <div class="wm-alert wm-alert-warn" style="margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:6px">
   <div style="display:flex;align-items:center;gap:8px">
     <i class="bi bi-exclamation-triangle-fill"></i>
-    <span>Нерешённая рекламация по клиенту{% if open_claims | length > 1 %} — {{ open_claims | length }}{% endif %}</span>
+    <span>
+      {% if wm_same %}
+        Рекламация по этой точке{% if wm_same | length > 1 %} — {{ wm_same | length }}{% endif %}
+      {% else %}
+        Нерешённые рекламации у клиента — {{ wm_other | length }}
+      {% endif %}
+    </span>
   </div>
-  {% for c in open_claims %}
+  {% for c in wm_same %}
   <div style="font-weight:500;font-size:.82rem;line-height:1.35">
     {{ c.number }} · {{ claim_types.get(c.type, c.type) }}
+    {%- if c.severity == 'critical' %} · критичная{% endif %}
     {%- if c.order %} · заказ {{ c.order.number }}{% endif %}
     {% if c.description %}<div style="opacity:.85">{{ c.description }}</div>{% endif %}
   </div>
   {% endfor %}
+  {% if wm_other and wm_same %}
+  <div style="font-size:.78rem;opacity:.8">Ещё {{ wm_other | length }} по другим точкам клиента</div>
+  {% endif %}
 </div>
 {% endif %}
 

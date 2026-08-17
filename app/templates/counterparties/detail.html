@@ -400,41 +400,77 @@ function copyShopUrl() {
       </div>
     </div>
 
-    {# ─ Рекламации ─ #}
+    {# ─ Рекламации: по точкам, самые больные адреса сверху ─ #}
     <div class="tab-pane fade" id="tab-claims">
-      {% if request.session.get('user_role') != 'warehouse' %}
-      <div class="p-3 pb-2 d-flex justify-content-end">
-        <a href="/claims/new?cp_id={{ cp.id }}" class="btn btn-sm btn-outline-danger"><i class="bi bi-plus me-1"></i>Создать рекламацию</a>
+      {% if claims %}
+      <div class="p-3 pb-2 d-flex flex-wrap align-items-center gap-3">
+        <span style="font-size:.85rem">
+          <span class="text-muted">Всего:</span> <strong>{{ claim_stats.total }}</strong>
+        </span>
+        {% if claim_stats.open %}
+        <span class="badge bg-info" style="font-size:.72rem">открыто {{ claim_stats.open }}</span>
+        {% endif %}
+        {% if claim_stats.overdue %}
+        <span class="badge bg-danger" style="font-size:.72rem">просрочено {{ claim_stats.overdue }}</span>
+        {% endif %}
+        {% if claim_stats.repeat_outlets %}
+        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle"
+              style="font-size:.72rem" title="Точки, по которым жаловались больше одного раза">
+          <i class="bi bi-arrow-repeat me-1"></i>точек с повтором: {{ claim_stats.repeat_outlets }}
+        </span>
+        {% endif %}
+        {% if claim_stats.amount_open %}
+        <span style="font-size:.85rem"><span class="text-muted">На кону:</span>
+          <strong class="text-danger">{{ claim_stats.amount_open | money }} ₽</strong></span>
+        {% endif %}
+        <span class="ms-auto d-flex gap-2">
+          <a href="/claims/?cp_id={{ cp.id }}" class="btn btn-sm btn-outline-secondary">Реестр клиента</a>
+          {% if request.session.get('user_role') != 'warehouse' %}
+          <a href="/claims/new?cp_id={{ cp.id }}" class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-plus me-1"></i>Создать
+          </a>
+          {% endif %}
+        </span>
+      </div>
+
+      {% for o in claim_outlets %}
+      <div class="border-top">
+        <div class="d-flex align-items-center gap-2 flex-wrap px-3 py-2 bg-light">
+          <i class="bi bi-geo-alt text-muted"></i>
+          <span class="fw-semibold" style="font-size:.85rem">{{ o.label }}</span>
+          {% if o.claims | length > 1 %}
+          <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle"
+                style="font-size:.68rem"><i class="bi bi-arrow-repeat me-1"></i>{{ o.claims | length }} раз</span>
+          {% endif %}
+          {% if o.open %}<span class="badge bg-info" style="font-size:.68rem">открыто {{ o.open }}</span>{% endif %}
+          {% if o.overdue %}<span class="badge bg-danger" style="font-size:.68rem">просрочено {{ o.overdue }}</span>{% endif %}
+          <span class="text-muted ms-auto" style="font-size:.76rem">
+            последняя {{ o.last_date | date_fmt }}
+            {%- if o.address_key %}
+            · <a href="/analytics/outlets/detail?key={{ o.address_key }}%23{{ cp.id }}" class="text-muted">карточка точки</a>
+            · <a href="/claims/new?cp_id={{ cp.id }}&address_key={{ o.address_key }}" class="text-muted">+ рекламация</a>
+            {%- endif %}
+          </span>
+        </div>
+        {% for cl in o.claims %}
+        {% include "claims/_row.html" %}
+        {% endfor %}
+      </div>
+      {% endfor %}
+
+      {% else %}
+      <div class="text-center py-5 text-muted">
+        <i class="bi bi-emoji-smile d-block mb-2" style="font-size:1.4rem"></i>
+        Рекламаций нет
+        {% if request.session.get('user_role') != 'warehouse' %}
+        <div class="mt-3">
+          <a href="/claims/new?cp_id={{ cp.id }}" class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-plus me-1"></i>Создать рекламацию
+          </a>
+        </div>
+        {% endif %}
       </div>
       {% endif %}
-      <div class="table-responsive">
-        <table class="table table-sm nerpa-table mb-0">
-          <thead>
-            <tr>
-              <th class="ps-4">Номер</th>
-              <th>Дата</th>
-              <th>Тип</th>
-              <th>Статус</th>
-              <th>Заказ</th>
-              <th class="text-end pe-4">Сумма, ₽</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for cl in claims %}
-            <tr>
-              <td class="ps-4"><a href="/claims/{{ cl.id }}" class="fw-semibold">{{ cl.number }}</a></td>
-              <td>{{ cl.date | date_fmt }}</td>
-              <td class="text-muted" style="font-size:.85rem">{{ claim_types.get(cl.type, cl.type) }}</td>
-              <td><span class="badge bg-{{ status_colors.get(cl.status, 'secondary') }}">{{ claim_statuses.get(cl.status, cl.status) }}</span></td>
-              <td class="text-muted" style="font-size:.82rem">{{ cl.order.number if cl.order else '—' }}</td>
-              <td class="text-end pe-4 text-muted" style="font-size:.82rem">{{ cl.amount | money if cl.amount else '—' }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="6" class="text-center py-4 text-muted">Рекламаций нет</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
     </div>
 
     {# ─ Команда: задачи + комментарии ─ #}

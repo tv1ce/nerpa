@@ -540,6 +540,12 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
     last_order_date = max(last_order_dates) if last_order_dates else None
     dormant_days = (_date.today() - last_order_date).days if last_order_date else None
     claims = db.query(Claim).filter(Claim.counterparty_id == cp_id).order_by(Claim.date.desc()).all()
+    # Рекламации в карточке клиента — по точкам: у сетевого клиента плоский список
+    # не отвечает на вопрос «где именно проблема» (см. services/claims.py).
+    from app.services import claims as claims_service
+    claim_outlets = claims_service.group_by_outlet(claims)
+    claim_stats = claims_service.summary(claims)
+    claim_sla = {c.id: claims_service.sla_state(c) for c in claims}
 
     tasks = db.query(Task).filter(
         Task.entity_type == "counterparty", Task.entity_id == cp_id
@@ -586,6 +592,9 @@ async def view_counterparty(request: Request, cp_id: int, db: Session = Depends(
         "open_debt": open_debt,
         "open_invoices": open_invoices,
         "claims": claims,
+        "claim_outlets": claim_outlets,
+        "claim_stats": claim_stats,
+        "sla": claim_sla,
         "claim_types": CLAIM_TYPES,
         "claim_statuses": CLAIM_STATUSES,
         "status_colors": STATUS_COLORS,

@@ -782,27 +782,59 @@ CLAIM_STATUSES = {
     "rejected":    "Отклонена",
 }
 
+# Критичность — то, что решает порядок разбора, когда открытых рекламаций много.
+# Сроки в днях: по ним считается просрочка (см. services/claims.sla_state).
+CLAIM_SEVERITIES = {
+    "low":      "Мелкая",
+    "normal":   "Обычная",
+    "critical": "Критичная",
+}
+
+CLAIM_SLA_DAYS = {"low": 7, "normal": 3, "critical": 1}
+
 
 class Claim(Base):
-    """Рекламация / претензия от клиента."""
+    """Рекламация / претензия от клиента.
+
+    Привязана не только к контрагенту, но и к **точке** — адресу доставки, по
+    которому претензия возникла (address_key — тот же нормализованный ключ
+    «улица:дом», что и в аналитике точек, см. services/outlets.normalize_address).
+    У сетевого клиента адресов десятки, и «рекламация по контрагенту» ничего не
+    говорит: разбираться нужно с конкретной кофейней, и повторный брак по одной и
+    той же точке — это совсем другой сигнал, чем по разным.
+
+    address_key = NULL означает претензию к клиенту в целом (документы, оплата) —
+    такую к точке привязывать нечего."""
     __tablename__ = "claims"
     id = Column(Integer, primary_key=True)
     number = Column(String(50), unique=True, nullable=False)
     date = Column(Date, nullable=False)
     counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
     order_id = Column(Integer, ForeignKey("orders.id"))
+    # Точка: ключ для группировки и исходный адрес — как он написан в заказе
+    # (ключ нормализован и для человека нечитаем, а глазами сверять надо).
+    address_key = Column(String(200), index=True)
+    delivery_address = Column(String(500))
     type = Column(String(30), default="quality")   # quality / delivery / quantity / documents / other
     status = Column(String(20), default="new")     # new / in_progress / resolved / rejected
+    severity = Column(String(20), default="normal")  # low / normal / critical
+    # Номенклатура, на которую жалуются: по браку вопрос «какой вкус» — первый.
+    product_id = Column(Integer, ForeignKey("products.id"))
+    quantity = Column(Float)                       # сколько штук брака
+    assignee_id = Column(Integer, ForeignKey("users.id"))   # кто разбирается
     description = Column(Text)
     resolution = Column(Text)
     amount = Column(Float)
+    resolved_at = Column(DateTime)                 # для метрики «сколько закрывали»
     created_by_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
     updated_at = Column(DateTime, default=msk_now, server_default=func.now(), onupdate=msk_now)
 
     counterparty = relationship("Counterparty", back_populates="claims")
     order = relationship("Order")
-    created_by = relationship("User")
+    product = relationship("Product")
+    assignee = relationship("User", foreign_keys=[assignee_id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
 
 
 class ShopCart(Base):

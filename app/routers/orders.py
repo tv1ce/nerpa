@@ -470,14 +470,16 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
     sbis_configured = bool(company and company.sbis_login and company.sbis_password)
 
     # Нерешённые рекламации клиента, заведённые до этого заказа: висят
-    # напоминанием в каждом следующем заказе, пока их не закроют.
-    from app.utils import open_claims_for_counterparty
-    open_claims = open_claims_for_counterparty(
-        db, order.counterparty_id, before=order.created_at, exclude_order_id=order.id)
+    # напоминанием в каждом следующем заказе, пока их не закроют. Разделены на
+    # «по точке этого заказа» и «по другим точкам клиента» — у сетевого клиента
+    # это разные новости, и мешать их в один список бессмысленно.
+    from app.services.claims import claims_for_order
+    order_claims = claims_for_order(db, order)
 
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
-        "open_claims": open_claims,
+        "order_claims": order_claims,
+        "open_claims": order_claims["same"] + order_claims["other"],
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
         "tasks": tasks, "comments": comments, "activity": activity, "users": users,
         "files": files, "file_types": FILE_TYPES["order"],
