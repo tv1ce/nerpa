@@ -374,6 +374,21 @@ def test_items_can_be_edited_after_creation(admin_client, sample):
         db.close()
 
 
+def test_detail_ships_items_editor(admin_client, sample):
+    """Редактор состава должен реально попадать на страницу.
+
+    Переменная can_edit жила внутри block content, а у блоков своя область
+    видимости — в block scripts она была не видна, и кнопка «Изменить состав»
+    ничего не делала: обработчика на странице просто не было.
+    """
+    r = admin_client.get(f"/claims/{sample['claim_ids'][0]}")
+    assert r.status_code == 200
+    assert 'id="editItemsBtn"' in r.text, "кнопка редактора"
+    assert "editItemsBtn').addEventListener" in r.text, "обработчик кнопки"
+    assert "const PRODUCTS" in r.text, "список номенклатуры для редактора"
+    assert 'action="/claims/%d/items"' % sample["claim_ids"][0] in r.text
+
+
 def test_legacy_single_product_shows_in_items_label(sample):
     """У старой рекламации номенклатура одна и лежит в самой рекламации."""
     from app.database import SessionLocal

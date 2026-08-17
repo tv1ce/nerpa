@@ -1,4 +1,8 @@
 {% extends "base.html" %}
+{# На верхнем уровне, а не внутри block content: у блоков своя область видимости,
+   и заданная внутри content переменная в block scripts не видна — из-за этого
+   скрипт редактора состава не попадал на страницу вовсе. #}
+{% set can_edit = request.session.get('user_role') in ('manager', 'admin', 'director') %}
 {% block title %}{{ claim.number }}{% endblock %}
 {% block page_title %}{{ claim.number }}{% endblock %}
 {% block topbar_actions %}
@@ -21,7 +25,6 @@
 {% endblock %}
 
 {% block content %}
-{% set can_edit = request.session.get('user_role') in ('manager', 'admin', 'director') %}
 
 {# ── Шапка: точка крупно, потому что разбор начинается с неё ──────────────── #}
 <div class="card border-0 shadow-sm mb-3 border-start border-4 border-{{ severity_colors.get(claim.severity or 'normal', 'secondary') }}">
