@@ -73,7 +73,7 @@
         <select name="cp_id" class="form-select form-select-sm" onchange="this.form.submit()">
           <option value="">Все контрагенты</option>
           {% for cp in counterparties %}
-          <option value="{{ cp.id }}" {% if filter_cp_id == cp.id %}selected{% endif %}>{{ cp.trade_name or cp.name }}</option>
+          <option value="{{ cp.id }}" {% if filter_cp_id == cp.id %}selected{% endif %}>{{ cp | cp_label }}</option>
           {% endfor %}
         </select>
       </div>
@@ -171,7 +171,7 @@
             {% if cl.address_key %}{{ cl.address_key | outlet_label }}{% else %}<span class="text-muted fst-italic">без точки</span>{% endif %}
           </div>
           <div class="text-muted" style="font-size:.78rem">
-            {{ cl.counterparty.trade_name or cl.counterparty.name if cl.counterparty else '—' }}
+            {{ cl.counterparty | cp_label }}
           </div>
           <div class="text-muted mt-1" style="font-size:.76rem">
             {{ claim_types.get(cl.type, cl.type) }} · {{ cl.date | date_fmt }}

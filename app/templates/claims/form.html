@@ -24,16 +24,24 @@
       </div>
 
       <div class="row g-3">
+        {# Контрагент с поиском: в списке видно и вывеску, и юрлицо, и ИНН.
+           Одной вывески мало — у сети франчайзи она общая, а юрлиц несколько. #}
         <div class="col-md-8">
           <label class="form-label">Контрагент *</label>
-          <select name="counterparty_id" id="cpSelect" class="form-select" required>
-            <option value="">— выберите контрагента —</option>
-            {% for cp in counterparties %}
-            <option value="{{ cp.id }}" {% if preselect_cp and preselect_cp.id == cp.id %}selected{% endif %}>
-              {{ cp.trade_name or cp.name }}
-            </option>
-            {% endfor %}
-          </select>
+          <div class="position-relative" id="cpPicker">
+            <input type="hidden" name="counterparty_id" id="cpSelect"
+                   value="{{ preselect_cp.id if preselect_cp else '' }}" required>
+            <div class="input-group">
+              <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+              <input type="text" class="form-control" id="cpSearch" autocomplete="off"
+                     placeholder="Название заведения, юрлицо или ИНН…"
+                     value="{{ preselect_cp | cp_label if preselect_cp else '' }}">
+              <button type="button" class="btn btn-outline-secondary" id="cpClear"
+                      title="Сбросить"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div id="cpResults" class="border rounded bg-white shadow-sm position-absolute w-100"
+                 style="display:none; z-index:30; max-height:16rem; overflow-y:auto"></div>
+          </div>
         </div>
         <div class="col-md-4">
           <label class="form-label">Дата обращения *</label>
@@ -103,22 +111,27 @@
           </div>
         </div>
 
-        <div class="col-md-6" id="productBlock">
-          <label class="form-label">Номенклатура <span class="text-muted">(на что жалуются)</span></label>
-          <select name="product_id" class="form-select">
-            <option value="0">— не указана —</option>
-            {% for p in products %}
-            <option value="{{ p.id }}">{{ p.name }}</option>
-            {% endfor %}
-          </select>
+        {# Позиции: в одной претензии обычно несколько вкусов сразу #}
+        <div class="col-12">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <label class="form-label mb-0">
+              Номенклатура <span class="text-muted">(на что жалуются)</span>
+            </label>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addItemBtn">
+              <i class="bi bi-plus-lg me-1"></i>Добавить позицию
+            </button>
+          </div>
+          <input type="hidden" name="items_json" id="itemsJson" value="[]">
+          <div id="itemsBox" class="d-flex flex-column gap-2"></div>
+          <div class="form-text" style="font-size:.74rem">
+            Суммы по позициям складываются в сумму претензии — её можно поправить руками.
+          </div>
         </div>
-        <div class="col-md-3">
-          <label class="form-label">Количество, шт</label>
-          <input type="number" name="quantity" class="form-control" step="1" min="0" placeholder="—">
-        </div>
-        <div class="col-md-3">
+
+        <div class="col-md-4">
           <label class="form-label">Сумма претензии, ₽</label>
-          <input type="number" name="amount" class="form-control" step="0.01" min="0" placeholder="0.00">
+          <input type="number" name="amount" id="amountInput" class="form-control"
+                 step="0.01" min="0" placeholder="0.00">
         </div>
 
         <div class="col-12">
@@ -178,6 +191,8 @@
 <script>
 const PRESELECT_KEY   = {{ (preselect_address_key or '') | tojson }};
 const PRESELECT_ORDER = {{ (preselect_order.id if preselect_order else 0) | tojson }};
+const CLIENTS  = {{ clients_json | tojson }};
+const PRODUCTS = {{ products_json | tojson }};
 let outlets = [];
 
 function esc(s) {
@@ -308,11 +323,151 @@ function toggleNoOutlet() {
   }
 }
 
-document.getElementById('cpSelect').addEventListener('change', e => loadOutlets(e.target.value));
+// ── Выбор контрагента: поиск по вывеске, юрлицу и ИНН ──────────────────────
+(function () {
+  const hidden = document.getElementById('cpSelect');
+  const search = document.getElementById('cpSearch');
+  const box    = document.getElementById('cpResults');
+  const clear  = document.getElementById('cpClear');
+
+  const label = c => c.trade && c.name && c.trade !== c.name
+    ? c.trade + ' · ' + c.name : (c.trade || c.name);
+
+  function render(list) {
+    if (!list.length) {
+      box.innerHTML = '<div class="px-3 py-2 text-muted" style="font-size:.84rem">' +
+        'Ничего не нашлось</div>';
+    } else {
+      box.innerHTML = list.slice(0, 40).map(c =>
+        '<button type="button" class="btn btn-sm w-100 text-start border-0 rounded-0 cp-option" ' +
+          'data-id="' + c.id + '">' +
+          '<span class="fw-semibold" style="font-size:.86rem">' + esc(c.trade || c.name) + '</span>' +
+          (c.trade && c.name && c.trade !== c.name
+            ? '<span class="text-muted" style="font-size:.8rem"> · ' + esc(c.name) + '</span>' : '') +
+          (c.inn ? '<div class="text-muted" style="font-size:.74rem">ИНН ' + esc(c.inn) + '</div>' : '') +
+        '</button>').join('');
+      box.querySelectorAll('.cp-option').forEach(b =>
+        b.addEventListener('mousedown', e => {
+          e.preventDefault();
+          pick(CLIENTS.find(c => String(c.id) === b.dataset.id));
+        }));
+    }
+    box.style.display = '';
+  }
+
+  function pick(c) {
+    if (!c) return;
+    hidden.value = c.id;
+    search.value = label(c);
+    box.style.display = 'none';
+    loadOutlets(c.id);
+  }
+
+  function filter(q) {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return CLIENTS;
+    return CLIENTS.filter(c =>
+      (c.trade + ' ' + c.name + ' ' + c.inn).toLowerCase().includes(needle));
+  }
+
+  search.addEventListener('input', () => {
+    // Текст правят — прежний выбор больше не действителен, пока не выберут снова
+    hidden.value = '';
+    render(filter(search.value));
+  });
+  search.addEventListener('focus', () => render(filter(search.value)));
+  search.addEventListener('blur', () => setTimeout(() => { box.style.display = 'none'; }, 120));
+  search.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = filter(search.value)[0];
+      if (first) pick(first);
+    } else if (e.key === 'Escape') {
+      box.style.display = 'none';
+    }
+  });
+  clear.addEventListener('click', () => {
+    hidden.value = ''; search.value = '';
+    loadOutlets('');
+    search.focus();
+  });
+})();
+
+// ── Позиции рекламации ────────────────────────────────────────────────────
+let items = [];
+
+function itemsSum() {
+  return items.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+}
+
+function syncItems() {
+  document.getElementById('itemsJson').value = JSON.stringify(
+    items.filter(i => i.product_id));
+  // Итог складываем из позиций; если сумм нет — поле остаётся как ввели руками
+  const sum = itemsSum();
+  if (sum > 0) document.getElementById('amountInput').value = sum.toFixed(2);
+}
+
+function renderItems() {
+  const box = document.getElementById('itemsBox');
+  box.innerHTML = '';
+  if (!items.length) {
+    box.innerHTML = '<div class="text-muted" style="font-size:.82rem">' +
+      'Позиции не указаны — для претензий по документам или доставке это нормально.</div>';
+    syncItems();
+    return;
+  }
+  items.forEach((item, idx) => {
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-center';
+    row.innerHTML =
+      '<div class="col-md-5"><select class="form-select form-select-sm" data-f="product_id">' +
+        '<option value="">— выберите номенклатуру —</option>' +
+        PRODUCTS.map(p => '<option value="' + p.id + '"' +
+          (String(p.id) === String(item.product_id) ? ' selected' : '') + '>' +
+          esc(p.name) + '</option>').join('') +
+      '</select></div>' +
+      '<div class="col-md-2"><input type="number" class="form-control form-control-sm" ' +
+        'step="1" min="0" placeholder="шт" data-f="quantity" value="' + (item.quantity ?? '') + '"></div>' +
+      '<div class="col-md-2"><input type="number" class="form-control form-control-sm" ' +
+        'step="0.01" min="0" placeholder="₽" data-f="amount" value="' + (item.amount ?? '') + '"></div>' +
+      '<div class="col-md-2"><input type="text" class="form-control form-control-sm" ' +
+        'placeholder="что не так" data-f="note" value="' + esc(item.note || '') + '"></div>' +
+      '<div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-link text-danger p-0" ' +
+        'title="Убрать позицию"><i class="bi bi-x-lg"></i></button></div>';
+    row.querySelectorAll('[data-f]').forEach(el =>
+      el.addEventListener('change', () => {
+        items[idx][el.dataset.f] = el.value;
+        syncItems();
+      }));
+    row.querySelector('button').addEventListener('click', () => {
+      items.splice(idx, 1);
+      renderItems();
+    });
+    box.appendChild(row);
+  });
+  syncItems();
+}
+
+document.getElementById('addItemBtn').addEventListener('click', () => {
+  items.push({product_id: '', quantity: '', amount: '', note: ''});
+  renderItems();
+});
+
 document.getElementById('noOutlet').addEventListener('change', toggleNoOutlet);
 
-// Точку обязательно указать — либо явно отметить, что претензия к клиенту в целом
+// Клиента и точку указать обязательно — либо явно отметить, что претензия к
+// клиенту в целом. Контрагент теперь ищется текстом, поэтому проверяем, что за
+// набранным текстом стоит выбранная запись, а не просто похожие буквы.
 document.getElementById('claimForm').addEventListener('submit', e => {
+  const cpId = document.getElementById('cpSelect').value;
+  if (!cpId) {
+    e.preventDefault();
+    const s = document.getElementById('cpSearch');
+    s.classList.add('is-invalid');
+    s.focus();
+    return;
+  }
   const key = document.getElementById('addressKey').value;
   if (!key && !document.getElementById('noOutlet').checked) {
     e.preventDefault();
@@ -323,6 +478,7 @@ document.getElementById('claimForm').addEventListener('submit', e => {
 });
 
 (function () {
+  renderItems();
   const cp = document.getElementById('cpSelect');
   if (cp.value) loadOutlets(cp.value, PRESELECT_KEY);
 })();

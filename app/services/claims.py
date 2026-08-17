@@ -22,7 +22,7 @@ from datetime import date, datetime
 from sqlalchemy.orm import Session
 
 from app.models import (CLAIM_SEVERITIES, CLAIM_SLA_DAYS, CLAIM_STATUSES,
-                        Claim, Comment, AuditLog, Order, User)
+                        Claim, ClaimItem, Comment, AuditLog, Order, Product, User)
 from app.services.outlets import DELIVERED_STATUSES, address_label, normalize_address
 from app.tz import now as msk_now
 
@@ -34,6 +34,15 @@ SEVERITY_COLORS = {"low": "secondary", "normal": "warning", "critical": "danger"
 # Заказы, по которым вообще имеет смысл заводить рекламацию: товар уехал клиенту.
 # Черновик или отменённый заказ рекламации не создаёт.
 CLAIMABLE_STATUSES = DELIVERED_STATUSES
+
+
+def _cp_label(cp) -> str:
+    """«Вывеска · Юрлицо» — так контрагента можно узнать в списке."""
+    trade = (cp.trade_name or "").strip()
+    legal = (cp.name or "").strip()
+    if trade and legal and trade != legal:
+        return f"{trade} · {legal}"
+    return trade or legal or "—"
 
 
 # ── Точки контрагента ────────────────────────────────────────────────────────
@@ -91,6 +100,79 @@ def counterparty_outlets(db: Session, counterparty_id: int) -> list[dict]:
     # разбираться идут именно туда, где уже горит.
     return sorted(points.values(),
                   key=lambda p: (-p["claims_open"], -(p["last_date"].toordinal() if p["last_date"] else 0)))
+
+
+# ── Позиции рекламации ───────────────────────────────────────────────────────
+
+def parse_items(raw: str) -> list[dict]:
+    """Позиции из hidden-поля формы (тот же приём, что в форме заказа).
+
+    Строки без номенклатуры отбрасываем: пустая позиция в претензии — мусор,
+    который потом никто не сможет разобрать.
+    """
+    import json
+
+    def _num(v):
+        try:
+            return float(str(v).replace(",", ".")) if str(v).strip() else None
+        except (TypeError, ValueError):
+            return None
+
+    try:
+        rows = json.loads(raw or "[]")
+    except (ValueError, TypeError):
+        return []
+    items = []
+    for row in rows if isinstance(rows, list) else []:
+        try:
+            product_id = int(row.get("product_id") or 0)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if not product_id:
+            continue
+        items.append({
+            "product_id": product_id,
+            "quantity": _num(row.get("quantity")),
+            "amount": _num(row.get("amount")),
+            "note": (str(row.get("note") or "")).strip()[:300] or None,
+        })
+    return items
+
+
+def set_items(db: Session, claim: Claim, items: list[dict]) -> None:
+    """Переписывает позиции рекламации и синхронизирует сводные поля.
+
+    Сумма претензии складывается из позиций, если хотя бы у одной она указана:
+    иначе два числа (итог и позиции) жили бы каждое своей жизнью. Поля
+    product_id/quantity самой рекламации заполняются первой позицией — от них
+    зависят прежние выгрузки.
+    """
+    claim.items = [ClaimItem(**item) for item in items]
+    if items:
+        claim.product_id = items[0]["product_id"]
+        claim.quantity = items[0]["quantity"]
+        amounts = [i["amount"] for i in items if i["amount"]]
+        if amounts:
+            claim.amount = sum(amounts)
+    else:
+        claim.product_id = None
+        claim.quantity = None
+
+
+def items_label(claim: Claim, limit: int = 2) -> str:
+    """Позиции одной строкой для списков: «Карамель 30 шт, Кокос 12 шт +1»."""
+    parts = []
+    for item in claim.items[:limit]:
+        name = item.product.name if item.product else "—"
+        parts.append(f"{name} {item.quantity:g} шт" if item.quantity else name)
+    tail = len(claim.items) - limit
+    if tail > 0:
+        parts.append(f"+{tail}")
+    if not parts and claim.product:
+        # Рекламация из прежней схемы, у которой позиции ещё не проставлены
+        return (f"{claim.product.name} {claim.quantity:g} шт"
+                if claim.quantity else claim.product.name)
+    return ", ".join(parts)
 
 
 def outlet_label_of(claim: Claim) -> str:
@@ -185,7 +267,9 @@ def group_by_client(claims: list[Claim]) -> list[dict]:
         result.append({
             "counterparty": cp,
             "counterparty_id": cp_id,
-            "name": (cp.trade_name or cp.name) if cp else f"Контрагент #{cp_id}",
+            # Вывеска и юрлицо вместе: у сети франчайзи вывеска общая, а
+            # контрагентов несколько, и по одному названию их не различить
+            "name": _cp_label(cp) if cp else f"Контрагент #{cp_id}",
             "network": cp.network.name if cp and cp.network_id and cp.network else "",
             "claims": items,
             "outlets": group_by_outlet(items),

@@ -37,7 +37,7 @@
       </div>
       <div class="text-muted" style="font-size:.8rem">
         <a href="/counterparties/{{ claim.counterparty_id }}" class="text-muted">
-          {{ claim.counterparty.trade_name or claim.counterparty.name if claim.counterparty else '—' }}
+          {{ claim.counterparty | cp_label }}
         </a>
         {% if claim.delivery_address %}· {{ claim.delivery_address }}{% endif %}
       </div>
@@ -124,10 +124,14 @@
           <span class="fw-semibold">{{ claim_types.get(claim.type, claim.type) }}</span>
         </div>
         <div class="col-md-3">
-          <span class="text-muted" style="font-size:.78rem">Номенклатура</span><br>
+          <span class="text-muted" style="font-size:.78rem">Позиций</span><br>
           <span class="fw-semibold">
-            {{ claim.product.name if claim.product else '—' }}
-            {%- if claim.quantity %} · {{ claim.quantity | format_number }} шт{% endif %}
+            {% if claim.items %}{{ claim.items | length }}
+              <span class="text-muted fw-normal" style="font-size:.8rem">
+                · {{ claim.items | sum(attribute='quantity') | format_number if claim.items | sum(attribute='quantity') else 0 }} шт
+              </span>
+            {% elif claim.product %}1
+            {% else %}—{% endif %}
           </span>
         </div>
         <div class="col-md-3">
@@ -137,6 +141,66 @@
           <span class="text-muted" style="font-size:.8rem">от {{ claim.order.date | date_fmt }}</span>
           {% else %}<span class="text-muted">без привязки</span>{% endif %}
         </div>
+      </div>
+
+      {# Позиции: несколько вкусов в одной претензии — обычное дело #}
+      <div class="mt-3 pt-3 border-top">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div class="text-muted" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.05em">
+            Номенклатура
+          </div>
+          {% if can_edit %}
+          <button type="button" class="btn btn-sm btn-link text-decoration-none p-0"
+                  id="editItemsBtn" style="font-size:.8rem">
+            <i class="bi bi-pencil me-1"></i>Изменить состав
+          </button>
+          {% endif %}
+        </div>
+
+        <div id="itemsView">
+          {% if claim.items %}
+          <div class="table-responsive">
+            <table class="table table-sm mb-0" style="font-size:.86rem">
+              <tbody>
+                {% for it in claim.items %}
+                <tr>
+                  <td class="ps-0">{{ it.product.name if it.product else '—' }}</td>
+                  <td class="text-muted" style="width:6rem">
+                    {{ it.quantity | format_number if it.quantity else '—' }} шт
+                  </td>
+                  <td class="text-muted" style="width:8rem">
+                    {{ it.amount | money ~ ' ₽' if it.amount else '—' }}
+                  </td>
+                  <td class="text-muted">{{ it.note or '' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <div class="text-muted" style="font-size:.86rem">
+            Позиции не указаны{% if claim.type in ('quality', 'quantity') %} — по браку и
+            недовозу стоит их добавить{% endif %}
+          </div>
+          {% endif %}
+        </div>
+
+        {% if can_edit %}
+        <form method="post" action="/claims/{{ claim.id }}/items" id="itemsForm" style="display:none">
+          <input type="hidden" name="items_json" id="itemsJson" value="[]">
+          <div id="itemsBox" class="d-flex flex-column gap-2"></div>
+          <div class="d-flex gap-2 mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addItemBtn">
+              <i class="bi bi-plus-lg me-1"></i>Позиция
+            </button>
+            <button class="btn btn-sm btn-accent ms-auto">Сохранить состав</button>
+            <button type="button" class="btn btn-sm btn-link text-muted" id="cancelItemsBtn">Отмена</button>
+          </div>
+          <div class="form-text" style="font-size:.74rem">
+            Суммы по позициям складываются в сумму претензии.
+          </div>
+        </form>
+        {% endif %}
       </div>
 
       {% if claim.description %}
@@ -344,4 +408,71 @@
   }
   .claim-tl-dot.bg-brand { background:var(--brand) }
 </style>
+{% endblock %}
+
+{% block scripts %}
+{% if can_edit %}
+<script>
+// Редактор состава: те же поля, что в форме создания. Позиции переписываются
+// целиком — в разборе состав уточняют не по одной строке, а сразу.
+const PRODUCTS = {{ products_json | tojson }};
+let items = {{ claim_items_json | tojson }};
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+function syncItems() {
+  document.getElementById('itemsJson').value = JSON.stringify(items.filter(i => i.product_id));
+}
+
+function renderItems() {
+  const box = document.getElementById('itemsBox');
+  box.innerHTML = '';
+  if (!items.length) {
+    box.innerHTML = '<div class="text-muted" style="font-size:.82rem">Позиций нет</div>';
+  }
+  items.forEach((item, idx) => {
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-center';
+    row.innerHTML =
+      '<div class="col-md-5"><select class="form-select form-select-sm" data-f="product_id">' +
+        '<option value="">— номенклатура —</option>' +
+        PRODUCTS.map(p => '<option value="' + p.id + '"' +
+          (String(p.id) === String(item.product_id) ? ' selected' : '') + '>' +
+          esc(p.name) + '</option>').join('') +
+      '</select></div>' +
+      '<div class="col-md-2"><input type="number" class="form-control form-control-sm" step="1" min="0" ' +
+        'placeholder="шт" data-f="quantity" value="' + (item.quantity ?? '') + '"></div>' +
+      '<div class="col-md-2"><input type="number" class="form-control form-control-sm" step="0.01" min="0" ' +
+        'placeholder="₽" data-f="amount" value="' + (item.amount ?? '') + '"></div>' +
+      '<div class="col-md-2"><input type="text" class="form-control form-control-sm" ' +
+        'placeholder="что не так" data-f="note" value="' + esc(item.note || '') + '"></div>' +
+      '<div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-link text-danger p-0">' +
+        '<i class="bi bi-x-lg"></i></button></div>';
+    row.querySelectorAll('[data-f]').forEach(el =>
+      el.addEventListener('change', () => { items[idx][el.dataset.f] = el.value; syncItems(); }));
+    row.querySelector('button').addEventListener('click', () => { items.splice(idx, 1); renderItems(); });
+    box.appendChild(row);
+  });
+  syncItems();
+}
+
+document.getElementById('editItemsBtn').addEventListener('click', () => {
+  document.getElementById('itemsView').style.display = 'none';
+  document.getElementById('itemsForm').style.display = '';
+  if (!items.length) items.push({product_id: '', quantity: '', amount: '', note: ''});
+  renderItems();
+});
+document.getElementById('cancelItemsBtn').addEventListener('click', () => {
+  document.getElementById('itemsForm').style.display = 'none';
+  document.getElementById('itemsView').style.display = '';
+});
+document.getElementById('addItemBtn').addEventListener('click', () => {
+  items.push({product_id: '', quantity: '', amount: '', note: ''});
+  renderItems();
+});
+</script>
+{% endif %}
 {% endblock %}

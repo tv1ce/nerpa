@@ -835,6 +835,29 @@ class Claim(Base):
     product = relationship("Product")
     assignee = relationship("User", foreign_keys=[assignee_id])
     created_by = relationship("User", foreign_keys=[created_by_id])
+    items = relationship("ClaimItem", back_populates="claim",
+                         cascade="all, delete-orphan",
+                         order_by="ClaimItem.id")
+
+
+class ClaimItem(Base):
+    """Позиция рекламации: одна номенклатура с количеством и суммой.
+
+    В одной претензии обычно несколько вкусов («карамель горчит, кокос помят»), и
+    один product_id на всю рекламацию заставлял либо заводить по рекламации на
+    каждый вкус, либо терять детали в описании. Поля product_id/quantity в самой
+    рекламации остались от прежней однопозиционной схемы: они заполняются первой
+    позицией, чтобы старые отчёты и выгрузки не переписывать."""
+    __tablename__ = "claim_items"
+    id = Column(Integer, primary_key=True)
+    claim_id = Column(Integer, ForeignKey("claims.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"))
+    quantity = Column(Float)
+    amount = Column(Float)      # сумма претензии по позиции, необязательна
+    note = Column(String(300))  # что именно с этой позицией не так
+
+    claim = relationship("Claim", back_populates="items")
+    product = relationship("Product")
 
 
 class ShopCart(Base):

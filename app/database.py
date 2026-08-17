@@ -501,6 +501,19 @@ def _migrate_db():
                     "UPDATE claims SET address_key=?, delivery_address=? WHERE id=?",
                     (key, (raw or "").strip(), claim_id),
                 )
+    # Переход на многопозиционные рекламации: единственная номенклатура старой
+    # схемы становится первой позицией. Идемпотентно — только для рекламаций,
+    # у которых позиций ещё нет.
+    _tables = {row[0] for row in cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "claim_items" in _tables and "product_id" in _claim_cols:
+        cur.execute(
+            "INSERT INTO claim_items (claim_id, product_id, quantity) "
+            "SELECT c.id, c.product_id, c.quantity FROM claims c "
+            "WHERE c.product_id IS NOT NULL "
+            "  AND NOT EXISTS (SELECT 1 FROM claim_items ci WHERE ci.claim_id = c.id)"
+        )
+
     if "resolved_at" in _claim_cols:
         # Дата закрытия — из журнала аудита (первый переход в «решена»/«отклонена»),
         # иначе метрика «за сколько закрываем» стартует с пустой историей.

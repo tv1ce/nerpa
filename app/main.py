@@ -933,6 +933,29 @@ from app.services.outlets import address_label as _address_label
 _templates.env.filters["outlet_label"] = _address_label
 
 
+def _cp_label(cp) -> str:
+    """Контрагент так, чтобы его можно было узнать: «Coffee Way · ООО «Кофе Сеть»».
+
+    Одно вывесочное имя не годится для выбора в списке: у сети франчайзи вывеска
+    одна, а юрлиц несколько, и по названию заведения их не различить.
+    """
+    if not cp:
+        return "—"
+    trade = (getattr(cp, "trade_name", "") or "").strip()
+    legal = (getattr(cp, "name", "") or "").strip()
+    if trade and legal and trade != legal:
+        return f"{trade} · {legal}"
+    return trade or legal or "—"
+
+
+_templates.env.filters["cp_label"] = _cp_label
+_templates.env.globals["cp_label"] = _cp_label
+
+# Позиции рекламации одной строкой — для компактных списков
+from app.services.claims import items_label as _claim_items_label
+_templates.env.filters["claim_items_label"] = _claim_items_label
+
+
 def _safe_url(v):
     """Безопасный href: рабочий URL или '#'. Не-URL текст (мусор в полях
     соцсетей/сайта) не превращается в относительную ссылку — иначе клик уводит

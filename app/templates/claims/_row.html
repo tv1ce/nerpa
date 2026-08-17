@@ -24,8 +24,10 @@
   <span class="text-muted" style="font-size:.75rem">{{ s.age_days }} дн. в работе</span>
   {% endif %}
   <span class="text-muted" style="font-size:.8rem">{{ claim_types.get(cl.type, cl.type) }}</span>
-  {% if cl.product %}
-  <span class="text-muted" style="font-size:.8rem">· {{ cl.product.name }}{% if cl.quantity %} ({{ cl.quantity | format_number }} шт){% endif %}</span>
+  {% set items_text = cl | claim_items_label %}
+  {% if items_text %}
+  <span class="text-muted text-truncate" style="font-size:.8rem; max-width:16rem"
+        title="{{ items_text }}">· {{ items_text }}</span>
   {% endif %}
   <span class="text-muted ms-auto" style="font-size:.78rem">{{ cl.date | date_fmt }}</span>
   {% if cl.amount %}

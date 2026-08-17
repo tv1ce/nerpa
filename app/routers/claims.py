@@ -225,6 +225,11 @@ async def new_claim(request: Request, cp_id: str = "", order_id: str = "",
     return templates.TemplateResponse(request, "claims/form.html", {
         "claim": None,
         "counterparties": counterparties,
+        # Списки для поиска контрагента и редактора позиций — готовым JSON,
+        # чтобы шаблон не собирал его из параллельных map'ов
+        "clients_json": [{"id": c.id, "trade": c.trade_name or "", "name": c.name or "",
+                          "inn": c.inn or ""} for c in counterparties],
+        "products_json": [{"id": p.id, "name": p.name} for p in products],
         "outlets": outlets,
         "products": products,
         "users": users,
@@ -248,8 +253,7 @@ async def create_claim(
     address_key: str = Form(default=""),
     claim_type: str = Form(default="quality"),
     severity: str = Form(default="normal"),
-    product_id: int = Form(default=0),
-    quantity: str = Form(default=""),
+    items_json: str = Form(default="[]"),
     assignee_id: int = Form(default=0),
     description: str = Form(default=""),
     amount: str = Form(default=""),
@@ -279,8 +283,6 @@ async def create_claim(
         delivery_address=raw_address,
         type=claim_type,
         severity=severity if severity in CLAIM_SEVERITIES else "normal",
-        product_id=product_id or None,
-        quantity=_num(quantity),
         assignee_id=assignee_id or None,
         description=description,
         amount=_num(amount),
@@ -288,6 +290,8 @@ async def create_claim(
         created_by_id=request.session.get("user_id"),
     )
     db.add(claim)
+    # Позиции: сумма претензии складывается из них, если указана хотя бы одна
+    claims_service.set_items(db, claim, claims_service.parse_items(items_json))
     db.commit()
     log_action(db, "claim", claim.id, "created", request.session.get("user_id"),
                f"Рекламация {claim.number} заведена"
@@ -309,8 +313,15 @@ async def view_claim(request: Request, claim_id: int, db: Session = Depends(get_
     outlet = next((o for o in outlets if o["address_key"] == claim.address_key), None)
     users = (db.query(User).filter(User.is_active == True)
              .order_by(User.full_name).all())
+    products = (db.query(Product).filter(Product.is_active == True)
+                .order_by(Product.name).all())
     return templates.TemplateResponse(request, "claims/detail.html", {
         "claim": claim,
+        "products": products,
+        "products_json": [{"id": p.id, "name": p.name} for p in products],
+        "claim_items_json": [{"product_id": it.product_id, "quantity": it.quantity,
+                              "amount": it.amount, "note": it.note or ""}
+                             for it in claim.items],
         "sla": claims_service.sla_state(claim),
         "timeline": claims_service.timeline(db, claim),
         "history": history,
@@ -400,6 +411,35 @@ async def update_claim(
             claim.amount = float(amount.replace(",", "."))
         except ValueError:
             pass
+    db.commit()
+    return RedirectResponse(url=f"/claims/{claim_id}", status_code=302)
+
+
+@router.post("/{claim_id}/items")
+@role_required("manager")
+async def update_items(
+    request: Request,
+    claim_id: int,
+    items_json: str = Form(default="[]"),
+    db: Session = Depends(get_db),
+):
+    """Правка состава рекламации: позиции переписываются целиком.
+
+    Разбор — процесс: сначала жалуются на карамель, через день выясняется, что
+    помят ещё и кокос. Дописывать позиции нужно уже после создания.
+    """
+    claim = db.query(Claim).filter(Claim.id == claim_id).first()
+    if not claim:
+        return RedirectResponse(url="/claims/", status_code=302)
+    items = claims_service.parse_items(items_json)
+    was = claims_service.items_label(claim) or "—"
+    claims_service.set_items(db, claim, items)
+    db.flush()
+    now = claims_service.items_label(claim) or "—"
+    if now != was:
+        log_action(db, "claim", claim_id, "updated", request.session.get("user_id"),
+                   f"Позиции: {was} → {now}", field="items",
+                   old_value=was[:500], new_value=now[:500])
     db.commit()
     return RedirectResponse(url=f"/claims/{claim_id}", status_code=302)
 
