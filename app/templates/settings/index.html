@@ -653,6 +653,65 @@
       <form method="post" action="/settings/bitrix">
         <div class="row g-2">
           <div class="col-12">
+            <label class="form-label form-label-sm">Способ авторизации</label>
+            <select name="bitrix_auth_mode" class="form-select form-select-sm" id="bitrixAuthMode">
+              <option value="webhook" {% if not company or (company.bitrix_auth_mode or 'webhook') != 'oauth' %}selected{% endif %}>
+                Входящий вебхук — постоянный ключ портала
+              </option>
+              <option value="oauth" {% if company and company.bitrix_auth_mode == 'oauth' %}selected{% endif %}>
+                Приложение Bitrix24 (OAuth 2.0)
+              </option>
+            </select>
+            <div class="form-text">
+              Вебхук проще, но это бессрочный ключ ко всему порталу одной строкой. Приложение выдаёт
+              токен на час и обновляет его само, ограничено правами приложения и отзывается
+              удалением приложения на портале. Пароли сотрудников Bitrix24 не запрашиваются в обоих случаях.
+            </div>
+          </div>
+
+          <div class="col-12" id="bitrixOauthBlock">
+            <div class="border rounded p-3 bg-light">
+              <div class="row g-2">
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm">Домен портала</label>
+                  <input name="bitrix_portal_domain" class="form-control form-control-sm font-monospace"
+                         placeholder="nuttinelle.bitrix24.ru"
+                         value="{{ company.bitrix_portal_domain if company and company.bitrix_portal_domain else '' }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm">Код приложения (client_id)</label>
+                  <input name="bitrix_client_id" class="form-control form-control-sm font-monospace"
+                         value="{{ company.bitrix_client_id if company and company.bitrix_client_id else '' }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label form-label-sm">Ключ приложения (client_secret)</label>
+                  <input type="password" name="bitrix_client_secret" class="form-control form-control-sm font-monospace"
+                         autocomplete="new-password"
+                         placeholder="{% if company and company.bitrix_client_secret %}сохранён — оставьте пустым{% else %}вставьте ключ{% endif %}">
+                </div>
+                <div class="col-12" style="font-size:.82rem">
+                  <div class="text-muted">Адрес обработчика — укажите его в приложении на портале:</div>
+                  <code>{{ (company.public_url if company and company.public_url else '') or 'https://<адрес NERPA>' }}/api/bitrix/oauth/install</code>
+                  <div id="bitrixOauthStatus" class="mt-2 text-muted">Проверяю подключение…</div>
+                </div>
+                <div class="col-12">
+                  <a href="/api/bitrix/oauth/connect" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-box-arrow-in-right me-1"></i>Подключить портал
+                  </a>
+                  <button type="submit" formaction="/api/bitrix/oauth/disconnect" formmethod="post"
+                          class="btn btn-sm btn-outline-danger"
+                          onclick="return confirm('Отключить приложение и вернуться на вебхук?')">
+                    Отключить
+                  </button>
+                  <span class="text-muted ms-2" style="font-size:.8rem">
+                    Сохраните код и ключ приложения, прежде чем подключать
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12">
             <label class="form-label form-label-sm">URL входящего вебхука</label>
             <input type="url" name="bitrix_webhook_url" class="form-control form-control-sm font-monospace"
                    placeholder="https://nuttinelle.bitrix24.ru/rest/1/xxxxxxxxxxxxxxxx/"
@@ -1634,4 +1693,27 @@ if (_btnDiscoverTopics) {
   });
 }
 </script>
+<script>
+// Блок приложения нужен только в режиме OAuth — в режиме вебхука он лишний шум
+(function () {
+  var mode = document.getElementById('bitrixAuthMode');
+  var block = document.getElementById('bitrixOauthBlock');
+  var status = document.getElementById('bitrixOauthStatus');
+  if (!mode || !block) return;
+
+  function sync() { block.style.display = mode.value === 'oauth' ? '' : 'none'; }
+  mode.addEventListener('change', sync);
+  sync();
+
+  if (status) {
+    fetch('/api/bitrix/oauth/status').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.connected) { status.textContent = 'Приложение не подключено'; return; }
+      status.innerHTML = '<span class="text-success">Подключено:</span> ' + (d.domain || '') +
+        (d.expires_at ? ' · токен действует до ' + d.expires_at : '') +
+        (d.expired ? ' <span class="text-danger">(истёк, обновится при следующем обращении)</span>' : '');
+    }).catch(function () { status.textContent = 'Статус подключения недоступен'; });
+  }
+})();
+</script>
+
 {% endblock %}

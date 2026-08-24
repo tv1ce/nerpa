@@ -75,10 +75,20 @@ def _entity_ref_from_external(external_id_bitrix: str):
 
 
 class BitrixClient:
-    """Клиент REST API Bitrix24 через входящий вебхук. Один экземпляр = одна база."""
+    """Клиент REST API Bitrix24. Один экземпляр = одна база.
 
-    def __init__(self, webhook_url: str):
-        self.base = webhook_url.rstrip("/") + "/"
+    Работает в двух режимах авторизации, снаружи неотличимых:
+      вебхук — постоянный ключ портала зашит прямо в адрес;
+      OAuth  — адрес общий (client_endpoint), а к каждому вызову добавляется
+               access_token, который клиент сам обновляет, когда тот истёк.
+    """
+
+    def __init__(self, webhook_url: str = "", *, token_source=None):
+        self._token_source = token_source
+        if token_source is not None:
+            self.base = (token_source.endpoint or "").rstrip("/") + "/"
+        else:
+            self.base = webhook_url.rstrip("/") + "/"
         self._http = httpx.Client(timeout=30)
         self._uf_codes = None      # кэш карты UF-полей сделки (см. deal_uf_codes)
         self._addr_types = None    # кэш карты типов адресов (см. address_types)
@@ -91,11 +101,32 @@ class BitrixClient:
 
     # ── Базовый вызов ───────────────────────────────────────────────────────
 
-    def call(self, method: str, **params) -> object:
+    # Ошибки, после которых имеет смысл обновить токен и повторить вызов
+    _AUTH_ERRORS = ("expired_token", "invalid_token", "NO_AUTH_FOUND")
+
+    def _post(self, method: str, params: dict):
+        """Один HTTP-вызов. Токен уходит в query, чтобы не мешаться в теле."""
+        url = self.base + method + ".json"
+        query = None
+        if self._token_source is not None:
+            url = (self._token_source.endpoint or "").rstrip("/") + "/" + method + ".json"
+            query = {"auth": self._token_source.access_token}
         try:
-            resp = self._http.post(self.base + method + ".json", json=params)
+            return self._http.post(url, json=params, params=query)
         except httpx.HTTPError as e:
             raise BitrixError(f"Bitrix24 [{method}]: сетевая ошибка — {e}")
+
+    def call(self, method: str, **params) -> object:
+        resp = self._post(method, params)
+
+        # Протухший access_token — обычное дело: он живёт около часа. Обновляем
+        # пару и повторяем ровно один раз, чтобы не зациклиться, если портал
+        # отвечает ошибкой авторизации по другой причине (снесли приложение).
+        if self._token_source is not None and self._is_auth_error(resp):
+            logger.info("Bitrix24: токен истёк, обновляю и повторяю [%s]", method)
+            self._token_source.refresh()
+            resp = self._post(method, params)
+
         if resp.status_code >= 400:
             try:
                 body = resp.json()
@@ -107,6 +138,13 @@ class BitrixClient:
         if "error" in data:
             raise BitrixError(f"Bitrix24 [{method}]: {data.get('error_description') or data['error']}")
         return data.get("result")
+
+    def _is_auth_error(self, resp) -> bool:
+        try:
+            error = (resp.json() or {}).get("error") or ""
+        except Exception:
+            return False
+        return str(error) in self._AUTH_ERRORS
 
     # ── Сделки ───────────────────────────────────────────────────────────────
 
@@ -395,8 +433,24 @@ class BitrixClient:
 
 
 def get_bitrix_client(company) -> Optional[BitrixClient]:
-    """Создаёт клиент из настроек компании. Возвращает None если не настроен/выключен."""
-    if not company or not company.bitrix_enabled or not company.bitrix_webhook_url:
+    """Создаёт клиент из настроек компании. Возвращает None если не настроен/выключен.
+
+    Единственная точка сборки клиента на всё приложение — заказы, контрагенты,
+    лиды и скрипты ходят через неё. Поэтому переключение портала на OAuth
+    достаточно сделать здесь: остальной код о способе авторизации не знает.
+    """
+    if not company or not company.bitrix_enabled:
+        return None
+
+    if (getattr(company, "bitrix_auth_mode", "") or "webhook") == "oauth":
+        from app.services.bitrix_oauth import build_token_source
+        source = build_token_source(company)
+        if not source or not source.endpoint:
+            logger.warning("Bitrix24: выбран режим OAuth, но приложение не установлено")
+            return None
+        return BitrixClient(token_source=source)
+
+    if not company.bitrix_webhook_url:
         return None
     return BitrixClient(company.bitrix_webhook_url)
 

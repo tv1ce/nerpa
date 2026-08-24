@@ -618,6 +618,14 @@ class CompanySettings(Base):
     # ── Bitrix24 CRM ──
     bitrix_webhook_url    = Column(EncryptedText)   # входящий вебхук, напр. https://x.bitrix24.ru/rest/1/xxxxx/
     bitrix_enabled        = Column(Boolean, default=False)
+    # Способ авторизации в REST: webhook — постоянный ключ портала (как было),
+    # oauth — приложение Bitrix24 с access/refresh token. Вебхук остаётся
+    # значением по умолчанию: у работающих порталов ничего не должно поменяться
+    # в день выката, переключение — осознанное действие администратора.
+    bitrix_auth_mode      = Column(String(10), default="webhook")   # webhook | oauth
+    bitrix_client_id      = Column(String(120))     # client_id приложения (он же «Код приложения»)
+    bitrix_client_secret  = Column(EncryptedText)   # client_secret приложения
+    bitrix_portal_domain  = Column(String(120))     # x.bitrix24.ru — портал, которому доверяем установку
     bitrix_stage_paid     = Column(String(60))      # STAGE_ID сделки на «Счёт оплачен»
     bitrix_stage_shipped  = Column(String(60))      # STAGE_ID сделки на «Отгрузка» (заказ собран)
     bitrix_stage_delivered = Column(String(60))     # STAGE_ID сделки на «Доставлено» (необязательно)
@@ -658,6 +666,34 @@ class CompanySettings(Base):
     # ── Versta24 (api.versta24.ru) — экспедитор курьерских служб (СДЭК, КСЭ и т.д.) ──
     versta_api_key = Column(EncryptedText)          # ключ клиента, выдаётся support@versta24.ru (зашифровано)
     versta_enabled = Column(Boolean, default=False)
+
+
+class BitrixOAuthToken(Base):
+    """Токены приложения Bitrix24 (OAuth 2.0), по одному набору на портал.
+
+    Логины и пароли сотрудников здесь не хранятся и не запрашиваются — только
+    выданные порталом токены, как того требует схема Bitrix24. access_token
+    живёт около часа, поэтому рядом лежит refresh_token и момент истечения:
+    клиент сам обновляет пару, когда портал отвечает expired_token.
+
+    client_endpoint приходит от портала при установке и может отличаться от
+    https://<домен>/rest/ (например, у коробочных инсталляций), поэтому берём
+    его из ответа, а не собираем из домена руками.
+    """
+    __tablename__ = "bitrix_oauth_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(String(64), unique=True, nullable=False, index=True)  # идентификатор портала
+    domain = Column(String(120))                    # x.bitrix24.ru
+    client_endpoint = Column(String(255))           # https://x.bitrix24.ru/rest/
+    access_token = Column(EncryptedText)
+    refresh_token = Column(EncryptedText)
+    expires_at = Column(DateTime)                   # когда протухает access_token
+    scope = Column(String(255))
+    installed_by_id = Column(Integer, ForeignKey("users.id"))
+    installed_at = Column(DateTime, default=msk_now, server_default=func.now())
+    updated_at = Column(DateTime, default=msk_now, onupdate=msk_now)
+
+    installed_by = relationship("User")
 
 
 class BitrixPipeline(Base):
@@ -2031,6 +2067,10 @@ class ScriptRun(Base):
     # Контекст CRM, если скрипт открыт из карточки Bitrix24
     crm_entity_type = Column(String(20))
     crm_entity_id = Column(String(30))
+    # Чем закончилась запись значений в карточку CRM. Нужно именно хранить:
+    # менеджер к этому моменту уже положил трубку и ошибку на экране не увидит.
+    crm_pushed_at = Column(DateTime)
+    crm_push_result = Column(String(500))
 
     script = relationship("Script")
     user = relationship("User")

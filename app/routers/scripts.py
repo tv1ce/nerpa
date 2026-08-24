@@ -899,8 +899,10 @@ def _crm_query(request: Request) -> str:
 async def run_save(request: Request, sid: int, db: Session = Depends(get_db)):
     """Сохраняет заполненные менеджером поля и пройденный путь.
 
-    Значения складываются в script_runs; отправка их в поля CRM — следующий шаг
-    интеграции, для него здесь уже сохранён контекст сущности Bitrix24."""
+    Значения всегда складываются в script_runs. Если скрипт открыт из карточки
+    Bitrix24 и у полей задан код CRM, по завершении разговора они уезжают в
+    карточку (см. app/services/bitrix_actions.py), а рядом пишется, чем это
+    закончилось — иначе неудачная запись прошла бы незамеченной."""
     script = db.get(Script, sid)
     if not script:
         return _json_err("Скрипт не найден", 404)
@@ -919,10 +921,95 @@ async def run_save(request: Request, sid: int, db: Session = Depends(get_db)):
     run.result = (payload.get("result") or "")[:50] or None
     run.crm_entity_type = (payload.get("crm_entity") or "")[:20] or None
     run.crm_entity_id = (payload.get("crm_id") or "")[:30] or None
-    if payload.get("finished"):
+    finished = bool(payload.get("finished"))
+    if finished:
         run.finished_at = msk_now()
     db.commit()
-    return JSONResponse({"ok": True, "run_id": run.id})
+
+    crm = None
+    if finished:
+        crm = _push_run_to_crm(db, run, script)
+    return JSONResponse({"ok": True, "run_id": run.id, "crm": crm})
+
+
+def _push_run_to_crm(db: Session, run: ScriptRun, script: Script) -> dict | None:
+    """Пишет собранные значения в карточку CRM и оставляет комментарий в таймлайне.
+
+    Вызывается только по завершении разговора: писать в карточку на каждом шаге
+    значило бы дёргать портал десятки раз за звонок и подсовывать ему
+    промежуточные, ещё не уточнённые значения.
+
+    Ошибку портала наружу не пробрасываем — менеджер уже положил трубку, и
+    падение здесь ничего не спасёт. Результат осел в script_runs, а причина —
+    в логе и в ответе, который видит браузер.
+    """
+    if not run.crm_entity_type or not run.crm_entity_id:
+        return None
+
+    from app.models import CompanySettings
+    from app.services.bitrix_client import get_bitrix_client
+    from app.services import bitrix_actions
+
+    company = db.query(CompanySettings).first()
+    client = get_bitrix_client(company)
+    if not client:
+        return {"ok": False, "message": "Bitrix24 не настроен"}
+
+    try:
+        values = json.loads(run.values_json or "{}")
+    except (ValueError, TypeError):
+        values = {}
+    fields = bitrix_actions.fields_from_run_values(values)
+
+    messages = []
+    ok = True
+    try:
+        with client:
+            if fields:
+                sent, msg = bitrix_actions.update_entity_fields(
+                    client, run.crm_entity_type, run.crm_entity_id, fields)
+                ok = ok and sent
+                messages.append(msg)
+
+            comment = _run_comment(run, script, values)
+            if comment:
+                sent, msg = bitrix_actions.add_timeline_comment(
+                    client, run.crm_entity_type, run.crm_entity_id, comment)
+                ok = ok and sent
+                messages.append(msg)
+    except Exception as e:
+        logger.error("Bitrix24: запись итогов прохождения %s: %s", run.id, e)
+        return {"ok": False, "message": str(e)[:200]}
+
+    result = {"ok": ok, "message": "; ".join(m for m in messages if m)}
+    run.crm_pushed_at = msk_now()
+    run.crm_push_result = result["message"][:500] if result["message"] else None
+    db.commit()
+    return result
+
+
+# Как называется итог разговора в комментарии CRM
+_RUN_RESULTS = {
+    "success": "договорились",
+    "callback": "перезвонить",
+    "refused": "отказ",
+}
+
+
+def _run_comment(run: ScriptRun, script: Script, values: dict) -> str:
+    """Текст комментария в таймлайн: скрипт, итог и что заполнил менеджер."""
+    lines = [f"Скрипт «{script.title}»"]
+    if run.result:
+        lines.append(f"Итог: {_RUN_RESULTS.get(run.result, run.result)}")
+    for item in (values or {}).values():
+        if not isinstance(item, dict):
+            continue
+        value = item.get("value")
+        if value in (None, "", False):
+            continue
+        label = (item.get("label") or item.get("crm_field") or "Поле").strip()
+        lines.append(f"{label}: {value}")
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 # ── Bitrix24: скрипт внутри карточки CRM ─────────────────────────────────────

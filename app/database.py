@@ -284,6 +284,12 @@ def _migrate_db():
         # ── HR-учёт ──
         ("company_settings", "module_hr", "INTEGER DEFAULT 0"),
         ("company_settings", "module_scripts", "INTEGER DEFAULT 0"),
+        ("company_settings", "bitrix_auth_mode",     "TEXT DEFAULT 'webhook'"),
+        ("company_settings", "bitrix_client_id",     "TEXT"),
+        ("company_settings", "bitrix_client_secret", "TEXT"),
+        ("company_settings", "bitrix_portal_domain", "TEXT"),
+        ("script_runs", "crm_pushed_at",   "TIMESTAMP"),
+        ("script_runs", "crm_push_result", "TEXT"),
         ("hr_employees", "position_id", "INTEGER REFERENCES hr_positions(id)"),
         ("hr_records", "period_kind", "TEXT DEFAULT 'month'"),
         ("hr_surveys", "period_kind", "TEXT DEFAULT 'month'"),

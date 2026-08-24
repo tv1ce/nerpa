@@ -64,24 +64,24 @@
           {% if f.get('type') == 'checkbox' %}
           <div class="form-check">
             <input class="form-check-input sc-field" type="checkbox" id="{{ fid }}"
-                   data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}">
+                   data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}" data-label="{{ f.get('label') or fkey }}">
             <label class="form-check-label" for="{{ fid }}">{{ f.get('label') or fkey }}</label>
           </div>
           {% else %}
           <label class="form-label small text-muted" for="{{ fid }}">{{ f.get('label') or fkey }}</label>
           {% if f.get('type') == 'textarea' %}
           <textarea class="form-control sc-field" id="{{ fid }}" rows="3"
-                    data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}"></textarea>
+                    data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}" data-label="{{ f.get('label') or fkey }}"></textarea>
           {% elif f.get('type') == 'select' %}
           <select class="form-select sc-field" id="{{ fid }}"
-                  data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}">
+                  data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}" data-label="{{ f.get('label') or fkey }}">
             <option value="">—</option>
             {% for opt in f.get('options') or [] %}<option>{{ opt }}</option>{% endfor %}
           </select>
           {% else %}
           <input class="form-control sc-field" id="{{ fid }}"
                  type="{{ 'number' if f.get('type') == 'number' else ('date' if f.get('type') == 'date' else 'text') }}"
-                 data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}">
+                 data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}" data-label="{{ f.get('label') or fkey }}">
           {% endif %}
           {% endif %}
         </div>
@@ -169,7 +169,11 @@
     document.querySelectorAll('.sc-field').forEach(function (el) {
       var v = el.type === 'checkbox' ? el.checked : el.value;
       if (v !== '' && v !== false) {
-        values[el.dataset.key] = { value: v, crm_field: el.dataset.crm || '' };
+        // label едет вместе со значением: из него собирается комментарий
+        // в таймлайне CRM, а «budget: 500000» там читать невозможно
+        values[el.dataset.key] = {
+          value: v, crm_field: el.dataset.crm || '', label: el.dataset.label || ''
+        };
       }
     });
     return values;

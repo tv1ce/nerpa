@@ -554,6 +554,10 @@ async def save_bitrix(
     request: Request,
     bitrix_webhook_url: str = Form(default=""),
     bitrix_enabled: str = Form(default=""),
+    bitrix_auth_mode: str = Form(default="webhook"),
+    bitrix_client_id: str = Form(default=""),
+    bitrix_client_secret: str = Form(default=""),
+    bitrix_portal_domain: str = Form(default=""),
     bitrix_stage_paid: str = Form(default=""),
     bitrix_stage_shipped: str = Form(default=""),
     bitrix_stage_delivered: str = Form(default=""),
@@ -577,6 +581,14 @@ async def save_bitrix(
         db.add(company)
     company.bitrix_webhook_url = bitrix_webhook_url.strip() or None
     company.bitrix_enabled = (bitrix_enabled == "1")
+    company.bitrix_auth_mode = "oauth" if bitrix_auth_mode == "oauth" else "webhook"
+    company.bitrix_client_id = bitrix_client_id.strip() or None
+    # Пустое поле секрета означает «не меняли»: в форму он не подставляется,
+    # иначе сохранение любой соседней настройки стирало бы ключ приложения.
+    if bitrix_client_secret.strip():
+        company.bitrix_client_secret = bitrix_client_secret.strip()
+    company.bitrix_portal_domain = (
+        bitrix_portal_domain.strip().replace("https://", "").replace("http://", "").strip("/") or None)
     company.bitrix_stage_paid = bitrix_stage_paid.strip() or None
     company.bitrix_stage_shipped = bitrix_stage_shipped.strip() or None
     company.bitrix_stage_delivered = bitrix_stage_delivered.strip() or None
