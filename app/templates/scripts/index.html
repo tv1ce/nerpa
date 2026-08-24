@@ -183,6 +183,12 @@
                   <i class="bi bi-file-earmark-word me-2"></i>Word — полный скрипт</a></li>
                 <li><a class="dropdown-item" href="/scripts/{{ s.id }}/export.docx?mode=plain">
                   <i class="bi bi-file-earmark-word me-2"></i>Word — обычный текст</a></li>
+                <li>
+                  <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#b24LinkModal"
+                          data-id="{{ s.id }}" data-title="{{ s.title }}">
+                    <i class="bi bi-link-45deg me-2"></i>Ссылка для Bitrix24
+                  </button>
+                </li>
                 {% if can_edit %}
                 <li><hr class="dropdown-divider"></li>
                 <li>
@@ -233,6 +239,69 @@
         {% endif %}
       </tbody>
     </table>
+  </div>
+</div>
+
+{# Ссылка на скрипт из карточки CRM. Доступна всем, кто видит список:
+   менеджеру она нужна не меньше, чем редактору. #}
+<div class="modal fade" id="b24LinkModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Ссылка для карточки Bitrix24</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        {% if not public_url %}
+        <div class="alert alert-warning py-2" style="font-size:.85rem">
+          Не задан публичный адрес системы — ссылка получится нерабочей.
+          Заполните его в <a href="/settings/?tab=integrations">Настройки → Интеграции</a>.
+        </div>
+        {% endif %}
+
+        <div class="row g-2 align-items-end mb-3">
+          <div class="col-md-5">
+            <label class="form-label small text-muted">Откуда открывают скрипт</label>
+            <select id="b24Entity" class="form-select form-select-sm">
+              <option value="deal">Карточка сделки</option>
+              <option value="lead">Карточка лида</option>
+              <option value="contact">Карточка контакта</option>
+              <option value="company">Карточка компании</option>
+            </select>
+          </div>
+          <div class="col-md-7">
+            <label class="form-label small text-muted">Скрипт</label>
+            <input id="b24ScriptTitle" class="form-control form-control-sm" readonly>
+          </div>
+        </div>
+
+        <label class="form-label small text-muted">Ссылка</label>
+        <div class="input-group input-group-sm mb-2">
+          <input id="b24Link" class="form-control font-monospace" readonly>
+          <button class="btn btn-outline-secondary" id="b24Copy" type="button">
+            <i class="bi bi-clipboard me-1"></i>Копировать
+          </button>
+        </div>
+
+        <div class="border rounded p-3 bg-light" style="font-size:.85rem">
+          <div class="fw-semibold mb-2">Как это работает</div>
+          <p class="mb-2">
+            В ссылке нет ни имени, ни телефона — только номер карточки. Имя, компанию и телефон
+            NERPA подтянет из Bitrix24 сама, и подстановки
+            <code>{{ '{{Имя}}' }}</code>, <code>{{ '{{Компания}}' }}</code>,
+            <code>{{ '{{Телефон}}' }}</code> в тексте скрипта заменятся на актуальные данные.
+            Заполненные менеджером поля по завершении разговора уедут обратно в эту же карточку.
+          </p>
+          <div class="fw-semibold mb-1">Как поставить в Bitrix24</div>
+          <ol class="mb-0 ps-3">
+            <li>В карточке сделки добавьте пользовательское поле типа «Ссылка», например «Скрипт разговора»</li>
+            <li>На нужной стадии создайте робота «Изменить документ» и запишите в это поле ссылку выше</li>
+            <li>Вместо <code>{{ '{{ID}}' }}</code> подставьте значение из списка полей робота — идентификатор
+                сделки. Руками его лучше не печатать: в разных порталах поле называется по-разному</li>
+          </ol>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -373,6 +442,44 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+// Ссылка собирается на клиенте: тип сущности переключается без перезагрузки
+(function () {
+  var PUBLIC_URL = {{ (public_url or '') | tojson }};
+  var modal = document.getElementById('b24LinkModal');
+  if (!modal) return;
+  var link = document.getElementById('b24Link');
+  var entity = document.getElementById('b24Entity');
+  var titleBox = document.getElementById('b24ScriptTitle');
+  var current = null;
+
+  function build() {
+    if (!current) return;
+    var base = PUBLIC_URL || (location.origin);
+    link.value = base + '/scripts/' + current.id + '/run' +
+      '?crm_entity=' + entity.value + '&crm_id={{ '{{ID}}' }}';
+  }
+
+  modal.addEventListener('show.bs.modal', function (ev) {
+    var btn = ev.relatedTarget;
+    if (!btn) return;
+    current = { id: btn.dataset.id, title: btn.dataset.title || '' };
+    titleBox.value = current.title;
+    build();
+  });
+  entity.addEventListener('change', build);
+
+  document.getElementById('b24Copy').addEventListener('click', function () {
+    link.select();
+    navigator.clipboard.writeText(link.value).then(function () {
+      var btn = document.getElementById('b24Copy');
+      var was = btn.innerHTML;
+      btn.innerHTML = '<i class="bi bi-check2 me-1"></i>Скопировано';
+      setTimeout(function () { btn.innerHTML = was; }, 1500);
+    }).catch(function () { document.execCommand('copy'); });
+  });
+})();
+</script>
 {% if can_edit %}
 <form method="post" id="dndForm" class="d-none">
   <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">

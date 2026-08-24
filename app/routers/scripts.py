@@ -410,6 +410,47 @@ def crm_context(request: Request) -> dict:
     return {k: v for k, v in ctx.items() if v}
 
 
+# Данные клиента из CRM по (тип, id). Кэш нужен, чтобы переход по каждому шагу
+# скрипта не превращался в отдельный запрос к порталу: за один разговор менеджер
+# проходит десяток шагов, а карточка за это время не меняется.
+_CRM_CACHE: dict[tuple, tuple] = {}
+_CRM_CACHE_TTL = timedelta(minutes=10)
+
+
+def crm_context_for(request: Request, db: Session) -> dict:
+    """Подстановки для скрипта: явные параметры плюс данные из карточки CRM.
+
+    Явно переданные значения важнее: если ссылку собрали руками с именем, оно и
+    подставится. Если в ссылке только crm_entity и crm_id — идём в Bitrix24 за
+    именем, компанией и телефоном сами. Ошибка портала не мешает открыть
+    скрипт: подстановки просто останутся видимыми как {{Имя}}.
+    """
+    ctx = crm_context(request)
+    entity = (request.query_params.get("crm_entity") or "").strip().lower()
+    entity_id = (request.query_params.get("crm_id") or "").strip()
+    if not entity or not entity_id:
+        return ctx
+    # Явно переданных данных достаточно — портал не тревожим
+    if ctx.get("name") or ctx.get("company") or ctx.get("phone"):
+        return ctx
+
+    key = (entity, entity_id)
+    cached = _CRM_CACHE.get(key)
+    if cached and cached[0] > msk_now():
+        fetched = cached[1]
+    else:
+        fetched = _b24_client_context(db, entity, entity_id)
+        _CRM_CACHE[key] = (msk_now() + _CRM_CACHE_TTL, fetched)
+        # Кэш живёт в памяти процесса и не должен расти бесконечно
+        if len(_CRM_CACHE) > 500:
+            for stale in [k for k, v in _CRM_CACHE.items() if v[0] <= msk_now()]:
+                _CRM_CACHE.pop(stale, None)
+
+    merged = dict(fetched or {})
+    merged.update(ctx)          # явное поверх подтянутого
+    return merged
+
+
 def _base_ctx(request: Request, db: Session) -> dict:
     """Общий контекст шаблонов раздела."""
     return {
@@ -463,6 +504,9 @@ async def index(request: Request, folder: str = "", q: str = "",
                    .order_by(Script.updated_at.desc()).all())
         shown_folders = _folder_children(folders, folder_id)
 
+    from app.models import CompanySettings
+    company = db.query(CompanySettings).first()
+
     counts = {}
     for s in scripts:
         counts[s.id] = db.query(ScriptNode).filter(ScriptNode.script_id == s.id).count()
@@ -478,6 +522,7 @@ async def index(request: Request, folder: str = "", q: str = "",
         "matched_nodes": matched_nodes,
         "node_counts": counts,
         "users": db.query(User).filter(User.is_active == True).order_by(User.full_name).all(),
+        "public_url": (company.public_url or "").rstrip("/") if company else "",
     })
     return templates.TemplateResponse(request, "scripts/index.html", ctx)
 
@@ -826,7 +871,7 @@ async def full_view(request: Request, sid: int, db: Session = Depends(get_db)):
     nodes = ordered_nodes(script)
     numbers = {n.id: i + 1 for i, n in enumerate(nodes)}
     ctx = _base_ctx(request, db)
-    crm = crm_context(request)
+    crm = crm_context_for(request, db)
     ctx.update({
         "script": script,
         "nodes": nodes,
@@ -861,7 +906,7 @@ async def run_view(request: Request, sid: int, node: str = "",
         script.uses_count = (script.uses_count or 0) + 1
         db.commit()
 
-    crm = crm_context(request)
+    crm = crm_context_for(request, db)
     ctx = _base_ctx(request, db)
     ctx.update({
         "script": script,
@@ -887,10 +932,18 @@ async def run_view(request: Request, sid: int, node: str = "",
 
 def _crm_query(request: Request) -> str:
     """Хвост query-параметров CRM — чтобы контекст клиента не терялся при переходах."""
-    keep = ("name", "last_name", "company", "phone", "email", "post", "deal", "amount",
-            "crm_entity", "crm_id", "portal")
     from urllib.parse import urlencode
-    pairs = [(k, request.query_params[k]) for k in keep if request.query_params.get(k)]
+    q = request.query_params
+
+    # Есть идентификатор карточки — этого достаточно: имя и телефон подтянутся
+    # заново. Тащить их через каждый переход значило бы светить персональные
+    # данные клиента в адресной строке, истории браузера и логах nginx.
+    if q.get("crm_entity") and q.get("crm_id"):
+        pairs = [(k, q[k]) for k in ("crm_entity", "crm_id", "portal") if q.get(k)]
+        return ("&" + urlencode(pairs)) if pairs else ""
+
+    keep = ("name", "last_name", "company", "phone", "email", "post", "deal", "amount", "portal")
+    pairs = [(k, q[k]) for k in keep if q.get(k)]
     return ("&" + urlencode(pairs)) if pairs else ""
 
 
