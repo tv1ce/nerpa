@@ -16,6 +16,7 @@
 развалился, но учебная ценность выше, когда сценарий доигрывается до конца:
 ошибка отмечается и попадает в разбор, а человек видит весь путь.
 """
+import asyncio
 import json
 import logging
 import random
@@ -184,7 +185,11 @@ async def train_say(request: Request, sid: int, db: Session = Depends(get_db)):
     log = _load_log(training)
     persona = script_trainer.pick_persona(
         next((p["key"] for p in script_trainer.PERSONAS if p["title"] == training.persona), ""))
-    turn = script_trainer.client_turn(
+    # Поход к модели — синхронный и сетевой. Внутри async-обработчика он замораживает
+    # событийный цикл: при одном рабочем процессе uvicorn это значит, что пока
+    # тренажёр ждёт ответа, ни одна страница не отдаётся НИКОМУ. Уносим в поток.
+    turn = await asyncio.to_thread(
+        script_trainer.client_turn,
         script.title, script_trainer.node_prompt_text(node), answers,
         persona, training.difficulty, log)
 
@@ -296,7 +301,8 @@ async def train_finish(request: Request, sid: int, db: Session = Depends(get_db)
 
     persona = script_trainer.pick_persona(
         next((p["key"] for p in script_trainer.PERSONAS if p["title"] == training.persona), ""))
-    training.verdict = script_trainer.review(
+    training.verdict = await asyncio.to_thread(
+        script_trainer.review,
         script.title, persona, training.difficulty, log, correct, total)
     db.commit()
 

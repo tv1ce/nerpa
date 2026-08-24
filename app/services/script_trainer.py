@@ -66,6 +66,11 @@ DIFFICULTIES = {
     },
 }
 
+# За ответом сидит человек в тренировке, поэтому ждём коротко и при заминке
+# честно уходим в запасной режим, а не держим его перед пустым экраном.
+REPLY_TIMEOUT = 25
+REVIEW_TIMEOUT = 40
+
 _SYSTEM = (
     "Ты — тренажёр для обучения менеджеров по продажам. Ты играешь роль клиента "
     "в телефонном разговоре. Отвечай только от лица клиента, живой разговорной "
@@ -133,7 +138,7 @@ def client_turn(script_title: str, node_text: str, answers: list,
     )
 
     try:
-        data = openrouter_client.chat_json(_SYSTEM, prompt)
+        data = openrouter_client.chat_json(_SYSTEM, prompt, timeout=REPLY_TIMEOUT)
         answer_id = int(data.get("answer_id"))
         reply = str(data.get("reply") or "").strip()
         if not reply or answer_id not in {a["id"] for a in allowed}:
@@ -182,7 +187,7 @@ def review(script_title: str, persona: dict, difficulty: str, log: list,
     try:
         return openrouter_client.chat(
             "Ты — наставник отдела продаж. Пишешь короткие деловые разборы тренировок.",
-            prompt, temperature=0.4).strip()
+            prompt, temperature=0.4, timeout=REVIEW_TIMEOUT).strip()
     except Exception as e:
         logger.warning("Тренажёр: разбор не получен — %s", e)
         return (f"Верно распознано веток: {correct} из {total}. "

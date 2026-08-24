@@ -19,8 +19,13 @@ API_URL = "https://openrouter.ai/api/v1/chat/completions"
 PROXY = os.getenv("OPENROUTER_PROXY", "http://127.0.0.1:20171").strip() or None
 
 
-def chat(system: str, user: str, *, model: str | None = None, temperature: float = 0.2) -> str:
-    """Отправляет системный+пользовательский промпт в OpenRouter, возвращает текст ответа."""
+def chat(system: str, user: str, *, model: str | None = None, temperature: float = 0.2,
+         timeout: float = 120) -> str:
+    """Отправляет системный+пользовательский промпт в OpenRouter, возвращает текст ответа.
+
+    timeout по умолчанию рассчитан на фоновые отчёты, где ждать не жалко.
+    Интерактивным вызовам (тренажёр) нужен короткий: там за ответом сидит
+    живой человек, и две минуты ожидания хуже честного «не получилось»."""
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
@@ -33,16 +38,17 @@ def chat(system: str, user: str, *, model: str | None = None, temperature: float
         ],
         "temperature": temperature,
     }
-    with httpx.Client(timeout=120, proxy=PROXY) as client:
+    with httpx.Client(timeout=timeout, proxy=PROXY) as client:
         r = client.post(API_URL, headers=headers, json=payload)
     r.raise_for_status()
     data = r.json()
     return data["choices"][0]["message"]["content"]
 
 
-def chat_json(system: str, user: str, *, model: str | None = None) -> list | dict:
+def chat_json(system: str, user: str, *, model: str | None = None,
+              timeout: float = 120) -> list | dict:
     """Как chat(), но парсит ответ как JSON (снимая ```json ...``` обёртку при необходимости)."""
-    raw = chat(system, user, model=model, temperature=0.1).strip()
+    raw = chat(system, user, model=model, temperature=0.1, timeout=timeout).strip()
     if raw.startswith("```"):
         raw = raw.strip("`")
         if raw.startswith("json"):
