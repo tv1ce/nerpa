@@ -1,0 +1,447 @@
+{% extends "base.html" %}
+{% block title %}Скрипты продаж{% endblock %}
+{% block page_title %}Скрипты продаж{% endblock %}
+{% block topbar_actions %}
+  {% if can_edit %}
+  <button class="btn btn-outline-secondary btn-sm me-1" data-bs-toggle="modal" data-bs-target="#folderModal">
+    <i class="bi bi-folder-plus me-1"></i>Папка
+  </button>
+  <button class="btn btn-outline-secondary btn-sm me-1" data-bs-toggle="modal" data-bs-target="#importModal">
+    <i class="bi bi-upload me-1"></i>Импорт
+  </button>
+  <form method="post" action="/scripts/create" class="d-inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+    <input type="hidden" name="folder_id" value="{{ folder_id or '' }}">
+    <input type="hidden" name="title" value="Новый скрипт">
+    <button class="btn btn-accent btn-sm"><i class="bi bi-plus-lg me-1"></i>Новый скрипт</button>
+  </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body pb-2">
+    <form class="row g-2 align-items-center mb-3" method="get">
+      <div class="col-md-5">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+          <input type="search" name="q" value="{{ q }}" class="form-control"
+                 placeholder="Поиск по названию, вопросам, ответам и папкам">
+        </div>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-sm btn-outline-secondary">Найти</button>
+        {% if q %}<a href="/scripts/" class="btn btn-sm btn-link text-muted">Сбросить</a>{% endif %}
+      </div>
+    </form>
+
+    {% if request.query_params.get('imported') %}
+    <div class="alert alert-success py-2" style="font-size:.85rem">
+      Импортировано скриптов: {{ request.query_params.get('imported') }}
+    </div>
+    {% endif %}
+
+    {% if not q %}
+    <nav class="mb-2" style="font-size:.85rem">
+      <a href="/scripts/" class="text-decoration-none"><i class="bi bi-hdd-stack me-1"></i>Все скрипты</a>
+      {% for f in breadcrumbs %}
+        <span class="text-muted mx-1">/</span>
+        <a href="/scripts/?folder={{ f.id }}" class="text-decoration-none">{{ f.name }}</a>
+      {% endfor %}
+    </nav>
+    {% else %}
+    <div class="text-muted mb-2" style="font-size:.85rem">
+      Результаты поиска: «{{ q }}»
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="table-responsive">
+    <table class="table tms-table mb-0" id="scriptsTable">
+      <thead>
+        <tr>
+          <th class="ps-3">Название</th>
+          <th>Папка</th>
+          <th class="text-center">Вопросов</th>
+          <th>Статус</th>
+          <th>Ответственный</th>
+          <th>Изменён</th>
+          <th class="text-center">Запусков</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {# ── Папки ── #}
+        {% if not q and folder_id %}
+        <tr class="folder-row" data-drop-folder="{{ breadcrumbs[-2].id if breadcrumbs|length > 1 else '' }}">
+          <td class="ps-3" colspan="8">
+            <a href="/scripts/?folder={{ breadcrumbs[-2].id if breadcrumbs|length > 1 else '' }}"
+               class="text-decoration-none text-muted">
+              <i class="bi bi-arrow-90deg-up me-2"></i>Наверх
+            </a>
+          </td>
+        </tr>
+        {% endif %}
+
+        {% for f in shown_folders %}
+        <tr class="folder-row" draggable="{{ 'true' if can_edit else 'false' }}"
+            data-folder-id="{{ f.id }}" data-drop-folder="{{ f.id }}">
+          <td class="ps-3">
+            <a href="/scripts/?folder={{ f.id }}" class="text-decoration-none fw-semibold text-dark">
+              <i class="bi bi-folder-fill me-2" style="color:#f59e0b"></i>{{ f.name }}
+            </a>
+          </td>
+          <td colspan="6" class="text-muted" style="font-size:.85rem">Папка</td>
+          <td class="text-end pe-3">
+            {% if can_edit %}
+            <div class="dropdown">
+              <button class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="dropdown">
+                <i class="bi bi-three-dots-vertical"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li>
+                  <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#renameFolderModal"
+                          data-id="{{ f.id }}" data-name="{{ f.name }}">
+                    <i class="bi bi-pencil me-2"></i>Переименовать
+                  </button>
+                </li>
+                <li>
+                  <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#moveFolderModal"
+                          data-id="{{ f.id }}" data-name="{{ f.name }}">
+                    <i class="bi bi-folder-symlink me-2"></i>Переместить
+                  </button>
+                </li>
+                {% if is_admin %}
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="/scripts/folders/{{ f.id }}/delete"
+                        onsubmit="return confirm('Удалить папку «{{ f.name }}»? Скрипты внутри переедут на уровень выше.')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+                    <button class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Удалить</button>
+                  </form>
+                </li>
+                {% endif %}
+              </ul>
+            </div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+
+        {# ── Скрипты ── #}
+        {% for s in scripts %}
+        <tr draggable="{{ 'true' if can_edit else 'false' }}" data-script-id="{{ s.id }}">
+          <td class="ps-3">
+            <a href="/scripts/{{ s.id }}/{{ 'edit' if can_edit else 'full' }}"
+               class="text-decoration-none fw-semibold text-dark">
+              <i class="bi bi-diagram-3 me-2 text-muted"></i>{{ s.title }}
+            </a>
+            {% if q and matched_nodes.get(s.id) %}
+            <div class="mt-1" style="font-size:.78rem">
+              {% for kind, text, node_id in matched_nodes[s.id][:4] %}
+              <a href="/scripts/{{ s.id }}/full#node-{{ node_id }}"
+                 class="d-block text-decoration-none text-muted">
+                <span class="badge bg-light text-dark border me-1">{{ kind }}</span>{{ text|truncate(90) }}
+              </a>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </td>
+          <td class="text-muted" style="font-size:.85rem">{{ s.folder.name if s.folder else '—' }}</td>
+          <td class="text-center">
+            <span class="badge bg-light text-dark border">{{ node_counts.get(s.id, 0) }}</span>
+          </td>
+          <td>
+            {% set st = s.status or 'draft' %}
+            <span class="badge {% if st == 'active' %}bg-success-subtle text-success
+                        {% elif st == 'archived' %}bg-secondary-subtle text-secondary
+                        {% else %}bg-warning-subtle text-warning-emphasis{% endif %}">
+              {{ statuses.get(st, st) }}
+            </span>
+          </td>
+          <td class="text-muted" style="font-size:.85rem">{{ s.owner.full_name if s.owner else '—' }}</td>
+          <td class="text-muted" style="font-size:.85rem">{{ s.updated_at|datetime_fmt if s.updated_at else '—' }}</td>
+          <td class="text-center text-muted">{{ s.uses_count or 0 }}</td>
+          <td class="text-end pe-3">
+            <a href="/scripts/{{ s.id }}/run" class="btn btn-sm btn-outline-secondary me-1"
+               title="Пройти скрипт"><i class="bi bi-play-fill"></i></a>
+            <div class="dropdown d-inline">
+              <button class="btn btn-sm btn-link text-muted p-0" data-bs-toggle="dropdown">
+                <i class="bi bi-three-dots-vertical"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                {% if can_edit %}
+                <li><a class="dropdown-item" href="/scripts/{{ s.id }}/edit">
+                  <i class="bi bi-pencil-square me-2"></i>Редактировать</a></li>
+                {% endif %}
+                <li><a class="dropdown-item" href="/scripts/{{ s.id }}/full">
+                  <i class="bi bi-file-text me-2"></i>Полный скрипт</a></li>
+                <li><a class="dropdown-item" href="/scripts/{{ s.id }}/run">
+                  <i class="bi bi-play-circle me-2"></i>Прохождение</a></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item" href="/scripts/{{ s.id }}/export.docx?mode=full">
+                  <i class="bi bi-file-earmark-word me-2"></i>Word — полный скрипт</a></li>
+                <li><a class="dropdown-item" href="/scripts/{{ s.id }}/export.docx?mode=plain">
+                  <i class="bi bi-file-earmark-word me-2"></i>Word — обычный текст</a></li>
+                {% if can_edit %}
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="/scripts/{{ s.id }}/duplicate">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+                    <button class="dropdown-item"><i class="bi bi-files me-2"></i>Дублировать скрипт</button>
+                  </form>
+                </li>
+                <li>
+                  <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#renameScriptModal"
+                          data-id="{{ s.id }}" data-title="{{ s.title }}"
+                          data-description="{{ s.description or '' }}" data-status="{{ s.status }}"
+                          data-owner="{{ s.owner_id or '' }}">
+                    <i class="bi bi-pencil me-2"></i>Переименовать / свойства
+                  </button>
+                </li>
+                <li>
+                  <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#moveScriptModal"
+                          data-id="{{ s.id }}" data-title="{{ s.title }}">
+                    <i class="bi bi-folder-symlink me-2"></i>Переместить
+                  </button>
+                </li>
+                <li><a class="dropdown-item" href="/scripts/{{ s.id }}/history">
+                  <i class="bi bi-clock-history me-2"></i>История изменений</a></li>
+                {% endif %}
+                {% if is_admin %}
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="/scripts/{{ s.id }}/delete"
+                        onsubmit="return confirm('Удалить скрипт «{{ s.title }}»? Действие необратимо.')">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+                    <button class="dropdown-item text-danger"><i class="bi bi-trash me-2"></i>Удалить</button>
+                  </form>
+                </li>
+                {% endif %}
+              </ul>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+
+        {% if not scripts and not shown_folders %}
+        <tr>
+          <td colspan="8" class="text-center text-muted py-5">
+            {% if q %}Ничего не найдено{% else %}Здесь пока пусто{% endif %}
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if can_edit %}
+{# ── Модальные окна ── #}
+<div class="modal fade" id="folderModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="/scripts/folders/create">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <input type="hidden" name="parent_id" value="{{ folder_id or '' }}">
+      <div class="modal-header"><h5 class="modal-title">Новая папка</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input name="name" class="form-control" placeholder="Название папки" required autofocus>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+        <button class="btn btn-accent">Создать</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="importModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="/scripts/import" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <input type="hidden" name="folder_id" value="{{ folder_id or '' }}">
+      <div class="modal-header"><h5 class="modal-title">Импорт скриптов</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="file" name="files" class="form-control" multiple accept=".docx,.txt,.md,.json" required>
+        <div class="form-text mt-2">
+          <b>Документы</b> (.docx, .txt, .md) — каждый файл станет отдельным скриптом:
+          заголовки превращаются в шаги, строки вида «Да → Вопрос 5» — в ответы с переходами.<br>
+          <b>Выгрузка HyperScript</b> (.json) — шаги, связи, ветвление и оформление переносятся
+          один в один; в одном файле может быть сразу вся библиотека скриптов.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+        <button class="btn btn-accent">Импортировать</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="renameFolderModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" id="renameFolderForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <div class="modal-header"><h5 class="modal-title">Переименовать папку</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body"><input name="name" class="form-control" required></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+        <button class="btn btn-accent">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="moveFolderModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" id="moveFolderForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <div class="modal-header"><h5 class="modal-title">Переместить папку</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <select name="parent_id" class="form-select">
+          <option value="">Корень раздела</option>
+          {% for f in folders %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+        <button class="btn btn-accent">Переместить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="renameScriptModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" id="renameScriptForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <div class="modal-header"><h5 class="modal-title">Свойства скрипта</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label small text-muted">Название</label>
+        <input name="title" class="form-control mb-3" required>
+        <label class="form-label small text-muted">Описание</label>
+        <textarea name="description" class="form-control mb-3" rows="2"></textarea>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label small text-muted">Статус</label>
+            <select name="status" class="form-select">
+              {% for val, label in statuses.items() %}<option value="{{ val }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small text-muted">Ответственный</label>
+            <select name="owner_id" class="form-select">
+              <option value="">—</option>
+              {% for u in users %}<option value="{{ u.id }}">{{ u.full_name }}</option>{% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+        <button class="btn btn-accent">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal fade" id="moveScriptModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" id="moveScriptForm">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+      <div class="modal-header"><h5 class="modal-title">Переместить скрипт</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <select name="folder_id" class="form-select">
+          <option value="">Корень раздела</option>
+          {% for f in folders %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+        <button class="btn btn-accent">Переместить</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if can_edit %}
+<form method="post" id="dndForm" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+  <input type="hidden" name="folder_id" id="dndFolderId">
+  <input type="hidden" name="parent_id" id="dndParentId">
+</form>
+<script>
+// Модалки переиспользуются для всех строк — подставляем данные той строки,
+// с которой нажали, иначе пришлось бы рисовать по модалке на каждый скрипт.
+document.addEventListener('show.bs.modal', function (ev) {
+  const btn = ev.relatedTarget;
+  if (!btn || !btn.dataset) return;
+  const id = btn.dataset.id;
+  const m = ev.target;
+  if (m.id === 'renameFolderModal') {
+    m.querySelector('form').action = '/scripts/folders/' + id + '/rename';
+    m.querySelector('[name=name]').value = btn.dataset.name || '';
+  } else if (m.id === 'moveFolderModal') {
+    m.querySelector('form').action = '/scripts/folders/' + id + '/move';
+  } else if (m.id === 'renameScriptModal') {
+    m.querySelector('form').action = '/scripts/' + id + '/rename';
+    m.querySelector('[name=title]').value = btn.dataset.title || '';
+    m.querySelector('[name=description]').value = btn.dataset.description || '';
+    m.querySelector('[name=status]').value = btn.dataset.status || 'draft';
+    m.querySelector('[name=owner_id]').value = btn.dataset.owner || '';
+  } else if (m.id === 'moveScriptModal') {
+    m.querySelector('form').action = '/scripts/' + id + '/move';
+  }
+});
+
+// Drag & drop: тащим строку скрипта или папки на строку папки.
+(function () {
+  const form = document.getElementById('dndForm');
+  let dragged = null;
+
+  document.querySelectorAll('#scriptsTable tr[draggable=true]').forEach(function (row) {
+    row.addEventListener('dragstart', function (e) {
+      dragged = row;
+      e.dataTransfer.effectAllowed = 'move';
+      row.style.opacity = '.45';
+    });
+    row.addEventListener('dragend', function () { row.style.opacity = ''; dragged = null; });
+  });
+
+  document.querySelectorAll('#scriptsTable tr[data-drop-folder]').forEach(function (target) {
+    target.addEventListener('dragover', function (e) {
+      if (!dragged || dragged === target) return;
+      e.preventDefault();
+      target.classList.add('table-active');
+    });
+    target.addEventListener('dragleave', function () { target.classList.remove('table-active'); });
+    target.addEventListener('drop', function (e) {
+      e.preventDefault();
+      target.classList.remove('table-active');
+      if (!dragged) return;
+      const dest = target.dataset.dropFolder || '';
+      if (dragged.dataset.scriptId) {
+        form.action = '/scripts/' + dragged.dataset.scriptId + '/move';
+        document.getElementById('dndFolderId').name = 'folder_id';
+        document.getElementById('dndFolderId').value = dest;
+      } else if (dragged.dataset.folderId) {
+        if (dragged.dataset.folderId === dest) return;
+        form.action = '/scripts/folders/' + dragged.dataset.folderId + '/move';
+        document.getElementById('dndParentId').value = dest;
+      } else { return; }
+      form.submit();
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

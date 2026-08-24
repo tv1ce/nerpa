@@ -69,6 +69,11 @@
       <i class="bi bi-telephone-outbound"></i> <span>Прозвон</span>
     </a>
     {% endif %}
+    {% if request.session.get('mod_scripts') %}
+    <a href="/scripts/" class="nav-link {% if '/scripts' in request.url.path %}active{% endif %}">
+      <i class="bi bi-diagram-3"></i> <span>Скрипты продаж</span>
+    </a>
+    {% endif %}
     {% if request.session.get('mod_recon') %}
     <a href="/recon/" class="nav-link {% if '/recon' in request.url.path %}active{% endif %}">
       <i class="bi bi-binoculars"></i> <span>Разведка ЛПР</span>

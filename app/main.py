@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
-from app.routers import auth, dashboard, counterparties, networks, analytics, products, orders, invoices, contracts, settings, reports, warehouse, warehouse_shipping, warehouse_receiving, warehouse_transfers, warehouse_writeoffs, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, api_carrier, api_metafora, hr, hr_metrics, shop, landing
+from app.routers import auth, dashboard, counterparties, networks, analytics, products, orders, invoices, contracts, settings, reports, warehouse, warehouse_shipping, warehouse_receiving, warehouse_transfers, warehouse_writeoffs, receivables, notifications, claims, activity, audit_log, board, logistics, leads, recon, field, files, public, sync_1c, sourcing, api_1c, api_sbis, api_saby_tms, api_bitrix, api_tochka, api_carrier, api_metafora, hr, hr_metrics, shop, landing, scripts
 from app.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -831,6 +831,7 @@ app.include_router(api_carrier.router)  # «Помощник логиста» �
 app.include_router(api_metafora.router) # Метафора — вебхук статусов перевозки от перевозчика
 app.include_router(hr.router)         # HR-отчётность (Teamly)
 app.include_router(hr_metrics.router) # Метрика сотрудников — недельный срез
+app.include_router(scripts.router)     # Скрипты продаж — конструктор ветвящихся сценариев разговора
 
 
 # ── Jinja2 фильтры ───────────────────────────────────────────────────────────
@@ -1005,6 +1006,7 @@ import app.routers.sourcing as _r_sourcing
 import app.routers.api_sbis as _r_api_sbis
 import app.routers.hr as _r_hr
 import app.routers.hr_metrics as _r_hr_metrics
+import app.routers.scripts as _r_scripts
 
-for _mod in [_r_auth, _r_dash, _r_cp, _r_net, _r_analytics, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_wh_ship, _r_wh_recv, _r_wh_trans, _r_wh_wo, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_shop, _r_landing, _r_sync_1c, _r_sourcing, _r_api_sbis, _r_hr, _r_hr_metrics]:
+for _mod in [_r_auth, _r_dash, _r_cp, _r_net, _r_analytics, _r_prod, _r_ord, _r_inv, _r_con, _r_set, _r_rep, _r_wh, _r_wh_ship, _r_wh_recv, _r_wh_trans, _r_wh_wo, _r_rec, _r_notif, _r_claims, _r_act, _r_audit, _r_board, _r_logistics, _r_leads, _r_recon, _r_field, _r_files, _r_public, _r_shop, _r_landing, _r_sync_1c, _r_sourcing, _r_api_sbis, _r_hr, _r_hr_metrics, _r_scripts]:
     _mod.templates = _templates

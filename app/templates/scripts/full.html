@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}{{ script.title }} — полный скрипт{% endblock %}
+{% block page_title %}{{ script.title }}{% endblock %}
+{% block topbar_actions %}
+  {% include "scripts/_modes.html" %}
+  <a href="/scripts/?folder={{ script.folder_id or '' }}" class="btn btn-sm btn-link text-muted">К списку</a>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/scripts.css?v=1">
+
+<div class="row g-3">
+  {# ── Навигация по вопросам ── #}
+  <div class="col-lg-3">
+    <div class="card border-0 shadow-sm position-sticky" style="top:76px">
+      <div class="card-body p-2">
+        <input id="docSearch" class="form-control form-control-sm mb-2" placeholder="Поиск по скрипту…">
+        <div style="max-height:calc(100vh - 220px);overflow:auto" id="docNav">
+          {% for n in nodes %}
+          <a href="#node-{{ n.id }}" class="sc-tree-item text-decoration-none text-dark d-block"
+             data-nav="{{ n.id }}"
+             data-text="{{ (n.title ~ ' ' ~ (n.body_html|striptags))|lower }}">
+            <span class="sc-num">{{ numbers[n.id] }}.</span>{{ n.title }}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Документ ── #}
+  <div class="col-lg-9">
+    {% if quick_jumps %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body py-2">
+        <span class="text-muted me-2" style="font-size:.8rem">Быстрые переходы:</span>
+        <span class="sc-quick d-inline-flex">
+          {% for n, label in quick_jumps %}
+          <a href="#node-{{ n.id }}" class="badge bg-light text-dark border"
+             title="{{ n.title }}">{{ label }}</a>
+          {% endfor %}
+        </span>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-body sc-doc">
+        {% if script.description %}
+        <p class="text-muted">{{ script.description }}</p>
+        {% endif %}
+
+        {% for n in nodes %}
+        <div class="sc-doc-node" id="node-{{ n.id }}">
+          <h5 class="mb-2">
+            <span class="text-muted">{{ numbers[n.id] }}.</span>
+            {{ render(n.title) }}
+            {% if n.id == script.start_node_id %}
+            <span class="badge bg-success-subtle text-success align-middle" style="font-size:.68rem">старт</span>
+            {% endif %}
+            {% if n.kind == 'end' %}
+            <span class="badge bg-warning-subtle text-warning-emphasis align-middle" style="font-size:.68rem">завершение</span>
+            {% endif %}
+          </h5>
+
+          <div class="sc-doc-body mb-2">{{ render(n.body_html)|safe }}</div>
+
+          {% if n.answers %}
+          <div class="text-muted mb-1" style="font-size:.8rem">Возможные ответы:</div>
+          <div>
+            {% for a in n.answers %}
+            {% set target = a.next_node_id %}
+            <a class="sc-doc-answer" style="border-left-color:{{ answer_colors.get(a.color, '#64748b') }}"
+               href="{% if target and target in numbers %}#node-{{ target }}{% else %}#node-{{ n.id }}{% endif %}">
+              <b>{{ a.text }}</b>
+              <span class="text-muted">
+                {% if target and target in numbers %}→ вопрос {{ numbers[target] }}{% else %}→ конец ветки{% endif %}
+              </span>
+            </a>
+            {% endfor %}
+          </div>
+          {% elif n.kind != 'end' %}
+          <div class="text-muted" style="font-size:.82rem">Переход дальше не задан.</div>
+          {% endif %}
+
+          <div class="mt-2">
+            <a href="/scripts/{{ script.id }}/run?node={{ n.id }}" class="btn btn-sm btn-link px-0">
+              <i class="bi bi-play-circle me-1"></i>Пройти с этого шага
+            </a>
+          </div>
+        </div>
+        {% else %}
+        <div class="text-muted py-5 text-center">В скрипте пока нет шагов.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Поиск по документу фильтрует навигацию и подсвечивает найденные шаги.
+document.getElementById('docSearch').addEventListener('input', function (e) {
+  var q = e.target.value.toLowerCase().trim();
+  document.querySelectorAll('#docNav [data-nav]').forEach(function (a) {
+    var hit = !q || a.dataset.text.indexOf(q) !== -1;
+    a.style.display = hit ? '' : 'none';
+    var node = document.getElementById('node-' + a.dataset.nav);
+    if (node) node.style.opacity = (!q || hit) ? '' : '.35';
+  });
+});
+// Подсветка шага, к которому перешли по ссылке ответа
+window.addEventListener('hashchange', highlight);
+function highlight() {
+  var el = document.querySelector(location.hash || '#none');
+  if (!el) return;
+  el.style.transition = 'background-color .4s';
+  el.style.backgroundColor = '#fef9c3';
+  setTimeout(function () { el.style.backgroundColor = ''; }, 900);
+}
+highlight();
+</script>
+{% endblock %}

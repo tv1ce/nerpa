@@ -1,0 +1,27 @@
+{# Переключатель режимов. Один и тот же граф, три представления —
+   переход между ними ничего не меняет в данных (ТЗ, п. 18). #}
+<div class="btn-group btn-group-sm me-2" role="group">
+  {% if can_edit %}
+  <a href="/scripts/{{ script.id }}/edit"
+     class="btn {% if mode == 'edit' %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    <i class="bi bi-diagram-3 me-1"></i>Конструктор
+  </a>
+  {% endif %}
+  <a href="/scripts/{{ script.id }}/full"
+     class="btn {% if mode == 'full' %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    <i class="bi bi-file-text me-1"></i>Полный скрипт
+  </a>
+  <a href="/scripts/{{ script.id }}/run"
+     class="btn {% if mode == 'run' %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    <i class="bi bi-play-circle me-1"></i>Прохождение
+  </a>
+</div>
+<div class="dropdown d-inline">
+  <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+    <i class="bi bi-file-earmark-word me-1"></i>Word
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><a class="dropdown-item" href="/scripts/{{ script.id }}/export.docx?mode=full">Полный скрипт с ветвлением</a></li>
+    <li><a class="dropdown-item" href="/scripts/{{ script.id }}/export.docx?mode=plain">Обычный документ</a></li>
+  </ul>
+</div>

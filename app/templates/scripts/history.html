@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ script.title }} — история{% endblock %}
+{% block page_title %}История изменений — {{ script.title }}{% endblock %}
+{% block topbar_actions %}
+  <a href="/scripts/{{ script.id }}/edit" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>В конструктор
+  </a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="table-responsive">
+    <table class="table tms-table mb-0">
+      <thead>
+        <tr>
+          <th class="ps-3">Когда</th>
+          <th>Кто</th>
+          <th>Событие</th>
+          <th class="text-center">Шагов</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for v in versions %}
+        <tr>
+          <td class="ps-3">{{ v.created_at|datetime_fmt if v.created_at else '—' }}</td>
+          <td class="text-muted" style="font-size:.85rem">{{ v.author.full_name if v.author else '—' }}</td>
+          <td class="text-muted" style="font-size:.85rem">{{ v.note or 'Изменение' }}</td>
+          <td class="text-center">
+            <span class="badge bg-light text-dark border">
+              {{ counts.get(v.id, 0) }}
+            </span>
+          </td>
+          <td class="text-end pe-3">
+            {% if can_edit %}
+            <form method="post" action="/scripts/{{ script.id }}/versions/{{ v.id }}/restore"
+                  onsubmit="return confirm('Восстановить эту версию? Текущее состояние сохранится в истории.')">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token(request) }}">
+              <button class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Восстановить
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-5">Версий пока нет</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

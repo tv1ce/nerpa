@@ -614,6 +614,7 @@ class CompanySettings(Base):
     module_sourcing = Column(Boolean, default=False)  # Закупки
     module_field    = Column(Boolean, default=False)  # Поле (торгпреды)
     module_hr       = Column(Boolean, default=False)  # HR-учёт
+    module_scripts  = Column(Boolean, default=False)  # Скрипты продаж
     # ── Bitrix24 CRM ──
     bitrix_webhook_url    = Column(EncryptedText)   # входящий вебхук, напр. https://x.bitrix24.ru/rest/1/xxxxx/
     bitrix_enabled        = Column(Boolean, default=False)
@@ -1831,6 +1832,155 @@ class WriteOffLine(Base):
     product = relationship("Product")
 
 
+# ── Скрипты продаж: граф вопросов, три режима отображения ────────────────────
+#
+# Скрипт — это ГРАФ, а не линейный документ: узел (вопрос/шаг) хранит текст,
+# у узла есть ответы, каждый ответ ведёт в следующий узел. Отсюда бесплатно
+# получаются оба требования ТЗ: несколько ответов могут вести в один и тот же
+# вопрос (many→one через ScriptAnswer.next_node_id) и один вопрос может иметь
+# сколько угодно исходящих переходов.
+#
+# Одни и те же таблицы обслуживают все три режима — конструктор (блок-схема),
+# «Полный скрипт» (документ) и «Прохождение» (пошагово у менеджера): режим
+# меняет только отрисовку, данные и логика переходов общие.
+
+SCRIPT_STATUSES = {
+    "draft":    "Черновик",
+    "active":   "В работе",
+    "archived": "Архив",
+}
+
+# Типы узлов. end — завершающий шаг ветки («Спасибо за разговор»), на схеме и
+# в документе помечается отдельно и не обязан вести дальше.
+SCRIPT_NODE_KINDS = {
+    "question": "Вопрос",
+    "info":     "Реплика",
+    "end":      "Завершение",
+}
+
+# Цвета ответов (кнопки в режиме прохождения и рамки связей на схеме)
+SCRIPT_ANSWER_COLORS = {
+    "gray":   "#64748b",
+    "green":  "#16a34a",
+    "red":    "#dc2626",
+    "amber":  "#d97706",
+    "blue":   "#2563eb",
+    "violet": "#7c3aed",
+}
+
+
+class ScriptFolder(Base):
+    """Папка скриптов. Вложенность любой глубины — как в проводнике."""
+    __tablename__ = "script_folders"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    parent_id = Column(Integer, ForeignKey("script_folders.id"))
+    created_by_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+
+    parent = relationship("ScriptFolder", remote_side=[id], backref="children")
+    created_by = relationship("User")
+
+
+class Script(Base):
+    """Скрипт продаж целиком."""
+    __tablename__ = "scripts"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text)
+    folder_id = Column(Integer, ForeignKey("script_folders.id"))
+    status = Column(String(20), default="draft")          # см. SCRIPT_STATUSES
+    # Точка входа сценария. Если не задана — берётся первый узел по sort_order.
+    start_node_id = Column(Integer)
+    # Быстрые переходы менеджера: JSON-список id узлов («Цена», «Доставка», …)
+    quick_jumps = Column(Text)
+    owner_id = Column(Integer, ForeignKey("users.id"))     # ответственный за скрипт
+    uses_count = Column(Integer, default=0)                # сколько раз запускали прохождение
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+    updated_at = Column(DateTime, default=msk_now, onupdate=msk_now)
+    updated_by_id = Column(Integer, ForeignKey("users.id"))
+
+    folder = relationship("ScriptFolder")
+    owner = relationship("User", foreign_keys=[owner_id])
+    updated_by = relationship("User", foreign_keys=[updated_by_id])
+    nodes = relationship(
+        "ScriptNode", back_populates="script",
+        cascade="all, delete-orphan", order_by="ScriptNode.sort_order")
+
+
+class ScriptNode(Base):
+    """Шаг сценария: вопрос, реплика или завершение ветки."""
+    __tablename__ = "script_nodes"
+    id = Column(Integer, primary_key=True, index=True)
+    script_id = Column(Integer, ForeignKey("scripts.id"), nullable=False)
+    title = Column(String(300), nullable=False, default="Новый вопрос")
+    body_html = Column(Text)          # форматированный текст (rich-text редактор)
+    kind = Column(String(20), default="question")   # см. SCRIPT_NODE_KINDS
+    pos_x = Column(Float, default=0.0)              # позиция на блок-схеме
+    pos_y = Column(Float, default=0.0)
+    sort_order = Column(Integer, default=0)         # порядок в документе и в дереве
+    # Поля для заполнения менеджером внутри шага (текст, число, чекбокс, дата…) —
+    # JSON-список [{key,label,type,options,crm_field}]. Пойдут в CRM при интеграции.
+    fields_json = Column(Text)
+
+    script = relationship("Script", back_populates="nodes")
+    answers = relationship(
+        "ScriptAnswer", back_populates="node", foreign_keys="ScriptAnswer.node_id",
+        cascade="all, delete-orphan", order_by="ScriptAnswer.sort_order")
+
+
+class ScriptAnswer(Base):
+    """Вариант ответа клиента = ребро графа.
+
+    next_node_id намеренно не FK с каскадом: узел-приёмник могут удалить, тогда
+    ответ просто становится «в никуда» (ветка завершается), а не рушит скрипт."""
+    __tablename__ = "script_answers"
+    id = Column(Integer, primary_key=True, index=True)
+    node_id = Column(Integer, ForeignKey("script_nodes.id"), nullable=False)
+    text = Column(String(500), nullable=False, default="Ответ")
+    color = Column(String(20), default="gray")       # см. SCRIPT_ANSWER_COLORS
+    next_node_id = Column(Integer)                   # куда ведёт; None = конец ветки
+    sort_order = Column(Integer, default=0)
+    action_json = Column(Text)                       # доп. действия (CRM) — на будущее
+
+    node = relationship("ScriptNode", back_populates="answers", foreign_keys=[node_id])
+
+
+class ScriptVersion(Base):
+    """Снимок скрипта целиком (JSON графа) — история изменений и откат."""
+    __tablename__ = "script_versions"
+    id = Column(Integer, primary_key=True, index=True)
+    script_id = Column(Integer, ForeignKey("scripts.id"), nullable=False)
+    data_json = Column(Text, nullable=False)
+    note = Column(String(200))
+    author_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=msk_now, server_default=func.now())
+
+    author = relationship("User")
+
+
+class ScriptRun(Base):
+    """Один проход скрипта менеджером: путь по узлам и заполненные поля.
+
+    Хранится отдельно от скрипта, чтобы правка сценария не переписывала историю
+    разговоров, а собранные значения можно было потом отдать в CRM."""
+    __tablename__ = "script_runs"
+    id = Column(Integer, primary_key=True, index=True)
+    script_id = Column(Integer, ForeignKey("scripts.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    started_at = Column(DateTime, default=msk_now, server_default=func.now())
+    finished_at = Column(DateTime)
+    path_json = Column(Text)        # [{node_id, answer_id, at}] — пройденный путь
+    values_json = Column(Text)      # {field_key: value} — заполненные поля
+    result = Column(String(50))     # итог разговора (успех/отказ/перезвон)
+    # Контекст CRM, если скрипт открыт из карточки Bitrix24
+    crm_entity_type = Column(String(20))
+    crm_entity_id = Column(String(30))
+
+    script = relationship("Script")
+    user = relationship("User")
+
+
 Index("ix_receipts_status",           Receipt.status)
 Index("ix_receipt_lines_receipt_id",  ReceiptLine.receipt_id)
 Index("ix_stock_transfers_status",         StockTransfer.status)
@@ -1876,3 +2026,11 @@ Index("ix_vendors_category_id",      Vendor.category_id)
 Index("ix_sourcing_requests_status", SourcingRequest.status)
 
 Index("ix_stock_adj_lines_adjustment", StockAdjustmentLine.adjustment_id)
+
+Index("ix_script_nodes_script_id",     ScriptNode.script_id)
+Index("ix_script_answers_node_id",     ScriptAnswer.node_id)
+Index("ix_script_answers_next_node",   ScriptAnswer.next_node_id)
+Index("ix_script_folders_parent_id",   ScriptFolder.parent_id)
+Index("ix_scripts_folder_id",          Script.folder_id)
+Index("ix_script_versions_script_id",  ScriptVersion.script_id)
+Index("ix_script_runs_script_id",      ScriptRun.script_id)

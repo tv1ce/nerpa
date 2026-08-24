@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}{{ script.title }} — конструктор{% endblock %}
+{% block page_title %}{{ script.title }}{% endblock %}
+{% block topbar_actions %}
+  {% include "scripts/_modes.html" %}
+  <a href="/scripts/{{ script.id }}/history" class="btn btn-sm btn-outline-secondary ms-1"
+     title="История изменений"><i class="bi bi-clock-history"></i></a>
+  <a href="/scripts/?folder={{ script.folder_id or '' }}" class="btn btn-sm btn-link text-muted">К списку</a>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/scripts.css?v=1">
+
+<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+  <div class="btn-group btn-group-sm">
+    <button class="btn btn-outline-secondary" id="scAddNode" title="Добавить вопрос">
+      <i class="bi bi-plus-square me-1"></i>Блок
+    </button>
+    <button class="btn btn-outline-secondary" id="scAddEnd" title="Добавить завершение ветки">
+      <i class="bi bi-flag me-1"></i>Завершение
+    </button>
+  </div>
+  <div class="btn-group btn-group-sm">
+    <button class="btn btn-outline-secondary" id="scUndo" title="Отменить (Ctrl+Z)"><i class="bi bi-arrow-counterclockwise"></i></button>
+    <button class="btn btn-outline-secondary" id="scRedo" title="Повторить (Ctrl+Y)"><i class="bi bi-arrow-clockwise"></i></button>
+  </div>
+  <button class="btn btn-sm btn-outline-secondary" id="scLayout" title="Выровнять схему">
+    <i class="bi bi-grid-1x2 me-1"></i>Выровнять
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" id="scFit" title="Вписать в экран">
+    <i class="bi bi-arrows-angle-contract"></i>
+  </button>
+  <span class="sc-save-status ms-auto" id="scStatus"></span>
+</div>
+
+<div class="sc-shell">
+  {# ── Левая панель: структура ── #}
+  <div class="sc-pane">
+    <div class="sc-pane-head">Структура скрипта</div>
+    <div class="px-2 py-2 border-bottom">
+      <input id="scTreeSearch" class="form-control form-control-sm" placeholder="Поиск по шагам…">
+    </div>
+    <div class="sc-pane-body" id="scTree"></div>
+  </div>
+
+  {# ── Центр: блок-схема ── #}
+  <div class="sc-pane">
+    <div class="sc-pane-head">
+      <span>Блок-схема</span>
+      <span class="text-muted text-lowercase" style="font-weight:400;letter-spacing:0">
+        двойной клик — новый блок · тяните от кружка ответа к вопросу
+      </span>
+    </div>
+    <div class="sc-canvas" id="scCanvas">
+      <div class="sc-world" id="scWorld">
+        <svg class="sc-edges" id="scEdges" width="10" height="10"></svg>
+      </div>
+      <div class="sc-zoom">
+        <button class="btn btn-sm btn-light border" id="scZoomOut"><i class="bi bi-dash-lg"></i></button>
+        <button class="btn btn-sm btn-light border" id="scZoomIn"><i class="bi bi-plus-lg"></i></button>
+      </div>
+      <div class="sc-minimap"><svg id="scMinimap" width="100%" height="100%" preserveAspectRatio="xMidYMid meet"></svg></div>
+    </div>
+  </div>
+
+  {# ── Правая панель: редактор шага ── #}
+  <div class="sc-pane">
+    <div class="sc-pane-head">Шаг</div>
+    <div class="sc-pane-body" id="scInspector"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.SC_INIT = {
+    scriptId: {{ script.id }},
+    csrf: "{{ csrf_token(request) }}",
+    canEdit: {{ 'true' if can_edit else 'false' }},
+    graph: {{ graph_json|safe }},
+    nodeKinds: {{ node_kinds|tojson }},
+    answerColors: {{ answer_colors|tojson }}
+  };
+</script>
+<script src="/static/js/script-editor.js?v=1"></script>
+{% endblock %}

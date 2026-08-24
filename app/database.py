@@ -283,6 +283,7 @@ def _migrate_db():
         ("orders",           "bitrix_category_id",      "INTEGER"),
         # ── HR-учёт ──
         ("company_settings", "module_hr", "INTEGER DEFAULT 0"),
+        ("company_settings", "module_scripts", "INTEGER DEFAULT 0"),
         ("hr_employees", "position_id", "INTEGER REFERENCES hr_positions(id)"),
         ("hr_records", "period_kind", "TEXT DEFAULT 'month'"),
         ("hr_surveys", "period_kind", "TEXT DEFAULT 'month'"),

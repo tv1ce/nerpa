@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% block title %}{{ script.title }} — прохождение{% endblock %}
+{% block page_title %}{{ script.title }}{% endblock %}
+{% block topbar_actions %}
+  {% include "scripts/_modes.html" %}
+  <a href="/scripts/?folder={{ script.folder_id or '' }}" class="btn btn-sm btn-link text-muted">К списку</a>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/scripts.css?v=1">
+
+<div class="sc-run-wrap">
+  {% if crm.get('name') or crm.get('company') or crm.get('phone') %}
+  <div class="alert alert-light border d-flex align-items-center gap-2 py-2" style="font-size:.85rem">
+    <i class="bi bi-person-badge text-muted"></i>
+    <span>
+      Клиент:
+      <b>{{ crm.get('name') or '—' }}</b>{% if crm.get('company') %}, {{ crm.get('company') }}{% endif %}
+      {% if crm.get('phone') %}<span class="text-muted ms-2">{{ crm.get('phone') }}</span>{% endif %}
+    </span>
+  </div>
+  {% endif %}
+
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <span class="text-muted" style="font-size:.82rem">
+      Шаг {{ numbers[current.id] }} из {{ nodes|length }}
+    </span>
+    <button class="btn btn-sm btn-outline-secondary ms-auto" data-bs-toggle="modal" data-bs-target="#jumpModal">
+      <i class="bi bi-search me-1"></i>Перейти к вопросу
+    </button>
+    <a href="/scripts/{{ script.id }}/run?{{ crm_query[1:] if crm_query else '' }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-counterclockwise me-1"></i>Сначала
+    </a>
+  </div>
+
+  {% if quick_jumps %}
+  <div class="sc-quick mb-3">
+    {% for n, label in quick_jumps %}
+    <a href="/scripts/{{ script.id }}/run?node={{ n.id }}{{ crm_query }}"
+       class="badge bg-light text-dark border py-2 px-3" title="{{ n.title }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-body p-4">
+      <div class="sc-run-title mb-3">
+        {{ current_title }}
+        {% if current.kind == 'end' %}
+        <span class="badge bg-warning-subtle text-warning-emphasis align-middle" style="font-size:.7rem">
+          завершение разговора
+        </span>
+        {% endif %}
+      </div>
+      <div class="sc-run-body">{{ current_html|safe }}</div>
+
+      {% if current_fields %}
+      <div class="border-top mt-4 pt-3">
+        {% for f in current_fields %}
+        <div class="mb-3">
+          {% set fid = 'f_' ~ current.id ~ '_' ~ loop.index0 %}
+          {% set fkey = f.get('key') or fid %}
+          {% if f.get('type') == 'checkbox' %}
+          <div class="form-check">
+            <input class="form-check-input sc-field" type="checkbox" id="{{ fid }}"
+                   data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}">
+            <label class="form-check-label" for="{{ fid }}">{{ f.get('label') or fkey }}</label>
+          </div>
+          {% else %}
+          <label class="form-label small text-muted" for="{{ fid }}">{{ f.get('label') or fkey }}</label>
+          {% if f.get('type') == 'textarea' %}
+          <textarea class="form-control sc-field" id="{{ fid }}" rows="3"
+                    data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}"></textarea>
+          {% elif f.get('type') == 'select' %}
+          <select class="form-select sc-field" id="{{ fid }}"
+                  data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}">
+            <option value="">—</option>
+            {% for opt in f.get('options') or [] %}<option>{{ opt }}</option>{% endfor %}
+          </select>
+          {% else %}
+          <input class="form-control sc-field" id="{{ fid }}"
+                 type="{{ 'number' if f.get('type') == 'number' else ('date' if f.get('type') == 'date' else 'text') }}"
+                 data-key="{{ fkey }}" data-crm="{{ f.get('crm_field') or '' }}">
+          {% endif %}
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if current.answers %}
+  <div class="text-muted mb-2" style="font-size:.82rem">Ответ клиента:</div>
+  {% for a in current.answers %}
+  {% set target = targets.get(a.id) %}
+  <a class="sc-run-answer" data-answer="{{ a.id }}"
+     style="border-left-color:{{ answer_colors.get(a.color, '#64748b') }}"
+     href="{% if target %}/scripts/{{ script.id }}/run?node={{ target.id }}{{ crm_query }}{% else %}#{% endif %}">
+    <b>{{ a.text }}</b>
+    <span class="sc-run-next">
+      {% if target %}→ {{ numbers[target.id] }}. {{ target.title }}{% else %}→ разговор завершается{% endif %}
+    </span>
+  </a>
+  {% endfor %}
+  {% else %}
+  <div class="alert alert-light border">
+    Ветка завершена. Можно
+    <a href="/scripts/{{ script.id }}/run?{{ crm_query[1:] if crm_query else '' }}">начать сначала</a>
+    или перейти к любому вопросу.
+  </div>
+  {% endif %}
+
+  <div class="d-flex gap-2 mt-4">
+    <button class="btn btn-outline-success btn-sm" data-result="success">
+      <i class="bi bi-check2-circle me-1"></i>Итог: договорились
+    </button>
+    <button class="btn btn-outline-secondary btn-sm" data-result="callback">
+      <i class="bi bi-telephone me-1"></i>Перезвонить
+    </button>
+    <button class="btn btn-outline-danger btn-sm" data-result="refused">
+      <i class="bi bi-x-circle me-1"></i>Отказ
+    </button>
+    <span class="text-muted align-self-center ms-2" id="runStatus" style="font-size:.8rem"></span>
+  </div>
+</div>
+
+{# ── Переход к любому вопросу ── #}
+<div class="modal fade" id="jumpModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Перейти к вопросу</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input id="jumpSearch" class="form-control mb-3" placeholder="Поиск по вопросам и тексту…" autofocus>
+        <div id="jumpList" style="max-height:52vh;overflow:auto">
+          {% for item in search_index %}
+          <a class="sc-tree-item text-decoration-none text-dark d-block" data-jump
+             data-text="{{ (item.title ~ ' ' ~ item.text)|lower }}"
+             href="/scripts/{{ script.id }}/run?node={{ item.id }}{{ crm_query }}">
+            <span class="sc-num">{{ item.n }}.</span>{{ item.title }}
+            {% if item.text %}<span class="sc-sub">{{ item.text[:110] }}</span>{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var csrf = "{{ csrf_token(request) }}";
+  var scriptId = {{ script.id }};
+  var nodeId = {{ current.id }};
+  // run_id держим в sessionStorage: один разговор — одна запись, даже если
+  // менеджер прошёл десяток шагов (каждый шаг — отдельная загрузка страницы).
+  var key = 'sc_run_' + scriptId;
+  var runId = Number(sessionStorage.getItem(key)) || null;
+  var status = document.getElementById('runStatus');
+
+  function collectValues() {
+    var values = {};
+    document.querySelectorAll('.sc-field').forEach(function (el) {
+      var v = el.type === 'checkbox' ? el.checked : el.value;
+      if (v !== '' && v !== false) {
+        values[el.dataset.key] = { value: v, crm_field: el.dataset.crm || '' };
+      }
+    });
+    return values;
+  }
+
+  function send(extra, done) {
+    var payload = Object.assign({
+      run_id: runId,
+      values: collectValues(),
+      path: [{ node_id: nodeId, at: new Date().toISOString() }],
+      crm_entity: "{{ request.query_params.get('crm_entity', '') }}",
+      crm_id: "{{ request.query_params.get('crm_id', '') }}"
+    }, extra || {});
+    return fetch('/scripts/' + scriptId + '/run/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      if (res.ok && res.run_id) { runId = res.run_id; sessionStorage.setItem(key, res.run_id); }
+      if (done) done(res);
+    }).catch(function () { if (status) status.textContent = 'Не удалось сохранить'; });
+  }
+
+  // Ответы: сохраняем заполненные поля перед уходом на следующий шаг
+  document.querySelectorAll('[data-answer]').forEach(function (link) {
+    link.addEventListener('click', function (e) {
+      if (link.getAttribute('href') === '#') { e.preventDefault(); return; }
+      if (!Object.keys(collectValues()).length) return;
+      e.preventDefault();
+      send({ path: [{ node_id: nodeId, answer_id: Number(link.dataset.answer) }] }, function () {
+        location.href = link.getAttribute('href');
+      });
+    });
+  });
+
+  document.querySelectorAll('[data-result]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      send({ result: btn.dataset.result, finished: true }, function () {
+        if (status) status.textContent = 'Итог сохранён';
+        sessionStorage.removeItem(key);
+      });
+    });
+  });
+
+  var search = document.getElementById('jumpSearch');
+  search.addEventListener('input', function () {
+    var q = search.value.toLowerCase().trim();
+    document.querySelectorAll('#jumpList [data-jump]').forEach(function (a) {
+      a.style.display = (!q || a.dataset.text.indexOf(q) !== -1) ? '' : 'none';
+    });
+  });
+})();
+</script>
+{% endblock %}

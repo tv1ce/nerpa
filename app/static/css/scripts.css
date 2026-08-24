@@ -1,0 +1,219 @@
+/* Скрипты продаж: конструктор блок-схемы, полный скрипт, прохождение.
+   Цвета и радиусы взяты из app.css, чтобы раздел не выбивался из системы. */
+
+:root {
+  --sc-border: #e2e8f0;
+  --sc-muted: #64748b;
+  --sc-bg: #f8fafc;
+  --sc-accent: #2563eb;
+}
+
+/* ── Общая рамка редактора: три колонки на всю высоту экрана ── */
+.sc-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 340px;
+  gap: 0;
+  height: calc(100vh - 132px);
+  min-height: 520px;
+  border: 1px solid var(--sc-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+.sc-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.sc-pane + .sc-pane { border-left: 1px solid var(--sc-border); }
+.sc-pane-head {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--sc-border);
+  font-size: .78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--sc-muted);
+  background: var(--sc-bg);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.sc-pane-body { flex: 1; min-height: 0; overflow: auto; }
+
+/* ── Левая панель: дерево шагов ── */
+.sc-tree-item {
+  display: block; width: 100%; text-align: left;
+  border: 0; background: none;
+  padding: 8px 12px 8px 14px;
+  font-size: .84rem; line-height: 1.35;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+.sc-tree-item:hover { background: #f1f5f9; }
+.sc-tree-item.active { background: #eff6ff; border-left-color: var(--sc-accent); }
+.sc-tree-item .sc-num { color: var(--sc-muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+.sc-tree-item .sc-sub { display: block; color: var(--sc-muted); font-size: .74rem; padding-left: 20px; }
+.sc-tree-kids { padding-left: 12px; border-left: 1px dashed var(--sc-border); margin-left: 16px; }
+
+/* ── Центр: холст блок-схемы ── */
+.sc-canvas {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  background-color: #fbfcfe;
+  background-image: radial-gradient(circle, #dbe2ea 1px, transparent 1px);
+  background-size: 22px 22px;
+  cursor: grab;
+}
+.sc-canvas.panning { cursor: grabbing; }
+.sc-world { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+.sc-edges { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+
+.sc-node {
+  position: absolute;
+  width: 260px;
+  background: #fff;
+  border: 1px solid var(--sc-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+  font-size: .82rem;
+  user-select: none;
+}
+.sc-node.selected { border-color: var(--sc-accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
+.sc-node.is-start { border-color: #16a34a; }
+.sc-node.is-end { background: #fff7ed; border-color: #fdba74; }
+.sc-node-head {
+  padding: 9px 10px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--sc-border);
+  cursor: move;
+  display: flex; align-items: center; gap: 6px;
+  border-radius: 12px 12px 0 0;
+}
+.sc-node.is-end .sc-node-head { border-bottom-color: #fdba74; }
+.sc-node-badge {
+  font-size: .66rem; font-weight: 600; text-transform: uppercase;
+  padding: 1px 6px; border-radius: 20px; background: #f1f5f9; color: var(--sc-muted);
+}
+.sc-node-badge.start { background: #dcfce7; color: #15803d; }
+.sc-node-badge.end { background: #ffedd5; color: #c2410c; }
+.sc-node-text {
+  padding: 8px 10px; color: var(--sc-muted); font-size: .78rem;
+  max-height: 64px; overflow: hidden;
+}
+.sc-answers { padding: 4px 0 8px; }
+.sc-answer {
+  position: relative;
+  margin: 3px 10px;
+  padding: 5px 22px 5px 9px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid var(--sc-border);
+  border-left-width: 4px;
+  font-size: .78rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sc-port {
+  position: absolute; right: -7px; top: 50%; transform: translateY(-50%);
+  width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; border: 2px solid currentColor;
+  cursor: crosshair;
+}
+.sc-port:hover { background: currentColor; }
+.sc-port-in {
+  position: absolute; left: -7px; top: 22px;
+  width: 13px; height: 13px; border-radius: 50%;
+  background: #fff; border: 2px solid #94a3b8;
+}
+.sc-node.drop-target .sc-port-in { border-color: var(--sc-accent); background: #dbeafe; }
+
+.sc-minimap {
+  position: absolute; right: 12px; bottom: 12px;
+  width: 190px; height: 130px;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--sc-border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+}
+.sc-zoom {
+  position: absolute; left: 12px; bottom: 12px;
+  display: flex; gap: 4px;
+  background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--sc-border);
+  border-radius: 10px; padding: 4px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+}
+
+/* ── Правая панель: редактор шага ── */
+.sc-editor-label { font-size: .74rem; font-weight: 600; color: var(--sc-muted); margin-bottom: 4px; }
+.sc-rte-toolbar {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  border: 1px solid var(--sc-border); border-bottom: 0;
+  border-radius: 8px 8px 0 0; padding: 4px; background: var(--sc-bg);
+}
+.sc-rte-toolbar button {
+  border: 0; background: none; border-radius: 6px;
+  width: 28px; height: 26px; font-size: .8rem; color: #334155;
+}
+.sc-rte-toolbar button:hover { background: #e2e8f0; }
+.sc-rte {
+  border: 1px solid var(--sc-border);
+  border-radius: 0 0 8px 8px;
+  padding: 10px;
+  min-height: 160px; max-height: 340px; overflow: auto;
+  font-size: .88rem; line-height: 1.5;
+  outline: none;
+}
+.sc-rte:focus { border-color: var(--sc-accent); }
+.sc-rte p { margin: 0 0 .5rem; }
+.sc-rte ul, .sc-rte ol { margin: 0 0 .5rem 1.1rem; padding: 0; }
+.sc-rte blockquote {
+  margin: 0 0 .5rem; padding: 4px 10px;
+  border-left: 3px solid var(--sc-border); color: var(--sc-muted);
+}
+.sc-rte table { width: 100%; border-collapse: collapse; margin-bottom: .5rem; }
+.sc-rte td, .sc-rte th { border: 1px solid var(--sc-border); padding: 4px 6px; }
+
+.sc-save-status { font-size: .78rem; color: var(--sc-muted); }
+.sc-save-status.saving { color: #b45309; }
+.sc-save-status.saved { color: #15803d; }
+.sc-save-status.error { color: #b91c1c; }
+
+/* ── Полный скрипт ── */
+.sc-doc { max-width: 860px; }
+.sc-doc-node { scroll-margin-top: 90px; padding-bottom: 8px; }
+.sc-doc-node + .sc-doc-node { border-top: 1px solid var(--sc-border); padding-top: 20px; margin-top: 20px; }
+.sc-doc-body { font-size: .95rem; line-height: 1.6; }
+.sc-doc-body table { border-collapse: collapse; }
+.sc-doc-body td, .sc-doc-body th { border: 1px solid var(--sc-border); padding: 4px 8px; }
+.sc-doc-answer {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--sc-border); border-left-width: 4px;
+  border-radius: 8px; padding: 5px 10px; margin: 0 6px 6px 0;
+  font-size: .85rem; text-decoration: none; color: inherit;
+}
+.sc-doc-answer:hover { background: var(--sc-bg); }
+
+/* ── Прохождение ── */
+.sc-run-wrap { max-width: 780px; margin: 0 auto; }
+.sc-run-title { font-size: 1.35rem; font-weight: 600; line-height: 1.3; }
+.sc-run-body { font-size: 1.05rem; line-height: 1.65; }
+.sc-run-body table { border-collapse: collapse; }
+.sc-run-body td, .sc-run-body th { border: 1px solid var(--sc-border); padding: 5px 9px; }
+.sc-run-answer {
+  display: block; width: 100%; text-align: left;
+  border: 1px solid var(--sc-border); border-left-width: 5px;
+  border-radius: 10px; background: #fff;
+  padding: 13px 16px; margin-bottom: 9px;
+  font-size: 1rem; text-decoration: none; color: inherit;
+  transition: transform .05s ease, box-shadow .12s ease;
+}
+.sc-run-answer:hover { box-shadow: 0 2px 10px rgba(15, 23, 42, .1); transform: translateY(-1px); }
+.sc-run-answer .sc-run-next { font-size: .78rem; color: var(--sc-muted); display: block; margin-top: 2px; }
+.sc-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.sc-quick a { font-size: .82rem; text-decoration: none; }
+
+@media (max-width: 1200px) {
+  .sc-shell { grid-template-columns: 220px minmax(0, 1fr) 300px; }
+}
+@media (max-width: 992px) {
+  .sc-shell { grid-template-columns: 1fr; height: auto; }
+  .sc-pane + .sc-pane { border-left: 0; border-top: 1px solid var(--sc-border); }
+  .sc-canvas { height: 62vh; }
+}

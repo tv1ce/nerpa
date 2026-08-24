@@ -192,6 +192,7 @@ def _get_fresh_user(request: Request):
             request.session["mod_sourcing"] = bool(company and company.module_sourcing)
             request.session["mod_field"]    = bool(company and company.module_field)
             request.session["mod_hr"]       = bool(company and company.module_hr)
+            request.session["mod_scripts"]  = bool(company and company.module_scripts)
         return user
     finally:
         db.close()

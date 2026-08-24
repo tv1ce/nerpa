@@ -26,6 +26,7 @@
 | Склад | `/warehouse` | warehouse+ |
 | Отчёты | `/reports` | manager+ |
 | Лиды | `/leads` | sales+ |
+| Скрипты продаж | `/scripts` | все (правка — sales+) |
 | Логистика | `/logistics` | manager+ |
 | Табло цеха | `/board` | все |
 | Настройки | `/settings` | admin |
