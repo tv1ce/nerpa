@@ -6,19 +6,79 @@
 {% endblock %}
 
 {% block content %}
-<div class="card border-0 shadow-sm">
-  <div class="card-body pb-0">
-    <form class="row g-2 mb-3" method="get">
-      <div class="col-md-4">
-        <select name="cp_id" class="form-select form-select-sm">
+{# Хвост ссылок собираем только из заполненных фильтров: пустое «cp_id=» роут
+   раньше принимал за число и отвечал 422 — плитки и канбан не открывались. #}
+{% set base_parts = [] %}
+{% if filter_cp_id %}{% set _ = base_parts.append('cp_id=' ~ filter_cp_id) %}{% endif %}
+{% if filter_status %}{% set _ = base_parts.append('status=' ~ filter_status) %}{% endif %}
+{% if filter_type %}{% set _ = base_parts.append('ctype=' ~ filter_type) %}{% endif %}
+{% if filter_severity %}{% set _ = base_parts.append('severity=' ~ filter_severity) %}{% endif %}
+{% if filter_q %}{% set _ = base_parts.append('q=' ~ (filter_q | urlencode)) %}{% endif %}
+{% if filter_address_key %}{% set _ = base_parts.append('address_key=' ~ (filter_address_key | urlencode)) %}{% endif %}
+{% set base_qs = ('&' ~ base_parts | join('&')) if base_parts else '' %}
+
+{# ── Плитки: что горит. Клик — это и есть фильтр ──────────────────────────── #}
+<div class="row g-2 mb-3">
+  {% set tiles = [
+      ('',        'Всего',            stats.total,          'dark',      'bi-clipboard-x'),
+      ('open',    'Открытых',         stats.open,           'info',      'bi-folder2-open'),
+      ('overdue', 'Просрочено',       stats.overdue,        'danger',    'bi-alarm'),
+      ('repeat',  'Точек с повтором', stats.repeat_outlets, 'warning',   'bi-arrow-repeat'),
+  ] %}
+  {% for val, label, count, color, icon in tiles %}
+  <div class="col-6 col-lg-3 col-xl">
+    <a href="/claims/?only={{ val }}&view={{ view }}{{ base_qs }}" class="text-decoration-none">
+      <div class="card border-0 shadow-sm h-100"
+           style="{% if filter_only == val %}outline:2px solid var(--brand){% endif %}">
+        <div class="card-body py-3 d-flex align-items-center gap-3">
+          <i class="bi {{ icon }} text-{{ color }}" style="font-size:1.4rem"></i>
+          <div>
+            <div class="fw-bold text-{{ color }}" style="font-size:1.5rem; line-height:1">{{ count }}</div>
+            <div class="text-muted" style="font-size:.78rem">{{ label }}</div>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+  <div class="col-12 col-xl">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body py-3 d-flex flex-wrap gap-4 align-items-center" style="font-size:.82rem">
+        <span><span class="text-muted d-block" style="font-size:.72rem">На кону по открытым</span>
+          <strong class="text-danger" style="font-size:1.05rem">{{ stats.amount_open | money }} ₽</strong></span>
+        <span><span class="text-muted d-block" style="font-size:.72rem">Точек затронуто</span>
+          <strong style="font-size:1.05rem">{{ stats.outlets }}</strong></span>
+        <span><span class="text-muted d-block" style="font-size:.72rem">Закрываем в среднем</span>
+          <strong style="font-size:1.05rem">{{ stats.avg_close_days if stats.avg_close_days is not none else '—' }}{% if stats.avg_close_days is not none %} дн.{% endif %}</strong></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Фильтры + переключатель представления ────────────────────────────────── #}
+<div class="card border-0 shadow-sm mb-3">
+  <div class="card-body py-2">
+    <form class="row g-2 align-items-center" method="get">
+      <input type="hidden" name="only" value="{{ filter_only }}">
+      <input type="hidden" name="view" value="{{ view }}">
+      <input type="hidden" name="address_key" value="{{ filter_address_key }}">
+      <div class="col-md-3">
+        <div class="input-group input-group-sm">
+          <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+          <input type="text" name="q" class="form-control" placeholder="Номер, адрес, текст…"
+                 value="{{ filter_q or '' }}" autocomplete="off">
+        </div>
+      </div>
+      <div class="col-md-3">
+        <select name="cp_id" class="form-select form-select-sm" onchange="this.form.submit()">
           <option value="">Все контрагенты</option>
           {% for cp in counterparties %}
-          <option value="{{ cp.id }}" {% if filter_cp_id == cp.id %}selected{% endif %}>{{ cp.trade_name or cp.name }}</option>
+          <option value="{{ cp.id }}" {% if filter_cp_id == cp.id %}selected{% endif %}>{{ cp | cp_label }}</option>
           {% endfor %}
         </select>
       </div>
       <div class="col-md-2">
-        <select name="status" class="form-select form-select-sm">
+        <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
           <option value="">Все статусы</option>
           {% for val, label in claim_statuses.items() %}
           <option value="{{ val }}" {% if filter_status == val %}selected{% endif %}>{{ label }}</option>
@@ -26,71 +86,180 @@
         </select>
       </div>
       <div class="col-md-2">
-        <select name="ctype" class="form-select form-select-sm">
+        <select name="ctype" class="form-select form-select-sm" onchange="this.form.submit()">
           <option value="">Все типы</option>
           {% for val, label in claim_types.items() %}
           <option value="{{ val }}" {% if filter_type == val %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
       </div>
-      <div class="col-auto">
+      <div class="col-md-2">
+        <select name="severity" class="form-select form-select-sm" onchange="this.form.submit()">
+          <option value="">Любая критичность</option>
+          {% for val, label in claim_severities.items() %}
+          <option value="{{ val }}" {% if filter_severity == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 d-flex align-items-center gap-2 pt-1">
+        <div class="btn-group btn-group-sm" role="group">
+          <a href="/claims/?view=clients&only={{ filter_only }}{{ base_qs }}"
+             class="btn btn-{% if view == 'clients' %}dark{% else %}outline-secondary{% endif %}">
+            <i class="bi bi-diagram-3 me-1"></i>Клиенты и точки
+          </a>
+          <a href="/claims/?view=kanban&only={{ filter_only }}{{ base_qs }}"
+             class="btn btn-{% if view == 'kanban' %}dark{% else %}outline-secondary{% endif %}">
+            <i class="bi bi-kanban me-1"></i>Канбан
+          </a>
+        </div>
         <button class="btn btn-sm btn-outline-secondary">Найти</button>
-        <a href="/claims/" class="btn btn-sm btn-link text-muted">Сбросить</a>
+        {% if filter_address_key %}
+        <span class="badge bg-dark-subtle text-dark border">
+          точка: {{ filter_address_label }}
+          <a href="/claims/?view={{ view }}&only={{ filter_only }}" class="text-decoration-none ms-1">×</a>
+        </span>
+        {% endif %}
+        {% if filter_only or filter_status or filter_type or filter_severity or filter_q or filter_cp_id or filter_address_key %}
+        <a href="/claims/?view={{ view }}" class="btn btn-sm btn-link text-muted">Сбросить всё</a>
+        {% endif %}
+        <span class="text-muted ms-auto" style="font-size:.8rem">{{ claims | length }} рекламаций</span>
       </div>
     </form>
   </div>
-  <div class="table-responsive">
-    <table class="table tms-table mb-0">
-      <thead>
-        <tr>
-          <th class="ps-3">Номер</th>
-          <th>Дата</th>
-          <th>Контрагент</th>
-          <th>Тип</th>
-          <th>Статус</th>
-          <th>Заказ</th>
-          <th class="text-end pe-3">Сумма, ₽</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for cl in claims %}
-        <tr>
-          <td class="ps-3 fw-semibold">
-            <a href="/claims/{{ cl.id }}" class="text-decoration-none">{{ cl.number }}</a>
-          </td>
-          <td>{{ cl.date | date_fmt }}</td>
-          <td>
-            <a href="/counterparties/{{ cl.counterparty_id }}" class="text-decoration-none text-dark">
-              {{ cl.counterparty.trade_name or cl.counterparty.name if cl.counterparty else '—' }}
-            </a>
-          </td>
-          <td class="text-muted" style="font-size:.85rem">{{ claim_types.get(cl.type, cl.type) }}</td>
-          <td>
-            <span class="badge bg-{{ status_colors.get(cl.status, 'secondary') }}">
-              {{ claim_statuses.get(cl.status, cl.status) }}
-            </span>
-          </td>
-          <td class="text-muted" style="font-size:.85rem">
-            {% if cl.order %}<a href="/orders/{{ cl.order_id }}" class="text-muted">{{ cl.order.number }}</a>{% else %}—{% endif %}
-          </td>
-          <td class="text-end pe-3 text-muted" style="font-size:.85rem">
-            {{ cl.amount | money if cl.amount else '—' }}
-          </td>
-          <td class="pe-2">
-            <form method="post" action="/claims/{{ cl.id }}/delete" class="d-inline"
-                  data-confirm="Удалить рекламацию {{ cl.number }}?">
-              <button class="btn btn-xs btn-outline-danger py-0 px-1" style="font-size:.75rem">
-                <i class="bi bi-trash"></i>
-              </button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="8" class="text-center py-4 text-muted">Рекламаций не найдено</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+</div>
+
+{% if not claims %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body text-center py-5 text-muted">
+    <i class="bi bi-emoji-smile d-block mb-2" style="font-size:1.6rem"></i>
+    Рекламаций по этому фильтру нет
   </div>
 </div>
+
+{% elif view == 'kanban' %}
+{# ── Канбан: поток разбора ────────────────────────────────────────────────── #}
+<div class="row g-2 claims-kanban">
+  {% for col in columns %}
+  <div class="col-12 col-md-6 col-xl-3">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body p-2">
+        <div class="d-flex align-items-center justify-content-between px-1 pb-2 mb-2 border-bottom">
+          <span class="fw-semibold" style="font-size:.86rem">
+            <span class="badge bg-{{ status_colors.get(col.status, 'secondary') }} me-1"
+                  style="width:.5rem;height:.5rem;padding:0;border-radius:50%;display:inline-block"></span>
+            {{ col.label }}
+          </span>
+          <span class="text-muted" style="font-size:.78rem">
+            {{ col.claims | length }}{% if col.amount %} · {{ col.amount | money }} ₽{% endif %}
+          </span>
+        </div>
+        {% for cl in col.claims %}
+        {% set s = sla.get(cl.id) %}
+        <a href="/claims/{{ cl.id }}" class="d-block text-decoration-none mb-2 claim-card
+                  border-start border-3 border-{{ severity_colors.get(cl.severity or 'normal', 'secondary') }}
+                  bg-light rounded-end p-2">
+          <div class="d-flex justify-content-between align-items-start gap-2">
+            <span class="fw-semibold text-dark" style="font-size:.82rem">{{ cl.number }}</span>
+            {% if s and s.overdue %}
+            <span class="badge bg-danger" style="font-size:.65rem">+{{ s.overdue_by }} дн.</span>
+            {% elif s and s.age_days is not none %}
+            <span class="text-muted" style="font-size:.72rem">{{ s.age_days }} дн.</span>
+            {% endif %}
+          </div>
+          <div class="fw-semibold text-dark mt-1" style="font-size:.84rem">
+            <i class="bi bi-geo-alt me-1 text-muted"></i>
+            {% if cl.address_key %}{{ cl.address_key | outlet_label }}{% else %}<span class="text-muted fst-italic">без точки</span>{% endif %}
+          </div>
+          <div class="text-muted" style="font-size:.78rem">
+            {{ cl.counterparty | cp_label }}
+          </div>
+          <div class="text-muted mt-1" style="font-size:.76rem">
+            {{ claim_types.get(cl.type, cl.type) }} · {{ cl.date | date_fmt }}
+            {%- if cl.amount %} · <span class="text-danger fw-semibold">{{ cl.amount | money }} ₽</span>{% endif %}
+          </div>
+          {% if cl.assignee %}
+          <div class="text-muted mt-1" style="font-size:.74rem">
+            <i class="bi bi-person me-1"></i>{{ cl.assignee.full_name }}
+          </div>
+          {% endif %}
+        </a>
+        {% else %}
+        <div class="text-muted text-center py-3" style="font-size:.78rem">пусто</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+{# ── Клиенты и точки: так ведётся разбор ──────────────────────────────────── #}
+{% for g in clients %}
+<div class="card border-0 shadow-sm mb-2">
+  <details {% if g.open or loop.first %}open{% endif %}>
+    <summary class="px-3 py-2 d-flex align-items-center gap-2 flex-wrap"
+             style="cursor:pointer; list-style:none">
+      <i class="bi bi-chevron-right claim-caret text-muted"></i>
+      <a href="/counterparties/{{ g.counterparty_id }}#tab-claims"
+         class="fw-semibold text-dark text-decoration-none">{{ g.name }}</a>
+      {% if g.network %}
+      <span class="badge bg-light text-dark border" style="font-size:.68rem">{{ g.network }}</span>
+      {% endif %}
+      <span class="text-muted" style="font-size:.8rem">
+        {{ g.outlets | length }} {% if g.outlets | length == 1 %}точка{% else %}точек{% endif %} ·
+        {{ g.claims | length }} всего
+      </span>
+      {% if g.overdue %}
+      <span class="badge bg-danger" style="font-size:.7rem">просрочено {{ g.overdue }}</span>
+      {% endif %}
+      {% if g.open %}
+      <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle" style="font-size:.7rem">
+        открыто {{ g.open }}
+      </span>
+      {% endif %}
+      {% if g.amount %}
+      <span class="ms-auto fw-semibold text-danger" style="font-size:.85rem">{{ g.amount | money }} ₽</span>
+      {% endif %}
+    </summary>
+
+    <div class="border-top">
+      {% for o in g.outlets %}
+      <div class="{% if not loop.last %}border-bottom{% endif %}">
+        <div class="d-flex align-items-center gap-2 flex-wrap px-3 py-2 bg-light">
+          <i class="bi bi-geo-alt text-muted"></i>
+          <span class="fw-semibold" style="font-size:.85rem">{{ o.label }}</span>
+          {% if o.claims | length > 1 %}
+          <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle"
+                style="font-size:.68rem" title="По этой точке жалуются не первый раз">
+            <i class="bi bi-arrow-repeat me-1"></i>{{ o.claims | length }} раз
+          </span>
+          {% endif %}
+          {% if o.open %}<span class="badge bg-info" style="font-size:.68rem">открыто {{ o.open }}</span>{% endif %}
+          {% if o.overdue %}<span class="badge bg-danger" style="font-size:.68rem">просрочено {{ o.overdue }}</span>{% endif %}
+          <span class="text-muted ms-auto" style="font-size:.76rem">
+            последняя {{ o.last_date | date_fmt }}
+            {%- if o.address_key %}
+            · <a href="/analytics/outlets/detail?key={{ o.address_key }}%23{{ g.counterparty_id }}"
+                 class="text-muted">карточка точки</a>
+            {%- endif %}
+          </span>
+        </div>
+        {% for cl in o.claims %}
+        {% include "claims/_row.html" %}
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+</div>
+{% endfor %}
+{% endif %}
+
+<style>
+  .claim-row:hover, .claim-card:hover { background:#eef2f7 !important; }
+  details > summary::-webkit-details-marker { display:none; }
+  details[open] .claim-caret { transform: rotate(90deg); }
+  .claim-caret { transition: transform .15s; font-size:.75rem }
+  .claims-kanban .claim-card { transition: background .15s }
+</style>
 {% endblock %}

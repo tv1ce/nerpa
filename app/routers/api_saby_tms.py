@@ -64,7 +64,7 @@ async def test_connection(request: Request, db: Session = Depends(get_db)):
     except SabyTmsError as e:
         return _json(False, message=str(e))
     except Exception as e:
-        logger.exception("Saby TMS test error")
+        logger.exception("Saby NERPA test error")
         return _json(False, message=f"Ошибка: {e}")
 
 
@@ -73,7 +73,7 @@ async def test_connection(request: Request, db: Session = Depends(get_db)):
 @router.post("/transport-order/{order_id}")
 @role_required("manager")
 async def create_transport_order(request: Request, order_id: int, db: Session = Depends(get_db)):
-    """Создаёт ЧЕРНОВИК заказа-заявки на перевозку в Saby из заказа TMS.
+    """Создаёт ЧЕРНОВИК заказа-заявки на перевозку в Saby из заказа NERPA.
 
     Флоу: СгенерироватьВложение → ЗаписатьДокумент. Документ остаётся черновиком
     в состоянии «редактируется» — подписание и отправку менеджер делает вручную
@@ -161,7 +161,7 @@ async def transport_order_status(request: Request, order_id: int, db: Session = 
 @router.post("/etran/{order_id}")
 @role_required("manager")
 async def create_etran(request: Request, order_id: int, db: Session = Depends(get_db)):
-    """Создаёт ЧЕРНОВИК ЭТрН (титул грузоотправителя) в Saby из заказа TMS.
+    """Создаёт ЧЕРНОВИК ЭТрН (титул грузоотправителя) в Saby из заказа NERPA.
 
     Флоу: СгенерироватьВложение (титул 1110339) → ЗаписатьДокумент. Последующие
     титулы (перевозчик/грузополучатель) и подписание — в кабинете Saby."""

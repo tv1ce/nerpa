@@ -1,15 +1,15 @@
 """
 Bitrix24 CRM — интеграция через входящий вебхук (без OAuth-приложения).
 
-Направление Bitrix24 → TMS:
+Направление Bitrix24 → NERPA:
   Правило автоматизации на стадии «Заказ согласован» (настраивается вручную
-  в Bitrix24, см. Настройки → Интеграции → Bitrix24 в TMS) дёргает
+  в Bitrix24, см. Настройки → Интеграции → Bitrix24 в NERPA) дёргает
   POST /api/bitrix/webhook/deal-approved?key=...&deal_id={=Document:ID} —
-  TMS подтягивает контрагента (компания/контакт + реквизиты + DaData) и
+  NERPA подтягивает контрагента (компания/контакт + реквизиты + DaData) и
   создаёт черновик заказа, привязанный к сделке.
 
-Направление TMS → Bitrix24:
-  При смене статуса счёта/заказа в TMS (оплачен / собран / доставлен) TMS
+Направление NERPA → Bitrix24:
+  При смене статуса счёта/заказа в NERPA (оплачен / собран / доставлен) NERPA
   зовёт crm.deal.update — двигает стадию сделки и/или проставляет булево
   UF-поле («плашку» на карточке).
 
@@ -35,7 +35,7 @@ ENTITY_TYPE_REQUISITE = 8   # владелец адресов в crm.address (с
 ADDRESS_TYPE_FALLBACK = {"legal": 6, "actual": 1, "registered": 4}
 
 # Пользовательские поля сделки, которые заполняет менеджер в карточке Bitrix24.
-# Ключ TMS -> (подпись поля в карточке, известный код на текущем портале).
+# Ключ NERPA -> (подпись поля в карточке, известный код на текущем портале).
 #
 # Ищем поля по подписи (BitrixClient.deal_uf_codes): код вида
 # UF_CRM_1783407291516 содержит таймстамп создания поля и меняется, если поле
@@ -177,10 +177,10 @@ class BitrixClient:
     def get_product(self, product_id) -> dict:
         """Карточка товара каталога Bitrix24 — читаем XML_ID (обычно код/GUID
         номенклатуры из 1С, если каталог заведён через штатную выгрузку), чтобы
-        сопоставлять товарные позиции сделки с TMS не только по названию."""
+        сопоставлять товарные позиции сделки с NERPA не только по названию."""
         return self.call("crm.product.get", id=product_id) or {}
 
-    # ── Каталог товаров (выгрузка остатков TMS → Bitrix24) ───────────────────
+    # ── Каталог товаров (выгрузка остатков NERPA → Bitrix24) ───────────────────
     #
     # На этом портале старый CRM-каталог (crm.product.*) — кладбище «призрачных»
     # записей NAME='Удален' (crm.product.get/update на реальный товар отвечает
@@ -237,7 +237,7 @@ class BitrixClient:
         self.call("catalog.product.update", id=product_id, fields={field: {"value": value}})
 
     def deal_uf_codes(self) -> dict:
-        """Карта {ключ TMS: код UF-поля сделки}, найденная по подписям полей.
+        """Карта {ключ NERPA: код UF-поля сделки}, найденная по подписям полей.
 
         См. DEAL_UF_FIELDS. Кэшируется на время жизни клиента, поэтому на один
         вебхук приходится ровно один лишний вызов crm.deal.fields. Поле, которое
@@ -324,7 +324,7 @@ class BitrixClient:
 
         У компаний с заполненными реквизитами адреса лежат именно здесь, а поля
         карточки ADDRESS/ADDRESS_LEGAL остаются пустыми — поэтому юр.адрес и не
-        доезжал до TMS.
+        доезжал до NERPA.
         """
         try:
             rows = self.call("crm.address.list",
@@ -341,7 +341,7 @@ class BitrixClient:
                 continue
         return result
 
-    # ── Стадии сделок (для настройки маппинга в TMS) ──────────────────────────
+    # ── Стадии сделок (для настройки маппинга в NERPA) ──────────────────────────
 
     def list_categories(self) -> list:
         """Направления (воронки) сделок. Общая воронка приходит с id=0."""
@@ -357,7 +357,7 @@ class BitrixClient:
         rows = self.call("crm.status.list", filter={"ENTITY_ID": entity_id}, order={"SORT": "ASC"}) or []
         return [{"id": r.get("STATUS_ID"), "name": r.get("NAME")} for r in rows]
 
-    # ── CRM-лиды (TMS → Bitrix24, авто-выгрузка «Прозвон»/«Поле») ─────────────
+    # ── CRM-лиды (NERPA → Bitrix24, авто-выгрузка «Прозвон»/«Поле») ─────────────
 
     def add_lead(self, fields: dict) -> str:
         """Создаёт CRM-лид, возвращает его ID."""
@@ -424,7 +424,7 @@ def _clean_addr(v) -> str:
 
 
 def _format_bx_address(addr: dict) -> str:
-    """Адрес из crm.address (разложен по полям) → одна строка для TMS.
+    """Адрес из crm.address (разложен по полям) → одна строка для NERPA.
 
     Части часто дублируют друг друга («г Санкт-Петербург» в PROVINCE и он же
     внутри CITY), поэтому вложенные повторы выбрасываем — иначе в карточке
@@ -654,7 +654,7 @@ def enrich_from_dadata(data: dict) -> dict:
 # ── Дозаливка реквизитов контрагента из Bitrix24 (отложенная) ────────────────
 
 # Поля контрагента, которые дозаполняем из CRM/DaData. Заполняем ТОЛЬКО пустые —
-# уже введённые в TMS значения не затираем.
+# уже введённые в NERPA значения не затираем.
 _REFRESHABLE_FIELDS = (
     "inn", "kpp", "ogrn", "bank_name", "bank_bik", "bank_account",
     "bank_corr_account", "short_name", "legal_address", "signatory",
@@ -749,10 +749,10 @@ def retry_bitrix_counterparty_requisites(db) -> dict:
     return {"checked": checked, "updated": updated}
 
 
-# ── TMS → Bitrix24: push статуса заказа в сделку ─────────────────────────────
+# ── NERPA → Bitrix24: push статуса заказа в сделку ─────────────────────────────
 
 def push_order_event(order, company, event: str, db=None) -> bool:
-    """Двигает стадию сделки и/или ставит булево UF-поле-«плашку» по событию TMS.
+    """Двигает стадию сделки и/или ставит булево UF-поле-«плашку» по событию NERPA.
 
     event:
       'paid'      — счёт оплачен      → стадия «paid» + флаг bitrix_field_paid=Y
@@ -767,7 +767,7 @@ def push_order_event(order, company, event: str, db=None) -> bool:
     bitrix_stage_* из CompanySettings (направление по умолчанию).
 
     Не бросает исключения наружу — только логирует, чтобы сбой Bitrix24
-    не мешал основному действию в TMS (аналогично push в 1С)."""
+    не мешал основному действию в NERPA (аналогично push в 1С)."""
     if not order.bitrix_deal_id:
         return False
     client = get_bitrix_client(company)
@@ -831,7 +831,7 @@ def find_client_deal(client: BitrixClient, company_ids: list, category_id: int,
                      busy_deal_ids: set, address: str = "") -> Optional[dict]:
     """Открытая карточка клиента в нужном направлении, готовая принять заказ.
 
-    Логика — «одна сделка = один заказ»: берём ОТКРЫТУЮ сделку, по которой в TMS
+    Логика — «одна сделка = один заказ»: берём ОТКРЫТУЮ сделку, по которой в NERPA
     ещё нет заказа. Если такой нет (клиент заказывает второй раз, а менеджер не
     довёл первую сделку до отгрузки) — возвращаем None, и вызывающий код заводит
     новую карточку. Иначе второй заказ клиента потерялся бы: вебхук
@@ -894,11 +894,11 @@ def find_client_deal(client: BitrixClient, company_ids: list, category_id: int,
 def apply_shop_order_to_deal(cp, items: list, order_data: dict, company, db) -> dict:
     """Заказ из клиентского кабинета → карточка клиента в Bitrix24.
 
-    Сделку НЕ создаём без нужды и заказ в TMS не пишем вовсе: заполняем
+    Сделку НЕ создаём без нужды и заказ в NERPA не пишем вовсе: заполняем
     существующую карточку клиента (адрес, дата, телефон, номенклатура, сумма)
     и двигаем её на стадию «Заказ согласован». Дальше срабатывает робот,
     который дёргает /api/bitrix/webhook/deal-approved — и заказ приезжает в
-    TMS штатным путём, тем же, что и заказы менеджеров. Так у заказа остаётся
+    NERPA штатным путём, тем же, что и заказы менеджеров. Так у заказа остаётся
     один источник истины и не возникает дублей.
 
     items: [(Product, qty, price)] — цены уже со скидкой контрагента.
@@ -975,7 +975,7 @@ def apply_shop_order_to_deal(cp, items: list, order_data: dict, company, db) -> 
                     "COMPANY_ID": owner_id,
                     "CATEGORY_ID": category_id,
                     "SOURCE_ID": "WEB",
-                    "SOURCE_DESCRIPTION": "TMS — кабинет клиента",
+                    "SOURCE_DESCRIPTION": "NERPA — кабинет клиента",
                     "OPENED": "N",
                 })
                 manager = getattr(cp, "manager", None)
@@ -1016,25 +1016,25 @@ def apply_shop_order_to_deal(cp, items: list, order_data: dict, company, db) -> 
         return fail(str(e))
 
 
-# ── TMS → Bitrix24: остаток товара в свойство каталога ──────────────────────
+# ── NERPA → Bitrix24: остаток товара в свойство каталога ──────────────────────
 # Остаток в карточке товара живёт в свойстве «Остаток» (id=119, IBLOCK_ID=17)
 # Universal Catalog — см. развёрнутый комментарий у BitrixClient.list_catalog_products.
-# Значение приезжает следом за синхронизацией остатков из 1С: TMS не считает
+# Значение приезжает следом за синхронизацией остатков из 1С: NERPA не считает
 # остаток сам, а берёт кэш StockBalance1C — тот же, что показывает кладовщику
 # (см. get_1c_balances).
 
 DEFAULT_STOCK_FIELD = "property119"
 
-# Строки bitrix_product_links для остатка (товар TMS → РОДИТЕЛЬСКИЙ товар
+# Строки bitrix_product_links для остатка (товар NERPA → РОДИТЕЛЬСКИЙ товар
 # каталога) держим с этим префиксом — иначе они пересекутся по смыслу со
 # строками, которые создаёт приём сделок (api_bitrix._match_bitrix_product):
 # та таблица уже используется для сопоставления SKU-офера сделки с товаром
-# TMS, там bitrix_product_id — голый числовой ID офера. Остаток пишется на
+# NERPA, там bitrix_product_id — голый числовой ID офера. Остаток пишется на
 # СОВСЕМ другой ID (родителя), поэтому смешивать их в одном пространстве id
 # нельзя — префикс разводит два назначения одной таблицы.
 CATALOG_LINK_PREFIX = "cat:"
 
-# Каталог обходим не чаще раза в час: привязка товар Bitrix ↔ товар TMS
+# Каталог обходим не чаще раза в час: привязка товар Bitrix ↔ товар NERPA
 # запоминается в bitrix_product_links, а синхронизация остатков идёт раз в
 # минуту — сканировать каталог на каждый прогон незачем.
 _CATALOG_SCAN_TTL_SEC = 3600
@@ -1062,7 +1062,7 @@ def _fmt_stock(value: float) -> str:
 
 def _scan_bitrix_catalog(client, db, field: str) -> dict:
     """Сопоставляет РОДИТЕЛЬСКИЕ товары каталога (iblockId=17, type=3) с
-    номенклатурой TMS, создаёт недостающие привязки в bitrix_product_links
+    номенклатурой NERPA, создаёт недостающие привязки в bitrix_product_links
     (с префиксом CATALOG_LINK_PREFIX). Возвращает {bitrix_product_id: текущее
     значение свойства остатка} — чтобы не переписывать то, что уже совпадает.
 
@@ -1131,10 +1131,10 @@ def _read_property(raw) -> str:
 
 
 def push_stock_to_bitrix(db, force_rescan: bool = False) -> dict:
-    """Выгружает остатки TMS/1С в свойство товара каталога Bitrix24.
+    """Выгружает остатки NERPA/1С в свойство товара каталога Bitrix24.
 
     Вызывается сразу после sync_stock_balances_from_1c — то есть остаток в CRM
-    обновляется тем же тактом, что и на складе в TMS. Пишем только изменившиеся
+    обновляется тем же тактом, что и на складе в NERPA. Пишем только изменившиеся
     значения (см. BitrixProductLink.last_stock_pushed), поэтому обычный прогон
     раз в минуту почти всегда не делает ни одного вызова Bitrix24.
 
@@ -1230,13 +1230,13 @@ def push_stock_to_bitrix(db, force_rescan: bool = False) -> dict:
     return result
 
 
-# ── TMS → Bitrix24: авто-выгрузка лидов «Прозвон»/«Поле» в статусе «deal» ────
+# ── NERPA → Bitrix24: авто-выгрузка лидов «Прозвон»/«Поле» в статусе «deal» ────
 
 def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
     """Создаёт CRM-лид в Bitrix24, когда точка «Прозвона»/«Поля» переходит в
     статус call_status == 'deal'.
 
-    Ответственный: если у назначенного в TMS торгпреда/менеджера (lead.assigned_to)
+    Ответственный: если у назначенного в NERPA торгпреда/менеджера (lead.assigned_to)
     задан персональный User.bitrix_user_id — лид уходит на него, иначе на общий
     company.bitrix_lead_responsible_id (Настройки → Bitrix24).
 
@@ -1257,7 +1257,7 @@ def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
         responsible_id = company.bitrix_lead_responsible_id
 
     source_is_field = lead.source_file == "field_rep"
-    source_label = "TMS — Поле (торгпред)" if source_is_field else "TMS — Прозвон"
+    source_label = "NERPA — Поле (торгпред)" if source_is_field else "NERPA — Прозвон"
 
     comments_parts = []
     if lead.category:
@@ -1269,12 +1269,12 @@ def push_lead_deal_to_bitrix(lead, company, db=None) -> bool:
         comments_parts.append(f"ЛПР: {who}")
     if getattr(company, "public_url", None):
         path = f"/field/lead/{lead.id}" if source_is_field else f"/leads/?q={lead.name}"
-        comments_parts.append(f"Карточка в TMS: {company.public_url.rstrip('/')}{path}")
+        comments_parts.append(f"Карточка в NERPA: {company.public_url.rstrip('/')}{path}")
 
     address = ", ".join(p for p in (lead.city, lead.address) if p) or None
     fields = {
         "TITLE": lead.name,
-        # Лид уже привёл к реальному договору в TMS — сразу «В работе», а не
+        # Лид уже привёл к реальному договору в NERPA — сразу «В работе», а не
         # «Не обработан», чтобы не создавать у ответственного впечатление
         # свежего холодного лида, который ещё никто не трогал.
         "STATUS_ID": "IN_PROCESS",
@@ -1318,7 +1318,7 @@ def push_site_lead_to_bitrix(lead, company, db=None) -> bool:
     перезвонить, а не решить, что его кто-то уже ведёт.
 
     Идемпотентно и не бросает исключений: заявка клиента не должна теряться
-    из-за недоступной CRM — она в любом случае уже сохранена в TMS."""
+    из-за недоступной CRM — она в любом случае уже сохранена в NERPA."""
     if lead.bitrix_lead_id:
         return False
     if not company or not company.bitrix_lead_export_enabled:
@@ -1340,7 +1340,7 @@ def push_site_lead_to_bitrix(lead, company, db=None) -> bool:
         "STATUS_ID": "NEW",
         "OPENED": "N",
         "SOURCE_ID": "WEB",
-        "SOURCE_DESCRIPTION": "TMS — форма на сайте",
+        "SOURCE_DESCRIPTION": "NERPA — форма на сайте",
         "COMPANY_TITLE": lead.name,
         "NAME": lead.contact_person or None,
         "PHONE": [{"VALUE": lead.phone, "VALUE_TYPE": "WORK"}] if lead.phone else None,

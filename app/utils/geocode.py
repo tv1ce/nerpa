@@ -7,14 +7,14 @@ import time
 
 import httpx
 
-logger = logging.getLogger("tms.geocode")
+logger = logging.getLogger("nerpa.geocode")
 
 _NOMINATIM = "https://nominatim.openstreetmap.org/search"
 # Nominatim usage policy требует identifying User-Agent + контакт для связи в случае проблем,
 # иначе IP/UA банится без предупреждения. См. https://operations.osmfoundation.org/policies/nominatim/
 _CONTACT = os.getenv("NOMINATIM_CONTACT", "")
 _HEADERS = {
-    "User-Agent": f"TMS-SalesLeads/1.0 ({_CONTACT})" if _CONTACT else "TMS-SalesLeads/1.0 (internal)",
+    "User-Agent": f"NERPA-SalesLeads/1.0 ({_CONTACT})" if _CONTACT else "NERPA-SalesLeads/1.0 (internal)",
 }
 _DELAY = 1.15  # секунд между запросами
 

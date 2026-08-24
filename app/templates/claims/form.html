@@ -2,7 +2,9 @@
 {% block title %}Новая рекламация{% endblock %}
 {% block page_title %}Новая рекламация{% endblock %}
 {% block topbar_actions %}
-  {% if preselect_cp %}
+  {% if preselect_order %}
+  <a href="/orders/{{ preselect_order.id }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>К заказу</a>
+  {% elif preselect_cp %}
   <a href="/counterparties/{{ preselect_cp.id }}#tab-claims" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
   {% else %}
   <a href="/claims/" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Назад</a>
@@ -10,92 +12,475 @@
 {% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
+<form method="post" action="/claims/new" id="claimForm">
+<div class="row g-3">
+
+  {# ── Шаг 1: клиент и точка ─────────────────────────────────────────────── #}
   <div class="col-lg-7">
-    <div class="card border-0 shadow-sm p-4">
-      <form method="post" action="/claims/new" id="claimForm">
-        <div class="row g-3">
+    <div class="card border-0 shadow-sm p-4 mb-3">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <span class="claim-step">1</span>
+        <span class="fw-semibold">Кто и где</span>
+      </div>
 
-          <div class="col-md-4">
-            <label class="form-label">Дата *</label>
-            <input type="date" name="claim_date" class="form-control" required value="{{ today }}">
+      <div class="row g-3">
+        {# Контрагент с поиском: в списке видно и вывеску, и юрлицо, и ИНН.
+           Одной вывески мало — у сети франчайзи она общая, а юрлиц несколько. #}
+        <div class="col-md-8">
+          <label class="form-label">Контрагент *</label>
+          <div class="position-relative" id="cpPicker">
+            <input type="hidden" name="counterparty_id" id="cpSelect"
+                   value="{{ preselect_cp.id if preselect_cp else '' }}" required>
+            <div class="input-group">
+              <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+              <input type="text" class="form-control" id="cpSearch" autocomplete="off"
+                     placeholder="Название заведения, юрлицо или ИНН…"
+                     value="{{ preselect_cp | cp_label if preselect_cp else '' }}">
+              <button type="button" class="btn btn-outline-secondary" id="cpClear"
+                      title="Сбросить"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div id="cpResults" class="border rounded bg-white shadow-sm position-absolute w-100"
+                 style="display:none; z-index:30; max-height:16rem; overflow-y:auto"></div>
           </div>
-
-          <div class="col-md-8">
-            <label class="form-label">Контрагент *</label>
-            <select name="counterparty_id" id="cpSelect" class="form-select" required onchange="loadOrders(this.value)">
-              <option value="">— выберите контрагента —</option>
-              {% for cp in counterparties %}
-              <option value="{{ cp.id }}"
-                {% if preselect_cp and preselect_cp.id == cp.id %}selected{% endif %}>
-                {{ cp.trade_name or cp.name }}
-              </option>
-              {% endfor %}
-            </select>
-          </div>
-
-          <div class="col-12">
-            <label class="form-label">Привязать к заказу <span class="text-muted">(необязательно)</span></label>
-            <select name="order_id" id="orderSelect" class="form-select">
-              <option value="0">— без привязки —</option>
-              {% for o in orders %}
-              <option value="{{ o.id }}">{{ o.number }} от {{ o.date | date_fmt }}</option>
-              {% endfor %}
-            </select>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">Тип рекламации</label>
-            <select name="claim_type" class="form-select">
-              {% for val, label in claim_types.items() %}
-              <option value="{{ val }}">{{ label }}</option>
-              {% endfor %}
-            </select>
-          </div>
-
-          <div class="col-md-6">
-            <label class="form-label">Сумма претензии, ₽ <span class="text-muted">(необязательно)</span></label>
-            <input type="number" name="amount" class="form-control" step="0.01" min="0" placeholder="0.00">
-          </div>
-
-          <div class="col-12">
-            <label class="form-label">Описание / суть претензии</label>
-            <textarea name="description" class="form-control" rows="4" placeholder="Опишите проблему подробно…"></textarea>
-          </div>
-
-          <div class="col-12 d-flex gap-2">
-            <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Создать рекламацию</button>
-            <a href="/claims/" class="btn btn-outline-secondary">Отмена</a>
-          </div>
-
         </div>
-      </form>
+        <div class="col-md-4">
+          <label class="form-label">Дата обращения *</label>
+          <input type="date" name="claim_date" class="form-control" required value="{{ today }}">
+        </div>
+      </div>
+
+      {# Точки клиента. Главное отличие нового механизма: претензия заводится на
+         конкретный адрес, а не «на клиента» — у сетевого клиента их десятки. #}
+      <div class="mt-4">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label mb-0">Точка (адрес доставки) *</label>
+          <span class="text-muted" style="font-size:.76rem" id="outletHint">
+            выберите клиента — покажем его точки
+          </span>
+        </div>
+        <input type="hidden" name="address_key" id="addressKey" value="{{ preselect_address_key }}">
+        <input type="hidden" name="order_id" id="orderId" value="{{ preselect_order.id if preselect_order else 0 }}">
+        <div id="outletList" class="d-grid gap-2"></div>
+
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" id="noOutlet">
+          <label class="form-check-label text-muted" for="noOutlet" style="font-size:.82rem">
+            Претензия к клиенту в целом (документы, оплата) — точка не нужна
+          </label>
+        </div>
+      </div>
+
+      {# Заказ выбирается уже внутри точки: только её поставки, а не все 200
+         заказов клиента — «по какой именно поставке брак» становится вопросом
+         с тремя вариантами ответа вместо двухсот. #}
+      <div class="mt-3" id="orderBlock" style="display:none">
+        <label class="form-label">Поставка по этой точке <span class="text-muted">(необязательно)</span></label>
+        <div id="orderList" class="d-flex flex-wrap gap-2"></div>
+      </div>
+    </div>
+
+    {# ── Шаг 2: суть ────────────────────────────────────────────────────── #}
+    <div class="card border-0 shadow-sm p-4">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <span class="claim-step">2</span>
+        <span class="fw-semibold">Что случилось</span>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Тип</label>
+          <select name="claim_type" id="claimType" class="form-select">
+            {% for val, label in claim_types.items() %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Критичность</label>
+          <div class="btn-group w-100" role="group">
+            {% for val, label in claim_severities.items() %}
+            <input type="radio" class="btn-check" name="severity" value="{{ val }}"
+                   id="sev-{{ val }}" {% if val == 'normal' %}checked{% endif %}>
+            <label class="btn btn-outline-{{ severity_colors.get(val, 'secondary') }} btn-sm" for="sev-{{ val }}">
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+          <div class="form-text" style="font-size:.74rem">
+            Срок разбора: критичная — сутки, обычная — 3 дня, мелкая — неделя.
+          </div>
+        </div>
+
+        {# Позиции: в одной претензии обычно несколько вкусов сразу #}
+        <div class="col-12">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <label class="form-label mb-0">
+              Номенклатура <span class="text-muted">(на что жалуются)</span>
+            </label>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addItemBtn">
+              <i class="bi bi-plus-lg me-1"></i>Добавить позицию
+            </button>
+          </div>
+          <input type="hidden" name="items_json" id="itemsJson" value="[]">
+          <div id="itemsBox" class="d-flex flex-column gap-2"></div>
+          <div class="form-text" style="font-size:.74rem">
+            Суммы по позициям складываются в сумму претензии — её можно поправить руками.
+          </div>
+        </div>
+
+        <div class="col-md-4">
+          <label class="form-label">Сумма претензии, ₽</label>
+          <input type="number" name="amount" id="amountInput" class="form-control"
+                 step="0.01" min="0" placeholder="0.00">
+        </div>
+
+        <div class="col-12">
+          <label class="form-label">Описание / суть претензии</label>
+          <textarea name="description" class="form-control" rows="4"
+                    placeholder="Что именно, кто сообщил, что просит клиент…"></textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Ответственный за разбор</label>
+          <select name="assignee_id" class="form-select">
+            <option value="0">— не назначен —</option>
+            {% for u in users %}
+            <option value="{{ u.id }}"
+              {% if u.id == request.session.get('user_id') %}selected{% endif %}>{{ u.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="d-flex gap-2 mt-4">
+        <button type="submit" class="btn btn-accent"><i class="bi bi-check-lg me-1"></i>Создать рекламацию</button>
+        <a href="/claims/" class="btn btn-outline-secondary">Отмена</a>
+      </div>
     </div>
   </div>
+
+  {# ── Контекст точки: история претензий по выбранному адресу ────────────── #}
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm p-3" id="contextCard">
+      <div class="fw-semibold mb-2" style="font-size:.88rem">
+        <i class="bi bi-clock-history me-1"></i>История по выбранной точке
+      </div>
+      <div class="text-muted" id="contextBody" style="font-size:.84rem">
+        Выберите точку — покажем, сколько раз по ней уже жаловались.
+        Повтор по одному адресу — это другой разговор, чем разовый брак.
+      </div>
+    </div>
+  </div>
+
 </div>
+</form>
+
+<style>
+  .claim-step {
+    width:1.6rem; height:1.6rem; border-radius:50%; background:var(--brand); color:#fff;
+    display:inline-flex; align-items:center; justify-content:center;
+    font-size:.8rem; font-weight:700; flex-shrink:0;
+  }
+  .outlet-pick { cursor:pointer; text-align:left; }
+  .outlet-pick.active { border-color:var(--brand) !important; box-shadow:0 0 0 2px rgba(0,0,0,.04) inset; }
+  .outlet-pick.active .outlet-check { visibility:visible }
+  .outlet-check { visibility:hidden; color:var(--brand) }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-async function loadOrders(cpId) {
-  const sel = document.getElementById('orderSelect');
-  sel.innerHTML = '<option value="0">— без привязки —</option>';
-  if (!cpId) return;
-  try {
-    const resp = await fetch('/claims/by-order/0?cp_id=' + cpId);
-    const orders = await resp.json();
-    orders.forEach(function(o) {
-      const opt = document.createElement('option');
-      opt.value = o.id;
-      opt.textContent = o.number + ' от ' + o.date;
-      sel.appendChild(opt);
-    });
-  } catch(e) {}
+const PRESELECT_KEY   = {{ (preselect_address_key or '') | tojson }};
+const PRESELECT_ORDER = {{ (preselect_order.id if preselect_order else 0) | tojson }};
+const CLIENTS  = {{ clients_json | tojson }};
+const PRODUCTS = {{ products_json | tojson }};
+let outlets = [];
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 }
-// Инициализация при загрузке если контрагент уже выбран
-(function() {
-  const cpSel = document.getElementById('cpSelect');
-  if (cpSel.value) loadOrders(cpSel.value);
+
+async function loadOutlets(cpId, keepKey) {
+  const list = document.getElementById('outletList');
+  const hint = document.getElementById('outletHint');
+  outlets = [];
+  list.innerHTML = '';
+  document.getElementById('orderBlock').style.display = 'none';
+  if (!cpId) { hint.textContent = 'выберите клиента — покажем его точки'; renderContext(null); return; }
+  hint.textContent = 'загрузка…';
+  try {
+    const resp = await fetch('/claims/outlets?cp_id=' + cpId);
+    outlets = await resp.json();
+  } catch (e) { outlets = []; }
+
+  if (!outlets.length) {
+    hint.textContent = 'у клиента нет отгруженных заказов с адресом';
+    list.innerHTML = '<div class="text-muted" style="font-size:.84rem">' +
+      'Точек нет: адрес доставки берётся из отгруженных заказов. ' +
+      'Отметьте «претензия к клиенту в целом» — или сначала проведите заказ.</div>';
+    document.getElementById('noOutlet').checked = true;
+    toggleNoOutlet();
+    return;
+  }
+  hint.textContent = outlets.length + (outlets.length === 1 ? ' точка' : ' точек');
+  outlets.forEach(o => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'outlet-pick border rounded p-2 bg-white';
+    el.dataset.key = o.address_key;
+    el.innerHTML =
+      '<div class="d-flex align-items-center gap-2">' +
+        '<i class="bi bi-check-circle-fill outlet-check"></i>' +
+        '<span class="fw-semibold" style="font-size:.88rem">' + esc(o.label) + '</span>' +
+        (o.claims_open ? '<span class="badge bg-danger" style="font-size:.66rem">открыто ' + o.claims_open + '</span>' : '') +
+        (o.claims_total > o.claims_open && o.claims_total
+          ? '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" style="font-size:.66rem">всего ' + o.claims_total + '</span>' : '') +
+        '<span class="text-muted ms-auto" style="font-size:.74rem">поставок: ' + o.orders_count + '</span>' +
+      '</div>' +
+      '<div class="text-muted" style="font-size:.78rem">' + esc(o.address) +
+        (o.last_date ? ' · последняя ' + o.last_date : '') + '</div>';
+    el.addEventListener('click', () => selectOutlet(o.address_key));
+    list.appendChild(el);
+  });
+
+  const key = keepKey || PRESELECT_KEY;
+  if (key && outlets.some(o => o.address_key === key)) selectOutlet(key);
+  else if (outlets.length === 1) selectOutlet(outlets[0].address_key);
+}
+
+function selectOutlet(key) {
+  document.getElementById('addressKey').value = key;
+  document.getElementById('noOutlet').checked = false;
+  document.querySelectorAll('.outlet-pick').forEach(el =>
+    el.classList.toggle('active', el.dataset.key === key));
+  const o = outlets.find(x => x.address_key === key);
+  renderOrders(o);
+  renderContext(o);
+}
+
+function renderOrders(o) {
+  const block = document.getElementById('orderBlock');
+  const list = document.getElementById('orderList');
+  list.innerHTML = '';
+  if (!o || !o.orders.length) { block.style.display = 'none'; return; }
+  block.style.display = '';
+  const mk = (id, label) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn btn-sm btn-outline-secondary';
+    b.textContent = label;
+    b.dataset.order = id;
+    b.addEventListener('click', () => pickOrder(id));
+    list.appendChild(b);
+  };
+  mk(0, 'без привязки');
+  o.orders.forEach(ord => mk(ord.id, ord.number + ' · ' + ord.date));
+  pickOrder(PRESELECT_ORDER && o.orders.some(x => x.id === PRESELECT_ORDER)
+    ? PRESELECT_ORDER : (o.orders[0] ? o.orders[0].id : 0));
+}
+
+function pickOrder(id) {
+  document.getElementById('orderId').value = id;
+  document.querySelectorAll('#orderList button').forEach(b => {
+    const on = String(b.dataset.order) === String(id);
+    b.classList.toggle('btn-dark', on);
+    b.classList.toggle('btn-outline-secondary', !on);
+  });
+}
+
+function renderContext(o) {
+  const body = document.getElementById('contextBody');
+  if (!o) {
+    body.innerHTML = 'Выберите точку — покажем, сколько раз по ней уже жаловались.';
+    return;
+  }
+  if (!o.claims_total) {
+    body.innerHTML = '<div class="text-success"><i class="bi bi-check-circle me-1"></i>' +
+      'По <strong>' + esc(o.label) + '</strong> рекламаций ещё не было — это первая.</div>' +
+      '<div class="text-muted mt-2" style="font-size:.8rem">Поставок по точке: ' + o.orders_count +
+      (o.last_date ? ', последняя ' + o.last_date : '') + '.</div>';
+    return;
+  }
+  body.innerHTML =
+    '<div class="' + (o.claims_open ? 'text-danger' : 'text-warning-emphasis') + '">' +
+      '<i class="bi bi-exclamation-triangle-fill me-1"></i>' +
+      'По <strong>' + esc(o.label) + '</strong> уже ' + o.claims_total + ' рекламаци' +
+      (o.claims_total === 1 ? 'я' : (o.claims_total < 5 ? 'и' : 'й')) +
+      (o.claims_open ? ', из них открытых — ' + o.claims_open : ', все закрыты') + '.' +
+    '</div>' +
+    '<a class="btn btn-sm btn-outline-secondary mt-2" href="/claims/?address_key=' +
+      encodeURIComponent(o.address_key) + '">Посмотреть историю точки</a>';
+}
+
+function toggleNoOutlet() {
+  const off = document.getElementById('noOutlet').checked;
+  if (off) {
+    document.getElementById('addressKey').value = '';
+    document.getElementById('orderId').value = 0;
+    document.querySelectorAll('.outlet-pick').forEach(el => el.classList.remove('active'));
+    document.getElementById('orderBlock').style.display = 'none';
+    renderContext(null);
+  }
+}
+
+// ── Выбор контрагента: поиск по вывеске, юрлицу и ИНН ──────────────────────
+(function () {
+  const hidden = document.getElementById('cpSelect');
+  const search = document.getElementById('cpSearch');
+  const box    = document.getElementById('cpResults');
+  const clear  = document.getElementById('cpClear');
+
+  const label = c => c.trade && c.name && c.trade !== c.name
+    ? c.trade + ' · ' + c.name : (c.trade || c.name);
+
+  function render(list) {
+    if (!list.length) {
+      box.innerHTML = '<div class="px-3 py-2 text-muted" style="font-size:.84rem">' +
+        'Ничего не нашлось</div>';
+    } else {
+      box.innerHTML = list.slice(0, 40).map(c =>
+        '<button type="button" class="btn btn-sm w-100 text-start border-0 rounded-0 cp-option" ' +
+          'data-id="' + c.id + '">' +
+          '<span class="fw-semibold" style="font-size:.86rem">' + esc(c.trade || c.name) + '</span>' +
+          (c.trade && c.name && c.trade !== c.name
+            ? '<span class="text-muted" style="font-size:.8rem"> · ' + esc(c.name) + '</span>' : '') +
+          (c.inn ? '<div class="text-muted" style="font-size:.74rem">ИНН ' + esc(c.inn) + '</div>' : '') +
+        '</button>').join('');
+      box.querySelectorAll('.cp-option').forEach(b =>
+        b.addEventListener('mousedown', e => {
+          e.preventDefault();
+          pick(CLIENTS.find(c => String(c.id) === b.dataset.id));
+        }));
+    }
+    box.style.display = '';
+  }
+
+  function pick(c) {
+    if (!c) return;
+    hidden.value = c.id;
+    search.value = label(c);
+    box.style.display = 'none';
+    loadOutlets(c.id);
+  }
+
+  function filter(q) {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return CLIENTS;
+    return CLIENTS.filter(c =>
+      (c.trade + ' ' + c.name + ' ' + c.inn).toLowerCase().includes(needle));
+  }
+
+  search.addEventListener('input', () => {
+    // Текст правят — прежний выбор больше не действителен, пока не выберут снова
+    hidden.value = '';
+    render(filter(search.value));
+  });
+  search.addEventListener('focus', () => render(filter(search.value)));
+  search.addEventListener('blur', () => setTimeout(() => { box.style.display = 'none'; }, 120));
+  search.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const first = filter(search.value)[0];
+      if (first) pick(first);
+    } else if (e.key === 'Escape') {
+      box.style.display = 'none';
+    }
+  });
+  clear.addEventListener('click', () => {
+    hidden.value = ''; search.value = '';
+    loadOutlets('');
+    search.focus();
+  });
+})();
+
+// ── Позиции рекламации ────────────────────────────────────────────────────
+let items = [];
+
+function itemsSum() {
+  return items.reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+}
+
+function syncItems() {
+  document.getElementById('itemsJson').value = JSON.stringify(
+    items.filter(i => i.product_id));
+  // Итог складываем из позиций; если сумм нет — поле остаётся как ввели руками
+  const sum = itemsSum();
+  if (sum > 0) document.getElementById('amountInput').value = sum.toFixed(2);
+}
+
+function renderItems() {
+  const box = document.getElementById('itemsBox');
+  box.innerHTML = '';
+  if (!items.length) {
+    box.innerHTML = '<div class="text-muted" style="font-size:.82rem">' +
+      'Позиции не указаны — для претензий по документам или доставке это нормально.</div>';
+    syncItems();
+    return;
+  }
+  items.forEach((item, idx) => {
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-center';
+    row.innerHTML =
+      '<div class="col-md-5"><select class="form-select form-select-sm" data-f="product_id">' +
+        '<option value="">— выберите номенклатуру —</option>' +
+        PRODUCTS.map(p => '<option value="' + p.id + '"' +
+          (String(p.id) === String(item.product_id) ? ' selected' : '') + '>' +
+          esc(p.name) + '</option>').join('') +
+      '</select></div>' +
+      '<div class="col-md-2"><input type="number" class="form-control form-control-sm" ' +
+        'step="1" min="0" placeholder="шт" data-f="quantity" value="' + (item.quantity ?? '') + '"></div>' +
+      '<div class="col-md-2"><input type="number" class="form-control form-control-sm" ' +
+        'step="0.01" min="0" placeholder="₽" data-f="amount" value="' + (item.amount ?? '') + '"></div>' +
+      '<div class="col-md-2"><input type="text" class="form-control form-control-sm" ' +
+        'placeholder="что не так" data-f="note" value="' + esc(item.note || '') + '"></div>' +
+      '<div class="col-md-1 text-end"><button type="button" class="btn btn-sm btn-link text-danger p-0" ' +
+        'title="Убрать позицию"><i class="bi bi-x-lg"></i></button></div>';
+    row.querySelectorAll('[data-f]').forEach(el =>
+      el.addEventListener('change', () => {
+        items[idx][el.dataset.f] = el.value;
+        syncItems();
+      }));
+    row.querySelector('button').addEventListener('click', () => {
+      items.splice(idx, 1);
+      renderItems();
+    });
+    box.appendChild(row);
+  });
+  syncItems();
+}
+
+document.getElementById('addItemBtn').addEventListener('click', () => {
+  items.push({product_id: '', quantity: '', amount: '', note: ''});
+  renderItems();
+});
+
+document.getElementById('noOutlet').addEventListener('change', toggleNoOutlet);
+
+// Клиента и точку указать обязательно — либо явно отметить, что претензия к
+// клиенту в целом. Контрагент теперь ищется текстом, поэтому проверяем, что за
+// набранным текстом стоит выбранная запись, а не просто похожие буквы.
+document.getElementById('claimForm').addEventListener('submit', e => {
+  const cpId = document.getElementById('cpSelect').value;
+  if (!cpId) {
+    e.preventDefault();
+    const s = document.getElementById('cpSearch');
+    s.classList.add('is-invalid');
+    s.focus();
+    return;
+  }
+  const key = document.getElementById('addressKey').value;
+  if (!key && !document.getElementById('noOutlet').checked) {
+    e.preventDefault();
+    document.getElementById('outletHint').innerHTML =
+      '<span class="text-danger">выберите точку или отметьте «к клиенту в целом»</span>';
+    document.getElementById('outletList').scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
+});
+
+(function () {
+  renderItems();
+  const cp = document.getElementById('cpSelect');
+  if (cp.value) loadOutlets(cp.value, PRESELECT_KEY);
 })();
 </script>
 {% endblock %}

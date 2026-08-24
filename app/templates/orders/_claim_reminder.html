@@ -1,42 +1,70 @@
 {# Напоминание о нерешённых рекламациях клиента.
-   Ожидает open_claims (список Claim) — см. open_claims_for_counterparty.
-   Подключается в карточке заказа и в форме создания/правки заказа. #}
-{% if open_claims %}
-<div class="alert alert-warning border-0 shadow-sm mb-3" role="alert">
+
+   Ожидает order_claims = {"same": [...], "other": [...]} — см.
+   services.claims.claims_for_order. Смысл разделения: в заказе на конкретный
+   адрес в глаза должны бить претензии по ЭТОМУ адресу, а претензии по другим
+   точкам того же клиента — оставаться свёрнутым хвостом. Иначе у сетевого
+   клиента баннер разрастался в простыню, в которой ничего не найти.
+
+   Для обратной совместимости поддерживается плоский open_claims. #}
+{% set cl_same  = order_claims.same  if order_claims else (open_claims or []) %}
+{% set cl_other = order_claims.other if order_claims else [] %}
+
+{% if cl_same or cl_other %}
+<div class="alert {% if cl_same %}alert-danger{% else %}alert-warning{% endif %} border-0 shadow-sm mb-3" role="alert">
   <div class="d-flex align-items-start gap-2">
     <i class="bi bi-exclamation-triangle-fill fs-5 lh-1 mt-1"></i>
     <div class="flex-grow-1" style="min-width:0">
-      <div class="fw-semibold mb-1">
-        {% if open_claims | length == 1 %}
-          По клиенту есть нерешённая рекламация
+
+      {% if cl_same %}
+      <div class="fw-semibold mb-2">
+        {% if cl_same | length == 1 %}
+          Нерешённая рекламация по этой точке
         {% else %}
-          По клиенту есть нерешённые рекламации — {{ open_claims | length }}
+          Нерешённых рекламаций по этой точке — {{ cl_same | length }}
         {% endif %}
       </div>
-      {% for c in open_claims %}
-      <div class="{% if not loop.last %}border-bottom pb-2 mb-2{% endif %}" style="font-size:.86rem">
-        <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="d-flex flex-column gap-1">
+        {% for c in cl_same %}
+        <div class="d-flex align-items-center gap-2 flex-wrap" style="font-size:.86rem">
           <a href="/claims/{{ c.id }}" class="fw-semibold text-decoration-none">{{ c.number }}</a>
-          <span class="badge bg-{{ 'warning text-dark' if c.status == 'in_progress' else 'info text-dark' }}">
-            {{ claim_statuses[c.status] }}
-          </span>
-          <span class="text-muted">{{ claim_types.get(c.type, c.type) }} · от {{ c.date | date_fmt }}</span>
-          {% if c.order %}
-          <span class="text-muted">
-            по заказу <a href="/orders/{{ c.order_id }}" class="text-decoration-none">{{ c.order.number }}</a>
-            {%- if c.order.date %} от {{ c.order.date | date_fmt }}{% endif %}
-          </span>
-          {% else %}
-          <span class="text-muted">без привязки к заказу</span>
+          <span class="badge bg-{{ 'warning text-dark' if c.status == 'in_progress' else 'info text-dark' }}"
+                style="font-size:.68rem">{{ claim_statuses[c.status] }}</span>
+          {% if c.severity == 'critical' %}
+          <span class="badge bg-danger" style="font-size:.68rem">критичная</span>
           {% endif %}
+          <span class="text-muted">{{ claim_types.get(c.type, c.type) }} · от {{ c.date | date_fmt }}</span>
           {% if c.amount %}<span class="text-muted">· {{ c.amount | money }} ₽</span>{% endif %}
+          {% if c.description %}
+          <span class="text-truncate" style="max-width:22rem" title="{{ c.description }}">
+            — {{ c.description }}
+          </span>
+          {% endif %}
         </div>
-        {% if c.description %}
-        <div class="mt-1" style="white-space:pre-wrap">{{ c.description }}</div>
-        {% endif %}
+        {% endfor %}
       </div>
-      {% endfor %}
-      <div class="text-muted mt-1" style="font-size:.78rem">
+      {% endif %}
+
+      {% if cl_other %}
+      <details class="{% if cl_same %}mt-2 pt-2 border-top{% endif %}">
+        <summary style="cursor:pointer; font-size:.84rem"
+                 class="{% if cl_same %}text-muted{% else %}fw-semibold{% endif %}">
+          {% if cl_same %}Ещё{% else %}У клиента открыто{% endif %}
+          {{ cl_other | length }} по другим точкам клиента
+        </summary>
+        <div class="mt-1 d-flex flex-wrap gap-2">
+          {% for c in cl_other %}
+          <a href="/claims/{{ c.id }}" class="badge bg-light text-dark border text-decoration-none"
+             style="font-size:.72rem">
+            {{ c.number }} · {{ c.address_key | outlet_label if c.address_key else 'без точки' }}
+            · {{ claim_types.get(c.type, c.type) }}
+          </a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+
+      <div class="text-muted mt-2" style="font-size:.76rem">
         Напоминание пропадёт, когда рекламации проставят статус «Решена» или «Отклонена».
       </div>
     </div>

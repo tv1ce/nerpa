@@ -196,7 +196,7 @@ class StockBalance1C(Base):
     """Кэш реального остатка по складу из 1С (регистр накопления
     AccumulationRegister_ЗапасыНаСкладах, виртуальная таблица Balance).
 
-    Это ЕДИНСТВЕННОЕ место в TMS, где остаток не выводится из собственного
+    Это ЕДИНСТВЕННОЕ место в NERPA, где остаток не выводится из собственного
     журнала StockMovement, а тянется из 1С напрямую — 1С остаётся источником
     истины по факту продаж (кладовщик своей кнопкой «Собрано» товар больше не
     списывает, см. warehouse.py:mark_assembled), поступления/перемещения/
@@ -546,7 +546,7 @@ class CompanySettings(Base):
     metafora_refresh  = Column(EncryptedText)   # Firebase refresh-token (зашифровано)
     metafora_app_id   = Column(String(50))      # Glide appID (автоопределяется)
     metafora_url      = Column(String(500))     # URL выгрузки
-    # Токен API Метафоры (api.damasevich.ru) — им TMS создаёт заказы у перевозчика.
+    # Токен API Метафоры (api.damasevich.ru) — им NERPA создаёт заказы у перевозчика.
     # Это не Glide-выгрузка выше, а отдельный API курьерской службы.
     metafora_api_token = Column(EncryptedText)
     # ── Разведка ЛПР (DaData) ──
@@ -624,18 +624,18 @@ class CompanySettings(Base):
     bitrix_field_paid     = Column(String(60))      # код UF-поля «Оплачено» (плашка), автосоздаётся
     bitrix_field_delivered = Column(String(60))     # код UF-поля «Доставлено» (плашка), автосоздаётся
     bitrix_alert_chat_ids = Column(Text)            # Telegram chat_id для громкого уведомления о новом заказе, через запятую
-    bitrix_notify_user_ids = Column(Text)           # ID пользователей TMS для уведомления о новом заказе (через запятую); пусто = все
-    # Выгрузка остатков TMS/1С в свойство товара каталога Bitrix24 (по умолчанию
+    bitrix_notify_user_ids = Column(Text)           # ID пользователей NERPA для уведомления о новом заказе (через запятую); пусто = все
+    # Выгрузка остатков NERPA/1С в свойство товара каталога Bitrix24 (по умолчанию
     # PROPERTY_119 — «Остаток»). Идёт следом за синхронизацией остатков из 1С.
     bitrix_stock_enabled  = Column(Boolean, default=False)
     bitrix_stock_field    = Column(String(60))      # код свойства товара, напр. PROPERTY_119
     # Авто-выгрузка лидов «Прозвон»/«Поле» в Bitrix24 при статусе «Договор/продажа»
     # ── Кабинет клиента (/shop/{token}) → Bitrix24 ──
-    # Заказ из кабинета НЕ создаёт сделку и НЕ создаёт заказ в TMS: он
+    # Заказ из кабинета НЕ создаёт сделку и НЕ создаёт заказ в NERPA: он
     # заполняет уже существующую карточку клиента в CRM и двигает её на стадию
-    # «Заказ согласован». Заказ приезжает в TMS обратно — роботом с этой самой
+    # «Заказ согласован». Заказ приезжает в NERPA обратно — роботом с этой самой
     # стадии, тем же вебхуком, что и заказы менеджеров. Иначе получались бы
-    # дубли: один заказ в TMS напрямую, второй — из сделки.
+    # дубли: один заказ в NERPA напрямую, второй — из сделки.
     shop_stage_approved = Column(String(60))    # STAGE_ID «Заказ согласован» (напр. C1:UC_Z7L4EZ)
     # Дни недели, по которым мы отгружаем: номера через запятую, 0 = понедельник
     # («0,3» — понедельник и четверг). Из них кабинет строит кнопки выбора даты.
@@ -651,7 +651,7 @@ class CompanySettings(Base):
     shop_alert_chat_ids = Column(Text)          # Telegram chat_id для уведомлений о заказах из кабинета
     bitrix_lead_export_enabled = Column(Boolean, default=False)
     bitrix_lead_responsible_id = Column(String(20))  # ID пользователя Bitrix24 — ASSIGNED_BY_ID нового CRM-лида, если у торгпреда нет своего User.bitrix_user_id
-    # Публичный URL TMS (напр. https://nuttshell.ru) — для обратной ссылки на карточку
+    # Публичный URL NERPA (напр. https://nuttshell.ru) — для обратной ссылки на карточку
     # точки в комментарии Bitrix-лида. Строится не из request.base_url, т.к. авто-выгрузка
     # может идти из фоновой задачи (APScheduler), где объекта Request нет.
     public_url = Column(String(300))
@@ -661,7 +661,7 @@ class CompanySettings(Base):
 
 
 class BitrixPipeline(Base):
-    """Маппинг стадий Bitrix24 → события TMS для конкретного направления (воронки) сделок.
+    """Маппинг стадий Bitrix24 → события NERPA для конкретного направления (воронки) сделок.
 
     Портал Bitrix24 обычно имеет несколько направлений (напр. «Первичные продажи»,
     «Вторичные продажи») с независимыми наборами STAGE_ID — значение стадии одной
@@ -680,13 +680,13 @@ class BitrixPipeline(Base):
 
 
 class BitrixProductLink(Base):
-    """Привязка товарной позиции каталога Bitrix24 к номенклатуре TMS.
+    """Привязка товарной позиции каталога Bitrix24 к номенклатуре NERPA.
 
     Название товара в Bitrix24 нередко не совпадает буква-в-букву с названием
-    в TMS/1С (лишние пробелы, другой порядок слов, ручная правка в CRM), из-за
+    в NERPA/1С (лишние пробелы, другой порядок слов, ручная правка в CRM), из-за
     чего автосопоставление по имени при приёме сделки (см. api_bitrix.py)
     иногда не срабатывает и позиция не попадает в заказ. Как только конкретный
-    PRODUCT_ID Bitrix сопоставлен с товаром TMS (по коду/артикулу или мягкому
+    PRODUCT_ID Bitrix сопоставлен с товаром NERPA (по коду/артикулу или мягкому
     совпадению имени), связка запоминается здесь и в следующий раз матчится
     мгновенно и однозначно — независимо от того, как называется товар в CRM."""
     __tablename__ = "bitrix_product_links"
@@ -783,27 +783,82 @@ CLAIM_STATUSES = {
     "rejected":    "Отклонена",
 }
 
+# Критичность — то, что решает порядок разбора, когда открытых рекламаций много.
+# Сроки в днях: по ним считается просрочка (см. services/claims.sla_state).
+CLAIM_SEVERITIES = {
+    "low":      "Мелкая",
+    "normal":   "Обычная",
+    "critical": "Критичная",
+}
+
+CLAIM_SLA_DAYS = {"low": 7, "normal": 3, "critical": 1}
+
 
 class Claim(Base):
-    """Рекламация / претензия от клиента."""
+    """Рекламация / претензия от клиента.
+
+    Привязана не только к контрагенту, но и к **точке** — адресу доставки, по
+    которому претензия возникла (address_key — тот же нормализованный ключ
+    «улица:дом», что и в аналитике точек, см. services/outlets.normalize_address).
+    У сетевого клиента адресов десятки, и «рекламация по контрагенту» ничего не
+    говорит: разбираться нужно с конкретной кофейней, и повторный брак по одной и
+    той же точке — это совсем другой сигнал, чем по разным.
+
+    address_key = NULL означает претензию к клиенту в целом (документы, оплата) —
+    такую к точке привязывать нечего."""
     __tablename__ = "claims"
     id = Column(Integer, primary_key=True)
     number = Column(String(50), unique=True, nullable=False)
     date = Column(Date, nullable=False)
     counterparty_id = Column(Integer, ForeignKey("counterparties.id"), nullable=False)
     order_id = Column(Integer, ForeignKey("orders.id"))
+    # Точка: ключ для группировки и исходный адрес — как он написан в заказе
+    # (ключ нормализован и для человека нечитаем, а глазами сверять надо).
+    address_key = Column(String(200), index=True)
+    delivery_address = Column(String(500))
     type = Column(String(30), default="quality")   # quality / delivery / quantity / documents / other
     status = Column(String(20), default="new")     # new / in_progress / resolved / rejected
+    severity = Column(String(20), default="normal")  # low / normal / critical
+    # Номенклатура, на которую жалуются: по браку вопрос «какой вкус» — первый.
+    product_id = Column(Integer, ForeignKey("products.id"))
+    quantity = Column(Float)                       # сколько штук брака
+    assignee_id = Column(Integer, ForeignKey("users.id"))   # кто разбирается
     description = Column(Text)
     resolution = Column(Text)
     amount = Column(Float)
+    resolved_at = Column(DateTime)                 # для метрики «сколько закрывали»
     created_by_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
     updated_at = Column(DateTime, default=msk_now, server_default=func.now(), onupdate=msk_now)
 
     counterparty = relationship("Counterparty", back_populates="claims")
     order = relationship("Order")
-    created_by = relationship("User")
+    product = relationship("Product")
+    assignee = relationship("User", foreign_keys=[assignee_id])
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    items = relationship("ClaimItem", back_populates="claim",
+                         cascade="all, delete-orphan",
+                         order_by="ClaimItem.id")
+
+
+class ClaimItem(Base):
+    """Позиция рекламации: одна номенклатура с количеством и суммой.
+
+    В одной претензии обычно несколько вкусов («карамель горчит, кокос помят»), и
+    один product_id на всю рекламацию заставлял либо заводить по рекламации на
+    каждый вкус, либо терять детали в описании. Поля product_id/quantity в самой
+    рекламации остались от прежней однопозиционной схемы: они заполняются первой
+    позицией, чтобы старые отчёты и выгрузки не переписывать."""
+    __tablename__ = "claim_items"
+    id = Column(Integer, primary_key=True)
+    claim_id = Column(Integer, ForeignKey("claims.id"), nullable=False, index=True)
+    product_id = Column(Integer, ForeignKey("products.id"))
+    quantity = Column(Float)
+    amount = Column(Float)      # сумма претензии по позиции, необязательна
+    note = Column(String(300))  # что именно с этой позицией не так
+
+    claim = relationship("Claim", back_populates="items")
+    product = relationship("Product")
 
 
 class ShopCart(Base):
@@ -836,11 +891,11 @@ class ShopCart(Base):
 class ShopBooking(Base):
     """Бронь мощности цеха под заказ из кабинета.
 
-    Заказ из кабинета не создаёт заказ в TMS напрямую — он уходит в сделку
+    Заказ из кабинета не создаёт заказ в NERPA напрямую — он уходит в сделку
     Bitrix24 и возвращается роботом с задержкой. Всё это время загрузка даты
     нигде не видна, и два клиента подряд спокойно пробили бы дневной лимит.
     Бронь закрывает этот разрыв: она пишется сразу при отправке и перестаёт
-    учитываться, как только заказ по её сделке приезжает в TMS (иначе одно и
+    учитываться, как только заказ по её сделке приезжает в NERPA (иначе одно и
     то же количество считалось бы дважды)."""
     __tablename__ = "shop_bookings"
     id = Column(Integer, primary_key=True)
@@ -854,7 +909,7 @@ class ShopBooking(Base):
     # нужно конкретный вкус, а не «орешки вообще».
     items = Column(Text)
     bitrix_deal_id = Column(String(20), index=True)  # сделка, в которую уехал заказ
-    # Когда сказали менеджеру, что заказ ушёл в сделку и не вернулся в TMS.
+    # Когда сказали менеджеру, что заказ ушёл в сделку и не вернулся в NERPA.
     lost_notified_at = Column(DateTime)
     created_at = Column(DateTime, default=msk_now, server_default=func.now())
 
@@ -1387,7 +1442,7 @@ class HrPosition(Base):
 
 
 class HrEmployee(Base):
-    """Сотрудник для HR-учёта (не обязательно имеет логин в TMS)."""
+    """Сотрудник для HR-учёта (не обязательно имеет логин в NERPA)."""
     __tablename__ = "hr_employees"
     id = Column(Integer, primary_key=True)
     full_name = Column(String(200), nullable=False)
@@ -1431,7 +1486,7 @@ class HrEmployee(Base):
 
 class HrSurvey(Base):
     """Раунд-рассылка опроса за период: HR выбирает разделы и сотрудников,
-    система выдаёт персональные токен-ссылки для сбора ответов без входа в TMS."""
+    система выдаёт персональные токен-ссылки для сбора ответов без входа в NERPA."""
     __tablename__ = "hr_surveys"
     id = Column(Integer, primary_key=True)
     title = Column(String(200))
@@ -1640,7 +1695,7 @@ class HrMetricValue(Base):
 
 class HrMetricToken(Base):
     """Постоянная ссылка руководителя на еженедельную форму заполнения метрик
-    своего подразделения — без входа в TMS (у мастера цеха логина обычно нет).
+    своего подразделения — без входа в NERPA (у мастера цеха логина обычно нет).
 
     manager_id пустой — ссылка «на всю компанию» (для директора/HR)."""
     __tablename__ = "hr_metric_tokens"
@@ -1753,8 +1808,8 @@ class ReceiptLine(Base):
 class StockTransfer(Base):
     """Задача на складское перемещение — из пары документов 1С «Заказ на
     перемещение» + «Перемещение товаров» (ещё не проведено). Кнопка «Провести
-    перемещение» в TMS проводит документ в 1С и создаёт движения по обоим
-    складам в TMS (см. StockMovement.to_warehouse_id)."""
+    перемещение» в NERPA проводит документ в 1С и создаёт движения по обоим
+    складам в NERPA (см. StockMovement.to_warehouse_id)."""
     __tablename__ = "stock_transfers"
     id = Column(Integer, primary_key=True)
     from_warehouse_id = Column(Integer, ForeignKey("warehouses.id"), nullable=True)
@@ -1790,7 +1845,7 @@ class StockTransferLine(Base):
 
 class WriteOffReason(Base):
     """Причина/корреспонденция списания — справочник, пока ведётся вручную в
-    TMS (в 1С аналог ещё не сопоставлен; external_id_1c заполнится, когда
+    NERPA (в 1С аналог ещё не сопоставлен; external_id_1c заполнится, когда
     появится точный справочник причин списания в 1С:УНФ)."""
     __tablename__ = "writeoff_reasons"
     id = Column(Integer, primary_key=True)
@@ -1801,7 +1856,7 @@ class WriteOffReason(Base):
 
 
 class WriteOff(Base):
-    """Списание товара — создаётся кладовщиком в TMS, пушится в 1С и сразу же
+    """Списание товара — создаётся кладовщиком в NERPA, пушится в 1С и сразу же
     проводится (Posted: true в том же запросе, без промежуточного черновика)."""
     __tablename__ = "writeoffs"
     id = Column(Integer, primary_key=True)

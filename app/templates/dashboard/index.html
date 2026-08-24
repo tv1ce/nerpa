@@ -138,7 +138,7 @@
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-white fw-semibold border-0 pb-0">Топ-5 клиентов по выручке</div>
       <div class="card-body p-0">
-        <table class="table table-sm tms-table mb-0">
+        <table class="table table-sm nerpa-table mb-0">
           <tbody>
             {% for name, total in top_clients %}
             <tr>
@@ -161,7 +161,7 @@
         <a href="/orders" class="btn btn-sm btn-outline-secondary">Все</a>
       </div>
       <div class="card-body p-0">
-        <table class="table table-sm tms-table mb-0">
+        <table class="table table-sm nerpa-table mb-0">
           <thead><tr><th class="ps-3">№</th><th>Клиент</th><th>Дата</th><th>Сумма</th><th>Статус</th></tr></thead>
           <tbody>
             {% for o in recent_orders %}

@@ -27,6 +27,52 @@
 </div>
 {% endif %}
 
+{# ── Рекламации точки: разбирать адрес, не зная его претензий, бессмысленно ── #}
+{% if outlet_claims %}
+<div class="card border-0 shadow-sm mb-3
+            {% if outlet_claims_open %}border-start border-4 border-danger{% endif %}">
+  <div class="card-body pb-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+      <span class="fw-semibold" style="font-size:.9rem">
+        <i class="bi bi-clipboard-x me-1 text-danger"></i>Рекламации по точке
+      </span>
+      <span class="badge bg-dark" style="font-size:.7rem">{{ outlet_claims | length }}</span>
+      {% if outlet_claims_open %}
+      <span class="badge bg-danger" style="font-size:.7rem">открытых {{ outlet_claims_open | length }}</span>
+      {% endif %}
+      {% if outlet_claims | length > 1 %}
+      <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle"
+            style="font-size:.7rem"><i class="bi bi-arrow-repeat me-1"></i>повторные</span>
+      {% endif %}
+      <span class="ms-auto d-flex gap-2">
+        <a href="/claims/?address_key={{ o.address_key }}" class="btn btn-sm btn-outline-secondary">Все</a>
+        {% if request.session.get('user_role') != 'viewer' %}
+        <a href="/claims/new?cp_id={{ claim_cp_id }}&address_key={{ o.address_key }}"
+           class="btn btn-sm btn-outline-danger"><i class="bi bi-plus me-1"></i>Рекламация</a>
+        {% endif %}
+      </span>
+    </div>
+  </div>
+  <div class="border-top">
+    {% for cl in outlet_claims[:6] %}
+    {% include "claims/_row.html" %}
+    {% endfor %}
+  </div>
+  {% if outlet_claims | length > 6 %}
+  <div class="px-3 py-2 border-top">
+    <a href="/claims/?address_key={{ o.address_key }}" class="text-muted" style="font-size:.8rem">
+      ещё {{ outlet_claims | length - 6 }} →
+    </a>
+  </div>
+  {% endif %}
+</div>
+{% elif request.session.get('user_role') != 'viewer' %}
+<div class="d-flex justify-content-end mb-3">
+  <a href="/claims/new?cp_id={{ claim_cp_id }}&address_key={{ o.address_key }}"
+     class="btn btn-sm btn-outline-danger"><i class="bi bi-plus me-1"></i>Рекламация по точке</a>
+</div>
+{% endif %}
+
 {# ── Вердикт: одной строкой, что с точкой делать ──────────────────────────── #}
 {% set st = o.status %}
 <div class="alert py-2 mb-3 d-flex align-items-center gap-2
@@ -150,7 +196,7 @@
         </div>
       </div>
       <div class="table-responsive border-top">
-        <table class="table tms-table mb-0">
+        <table class="table nerpa-table mb-0">
           <thead><tr style="font-size:.76rem">
             <th class="ps-3">Дата</th><th>Заказ</th><th class="text-end">Орешков</th>
             <th class="text-end">Через, дней</th><th class="text-end">Расход в интервале</th>

@@ -2,17 +2,17 @@
 где нет живого объекта Bot/Application (в отличие от bot/main.py)."""
 from __future__ import annotations
 
-import os
 import re
 
 import httpx
+from app.env import getenv as env_get
 
-BOT_TOKEN = os.getenv("TMS_BOT_TOKEN", "")
+BOT_TOKEN = env_get("NERPA_BOT_TOKEN", "")
 
 # api.telegram.org недоступен напрямую с российских серверов — ходим через тот же
 # локальный SOCKS-прокси, что и остальные Telegram-запросы приложения (bot/main.py,
 # routers/orders.py notify_carrier).
-PROXY = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080") or None
+PROXY = env_get("NERPA_PROXY", "socks5://127.0.0.1:1080") or None
 
 _MDV2_RESERVED = r"\_*[]()~`>#+-=|{}.!"
 
@@ -96,7 +96,7 @@ def _split(text: str, limit: int = 3500) -> list[str]:
 def send_markdown(chat_ids: list[int], text: str, bot_token: str | None = None) -> None:
     token = (bot_token or BOT_TOKEN or "").strip()
     if not token:
-        raise RuntimeError("Токен Telegram-бота не задан (TMS_BOT_TOKEN или Настройки → Telegram-бот)")
+        raise RuntimeError("Токен Telegram-бота не задан (NERPA_BOT_TOKEN или Настройки → Telegram-бот)")
     for chat_id in chat_ids:
         for chunk in _split(text):
             r = httpx.post(
@@ -115,7 +115,7 @@ def send_topic_message(chat_id: int, text: str, bot_token: str | None = None,
     шаблонных уведомлений склада, где не нужно экранирование разметки."""
     token = (bot_token or BOT_TOKEN or "").strip()
     if not token:
-        raise RuntimeError("Токен Telegram-бота не задан (TMS_BOT_TOKEN или Настройки → Telegram-бот)")
+        raise RuntimeError("Токен Telegram-бота не задан (NERPA_BOT_TOKEN или Настройки → Telegram-бот)")
     for chunk in _split(text):
         payload = {"chat_id": chat_id, "text": chunk}
         if thread_id:

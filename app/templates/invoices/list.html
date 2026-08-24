@@ -52,7 +52,7 @@
   <form method="post" action="/invoices/bulk-paid" id="bulk-paid-form">
   <input type="hidden" name="back" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query | replace('&paid_done=' ~ paid_done, '') | replace('paid_done=' ~ paid_done, '') }}{% endif %}">
   <div class="table-responsive">
-    <table class="table tms-table mb-0">
+    <table class="table nerpa-table mb-0">
       <thead>
         <tr>
           <th class="ps-3" style="width:1%">

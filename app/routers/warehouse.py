@@ -176,7 +176,7 @@ async def mark_assembled(request: Request, order_id: int, db: Session = Depends(
         # Автосписание убрано: реальный расход товара со склада проводит 1С сама
         # при проведении УПД логистом. Раньше здесь ещё создавалось движение
         # StockMovement(out) — это дублировало списание (товар уходил дважды:
-        # один раз в TMS по факту сборки, второй раз в 1С по факту УПД).
+        # один раз в NERPA по факту сборки, второй раз в 1С по факту УПД).
         db.commit()
 
         user = db.query(User).filter(User.id == request.session.get("user_id")).first()

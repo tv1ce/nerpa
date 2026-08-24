@@ -201,4 +201,4 @@ def test_sw_version_bumped(client):
     """Service Worker содержит актуальную версию кеша."""
     r = client.get("/sw.js")
     assert r.status_code == 200
-    assert "tms-wh-v3" in r.text, "Версия SW не обновлена после добавления offline.html"
+    assert "nerpa-wh-v" in r.text, "В Service Worker нет версии кеша — старые файлы не подчистятся"

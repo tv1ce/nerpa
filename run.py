@@ -1,5 +1,5 @@
 """
-Точка входа TMS-сервера.
+Точка входа NERPA-сервера.
 
 Логи пишутся одновременно в консоль (journald/stdout) и в ротируемые файлы:
   logs/tms.log        — основные логи приложения (10 МБ × 5 файлов)
@@ -66,7 +66,7 @@ if __name__ == "__main__":
 
     init_db()
 
-    logging.getLogger(__name__).info("TMS server starting on 127.0.0.1:8080 (за nginx)")
+    logging.getLogger(__name__).info("NERPA server starting on 127.0.0.1:8080 (за nginx)")
 
     uvicorn.run(
         "app.main:app",

@@ -84,7 +84,11 @@ systemctl is-active --quiet tms \
     && ok "tms запущен" \
     || die "tms не запустился — проверьте: journalctl -u tms -n 50"
 
-if grep -q "^TMS_BOT_TOKEN=.\+" "$APP_DIR/.env" 2>/dev/null; then
+# Токен бота после ребрендинга называется NERPA_BOT_TOKEN, но в работающем .env
+# может ещё лежать прежний TMS_BOT_TOKEN (приложение читает оба — см. app/env.py).
+# Проверяем оба имени: иначе в день переименования переменной бот молча перестал
+# бы перезапускаться при деплое, и никакой ошибки в логе не появилось бы.
+if grep -qE "^(NERPA|TMS)_BOT_TOKEN=.+" "$APP_DIR/.env" 2>/dev/null; then
     info "Перезапуск tms-bot..."
     systemctl restart tms-bot
     systemctl is-active --quiet tms-bot \

@@ -406,6 +406,14 @@ def _migrate_db():
         ("shop_carts", "notified_at", "TIMESTAMP"),
         ("shop_bookings", "lost_notified_at", "TIMESTAMP"),
         ("company_settings", "shop_abandon_hours", "INTEGER DEFAULT 2"),
+        # ── Рекламации по точкам: претензия привязывается к адресу доставки ──
+        ("claims", "address_key",      "TEXT"),
+        ("claims", "delivery_address", "TEXT"),
+        ("claims", "severity",         "TEXT DEFAULT 'normal'"),
+        ("claims", "product_id",       "INTEGER REFERENCES products(id)"),
+        ("claims", "quantity",         "REAL"),
+        ("claims", "assignee_id",      "INTEGER REFERENCES users(id)"),
+        ("claims", "resolved_at",      "TIMESTAMP"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re
@@ -474,6 +482,55 @@ def _migrate_db():
             "    SELECT 1 FROM audit_logs al2 WHERE al2.entity_type='order'"
             "      AND al2.entity_id=orders.id AND al2.field='status' AND al2.new_value='handed'"
             "  )"
+        )
+
+    # Рекламации переезжают с контрагента на точку: у старых записей адрес
+    # восстанавливаем из привязанного заказа — это единственный источник, который
+    # у них есть. Рекламации без заказа остаются «по контрагенту в целом», и это
+    # честно: угадывать за менеджера, какая из двадцати кофеен жаловалась, нельзя.
+    _claim_cols = {row[1] for row in cur.execute("PRAGMA table_info(claims)").fetchall()}
+    if {"address_key", "delivery_address"} <= _claim_cols:
+        from app.services.outlets import normalize_address
+        rows = cur.execute(
+            "SELECT c.id, o.delivery_address FROM claims c JOIN orders o ON o.id = c.order_id "
+            "WHERE c.address_key IS NULL AND o.delivery_address IS NOT NULL"
+        ).fetchall()
+        for claim_id, raw in rows:
+            key = normalize_address(raw)
+            if key:
+                cur.execute(
+                    "UPDATE claims SET address_key=?, delivery_address=? WHERE id=?",
+                    (key, (raw or "").strip(), claim_id),
+                )
+    # Переход на многопозиционные рекламации: единственная номенклатура старой
+    # схемы становится первой позицией. Идемпотентно — только для рекламаций,
+    # у которых позиций ещё нет.
+    _tables = {row[0] for row in cur.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "claim_items" in _tables and "product_id" in _claim_cols:
+        cur.execute(
+            "INSERT INTO claim_items (claim_id, product_id, quantity) "
+            "SELECT c.id, c.product_id, c.quantity FROM claims c "
+            "WHERE c.product_id IS NOT NULL "
+            "  AND NOT EXISTS (SELECT 1 FROM claim_items ci WHERE ci.claim_id = c.id)"
+        )
+
+    if "resolved_at" in _claim_cols:
+        # Дата закрытия — из журнала аудита (первый переход в «решена»/«отклонена»),
+        # иначе метрика «за сколько закрываем» стартует с пустой историей.
+        cur.execute(
+            "UPDATE claims SET resolved_at = ("
+            "  SELECT MIN(al.created_at) FROM audit_logs al"
+            "  WHERE al.entity_type='claim' AND al.entity_id=claims.id"
+            "    AND al.field='status' AND al.new_value IN ('resolved','rejected')"
+            ") "
+            "WHERE resolved_at IS NULL AND status IN ('resolved','rejected')"
+        )
+        # Не нашлось в аудите (рекламация закрыта до появления лога) — берём
+        # updated_at: точнее данных нет, а пустое поле ломает подсчёт сроков.
+        cur.execute(
+            "UPDATE claims SET resolved_at = updated_at "
+            "WHERE resolved_at IS NULL AND status IN ('resolved','rejected')"
         )
 
     # Чистка легаси-заглушек «None» в реквизитах контрагентов: Jinja раньше выводил

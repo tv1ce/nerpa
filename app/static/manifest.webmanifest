@@ -1,6 +1,6 @@
 {
-  "name": "TMS Склад",
-  "short_name": "TMS Склад",
+  "name": "NERPA Склад",
+  "short_name": "NERPA Склад",
   "description": "Рабочее место кладовщика: сборка заказов, приход и расход, остатки",
   "lang": "ru",
   "start_url": "/warehouse/?pwa=1",

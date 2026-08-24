@@ -234,7 +234,7 @@
                    value="{{ company.notify_invoice_days if company and company.notify_invoice_days is not none else 3 }}">
           </div>
           <div class="col-12">
-            <div class="form-text" style="font-size:.72rem">0 — не напоминать. Используется в уведомлениях TMS</div>
+            <div class="form-text" style="font-size:.72rem">0 — не напоминать. Используется в уведомлениях NERPA</div>
           </div>
         </div>
         <button type="submit" class="btn btn-accent btn-sm w-100">
@@ -352,7 +352,7 @@
             <input type="text" name="onec_hs_url" class="form-control form-control-sm font-monospace"
                    placeholder="пусто — вывести из URL OData"
                    value="{{ company.onec_hs_url if company and company.onec_hs_url else '' }}">
-            <div class="form-text" style="font-size:.72rem">Напр. <code>http://srv4.life-it.pro/grach_unf/hs/tms</code>. Пусто — TMS подставит автоматически.</div>
+            <div class="form-text" style="font-size:.72rem">Напр. <code>http://srv4.life-it.pro/grach_unf/hs/tms</code>. Пусто — NERPA подставит автоматически.</div>
           </div>
           <div class="col-12">
             <div class="form-check form-switch">
@@ -401,7 +401,7 @@
           <div class="col-12">
             <div class="alert alert-info py-2 px-3 mb-1" style="font-size:.82rem">
               <i class="bi bi-info-circle me-1"></i>
-              TMS читает выписку по счёту и автоматически разносит входящие оплаты:
+              NERPA читает выписку по счёту и автоматически разносит входящие оплаты:
               по ИНН плательщика и номеру счёта в назначении платежа находит счёт и
               переводит его в «Оплачен» (или «Частично оплачено»). JWT-ключ выпускается
               в кабинете Точки: «Интеграции и API → JWT-ключи» (нужны права на выписки).
@@ -436,7 +436,7 @@
           </div>
           <div class="col-12">
             <div class="form-text" style="font-size:.72rem">
-              Для мгновенных оплат TMS сама подписывает вебхук Точки на адрес
+              Для мгновенных оплат NERPA сама подписывает вебхук Точки на адрес
               <code>{{ request.base_url }}api/tochka/webhook</code> при сохранении (нужен публичный HTTPS).
               Без вебхука оплаты подтягиваются опросом выписки раз в ~15 минут.
             </div>
@@ -477,7 +477,7 @@
           <div class="col-12">
             <div class="alert alert-info py-2 px-3 mb-1" style="font-size:.82rem">
               <i class="bi bi-info-circle me-1"></i>
-              Укажите данные аккаунта СБИС (Saby). TMS будет создавать электронные транспортные накладные
+              Укажите данные аккаунта СБИС (Saby). NERPA будет создавать электронные транспортные накладные
               (ЭТРН) и отправлять их на подписание всем участникам перевозки прямо из карточки заказа.
             </div>
           </div>
@@ -580,7 +580,7 @@
               <i class="bi bi-info-circle me-1"></i>
               Оформление заказов (СДЭК, КСЭ и др.) по-прежнему делается в кабинете
               <a href="https://my.versta24.ru" target="_blank" rel="noopener">my.versta24.ru</a>.
-              TMS только подтягивает статус доставки по номеру заказа Versta, который
+              NERPA только подтягивает статус доставки по номеру заказа Versta, который
               указывается в карточке заказа при выборе перевозчика «ООО Верста»
               (см. галочку «Экспедитор Versta24» в карточке контрагента).
               Ключ API выдаёт поддержка Versta — <a href="mailto:support@versta24.ru">support@versta24.ru</a>.
@@ -634,16 +634,16 @@
               <b>1. Входящий вебхук (Bitrix24 → сюда данные не идут, а TМS ходит в Bitrix24):</b>
               Битрикс24 → Приложения → Разработчикам → Другое → Входящий вебхук. Права: <code>crm</code>.
               Скопируйте URL вида <code>https://nuttinelle.bitrix24.ru/rest/1/xxxxxxxxxxxxx/</code> в поле ниже.<br>
-              <b>2. Ключ приёма сделок</b> — на сервере TMS в <code>.env</code> задайте <code>BITRIX_PUSH_KEY</code>
+              <b>2. Ключ приёма сделок</b> — на сервере NERPA в <code>.env</code> задайте <code>BITRIX_PUSH_KEY</code>
               (сгенерировать: <code>python -c "import secrets; print(secrets.token_urlsafe(32))"</code>).<br>
               <b>3. Правило автоматизации на стадии «Заказ согласован»:</b> откройте нужную воронку сделок →
               настройте роботов на этой стадии → добавьте робота «Вебхук» (Webhook) с параметрами:<br>
               URL: <code>https://ваш-tms-домен/api/bitrix/webhook/deal-approved?key=ВАШ_BITRIX_PUSH_KEY&deal_id={=Document:ID}</code>,
               метод POST.<br>
-              <b>4. Нажмите «Создать UF-поля»</b> ниже — TMS создаст в сделках два булевых поля-плашки
+              <b>4. Нажмите «Создать UF-поля»</b> ниже — NERPA создаст в сделках два булевых поля-плашки
               «Оплачено (TMS)» и «Доставлено (TMS)», которые можно добавить в карточку/список сделки через
               настройку вида канбана в Bitrix24.<br>
-              <b>5. Выберите стадии</b> для «Счёт оплачен» и «Отгрузка» — TMS будет двигать сделку
+              <b>5. Выберите стадии</b> для «Счёт оплачен» и «Отгрузка» — NERPA будет двигать сделку
               автоматически при оплате счёта и сборке заказа.
             </div>
           </div>
@@ -694,7 +694,7 @@
             </select>
             <div class="form-text" style="font-size:.72rem">
               На эту стадию кабинет переводит карточку клиента. С неё же робот Bitrix24
-              должен дёргать вебхук — иначе заказ не приедет в TMS
+              должен дёргать вебхук — иначе заказ не приедет в NERPA
             </div>
           </div>
           <div class="col-12">
@@ -736,7 +736,7 @@
               <span class="input-group-text">часов простоя</span>
             </div>
             <div class="form-text" style="font-size:.72rem">
-              Клиент набрал заказ и не отправил — менеджеру придёт уведомление в TMS и в
+              Клиент набрал заказ и не отправил — менеджеру придёт уведомление в NERPA и в
               Telegram-канал заказов. Повторно по той же корзине не пишем. 0 — не напоминать
             </div>
           </div>
@@ -757,7 +757,7 @@
           </div>
           {% set _notify_ids = (company.bitrix_notify_user_ids or '').split(',') | map('trim') | list if company and company.bitrix_notify_user_ids else [] %}
           <div class="col-12">
-            <label class="form-label form-label-sm">Кому показывать уведомление о новом заказе в TMS</label>
+            <label class="form-label form-label-sm">Кому показывать уведомление о новом заказе в NERPA</label>
             <select name="bitrix_notify_user_ids" class="form-select form-select-sm" multiple size="5">
               {% for u in users %}
               <option value="{{ u.id }}" {% if _notify_ids and u.id|string in _notify_ids %}selected{% endif %}>
@@ -766,7 +766,7 @@
               {% endfor %}
             </select>
             <div class="form-text" style="font-size:.72rem">
-              Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано — увидят все пользователи TMS.
+              Ctrl/Cmd + клик — выбрать несколько. Ничего не выбрано — увидят все пользователи NERPA.
             </div>
           </div>
           {% if company and company.bitrix_field_paid %}
@@ -798,7 +798,7 @@
             <div class="form-text" style="font-size:.75rem">
               Остаток берётся из синхронизации с 1С (тот же, что видит кладовщик) и уходит
               в CRM сразу следом за ней — раз в минуту. Пишутся только изменившиеся значения.
-              Товары каталога сопоставляются с номенклатурой TMS по коду <code>XML_ID</code>
+              Товары каталога сопоставляются с номенклатурой NERPA по коду <code>XML_ID</code>
               (артикул / GUID 1С), затем по названию; связка запоминается. Позиции, по которым
               1С ни разу не отдавала остаток, не трогаем — чтобы не затереть значение,
               проставленное в CRM вручную.
@@ -836,7 +836,7 @@
             </div>
           </div>
           <div class="col-md-6">
-            <label class="form-label form-label-sm">Публичный адрес TMS</label>
+            <label class="form-label form-label-sm">Публичный адрес NERPA</label>
             <input type="url" name="public_url" class="form-control form-control-sm font-monospace"
                    placeholder="https://nuttshell.ru"
                    value="{{ company.public_url if company and company.public_url else '' }}">
@@ -872,7 +872,7 @@
       <div class="form-text mb-2" style="font-size:.78rem">
         Стадия действует только внутри своего направления в Bitrix24. Если у вас есть, например,
         отдельная воронка «Вторичные продажи» без стадии «Отгрузка» — добавьте её здесь и оставьте
-        поле «Отгрузка» пустым: TMS доведёт заказ до «Счёт оплачен» и на этом остановится, а стадию
+        поле «Отгрузка» пустым: NERPA доведёт заказ до «Счёт оплачен» и на этом остановится, а стадию
         «по умолчанию» (форма выше) трогать не будет.
       </div>
       <div id="bitrixPipelinesList" class="mb-2" style="font-size:.85rem">
@@ -983,7 +983,7 @@
                  value="{{ company.hr_metric_check_chat_ids if company and company.hr_metric_check_chat_ids else '' }}">
           <div class="form-text" style="font-size:.72rem">
             Вечерняя сводка для HR: кто из руководителей ещё не внёс метрику и по кому именно нет данных.
-            Со ссылкой на доску метрик («Публичный адрес TMS» во вкладке «Компания»). Пусто — в чат ИИ-отчёта HR
+            Со ссылкой на доску метрик («Публичный адрес NERPA» во вкладке «Компания»). Пусто — в чат ИИ-отчёта HR
           </div>
         </div>
 
@@ -1134,7 +1134,7 @@
   <div class="col-lg-7">
     <div class="card border-0 shadow-sm p-4">
       <div class="form-section-title mb-3">Пользователи</div>
-      <table class="table table-sm tms-table mb-4">
+      <table class="table table-sm nerpa-table mb-4">
         <thead>
           <tr><th>Логин</th><th>Имя</th><th>Роль</th><th></th></tr>
         </thead>

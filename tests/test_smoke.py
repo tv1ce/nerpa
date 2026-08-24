@@ -77,7 +77,7 @@ def test_dashboard_renders(admin_client):
     """Дашборд рендерится после логина."""
     r = admin_client.get("/")
     assert r.status_code == 200
-    assert "TMS" in r.text or "дашборд" in r.text.lower() or "заказ" in r.text.lower()
+    assert "NERPA" in r.text or "дашборд" in r.text.lower() or "заказ" in r.text.lower()
 
 
 def test_orders_list(admin_client):

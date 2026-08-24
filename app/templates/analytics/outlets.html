@@ -127,7 +127,7 @@
   </div>
 
   <div class="table-responsive">
-    <table class="table tms-table mb-0 align-middle" id="outletTable">
+    <table class="table nerpa-table mb-0 align-middle" id="outletTable">
       <thead>
         <tr style="font-size:.78rem">
           <th class="ps-3 sortable" data-col="0">Точка</th>
@@ -164,6 +164,17 @@
                   <span class="badge bg-light text-dark border ms-1" style="font-size:.66rem">
                     <i class="bi bi-diagram-3"></i> {{ n }}</span>
                   {% endfor %}
+                  {% set cs = claim_stats.get(o.address_key) if claim_stats else None %}
+                  {% if cs %}
+                  <a href="/claims/?address_key={{ o.address_key }}"
+                     class="badge ms-1 text-decoration-none
+                            bg-{{ 'danger' if cs.open else 'warning-subtle text-warning-emphasis border border-warning-subtle' }}"
+                     style="font-size:.66rem"
+                     title="Рекламаций по адресу: {{ cs.total }}{% if cs.open %}, открытых {{ cs.open }}{% endif %}">
+                    <i class="bi bi-clipboard-x"></i>
+                    {{ cs.open if cs.open else cs.total }}
+                  </a>
+                  {% endif %}
                 </div>
               </div>
             </div>

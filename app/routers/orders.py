@@ -16,6 +16,7 @@ from app.models import Order, OrderItem, Counterparty, Product, CompanySettings,
 from app.utils import log_action
 import logging
 import threading
+from app.env import getenv as env_get
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def _push_order_bg(order_id: int) -> None:
 
 
 def _push_bitrix_event_bg(order_id: int, event: str) -> None:
-    """Двигает стадию/плашку сделки Bitrix24 в фоновом потоке (не блокирует смену статуса в TMS)."""
+    """Двигает стадию/плашку сделки Bitrix24 в фоновом потоке (не блокирует смену статуса в NERPA)."""
     from app.database import SessionLocal
     from app.services.bitrix_client import push_order_event
     db = SessionLocal()
@@ -469,14 +470,16 @@ async def view_order(request: Request, order_id: int, db: Session = Depends(get_
     sbis_configured = bool(company and company.sbis_login and company.sbis_password)
 
     # Нерешённые рекламации клиента, заведённые до этого заказа: висят
-    # напоминанием в каждом следующем заказе, пока их не закроют.
-    from app.utils import open_claims_for_counterparty
-    open_claims = open_claims_for_counterparty(
-        db, order.counterparty_id, before=order.created_at, exclude_order_id=order.id)
+    # напоминанием в каждом следующем заказе, пока их не закроют. Разделены на
+    # «по точке этого заказа» и «по другим точкам клиента» — у сетевого клиента
+    # это разные новости, и мешать их в один список бессмысленно.
+    from app.services.claims import claims_for_order
+    order_claims = claims_for_order(db, order)
 
     return templates.TemplateResponse(request, "orders/detail.html", {
         "order": order, "statuses": ORDER_STATUSES,
-        "open_claims": open_claims,
+        "order_claims": order_claims,
+        "open_claims": order_claims["same"] + order_claims["other"],
         "order_statuses": _statuses_for(order), "payment_types": PAYMENT_TYPES,
         "tasks": tasks, "comments": comments, "activity": activity, "users": users,
         "files": files, "file_types": FILE_TYPES["order"],
@@ -826,7 +829,7 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
     company = db.query(CompanySettings).first()
     bot_token = (company.tg_bot_token or "").strip() if company else ""
     if not bot_token:
-        bot_token = os.getenv("TMS_BOT_TOKEN", "").strip()
+        bot_token = env_get("NERPA_BOT_TOKEN", "").strip()
     if not bot_token:
         return JSONResponse({"ok": False, "error": "Токен Telegram-бота не настроен. Укажите его в Настройки → Telegram-бот"}, status_code=500)
 
@@ -863,7 +866,7 @@ async def notify_carrier(request: Request, order_id: int, db: Session = Depends(
 
     text = "\n".join(lines)
 
-    proxy_url = os.getenv("TMS_PROXY", "socks5://127.0.0.1:1080") or None
+    proxy_url = env_get("NERPA_PROXY", "socks5://127.0.0.1:1080") or None
     tg_error = None
     try:
         async with httpx.AsyncClient(timeout=10.0, proxy=proxy_url) as client:

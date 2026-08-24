@@ -972,7 +972,7 @@ async def geocode_leads(request: Request, db: Session = Depends(get_db)):
         import logging
         from app.database import SessionLocal
         from app.utils.geocode import GeocodeRequestError, geocode_address_sync
-        logger = logging.getLogger("tms.geocode")
+        logger = logging.getLogger("nerpa.geocode")
         _geo_state.update({
             "running": True, "done": 0, "total": len(items), "errors": 0,
             "last_error": None, "blocked": False,
