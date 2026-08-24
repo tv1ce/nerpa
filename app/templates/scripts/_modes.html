@@ -15,6 +15,12 @@
      class="btn {% if mode == 'run' %}btn-dark{% else %}btn-outline-secondary{% endif %}">
     <i class="bi bi-play-circle me-1"></i>Прохождение
   </a>
+  {# Тренажёр стоит рядом с режимами, но это не четвёртый вид того же скрипта:
+     здесь не работают со скриптом, а учатся его вести #}
+  <a href="/scripts/{{ script.id }}/train"
+     class="btn {% if mode == 'train' %}btn-dark{% else %}btn-outline-secondary{% endif %}">
+    <i class="bi bi-mortarboard me-1"></i>Тренажёр
+  </a>
 </div>
 <div class="dropdown d-inline">
   <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">

@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}{{ script.title }} — тренажёр{% endblock %}
+{% block page_title %}Тренажёр — {{ script.title }}{% endblock %}
+{% block topbar_actions %}
+  {% include "scripts/_modes.html" %}
+  <a href="/scripts/?folder={{ script.folder_id or '' }}" class="btn btn-sm btn-link text-muted">К списку</a>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/scripts.css?v=1">
+
+<div class="sc-run-wrap">
+
+  {# ── Настройка тренировки ── #}
+  <div class="card border-0 shadow-sm mb-3" id="trainSetup">
+    <div class="card-body p-4">
+      {% if not ai_available %}
+      <div class="alert alert-warning py-2" style="font-size:.85rem">
+        Доступ к модели не настроен, поэтому клиент будет отвечать формулировками из самого
+        скрипта. Переходы отработать можно, живых реплик не будет.
+      </div>
+      {% endif %}
+
+      <p class="text-muted" style="font-size:.9rem">
+        Вы говорите репликами скрипта, клиента играет ИИ. Он отвечает своими словами —
+        ваша задача понять, к какой ветке сценария относится услышанное.
+      </p>
+
+      <div class="row g-3">
+        <div class="col-md-7">
+          <label class="form-label small text-muted">Кто на том конце провода</label>
+          <select id="trainPersona" class="form-select">
+            <option value="">Случайный клиент</option>
+            {% for p in personas %}
+            <option value="{{ p.key }}">{{ p.title }} — {{ p.brief|truncate(70) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-md-5">
+          <label class="form-label small text-muted">Сложность</label>
+          <select id="trainDifficulty" class="form-select">
+            {% for key, d in difficulties.items() %}
+            <option value="{{ key }}" {% if key == 'normal' %}selected{% endif %}>{{ d.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn-accent mt-4" id="trainStart">
+        <i class="bi bi-play-fill me-1"></i>Начать тренировку
+      </button>
+    </div>
+  </div>
+
+  {# ── Ход тренировки ── #}
+  <div id="trainArea" class="d-none">
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+      <span class="badge bg-light text-dark border" id="trainPersonaBadge"></span>
+      <span class="badge bg-light text-dark border" id="trainLevelBadge"></span>
+      <span class="text-muted ms-auto" style="font-size:.85rem" id="trainScore"></span>
+      <button class="btn btn-sm btn-outline-secondary" id="trainStop">Завершить</button>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-body p-4">
+        <div class="text-muted mb-2" style="font-size:.78rem">ВЫ ГОВОРИТЕ</div>
+        <div class="sc-run-title mb-2" id="trainNodeTitle"></div>
+        <div class="sc-run-body" id="trainNodeBody"></div>
+        <button class="btn btn-accent mt-3" id="trainSay">
+          <i class="bi bi-telephone-outbound me-1"></i>Я это сказал
+        </button>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-3 d-none" id="trainClientCard">
+      <div class="card-body p-4">
+        <div class="text-muted mb-2" style="font-size:.78rem">КЛИЕНТ ОТВЕЧАЕТ</div>
+        <div class="sc-run-body fst-italic" id="trainClientReply"></div>
+      </div>
+    </div>
+
+    <div id="trainOptionsBlock" class="d-none">
+      <div class="text-muted mb-2" style="font-size:.82rem">
+        К какой ветке сценария это относится?
+      </div>
+      <div id="trainOptions"></div>
+    </div>
+
+    <div id="trainFeedback" class="alert d-none" style="font-size:.9rem"></div>
+  </div>
+
+  {# ── Итог ── #}
+  <div id="trainResult" class="card border-0 shadow-sm d-none">
+    <div class="card-body p-4 text-center">
+      <div style="font-size:2.6rem;font-weight:600" id="trainResultScore"></div>
+      <div class="text-muted mb-3" id="trainResultCounts"></div>
+      <div class="text-start border-top pt-3" id="trainVerdict" style="font-size:.95rem;white-space:pre-line"></div>
+      <button class="btn btn-accent mt-3" onclick="location.reload()">Пройти ещё раз</button>
+    </div>
+  </div>
+
+  {# ── Прошлые попытки ── #}
+  {% if history %}
+  <div class="card border-0 shadow-sm mt-3">
+    <div class="card-body pb-0">
+      <div class="text-muted mb-2" style="font-size:.82rem">Ваши прошлые попытки</div>
+    </div>
+    <div class="table-responsive">
+      <table class="table tms-table mb-0">
+        <thead>
+          <tr><th class="ps-3">Когда</th><th>Клиент</th><th>Сложность</th><th class="text-center">Результат</th></tr>
+        </thead>
+        <tbody>
+          {% for t in history %}
+          <tr>
+            <td class="ps-3 text-muted" style="font-size:.85rem">{{ t.finished_at|datetime_fmt }}</td>
+            <td style="font-size:.85rem">{{ t.persona or '—' }}</td>
+            <td class="text-muted" style="font-size:.85rem">
+              {{ difficulties.get(t.difficulty, {}).get('title', t.difficulty) }}
+            </td>
+            <td class="text-center">
+              <span class="badge {% if (t.score or 0) >= 80 %}bg-success-subtle text-success
+                          {% elif (t.score or 0) >= 50 %}bg-warning-subtle text-warning-emphasis
+                          {% else %}bg-danger-subtle text-danger{% endif %}">
+                {{ t.score or 0 }}% · {{ t.turns_correct or 0 }} из {{ t.turns_total or 0 }}
+              </span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var csrf = "{{ csrf_token(request) }}";
+  var scriptId = {{ script.id }};
+  var training = null, currentNode = null, busy = false;
+
+  var el = function (id) { return document.getElementById(id); };
+
+  function post(path, body) {
+    return fetch('/scripts/' + scriptId + '/train/' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify(body || {})
+    }).then(function (r) { return r.json(); });
+  }
+
+  function lock(on) {
+    busy = on;
+    document.querySelectorAll('#trainArea button').forEach(function (b) { b.disabled = on; });
+  }
+
+  function showNode(node) {
+    currentNode = node;
+    el('trainNodeTitle').textContent = (node.number ? node.number + '. ' : '') + node.title;
+    el('trainNodeBody').innerHTML = node.html || '';
+    el('trainClientCard').classList.add('d-none');
+    el('trainOptionsBlock').classList.add('d-none');
+    el('trainFeedback').classList.add('d-none');
+    el('trainSay').classList.remove('d-none');
+    // Завершающий шаг отвечать не требует — сразу подводим итог
+    if (!node.has_answers) {
+      el('trainSay').classList.add('d-none');
+      finish();
+    }
+  }
+
+  function updateScore(correct, total) {
+    el('trainScore').textContent = 'Верно: ' + correct + ' из ' + total;
+  }
+
+  el('trainStart').addEventListener('click', function () {
+    el('trainStart').disabled = true;
+    post('start', {
+      persona: el('trainPersona').value,
+      difficulty: el('trainDifficulty').value
+    }).then(function (d) {
+      if (!d.ok) { alert(d.error || 'Не удалось начать'); el('trainStart').disabled = false; return; }
+      training = d.training_id;
+      el('trainSetup').classList.add('d-none');
+      el('trainArea').classList.remove('d-none');
+      el('trainPersonaBadge').textContent = d.persona.title;
+      el('trainLevelBadge').textContent = 'Сложность: ' +
+        ({{ difficulties|tojson }})[d.difficulty].title;
+      updateScore(0, 0);
+      showNode(d.node);
+    });
+  });
+
+  el('trainSay').addEventListener('click', function () {
+    if (busy) return;
+    lock(true);
+    el('trainClientCard').classList.remove('d-none');
+    el('trainClientReply').textContent = 'Клиент думает…';
+    post('say', { training_id: training, node_id: currentNode.id }).then(function (d) {
+      lock(false);
+      if (!d.ok) { alert(d.error || 'Ошибка'); return; }
+      if (d.done) { finish(); return; }
+      el('trainClientReply').textContent = '— ' + d.client_reply;
+      el('trainSay').classList.add('d-none');
+
+      var box = el('trainOptions');
+      box.innerHTML = '';
+      d.options.forEach(function (opt) {
+        var btn = document.createElement('button');
+        btn.className = 'sc-run-answer';
+        btn.style.borderLeftColor = '#cbd5e1';
+        btn.textContent = opt.text;
+        btn.addEventListener('click', function () { choose(opt.id); });
+        box.appendChild(btn);
+      });
+      el('trainOptionsBlock').classList.remove('d-none');
+    }).catch(function () { lock(false); el('trainClientReply').textContent = 'Связь потерялась'; });
+  });
+
+  function choose(answerId) {
+    if (busy) return;
+    lock(true);
+    post('choose', { training_id: training, answer_id: answerId }).then(function (d) {
+      lock(false);
+      if (!d.ok) { alert(d.error || 'Ошибка'); return; }
+      updateScore(d.turns_correct, d.turns_total);
+
+      var fb = el('trainFeedback');
+      fb.className = 'alert ' + (d.correct ? 'alert-success' : 'alert-danger');
+      fb.textContent = d.correct
+        ? 'Верно — клиент имел в виду именно это.'
+        : 'Мимо. Клиент имел в виду: «' + d.expected_text + '».';
+      fb.classList.remove('d-none');
+      el('trainOptionsBlock').classList.add('d-none');
+
+      setTimeout(function () {
+        if (d.done || !d.next) { finish(); } else { showNode(d.next); }
+      }, d.correct ? 900 : 2200);
+    }).catch(function () { lock(false); });
+  }
+
+  function finish() {
+    post('finish', { training_id: training }).then(function (d) {
+      if (!d.ok) return;
+      el('trainArea').classList.add('d-none');
+      var res = el('trainResult');
+      el('trainResultScore').textContent = d.score + '%';
+      el('trainResultCounts').textContent = 'Верно распознано веток: ' + d.correct + ' из ' + d.total;
+      el('trainVerdict').textContent = d.verdict || '';
+      res.classList.remove('d-none');
+    });
+  }
+
+  el('trainStop').addEventListener('click', finish);
+})();
+</script>
+{% endblock %}

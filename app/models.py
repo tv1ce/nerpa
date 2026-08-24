@@ -668,6 +668,35 @@ class CompanySettings(Base):
     versta_enabled = Column(Boolean, default=False)
 
 
+class ScriptTraining(Base):
+    """Попытка новичка пройти скрипт на тренажёре.
+
+    Тренажёр отличается от обычного прохождения тем, что клиента играет модель,
+    а менеджер должен сам понять, к какой ветке относится живой ответ. Поэтому
+    ход хранит и то, что сказал «клиент», и какую ветку имела в виду модель, и
+    какую выбрал человек — по этой тройке считается результат и строится разбор.
+
+    Ожидаемая ветка живёт только на сервере: если отдать её в браузер вместе с
+    репликой, тренажёр превращается в игру «подсмотри в исходный код».
+    """
+    __tablename__ = "script_trainings"
+    id = Column(Integer, primary_key=True, index=True)
+    script_id = Column(Integer, ForeignKey("scripts.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    persona = Column(String(200))        # кого играет модель: «закупщик сети», «скептик»…
+    difficulty = Column(String(20), default="normal")   # easy | normal | hard
+    started_at = Column(DateTime, default=msk_now, server_default=func.now())
+    finished_at = Column(DateTime)
+    turns_total = Column(Integer, default=0)
+    turns_correct = Column(Integer, default=0)
+    score = Column(Integer)              # процент верных распознаваний ветки
+    log_json = Column(Text)              # ходы: реплики клиента, ожидание и выбор
+    verdict = Column(Text)               # разбор от модели по итогам попытки
+
+    script = relationship("Script")
+    user = relationship("User")
+
+
 class BitrixOAuthToken(Base):
     """Токены приложения Bitrix24 (OAuth 2.0), по одному набору на портал.
 
@@ -2129,3 +2158,6 @@ Index("ix_script_folders_parent_id",   ScriptFolder.parent_id)
 Index("ix_scripts_folder_id",          Script.folder_id)
 Index("ix_script_versions_script_id",  ScriptVersion.script_id)
 Index("ix_script_runs_script_id",      ScriptRun.script_id)
+
+Index("ix_script_trainings_script_id", ScriptTraining.script_id)
+Index("ix_script_trainings_user_id",   ScriptTraining.user_id)
