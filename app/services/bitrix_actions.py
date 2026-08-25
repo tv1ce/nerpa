@@ -122,3 +122,57 @@ def fields_from_run_values(values: dict) -> dict:
             continue
         out[code] = True if value is True else value
     return out
+
+# ── Встраивание виджета в карточку CRM ───────────────────────────────────────
+#
+# В форме локального приложения поля встраивания может не быть вовсе — в части
+# версий Bitrix24 виджеты регистрируются только методом placement.bind. Метод
+# работает от имени приложения, поэтому вебхука недостаточно: нужен OAuth-токен.
+
+# Куда встраиваем: код места в Bitrix24 → человеческое название вкладки.
+# Совпадает с _B24_ENTITIES в app/routers/scripts.py — по коду места страница
+# понимает, карточку какой сущности открыли.
+CRM_PLACEMENTS = {
+    "CRM_DEAL_DETAIL_TAB": "Карточка сделки",
+    "CRM_LEAD_DETAIL_TAB": "Карточка лида",
+    "CRM_CONTACT_DETAIL_TAB": "Карточка контакта",
+    "CRM_COMPANY_DETAIL_TAB": "Карточка компании",
+}
+
+
+def bind_placement(client, placement: str, handler: str,
+                   title: str = "Скрипты продаж") -> tuple[bool, str]:
+    """Добавляет вкладку приложения в карточку CRM."""
+    if placement not in CRM_PLACEMENTS:
+        return False, f"Неизвестное место встраивания: {placement!r}"
+    if not handler.startswith("https://"):
+        return False, "Адрес виджета должен быть публичным и по https"
+    try:
+        client.call("placement.bind", PLACEMENT=placement, HANDLER=handler,
+                    TITLE=title[:100])
+    except BitrixError as e:
+        # Повторная привязка того же места — не ошибка, а «уже стоит»
+        if "ERROR_PLACEMENT_ALREADY_BINDED" in str(e) or "already" in str(e).lower():
+            return True, "Уже встроено"
+        logger.warning("Bitrix24: не удалось встроить %s — %s", placement, e)
+        return False, str(e)
+    logger.info("Bitrix24: виджет встроен в %s", placement)
+    return True, "Встроено"
+
+
+def unbind_placement(client, placement: str, handler: str) -> tuple[bool, str]:
+    """Убирает вкладку приложения из карточки."""
+    try:
+        client.call("placement.unbind", PLACEMENT=placement, HANDLER=handler)
+    except BitrixError as e:
+        return False, str(e)
+    return True, "Убрано"
+
+
+def list_placements(client) -> list:
+    """Что сейчас встроено этим приложением."""
+    try:
+        return client.call("placement.get") or []
+    except BitrixError as e:
+        logger.warning("Bitrix24: список встраиваний недоступен — %s", e)
+        return []

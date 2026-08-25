@@ -28,7 +28,8 @@ from sqlalchemy.orm import Session
 from app.auth import role_required
 from app.database import get_db
 from app.models import CompanySettings
-from app.services import bitrix_oauth
+from app.services import bitrix_oauth, bitrix_actions
+from app.services.bitrix_client import get_bitrix_client
 
 logger = logging.getLogger(__name__)
 
@@ -182,3 +183,85 @@ async def oauth_status(request: Request, db: Session = Depends(get_db)):
         if info.get(key):
             info[key] = info[key].strftime("%d.%m.%Y %H:%M")
     return JSONResponse({"ok": True, **info})
+
+# ── Виджет в карточке CRM ────────────────────────────────────────────────────
+#
+# Регистрируется методом placement.bind от имени приложения, поэтому работает
+# только в режиме OAuth: у вебхука нет приложения, к которому крепить вкладку.
+
+def _widget_handler(company: CompanySettings) -> str:
+    """Публичный адрес страницы виджета."""
+    base = (company.public_url or "").rstrip("/") if company else ""
+    return f"{base}/scripts/b24/placement" if base else ""
+
+
+@router.get("/placements")
+@role_required("admin")
+async def placements_list(request: Request, db: Session = Depends(get_db)):
+    """Что сейчас встроено в карточки."""
+    company = db.query(CompanySettings).first()
+    client = get_bitrix_client(company)
+    if not client:
+        return JSONResponse({"ok": False, "error": "Bitrix24 не подключён"})
+    with client:
+        bound = bitrix_actions.list_placements(client)
+    codes = {str(item.get("placement") or "").upper() for item in bound if isinstance(item, dict)}
+    return JSONResponse({
+        "ok": True,
+        "handler": _widget_handler(company),
+        "oauth": (company.bitrix_auth_mode or "webhook") == "oauth",
+        "available": bitrix_actions.CRM_PLACEMENTS,
+        "bound": sorted(codes & set(bitrix_actions.CRM_PLACEMENTS)),
+    })
+
+
+@router.post("/placements/bind")
+@role_required("admin")
+async def placements_bind(request: Request, db: Session = Depends(get_db)):
+    """Встроить вкладку со скриптами в карточки сделки и лида."""
+    company = db.query(CompanySettings).first()
+    mode = (company.bitrix_auth_mode or "webhook") if company else "webhook"
+    if mode != "oauth":
+        return JSONResponse({"ok": False, "error":
+                             "Виджет ставится только в режиме приложения (OAuth)"})
+    handler = _widget_handler(company)
+    if not handler:
+        return JSONResponse({"ok": False, "error":
+                             "Не задан публичный адрес системы в настройках"})
+    client = get_bitrix_client(company)
+    if not client:
+        return JSONResponse({"ok": False, "error": "Приложение не подключено к порталу"})
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    codes = payload.get("placements") or ["CRM_DEAL_DETAIL_TAB", "CRM_LEAD_DETAIL_TAB"]
+
+    results, ok_all = [], True
+    with client:
+        for code in codes:
+            done, msg = bitrix_actions.bind_placement(client, code, handler)
+            ok_all = ok_all and done
+            results.append({"placement": code, "ok": done, "message": msg})
+    return JSONResponse({"ok": ok_all, "results": results})
+
+
+@router.post("/placements/unbind")
+@role_required("admin")
+async def placements_unbind(request: Request, db: Session = Depends(get_db)):
+    """Убрать вкладку из карточек."""
+    company = db.query(CompanySettings).first()
+    client = get_bitrix_client(company)
+    if not client:
+        return JSONResponse({"ok": False, "error": "Bitrix24 не подключён"})
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    codes = payload.get("placements") or list(bitrix_actions.CRM_PLACEMENTS)
+    handler = _widget_handler(company)
+    with client:
+        for code in codes:
+            bitrix_actions.unbind_placement(client, code, handler)
+    return JSONResponse({"ok": True})

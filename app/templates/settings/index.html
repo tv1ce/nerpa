@@ -695,6 +695,25 @@
                   <div id="bitrixOauthStatus" class="mt-2 text-muted">Проверяю подключение…</div>
                 </div>
                 <div class="col-12">
+                  <hr class="my-2">
+                  <div class="fw-semibold mb-1" style="font-size:.85rem">
+                    <i class="bi bi-window-stack me-1 text-primary"></i>Виджет со скриптами в карточке CRM
+                  </div>
+                  <div class="text-muted mb-2" style="font-size:.82rem">
+                    Добавляет в карточку сделки и лида вкладку со списком скриптов. В форме
+                    локального приложения такого поля нет — вкладка ставится этой кнопкой,
+                    поэтому нужен режим приложения (OAuth).
+                  </div>
+                  <div id="bitrixPlacementStatus" class="mb-2" style="font-size:.82rem"></div>
+                  <button type="button" class="btn btn-sm btn-outline-primary" id="bitrixPlacementBind">
+                    <i class="bi bi-plus-square me-1"></i>Встроить в карточки
+                  </button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" id="bitrixPlacementUnbind">
+                    Убрать
+                  </button>
+                </div>
+
+                <div class="col-12">
                   <a href="/api/bitrix/oauth/connect" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-box-arrow-in-right me-1"></i>Подключить портал
                   </a>
@@ -1704,6 +1723,67 @@ if (_btnDiscoverTopics) {
   function sync() { block.style.display = mode.value === 'oauth' ? '' : 'none'; }
   mode.addEventListener('change', sync);
   sync();
+
+  // ── Виджет в карточке CRM ──
+  var pStatus = document.getElementById('bitrixPlacementStatus');
+  var pBind = document.getElementById('bitrixPlacementBind');
+  var pUnbind = document.getElementById('bitrixPlacementUnbind');
+
+  function csrfToken() {
+    var el = document.querySelector('[name=csrf_token]');
+    return (el && el.value) || (window.CSRF || '');
+  }
+
+  function loadPlacements() {
+    if (!pStatus) return;
+    fetch('/api/bitrix/oauth/placements').then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) { pStatus.innerHTML = '<span class="text-muted">' + (d.error || 'Недоступно') + '</span>'; return; }
+      if (!d.oauth) {
+        pStatus.innerHTML = '<span class="text-warning-emphasis">Доступно только в режиме приложения (OAuth)</span>';
+        return;
+      }
+      if (!d.bound || !d.bound.length) {
+        pStatus.innerHTML = '<span class="text-muted">Вкладка пока не встроена</span>';
+        return;
+      }
+      var names = d.bound.map(function (code) { return d.available[code] || code; });
+      pStatus.innerHTML = '<span class="text-success">Встроено:</span> ' + names.join(', ');
+    }).catch(function () { pStatus.textContent = 'Статус виджета недоступен'; });
+  }
+
+  function placementCall(path, body, btn) {
+    if (btn) { btn.disabled = true; }
+    fetch('/api/bitrix/oauth/placements/' + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
+      body: JSON.stringify(body || {})
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (btn) { btn.disabled = false; }
+      if (!d.ok && d.error) { pStatus.innerHTML = '<span class="text-danger">' + d.error + '</span>'; return; }
+      if (d.results) {
+        var bad = d.results.filter(function (x) { return !x.ok; });
+        if (bad.length) {
+          pStatus.innerHTML = '<span class="text-danger">' + bad.map(function (x) {
+            return x.placement + ': ' + x.message; }).join('; ') + '</span>';
+          return;
+        }
+      }
+      loadPlacements();
+    }).catch(function () { if (btn) { btn.disabled = false; } });
+  }
+
+  if (pBind) {
+    pBind.addEventListener('click', function () {
+      placementCall('bind', { placements: ['CRM_DEAL_DETAIL_TAB', 'CRM_LEAD_DETAIL_TAB'] }, pBind);
+    });
+  }
+  if (pUnbind) {
+    pUnbind.addEventListener('click', function () {
+      if (!confirm('Убрать вкладку со скриптами из карточек CRM?')) return;
+      placementCall('unbind', {}, pUnbind);
+    });
+  }
+  loadPlacements();
 
   if (status) {
     fetch('/api/bitrix/oauth/status').then(function (r) { return r.json(); }).then(function (d) {
