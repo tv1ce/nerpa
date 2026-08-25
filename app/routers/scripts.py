@@ -15,6 +15,7 @@
 скрипт целиком. Так автосохранение, undo/redo и откат к версии из истории — это
 одна и та же операция, а не три разных пути записи, которые разъезжаются.
 """
+import asyncio
 import json
 import logging
 from datetime import timedelta
@@ -871,7 +872,7 @@ async def full_view(request: Request, sid: int, db: Session = Depends(get_db)):
     nodes = ordered_nodes(script)
     numbers = {n.id: i + 1 for i, n in enumerate(nodes)}
     ctx = _base_ctx(request, db)
-    crm = crm_context_for(request, db)
+    crm = await asyncio.to_thread(crm_context_for, request, db)
     ctx.update({
         "script": script,
         "nodes": nodes,
@@ -906,7 +907,7 @@ async def run_view(request: Request, sid: int, node: str = "",
         script.uses_count = (script.uses_count or 0) + 1
         db.commit()
 
-    crm = crm_context_for(request, db)
+    crm = await asyncio.to_thread(crm_context_for, request, db)
     ctx = _base_ctx(request, db)
     ctx.update({
         "script": script,
@@ -981,7 +982,7 @@ async def run_save(request: Request, sid: int, db: Session = Depends(get_db)):
 
     crm = None
     if finished:
-        crm = _push_run_to_crm(db, run, script)
+        crm = await asyncio.to_thread(_push_run_to_crm, db, run, script)
     return JSONResponse({"ok": True, "run_id": run.id, "crm": crm})
 
 
@@ -1149,9 +1150,27 @@ def _b24_client_context(db: Session, entity: str, entity_id: str) -> dict:
 
 
 @router.api_route("/b24/placement", methods=["GET", "POST"], response_class=HTMLResponse)
-@login_required
 async def b24_placement(request: Request, db: Session = Depends(get_db)):
-    """Список скриптов внутри карточки Bitrix24 с контекстом клиента."""
+    """Список скриптов внутри карточки Bitrix24 с контекстом клиента.
+
+    Намеренно без login_required. Bitrix24 открывает виджет POST-запросом из
+    портала, и CSRF-токена в нём нет — взяться ему неоткуда, запрос приходит с
+    чужого домена. Декоратор отвергал бы каждое открытие карточки с «неверный
+    CSRF-токен». Страница ничего не меняет, только показывает список, поэтому
+    вход проверяем вручную, а защита от подделки запросов ей не нужна.
+    """
+    from app.auth import get_current_user
+    if not get_current_user(request):
+        # Внутри рамки форма входа бесполезна: cookie сессии в чужом контексте
+        # ставится не всегда, да и логиниться в узкой вкладке неудобно
+        return HTMLResponse(
+            '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+            '<title>NERPA</title></head>'
+            '<body style="font-family:sans-serif;padding:24px;text-align:center">'
+            '<p style="color:#64748b">Чтобы увидеть скрипты, войдите в NERPA.</p>'
+            '<p><a href="/auth/login" target="_blank" rel="noopener">Открыть вход в новой вкладке</a></p>'
+            '<p style="color:#94a3b8;font-size:.85rem">После входа обновите карточку.</p>'
+            '</body></html>', status_code=200)
     placement, options = "", {}
     if request.method == "POST":
         form = await request.form()
@@ -1165,7 +1184,9 @@ async def b24_placement(request: Request, db: Session = Depends(get_db)):
         options = {"ID": request.query_params.get("crm_id", "")}
 
     entity, entity_id = _b24_entity_from_placement(placement, options)
-    crm = _b24_client_context(db, entity, entity_id)
+    # Сетевой вызов к порталу — только в потоке, иначе он заморозит
+    # событийный цикл и сайт перестанет отвечать всем остальным
+    crm = await asyncio.to_thread(_b24_client_context, db, entity, entity_id)
 
     from urllib.parse import urlencode
     params = dict(crm)

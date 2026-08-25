@@ -17,6 +17,7 @@
 приложение работает по-старому. Способ авторизации выбирается в одном месте —
 get_bitrix_client() в app/services/bitrix_client.py.
 """
+import asyncio
 import logging
 import re
 import secrets
@@ -100,10 +101,12 @@ async def oauth_install(request: Request, db: Session = Depends(get_db)):
     }
     try:
         bitrix_oauth.save_tokens(db, payload)
-        # Домен фиксируем как доверенный и переводим портал на OAuth: раз
-        # приложение установили, дальше REST должен ходить через него.
+        # Домен фиксируем как доверенный, но способ авторизации НЕ трогаем.
+        # Установка приложения — это про получение токенов, а переключение
+        # переводит на новые рельсы сразу всё: заказы, контрагентов, выгрузку
+        # остатков, кабинет клиента. Такое решение принимает администратор
+        # осознанно, в настройках, а не одной кнопкой в чужом интерфейсе.
         company.bitrix_portal_domain = domain[:120]
-        company.bitrix_auth_mode = "oauth"
         db.commit()
     except bitrix_oauth.BitrixOAuthError as e:
         db.rollback()
@@ -203,8 +206,10 @@ async def placements_list(request: Request, db: Session = Depends(get_db)):
     client = get_bitrix_client(company)
     if not client:
         return JSONResponse({"ok": False, "error": "Bitrix24 не подключён"})
-    with client:
-        bound = bitrix_actions.list_placements(client)
+    def _list():
+        with client:
+            return bitrix_actions.list_placements(client)
+    bound = await asyncio.to_thread(_list)
     codes = {str(item.get("placement") or "").upper() for item in bound if isinstance(item, dict)}
     return JSONResponse({
         "ok": True,
@@ -238,12 +243,15 @@ async def placements_bind(request: Request, db: Session = Depends(get_db)):
         payload = {}
     codes = payload.get("placements") or ["CRM_DEAL_DETAIL_TAB", "CRM_LEAD_DETAIL_TAB"]
 
-    results, ok_all = [], True
-    with client:
-        for code in codes:
-            done, msg = bitrix_actions.bind_placement(client, code, handler)
-            ok_all = ok_all and done
-            results.append({"placement": code, "ok": done, "message": msg})
+    def _bind():
+        out, every = [], True
+        with client:
+            for code in codes:
+                done, msg = bitrix_actions.bind_placement(client, code, handler)
+                every = every and done
+                out.append({"placement": code, "ok": done, "message": msg})
+        return out, every
+    results, ok_all = await asyncio.to_thread(_bind)
     return JSONResponse({"ok": ok_all, "results": results})
 
 
@@ -261,7 +269,9 @@ async def placements_unbind(request: Request, db: Session = Depends(get_db)):
         payload = {}
     codes = payload.get("placements") or list(bitrix_actions.CRM_PLACEMENTS)
     handler = _widget_handler(company)
-    with client:
-        for code in codes:
-            bitrix_actions.unbind_placement(client, code, handler)
+    def _unbind():
+        with client:
+            for code in codes:
+                bitrix_actions.unbind_placement(client, code, handler)
+    await asyncio.to_thread(_unbind)
     return JSONResponse({"ok": True})
