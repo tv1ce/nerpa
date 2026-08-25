@@ -18,6 +18,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.models import CompanySettings
+from app.utils.ssl_trust import ca_bundle
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,10 @@ def _get_settings(db: Session) -> CompanySettings | None:
 
 
 def _client(s: CompanySettings) -> httpx.Client:
+    # Проверяем сертификат по системному хранилищу, а не по набору из certifi:
+    # Точка перешла на корень Минцифры, которого в certifi нет — см. подробности
+    # в app/utils/ssl_trust.py. Корень ставится на сервере штатным
+    # update-ca-certificates, в коде остаётся только смотреть в нужное место.
     return httpx.Client(
         base_url=BASE_URL,
         headers={
@@ -47,6 +52,7 @@ def _client(s: CompanySettings) -> httpx.Client:
             "Content-Type": "application/json",
         },
         timeout=TIMEOUT,
+        verify=ca_bundle(),
     )
 
 
