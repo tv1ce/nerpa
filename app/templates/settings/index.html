@@ -1065,6 +1065,26 @@
           </div>
         </div>
 
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <label class="form-label form-label-sm mb-0"><i class="bi bi-send-check me-1"></i>Опрос пройден <span class="text-muted">(сразу)</span></label>
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   name="hr_survey_notify_enabled" value="1" id="hrSurveyNotifyEnabled"
+                   {% if company and company.hr_survey_notify_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="hrSurveyNotifyEnabled" style="font-size:.82rem">Вкл</label>
+          </div>
+        </div>
+        <div class="mb-3">
+          <input type="text" name="hr_survey_notify_chat_ids" class="form-control form-control-sm font-monospace"
+                 placeholder="-1001234567890"
+                 value="{{ company.hr_survey_notify_chat_ids if company and company.hr_survey_notify_chat_ids else '' }}">
+          <div class="form-text" style="font-size:.72rem">
+            Сообщение в момент, когда сотрудник отправил анкету: кто ответил, по какому раунду
+            и сколько человек из скольких уже прошли. Только на первый ответ — правки анкеты
+            повторных уведомлений не шлют. Пусто — в чат ИИ-отчёта HR
+          </div>
+        </div>
+
         <hr class="my-3">
 
         <div class="d-flex align-items-center justify-content-between mb-2">

@@ -570,6 +570,9 @@ class CompanySettings(Base):
     hr_metric_remind_chat_ids = Column(Text)    # chat_id напоминания; пусто — как чат HR-отчёта
     hr_metric_check_enabled   = Column(Boolean, default=False)  # пт 17:30 — HR: кто ещё не сдал
     hr_metric_check_chat_ids  = Column(Text)    # chat_id сводки; пусто — как чат HR-отчёта
+    # ── Опросы: мгновенное уведомление, когда сотрудник прошёл опрос ──
+    hr_survey_notify_enabled  = Column(Boolean, default=False)
+    hr_survey_notify_chat_ids = Column(Text)    # chat_id; пусто — как чат HR-отчёта
     # ── KPI-фильтр продукта (дашборд и отчёты) ──
     kpi_product_filter = Column(String(100), default="орешк")  # ilike-подстрока для фильтра KPI
     # ── Saby «Управление транспортом»: наименование груза по умолчанию для заявок/ЭТрН ──

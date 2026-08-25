@@ -225,6 +225,8 @@ async def save_telegram(
     hr_metric_remind_chat_ids: str = Form(default=""),
     hr_metric_check_enabled: str = Form(default=""),
     hr_metric_check_chat_ids: str = Form(default=""),
+    hr_survey_notify_enabled: str = Form(default=""),
+    hr_survey_notify_chat_ids: str = Form(default=""),
     outlets_digest_enabled: str = Form(default=""),
     outlets_digest_time: str = Form(default="09:30"),
     outlets_digest_chat_ids: str = Form(default=""),
@@ -252,6 +254,8 @@ async def save_telegram(
     company.hr_metric_remind_chat_ids = _normalize_chat_ids(hr_metric_remind_chat_ids)
     company.hr_metric_check_enabled = (hr_metric_check_enabled == "1")
     company.hr_metric_check_chat_ids = _normalize_chat_ids(hr_metric_check_chat_ids)
+    company.hr_survey_notify_enabled = (hr_survey_notify_enabled == "1")
+    company.hr_survey_notify_chat_ids = _normalize_chat_ids(hr_survey_notify_chat_ids)
     company.outlets_digest_enabled = (outlets_digest_enabled == "1")
     company.outlets_digest_time = _normalize_time(outlets_digest_time)
     company.outlets_digest_chat_ids = _normalize_chat_ids(outlets_digest_chat_ids)

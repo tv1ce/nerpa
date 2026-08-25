@@ -129,6 +129,45 @@ def send_topic_message(chat_id: int, text: str, bot_token: str | None = None,
         r.raise_for_status()
 
 
+def hr_survey_notify_target(db) -> tuple[list[int], str]:
+    """(chat_id, токен бота) для уведомления «сотрудник прошёл опрос».
+
+    Пустой список — уведомление выключено или не настроены чат/токен. Чат
+    отдельный только если нужен; не задан — берём чат HR-отчёта, затем общий
+    чат отчётов (та же лесенка, что у пятничных напоминаний по метрике).
+
+    Читается в момент запроса, пока сессия БД жива: сама отправка уходит в
+    фон и до БД уже не дотягивается (см. send_plain_safe)."""
+    from app.models import CompanySettings
+    s = db.query(CompanySettings).first()
+    if not s or not s.hr_survey_notify_enabled:
+        return [], ""
+    ids = (parse_chat_ids(s.hr_survey_notify_chat_ids or "")
+           or parse_chat_ids(s.tg_hr_report_chat_ids or "")
+           or parse_chat_ids(s.tg_report_chat_ids or ""))
+    token = (s.tg_bot_token or "").strip() or BOT_TOKEN
+    return (ids, token) if ids and token else ([], "")
+
+
+def send_plain_safe(chat_ids: list[int], text: str, bot_token: str) -> None:
+    """Простой текст в несколько чатов; наружу не бросает.
+
+    Для фоновых уведомлений, где сбой Telegram не должен влиять на действие
+    пользователя. Telegram доступен только через SOCKS-прокси, а тот регулярно
+    отваливается на минуту-другую — поэтому «не смогли отправить» здесь
+    нормальная ситуация, которую достаточно записать в лог.
+
+    Без MarkdownV2: в тексте ФИО и названия с «-», «_», «.», где одна
+    пропущенная экранировка отменяет всё сообщение целиком."""
+    import logging
+    logger = logging.getLogger(__name__)
+    for chat_id in chat_ids:
+        try:
+            send_topic_message(chat_id, text, bot_token=bot_token)
+        except Exception:
+            logger.error("send_plain_safe: не отправилось в chat_id=%s", chat_id, exc_info=True)
+
+
 def notify_warehouse_group(db, topic: str, text: str) -> None:
     """Уведомление в складскую Telegram-супергруппу (топики «Поступления сырья» /
     «Собранные заказы» / «Отгрузки»). topic — 'receiving' / 'assembled' / 'shipped'.

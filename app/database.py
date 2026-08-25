@@ -420,6 +420,9 @@ def _migrate_db():
         ("claims", "quantity",         "REAL"),
         ("claims", "assignee_id",      "INTEGER REFERENCES users(id)"),
         ("claims", "resolved_at",      "TIMESTAMP"),
+        # ── Опросы HR: уведомление в Telegram, когда сотрудник прошёл опрос ──
+        ("company_settings", "hr_survey_notify_enabled",  "INTEGER DEFAULT 0"),
+        ("company_settings", "hr_survey_notify_chat_ids", "TEXT"),
     ]
     # Whitelist: таблицы/колонки — только идентификаторы; col_def — ограниченный SQL-тип
     import re as _re

@@ -6,7 +6,7 @@ import time
 from collections import defaultdict
 from datetime import date, datetime
 
-from fastapi import APIRouter, Request, Depends, Form
+from fastapi import APIRouter, BackgroundTasks, Request, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func
@@ -1750,6 +1750,44 @@ def _notify_survey_answered(db: Session, tok: HrSurveyToken) -> None:
         ))
 
 
+def _survey_telegram_message(db: Session, tok: HrSurveyToken) -> tuple[list[int], str, str]:
+    """(chat_id, токен, текст) уведомления о пройденном опросе — или ([], "", "").
+
+    Всё, что нужно для отправки, собираем здесь, пока сессия БД жива: сама
+    отправка уходит в фон уже без доступа к базе.
+
+    Прогресс «ответили N из M» в тексте — главное, ради чего HR смотрит на это
+    уведомление: по нему видно, ждать ли ещё людей или раунд можно закрывать.
+    Текущий ответ уже посчитан — submitted_at проставлен до вызова."""
+    from app.services.telegram_send import hr_survey_notify_target
+
+    chat_ids, token = hr_survey_notify_target(db)
+    if not chat_ids:
+        return [], "", ""
+
+    survey = tok.survey
+    answered = sum(1 for t in survey.tokens if t.submitted_at)
+    total = len(survey.tokens)
+    position = tok.employee.position_title or "должность не указана"
+
+    lines = [
+        f"✅ Опрос пройден — {tok.employee.full_name}",
+        f"{position}",
+        "",
+        f"Раунд: {survey.title or 'Опрос'} ({_period_label(survey.period)})",
+        f"Ответили: {answered} из {total}",
+    ]
+    if answered == total and total:
+        lines.append("Это последний — ответы собраны полностью.")
+
+    company = db.query(CompanySettings).first()
+    base = (company.public_url or "").rstrip("/") if company else ""
+    if base:
+        lines += ["", f"Ответы: {base}/hr/surveys/{survey.id}"]
+
+    return chat_ids, token, "\n".join(lines)
+
+
 @router.get("/s/{token}", response_class=HTMLResponse)
 async def public_survey_form(request: Request, token: str, db: Session = Depends(get_db)):
     if _rate_limited(request.client.host if request.client else "?"):
@@ -1781,7 +1819,8 @@ async def public_survey_form(request: Request, token: str, db: Session = Depends
 
 
 @router.post("/s/{token}")
-async def public_survey_submit(request: Request, token: str, db: Session = Depends(get_db)):
+async def public_survey_submit(request: Request, token: str, background: BackgroundTasks,
+                               db: Session = Depends(get_db)):
     if _rate_limited(request.client.host if request.client else "?"):
         return HTMLResponse("<h3>Слишком много запросов, попробуйте позже.</h3>", status_code=429)
     tok = _load_token(db, token)
@@ -1794,7 +1833,17 @@ async def public_survey_submit(request: Request, token: str, db: Session = Depen
     is_first_submit = tok.submitted_at is None
     _save_from_form(db, tok.employee, tok.survey.period, form, set(tok.effective_sections), None)
     tok.submitted_at = msk_now()
+    from app.services.telegram_send import send_plain_safe
+    tg_chats, tg_token, tg_text = [], "", ""
     if is_first_submit:
         _notify_survey_answered(db, tok)
+        tg_chats, tg_token, tg_text = _survey_telegram_message(db, tok)
     db.commit()
+    # Telegram — фоном, уже после ответа сотруднику: api.telegram.org доступен
+    # только через SOCKS-прокси, который регулярно отваливается на минуту-другую.
+    # Синхронная отправка здесь либо заставила бы человека ждать таймаут после
+    # нажатия «Отправить», либо (в async-хендлере) заморозила бы event loop
+    # целиком. send_plain_safe — обычная def, Starlette выполнит её в пуле потоков.
+    if tg_chats:
+        background.add_task(send_plain_safe, tg_chats, tg_text, tg_token)
     return RedirectResponse(url=f"/hr/s/{token}?done=1", status_code=302)
