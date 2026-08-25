@@ -674,11 +674,29 @@ if not _session_secret:
         "Все сессии сбросятся при перезапуске. Добавьте SECRET_KEY в .env"
     )
 
+# SameSite решает, доедет ли cookie сессии внутрь чужой рамки. Виджет со
+# скриптами живёт в iframe карточки Bitrix24 — это кросс-сайтовый контекст, и при
+# "lax" браузер cookie туда не отправит: менеджер увидит форму входа, и войти в
+# ней не получится. "none" эту дверь открывает, но требует Secure, то есть HTTPS.
+#
+# По умолчанию оставлено "lax": на локальной разработке по http кука с Secure не
+# сохранится вовсе, и вход перестанет работать. На бою значение задаётся
+# в .env строкой SESSION_SAMESITE=none.
+#
+# Ослабление это защищённое: изменяющие запросы и так проверяют CSRF-токен, а
+# встраивание в рамку разрешено nginx-ом только для страницы виджета и только
+# для домена портала — остальной интерфейс по-прежнему в рамку не пускают.
+_same_site = os.getenv("SESSION_SAMESITE", "lax").strip().lower()
+if _same_site not in ("lax", "strict", "none"):
+    logger.warning("SESSION_SAMESITE=%r не распознан — используется lax", _same_site)
+    _same_site = "lax"
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret,
     max_age=60 * 60 * 24 * 30,
-    same_site="lax",
+    same_site=_same_site,
+    https_only=(_same_site == "none"),   # SameSite=None без Secure браузер отбросит
 )
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
