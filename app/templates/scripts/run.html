@@ -1,9 +1,19 @@
-{% extends "base.html" %}
+{# Макет задаёт роутер: обычный в системе, компактный внутри карточки CRM #}
+{% extends layout|default('base.html') %}
 {% block title %}{{ script.title }} — прохождение{% endblock %}
 {% block page_title %}{{ script.title }}{% endblock %}
 {% block topbar_actions %}
-  {% include "scripts/_modes.html" %}
-  <a href="/scripts/?folder={{ script.folder_id or '' }}" class="btn btn-sm btn-link text-muted">К списку</a>
+  {% if embed %}
+    {# В рамке карточки переключатель режимов не нужен: менеджеру здесь нужен
+       сам разговор, а не конструктор. Возврат — к списку скриптов виджета. #}
+    <a href="/scripts/b24/placement?{{ crm_query[1:] if crm_query else '' }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>К списку
+    </a>
+  {% else %}
+    {% include "scripts/_modes.html" %}
+    <a href="/scripts/?folder={{ script.folder_id or '' }}" class="btn btn-sm btn-link text-muted">К списку</a>
+  {% endif %}
 {% endblock %}
 
 {% block content %}

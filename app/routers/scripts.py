@@ -889,7 +889,7 @@ async def full_view(request: Request, sid: int, db: Session = Depends(get_db)):
 
 @router.get("/{sid}/run", response_class=HTMLResponse)
 @login_required
-async def run_view(request: Request, sid: int, node: str = "",
+async def run_view(request: Request, sid: int, node: str = "", embed: str = "",
                    db: Session = Depends(get_db)):
     script = db.get(Script, sid)
     if not script:
@@ -897,6 +897,7 @@ async def run_view(request: Request, sid: int, node: str = "",
     nodes = ordered_nodes(script)
     if not nodes:
         return RedirectResponse(url=f"/scripts/{sid}/edit", status_code=302)
+    embed = embed in ("1", "true", "yes")
     numbers = {n.id: i + 1 for i, n in enumerate(nodes)}
     by_id = {n.id: n for n in nodes}
 
@@ -921,6 +922,10 @@ async def run_view(request: Request, sid: int, node: str = "",
         "crm": crm,
         "crm_query": _crm_query(request),
         "quick_jumps": _quick_jump_pairs(script, by_id),
+        # Внутри карточки CRM интерфейс компактный: без бокового меню и
+        # верхней панели, иначе в узкой рамке на сам скрипт места не остаётся
+        "embed": embed,
+        "layout": "scripts/embed_base.html" if embed else "base.html",
         "search_index": [
             {"id": n.id, "n": numbers[n.id], "title": n.title,
              "text": html_to_text(n.body_html)[:400]}
@@ -940,10 +945,11 @@ def _crm_query(request: Request) -> str:
     # заново. Тащить их через каждый переход значило бы светить персональные
     # данные клиента в адресной строке, истории браузера и логах nginx.
     if q.get("crm_entity") and q.get("crm_id"):
-        pairs = [(k, q[k]) for k in ("crm_entity", "crm_id", "portal") if q.get(k)]
+        pairs = [(k, q[k]) for k in ("crm_entity", "crm_id", "portal", "embed") if q.get(k)]
         return ("&" + urlencode(pairs)) if pairs else ""
 
-    keep = ("name", "last_name", "company", "phone", "email", "post", "deal", "amount", "portal")
+    keep = ("name", "last_name", "company", "phone", "email", "post", "deal", "amount",
+            "portal", "embed")
     pairs = [(k, q[k]) for k in keep if q.get(k)]
     return ("&" + urlencode(pairs)) if pairs else ""
 
