@@ -215,8 +215,39 @@ class BitrixClient:
     def get_product(self, product_id) -> dict:
         """Карточка товара каталога Bitrix24 — читаем XML_ID (обычно код/GUID
         номенклатуры из 1С, если каталог заведён через штатную выгрузку), чтобы
-        сопоставлять товарные позиции сделки с NERPA не только по названию."""
-        return self.call("crm.product.get", id=product_id) or {}
+        сопоставлять товарные позиции сделки с NERPA не только по названию.
+
+        Спрашиваем в два захода. crm.product.get знает только карточки старого
+        CRM-каталога: товары нового торгового каталога ему не видны, и он
+        отвечает «Product is not found» даже на существующий товар. Под вебхуком
+        это чаще всего незаметно, а под токеном приложения ломает сопоставление
+        позиций у всей сделки — заказ приезжает пустым.
+
+        Поэтому при неудаче переспрашиваем catalog.product.get: тот же товар,
+        другой модуль. Поля там в другом регистре (xmlId вместо XML_ID),
+        приводим ответ к общему виду, чтобы вызывающий код не знал об этом.
+        """
+        try:
+            card = self.call("crm.product.get", id=product_id) or {}
+            if card:
+                return card
+        except BitrixError as e:
+            logger.info("Bitrix24: crm.product.get %s без карточки (%s) — спрашиваю каталог",
+                        product_id, e)
+
+        try:
+            card = self.get_catalog_product(product_id)
+        except BitrixError as e:
+            logger.warning("Bitrix24: catalog.product.get %s тоже не дал карточку: %s",
+                           product_id, e)
+            return {}
+        if not card:
+            return {}
+        return {
+            "ID": card.get("id") or product_id,
+            "NAME": card.get("name") or "",
+            "XML_ID": card.get("xmlId") or card.get("XML_ID") or "",
+        }
 
     # ── Каталог товаров (выгрузка остатков NERPA → Bitrix24) ───────────────────
     #
