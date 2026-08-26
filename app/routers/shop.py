@@ -53,6 +53,12 @@ LINE_LABELS = {"п1.": "на сливочном масле", "п2.": "на ма�
 # Статусы, после которых позиция уже физически собрана и печь её не нужно.
 ASSEMBLED_STATUSES = ("assembled", "handed", "delivered")
 
+# Правда для цеха — только заказ, подтверждённый менеджером в NERPA. Черновик
+# (draft) подтверждением не является: сделка из Bitrix могла приехать ошибочно,
+# её могли удалить или переделать, а табло уже показало цеху лишние орешки.
+# Поэтому план производства собирается ТОЛЬКО по этим статусам.
+CONFIRMED_STATUSES = ("confirmed", "paid", "assembled", "handed", "delivered")
+
 # Сколько держать на табло закрытую дату, прежде чем показать следующую.
 _PLAN_HOLD_MINUTES = 60
 
@@ -449,13 +455,13 @@ def _record_booking(db: Session, cp: Counterparty, d: date, qty: int, deal_id: s
 def production_plan(db: Session, company) -> dict:
     """Что цеху печь к ближайшей отгрузке — в разрезе вкусов.
 
-    Собирается из трёх источников, каждый со своей ролью:
-      * заказы в NERPA с этой датой доставки — подтверждённые, приехали из Bitrix24;
-      * брони кабинета, по сделкам которых заказ ещё не вернулся — клиент их уже
-        отправил, печь надо, а в NERPA они появятся с задержкой;
-      * корзины, которые клиенты набирают ПРЯМО СЕЙЧАС, — отдельной строкой и в
-        план не входят: заказ ещё не отправлен и может не отправиться вовсе.
-        Но цех должен видеть, что на него надвигается.
+    В плане — только ПОДТВЕРЖДЁННЫЕ заказы NERPA (см. CONFIRMED_STATUSES).
+    Черновики и брони кабинета в цифры не попадают: сделка из Bitrix может
+    приехать ошибочно или быть удалена, и цех печёт то, чего никто не заказывал.
+
+    Отдельной строкой (в план не входит) показываем корзины, которые клиенты
+    набирают ПРЯМО СЕЙЧАС: заказ ещё не отправлен и может не отправиться вовсе,
+    но цех должен видеть, что на него надвигается.
 
     Дата берётся ближайшая из тех, на которые вообще что-то заказано, а не
     «завтра»: при отгрузке два раза в неделю завтра обычно пусто."""
@@ -471,8 +477,8 @@ def production_plan(db: Session, company) -> dict:
     # миг, когда кладовщик нажал «Собрано» на последнем заказе.
     today = date.today()
     dates = {d for (d,) in db.query(shipment_date_col())
-             .filter(shipment_date_col() >= today, Order.status != "cancelled").distinct().all() if d}
-    dates |= {b.ship_date for b in active_bookings(db) if b.ship_date >= today}
+             .filter(shipment_date_col() >= today,
+                     Order.status.in_(CONFIRMED_STATUSES)).distinct().all() if d}
     if not dates:
         return {"date": None}
 
@@ -501,23 +507,14 @@ def _plan_for_date(db: Session, company, day, nut_names: dict, dummy_names: dict
     interesting = set(nut_names) | set(dummy_names)
     rows = (db.query(OrderItem.product_id, OrderItem.quantity, Order.status)
             .join(Order, Order.id == OrderItem.order_id)
-            .filter(shipment_date_col() == day, Order.status != "cancelled",
+            .filter(shipment_date_col() == day,
+                    Order.status.in_(CONFIRMED_STATUSES),
                     OrderItem.product_id.in_(interesting))
             .all())
     for pid, qty, status in rows:
         by_product[pid] = by_product.get(pid, 0) + int(qty or 0)
         if status in ASSEMBLED_STATUSES:
             done_product[pid] = done_product.get(pid, 0) + int(qty or 0)
-
-    for b in active_bookings(db, day):
-        try:
-            detail = json.loads(b.items or "[]")
-        except (ValueError, TypeError):
-            detail = []
-        for it in detail:
-            pid = int(it.get("id", 0))
-            if pid in nut_names:      # в кабинете продаются только орешки
-                by_product[pid] = by_product.get(pid, 0) + int(it.get("qty") or 0)
 
     # ── Строки плана: вкус + линейка, крупно и коротко ──────────────────────
     lines, dummies = [], []
