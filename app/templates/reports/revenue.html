@@ -431,9 +431,12 @@ const dailyChart = new Chart(document.getElementById('dailyChart'), {
         callbacks: {
           label: function(ctx) {
             const v = ctx.parsed.y || 0;
-            return ctx.dataset.yAxisID === 'y'
-              ? 'Выручка: ' + v.toLocaleString('ru-RU') + ' ₽'
-              : 'Заказов: ' + v;
+            if (ctx.dataset.yAxisID === 'y') {
+              return 'Выручка: ' + v.toLocaleString('ru-RU') + ' ₽';
+            }
+            // Рядом с количеством заказов — сумма отгрузок за этот день
+            const sum = (daily[ctx.dataIndex] || {}).shipped || 0;
+            return 'Заказов: ' + v + ' / ' + sum.toLocaleString('ru-RU', {maximumFractionDigits: 0}) + ' ₽';
           }
         }
       }
