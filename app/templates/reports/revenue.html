@@ -173,6 +173,37 @@
   </div>
 </div>
 
+{# ═══════════════════ ДИНАМИКА ПО ДНЯМ ═══════════════════════════════════ #}
+<div class="row g-3 mb-3">
+  <div class="col-12">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-white border-0 pt-3 pb-2 px-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <span class="fw-bold"><i class="bi bi-graph-up me-1" style="color:var(--brand)"></i>Динамика по дням</span>
+          <span class="text-muted ms-2" style="font-size:.82rem">{{ tbl_from | date_fmt }} — {{ tbl_to | date_fmt }}</span>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+          <div class="form-check form-check-inline m-0">
+            <input class="form-check-input js-series" type="checkbox" id="ck-revenue" data-idx="0" checked>
+            <label class="form-check-label" for="ck-revenue" style="font-size:.82rem">
+              <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#16A34A;margin-right:5px"></span>Выручка, ₽
+            </label>
+          </div>
+          <div class="form-check form-check-inline m-0">
+            <input class="form-check-input js-series" type="checkbox" id="ck-orders" data-idx="1" checked>
+            <label class="form-check-label" for="ck-orders" style="font-size:.82rem">
+              <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#EA580C;margin-right:5px"></span>Заказы, шт
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="card-body px-4 pt-2 pb-3">
+        <canvas id="dailyChart" height="80"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
 {# ═══════════════════ ОСНОВНАЯ СЕКЦИЯ: ТАБЛИЦА + КЛИЕНТЫ ════════════════ #}
 <div class="row g-3">
 
@@ -358,6 +389,84 @@
 
 {% block scripts %}
 <script>
+// ── График «Динамика по дням»: выручка (₽) и количество заказов (шт) ──
+const daily = {{ daily | tojson }};
+const dailyChart = new Chart(document.getElementById('dailyChart'), {
+  type: 'line',
+  data: {
+    labels: daily.map(d => d.label),
+    datasets: [
+      {
+        label: 'Выручка, ₽',
+        data: daily.map(d => d.revenue),
+        borderColor: '#16A34A',
+        backgroundColor: 'rgba(22,163,74,.10)',
+        borderWidth: 2.5,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+        tension: 0,
+        yAxisID: 'y',
+        fill: true,
+      },
+      {
+        label: 'Заказы, шт',
+        data: daily.map(d => d.orders),
+        borderColor: '#EA580C',
+        backgroundColor: 'rgba(234,88,12,.08)',
+        borderWidth: 2.5,
+        pointRadius: 2,
+        pointHoverRadius: 5,
+        tension: 0,
+        yAxisID: 'y1',
+        fill: false,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: function(ctx) {
+            const v = ctx.parsed.y || 0;
+            return ctx.dataset.yAxisID === 'y'
+              ? 'Выручка: ' + v.toLocaleString('ru-RU') + ' ₽'
+              : 'Заказов: ' + v;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 0, autoSkipPadding: 8 } },
+      y: {
+        position: 'left',
+        beginAtZero: true,
+        title: { display: true, text: 'Выручка, ₽', font: { size: 10 } },
+        ticks: { font: { size: 10 }, callback: v => v.toLocaleString('ru-RU') }
+      },
+      y1: {
+        position: 'right',
+        beginAtZero: true,
+        grid: { drawOnChartArea: false },
+        title: { display: true, text: 'Заказы, шт', font: { size: 10 } },
+        ticks: { font: { size: 10 }, precision: 0 }
+      }
+    }
+  }
+});
+
+// Галочки — включить/выключить линию вместе с её осью
+document.querySelectorAll('.js-series').forEach(function(cb) {
+  cb.addEventListener('change', function() {
+    const idx = parseInt(cb.dataset.idx, 10);
+    dailyChart.setDatasetVisibility(idx, cb.checked);
+    dailyChart.options.scales[idx === 0 ? 'y' : 'y1'].display = cb.checked;
+    dailyChart.update();
+  });
+});
+
 // Переключатель «Клиенты / Сети» в панели разбивки выручки
 (function() {
   var tabs = document.getElementById('clientGroupTabs');

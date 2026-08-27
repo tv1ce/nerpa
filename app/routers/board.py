@@ -398,6 +398,28 @@ def _collect_metrics(db: Session) -> dict:
         and shipped_today > 0
     )
 
+    # Рекорд выручки за день в текущем месяце (оплаченные счета, по дате оплаты)
+    best_money_row = (
+        db.query(
+            pay_date.label("day"),
+            func.sum(Invoice.total_amount).label("total"),
+        )
+        .filter(
+            Invoice.status == "paid",
+            pay_date >= month_start,
+        )
+        .group_by(pay_date)
+        .order_by(func.sum(Invoice.total_amount).desc())
+        .first()
+    )
+    record_day_money = int(best_money_row.total or 0) if best_money_row else 0
+    record_day_money_date = str(best_money_row.day) if best_money_row else None
+    is_record_money_today = bool(
+        best_money_row
+        and record_day_money_date == str(today)
+        and shipped_today_money > 0
+    )
+
     # План на ближайшую отгрузку — цех видит, что печь, ещё до того как
     # менеджер что-то подтвердил (см. shop.production_plan).
     try:
@@ -427,6 +449,9 @@ def _collect_metrics(db: Session) -> dict:
         "days_without_claims": days_without_claims,
         "record_day":          record_day,
         "is_record_today":     is_record_today,
+        "record_day_money":       record_day_money,
+        "record_day_money_date":  record_day_money_date,
+        "is_record_money_today":  is_record_money_today,
         "last_month_nuts":     last_month_nuts,
         "last_month_revenue":  last_month_revenue,
         "last_month_name":     last_month_name,

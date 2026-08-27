@@ -395,6 +395,9 @@
       <div class="card-head">Рекорд дня</div>
       <div class="metric-value qty" id="m-record">— шт</div>
       <div class="metric-label" id="m-record-left">—</div>
+      <div class="metric-label">Выручка</div>
+      <div class="metric-value money" id="m-record-money">— ₽</div>
+      <div class="metric-label" id="m-record-money-left">—</div>
     </div>
     <div class="stat-card">
       <div class="card-head">Дней без рекламаций</div>
@@ -842,6 +845,20 @@
           : (left > 0 ? 'до рекорда ' + fmt(left) + ' шт' : 'сегодня ' + fmt(d.shipped_today) + ' шт');
       } else {
         rec.textContent = '—'; recLeft.textContent = 'пока нет данных';
+      }
+
+      // Рекорд выручки за день — та же логика цели, но в рублях
+      const recM = document.getElementById('m-record-money');
+      const recMLeft = document.getElementById('m-record-money-left');
+      if (d.record_day_money > 0){
+        recM.textContent = fmtR(d.record_day_money) + ' ₽';
+        const leftM = d.record_day_money - d.shipped_today_money;
+        recMLeft.textContent = d.is_record_money_today
+          ? '🏆 сегодня новый рекорд!'
+          : (leftM > 0 ? 'до рекорда ' + fmtR(leftM) + ' ₽'
+                       : 'сегодня ' + fmtR(d.shipped_today_money) + ' ₽');
+      } else {
+        recM.textContent = '—'; recMLeft.textContent = 'пока нет данных';
       }
 
       isRecordToday = !!d.is_record_today;

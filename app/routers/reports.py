@@ -316,6 +316,41 @@ async def revenue_report(
     logistics_month = sum_taxed(db, month_start, today)
     logistics_year = sum_taxed(db, year_start, today)
 
+    # ── Динамика по дням: выручка (оплаченные счета) + количество заказов ────
+    # Выручка — по дате оплаты (_paid_dt), как и все KPI выше, поэтому сумма
+    # по графику совпадает с карточкой выручки за период.
+    _rev_by_day = dict(
+        db.query(func.date(_paid_dt), func.sum(Invoice.total_amount))
+        .filter(
+            _paid_dt >= tbl_from,
+            _paid_dt <= tbl_to,
+            Invoice.status == "paid",
+        )
+        .group_by(func.date(_paid_dt))
+        .all()
+    )
+    _ord_by_day: dict[str, int] = {}
+    _ord_amount_by_day: dict[str, float] = {}
+    for _s in shipments:
+        _k = _s["date"].isoformat() if _s["date"] else None
+        if not _k:
+            continue
+        _ord_by_day[_k] = _ord_by_day.get(_k, 0) + 1
+        _ord_amount_by_day[_k] = _ord_amount_by_day.get(_k, 0.0) + _s["amount"]
+
+    daily = []
+    _d = tbl_from
+    while _d <= tbl_to:
+        _k = _d.isoformat()
+        daily.append({
+            "date": _k,
+            "label": _d.strftime("%d.%m"),
+            "revenue": float(_rev_by_day.get(_k) or 0.0),
+            "orders": _ord_by_day.get(_k, 0),
+            "shipped": round(_ord_amount_by_day.get(_k, 0.0), 2),
+        })
+        _d += timedelta(days=1)
+
     # Итого по таблице (за выбранный период)
     total_amount       = sum(r["amount"]       for r in shipments)
     total_paid_invoices= sum(r["paid_amount"]  for r in shipments)
@@ -324,6 +359,7 @@ async def revenue_report(
     return templates.TemplateResponse(request, "reports/revenue.html", {
         "shipments": shipments,
         "by_client": by_client,
+        "daily": daily,
         "by_network": by_network,
         "total_amount": total_amount,
         "total_paid_invoices": total_paid_invoices,
