@@ -89,6 +89,9 @@ async def login(
     # Для торгового представителя — стартовая страница «Мой день»
     if user.role == "field_rep" and next in ("/", ""):
         next = "/field/"
+    # Стажёру отдела продаж дашборд закрыт — ведём сразу в базу прозвона
+    if user.role == "sales_intern" and next in ("/", ""):
+        next = "/leads/"
     return RedirectResponse(url=next, status_code=302)
 
 

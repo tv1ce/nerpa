@@ -41,6 +41,21 @@
     <a href="/hr/" class="nav-link {% if '/hr' in request.url.path %}active{% endif %}">
       <i class="bi bi-people"></i> <span>HR-отчётность</span>
     </a>
+
+  {% elif _role == 'sales_intern' %}
+    {# Стажёр отдела продаж: только прозвон, скрипты и разведка ЛПР.
+       Список совпадает с SALES_INTERN_ALLOWED_PREFIXES в app/auth.py — там же
+       стоит 403 на всё остальное, меню только прячет ссылки. #}
+    <div class="nav-section">Продажи</div>
+    <a href="/leads/" class="nav-link {% if '/leads' in request.url.path %}active{% endif %}">
+      <i class="bi bi-telephone-outbound"></i> <span>Прозвон</span>
+    </a>
+    <a href="/scripts/" class="nav-link {% if '/scripts' in request.url.path %}active{% endif %}">
+      <i class="bi bi-diagram-3"></i> <span>Скрипты продаж</span>
+    </a>
+    <a href="/recon/" class="nav-link {% if '/recon' in request.url.path %}active{% endif %}">
+      <i class="bi bi-binoculars"></i> <span>Разведка ЛПР</span>
+    </a>
   {% else %}
 
     {% if _role != 'warehouse' %}

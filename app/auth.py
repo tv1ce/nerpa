@@ -5,7 +5,8 @@ from app.database import SessionLocal, verify_password
 from app.models import User, CompanySettings
 import secrets as _secrets
 
-ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1, "hr": 1, "demo": 1}
+ROLE_LEVELS = {"admin": 3, "manager": 2, "sales": 2, "field_rep": 2, "viewer": 1, "warehouse": 1,
+               "hr": 1, "sales_intern": 1, "demo": 1}
 
 
 def safe_redirect(url: str, default: str = "/") -> str:
@@ -21,7 +22,8 @@ def safe_redirect(url: str, default: str = "/") -> str:
 ROLE_LABELS = {
     "admin": "Администратор", "manager": "Менеджер", "sales": "Отдел продаж",
     "field_rep": "Торговый представитель",
-    "viewer": "Просмотр", "warehouse": "Склад", "hr": "HR", "demo": "Демо",
+    "viewer": "Просмотр", "warehouse": "Склад", "hr": "HR",
+    "sales_intern": "Стажёр отдела продаж", "demo": "Демо",
 }
 
 # Разделы, доступные роли "warehouse" (только чтение)
@@ -58,6 +60,28 @@ FIELD_ALLOWED_PREFIXES = (
 HR_ALLOWED_PREFIXES = (
     "/hr",
     "/settings/profile",
+    "/auth",
+    "/notifications",
+    "/static",
+    "/manifest.webmanifest",
+    "/sw.js",
+)
+
+# Разделы, доступные роли "sales_intern" (стажёр отдела продаж): скрипты продаж,
+# разведка ЛПР и база прозвона — и больше ничего. Дашборд, заказы, счета, склад,
+# аналитика и настройки компании стажёру не видны.
+#
+# Редактирование скриптов отдельно закрывать не нужно: конструктор пускает только
+# роли из EDITOR_ROLES в app/routers/scripts.py (admin/manager/sales), а GET
+# /scripts/{id}/edit для остальных редиректит на /scripts/{id}/full — режим
+# прохождения. Тяжёлые действия в /recon и /leads (запуск сбора, дедуп, импорт)
+# закрыты role_required("manager"), то есть уровнем 2 — стажёру с уровнем 1
+# они недоступны автоматически.
+SALES_INTERN_ALLOWED_PREFIXES = (
+    "/scripts",
+    "/recon",
+    "/leads",
+    "/settings/profile",  # свой профиль (ДР, смена пароля)
     "/auth",
     "/notifications",
     "/static",
@@ -146,6 +170,16 @@ def _hr_check(request: Request):
     return None
 
 
+def _sales_intern_check(request: Request):
+    """Возвращает 403 если роль sales_intern и путь вне её трёх разделов."""
+    role = request.session.get("user_role", "viewer")
+    if role == "sales_intern":
+        path = request.url.path
+        if not any(path.startswith(p) for p in SALES_INTERN_ALLOWED_PREFIXES):
+            return HTMLResponse(_403_HTML, status_code=403)
+    return None
+
+
 def _section_check(request: Request):
     """403, если роль не допущена в закрытый раздел (см. SECTION_ROLES)."""
     role = request.session.get("user_role", "viewer")
@@ -213,7 +247,8 @@ def login_required(func):
             if not request.url.path.startswith(_CHANGE_PWD_PATH):
                 return RedirectResponse(url=_CHANGE_PWD_PATH, status_code=302)
         denied = (_demo_check(request) or _warehouse_check(request) or _field_check(request)
-                  or _hr_check(request) or _section_check(request))
+                  or _hr_check(request)
+                  or _sales_intern_check(request) or _section_check(request))
         if denied:
             return denied
         # CSRF-проверка для изменяющих запросов
@@ -240,7 +275,8 @@ def role_required(min_role: str = "viewer"):
                 request.session.clear()
                 return RedirectResponse(url=f"/auth/login?next={request.url.path}", status_code=302)
             denied = (_demo_check(request) or _warehouse_check(request) or _field_check(request)
-                  or _hr_check(request) or _section_check(request))
+                  or _hr_check(request)
+                  or _sales_intern_check(request) or _section_check(request))
             if denied:
                 return denied
             role = user.role  # берём роль из БД, не из сессии
