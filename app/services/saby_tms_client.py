@@ -252,13 +252,22 @@ def get_saby_tms_client(company) -> Optional[SabyTmsClient]:
 
 def our_org_from_company(company) -> dict:
     """Блок «НашаОрганизация» для ЗаписатьДокумент — реквизиты грузоотправителя (нас)."""
+    from app.services.saby_docs import _is_ip
+
+    inn = company.inn or ""
+    name = company.name or ""
+    # ИП (ИНН 12 цифр) — СвИП/ИННФЛ, а не СвЮЛ: иначе Saby считает нас юрлицом
+    # и ругается на «неверный ИНН» (12 цифр вместо 10). Форма блока — как в
+    # рабочем ЭДО-клиенте, см. sbis_client.kontragent_block.
+    if _is_ip(company):
+        return {"СвИП": {"ИННФЛ": inn, "Наименование": name}}
     return {
         "СвЮЛ": {
-            "ИНН": company.inn or "",
+            "ИНН": inn,
             "КПП": company.kpp or "",
             "КодСтраны": "643",
-            "Название": company.name or "",
-            "НазваниеПолное": company.name or "",
+            "Название": name,
+            "НазваниеПолное": name,
         }
     }
 

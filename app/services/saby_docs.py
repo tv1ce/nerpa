@@ -14,6 +14,7 @@ build_transport_order_substitution — ЭЗЗ (заказ-заявка пере�
   Маршрут: пункт погрузки (наш склад) → пункт выгрузки (адрес клиента).
 """
 import math
+import re
 from datetime import date, datetime
 
 
@@ -176,7 +177,6 @@ def _tlf(phone: str | None) -> dict:
 def _phone_from_contact(text: str | None) -> str:
     """Из строки контакта («79119244416 Ольга») вытаскивает телефон (первая
     последовательность цифр/+/скобок/дефисов)."""
-    import re
     if not text:
         return ""
     m = re.search(r"[+\d][\d\-\s()]{5,}", str(text))
@@ -199,6 +199,21 @@ def _find_vehicle(order):
     return None
 
 
+def _is_ip(party) -> bool:
+    """ИП или ЮЛ. Приоритет — явное поле entity_type (есть у Counterparty),
+    иначе определяем по длине ИНН: 12 цифр — ИП/физлицо, 10 — юрлицо.
+    У CompanySettings поля entity_type нет, поэтому длина ИНН — единственный
+    достоверный признак (иначе ИП уезжает в СвЮЛУч и ФНС ругается на 12 цифр
+    в ИННЮЛ — «в документе ошибка»)."""
+    et = (getattr(party, "entity_type", None) or "").lower()
+    if et == "ip":
+        return True
+    if et in ("ooo", "ul", "juridical"):
+        return False
+    digits = re.sub(r"\D", "", getattr(party, "inn", "") or "")
+    return len(digits) == 12
+
+
 def _id_sv(party) -> dict:
     """Идентификационные сведения контрагента: ЮЛ (СвЮЛУч) или ИП (СвИП).
     Через getattr — работает и для Counterparty, и для CompanySettings."""
@@ -206,7 +221,7 @@ def _id_sv(party) -> dict:
     kpp  = getattr(party, "kpp", "") or ""
     ogrn = getattr(party, "ogrn", "") or ""
     name = getattr(party, "trade_name", None) or getattr(party, "name", "") or ""
-    if getattr(party, "entity_type", "ooo") == "ip":
+    if _is_ip(party):
         sv = {"ИННФЛ": inn}
         if ogrn:
             sv["ОГРНИП"] = ogrn
@@ -238,7 +253,6 @@ def build_etran_shipper_title(order, company) -> dict:
 
     delivery_addr = order.delivery_address or (cp.actual_address if cp else "") \
         or (cp.legal_address if cp else "") or ""
-    our_addr = company.actual_address or company.legal_address or ""
 
     cargo_name = (order.cargo_name or "").strip() \
         or (company.saby_cargo_name or "").strip() or "Груз"
@@ -250,11 +264,6 @@ def build_etran_shipper_title(order, company) -> dict:
         "ДатаТрН": _d(order.date),
         "НомЗак": order.number or "",
         "НомерТрН": order.number or "",
-        # Грузоотправитель — мы
-        "СвГО": {
-            "ГОЭксп": "0",
-            "РекИдентГО": _rek_ident(company, our_addr),
-        },
         # Грузополучатель — клиент
         "СвГП": {
             "РекИдентГП": _rek_ident(cp, delivery_addr),
@@ -271,13 +280,11 @@ def build_etran_shipper_title(order, company) -> dict:
             }],
         },
     }
-    # РекИдентГО у нас (грузоотправитель) — юрлицо: НаимОрг/КПП обязательны,
-    # контакт-телефон отправителя берём из реквизитов компании.
-    сод_инф["СвГО"]["РекИдентГО"]["ИдСв"] = {"СвЮЛУч": {
-        "ИННЮЛ": company.inn or "", "КПП": company.kpp or "", "НаимОрг": company.name or "",
-    }}
-    if company.phone:
-        сод_инф["СвГО"]["РекИдентГО"]["Контакт"] = _tlf(company.phone)
+    # Блок «Грузоотправитель» (СвГО) НЕ отправляем сознательно: ЭТрН создаётся
+    # от имени нашего аккаунта, и Saby сам подставляет реквизиты отправителя.
+    # Если его заполнять — Saby пишет «в документе ошибка»: мы ИП, а раньше здесь
+    # хардкодом лежал СвЮЛУч с ИННЮЛ, куда 12-значный ИНН ИП не влезает
+    # (проверено тестовым рейсом 27.08.26). См. также _is_ip().
 
     # Номер получателя — из контакта доставки заказа (иначе телефон клиента)
     receiver_phone = _phone_from_contact(getattr(order, "delivery_contact", None)) \
@@ -295,9 +302,11 @@ def build_etran_shipper_title(order, company) -> dict:
             "АдрТекст": order.pickup_address or company.actual_address or company.legal_address or "",
             "КодСтр": "643",
         }},
-        # Лицо, ответственное за погрузку, и владелец инфраструктуры — грузоотправитель (мы)
-        "СвЛицПогрГр": {"СовпГОП": "1", "ИдентРекГО": {"ИННЮЛ": company.inn or ""}},
-        "ВладИнфр": {"СовпГОВ": "1", "ИдентРекГО": {"ИННЮЛ": company.inn or ""}},
+        # Лицо, ответственное за погрузку, и владелец инфраструктуры — грузоотправитель (мы).
+        # При признаке «совпадает с ГО» реквизиты не дублируем: ИдентРекГО ждёт
+        # ИННЮЛ (10 цифр), а у ИП ИНН 12-значный — Saby валит документ в ошибку.
+        "СвЛицПогрГр": {"СовпГОП": "1"},
+        "ВладИнфр": {"СовпГОВ": "1"},
     }
     if подача:
         погруз["ЗаявПогр"] = подача
