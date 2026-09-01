@@ -123,7 +123,9 @@ def send_topic_message(chat_id: int, text: str, bot_token: str | None = None,
         r = httpx.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json=payload,
-            timeout=20,
+            # 5с, не 20: уведомление — не главное в запросе, и когда SOCKS-прокси
+            # недоступен, ждать его четверть минуты незачем.
+            timeout=5,
             proxy=PROXY,
         )
         r.raise_for_status()
@@ -191,6 +193,21 @@ def notify_warehouse_group(db, topic: str, text: str) -> None:
         send_topic_message(int(s.tg_warehouse_chat_id), text, bot_token=token, thread_id=thread_id)
     except Exception:
         logger.error("notify_warehouse_group(%s) failed", topic, exc_info=True)
+
+
+def notify_warehouse_group_bg(topic: str, text: str) -> None:
+    """То же уведомление, но со своей сессией БД — для запуска из BackgroundTasks.
+
+    Сессию запроса сюда передавать нельзя: фоновая задача стартует уже после
+    ответа, а get_db() закрывает сессию в finally по завершении запроса. Своя
+    сессия живёт ровно на время отправки и закрывается здесь же.
+    """
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        notify_warehouse_group(db, topic, text)
+    finally:
+        db.close()
 
 
 def fetch_recent_topic_updates(bot_token: str, limit: int = 50) -> list[dict]:

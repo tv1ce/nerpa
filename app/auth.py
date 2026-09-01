@@ -1,6 +1,8 @@
+import inspect
 from functools import wraps
 from fastapi import Request
 from fastapi.responses import RedirectResponse, HTMLResponse
+from starlette.concurrency import run_in_threadpool
 from app.database import SessionLocal, verify_password
 from app.models import User, CompanySettings
 import secrets as _secrets
@@ -235,6 +237,23 @@ def _get_fresh_user(request: Request):
 _CHANGE_PWD_PATH = "/auth/change-password"
 
 
+async def _call_handler(func, request: Request, *args, **kwargs):
+    """Вызывает обработчик эндпоинта, не занимая event loop.
+
+    Оба декоратора ниже оборачивают эндпоинт в async-wrapper, и FastAPI видит
+    только его — то есть исполняет обработчик на event loop даже тогда, когда сам
+    обработчик объявлен обычным def. А внутри у нас синхронный SQLAlchemy поверх
+    SQLite с busy_timeout=10с (database.py): ожидание блокировки на записи вешало
+    бы весь сайт целиком, потому что воркер uvicorn один.
+
+    Поэтому синхронные обработчики уводим в threadpool сами — ровно то, что
+    FastAPI сделал бы для необёрнутого def. Асинхронные просто ожидаем, как раньше.
+    """
+    if inspect.iscoroutinefunction(func):
+        return await func(request, *args, **kwargs)
+    return await run_in_threadpool(func, request, *args, **kwargs)
+
+
 def login_required(func):
     @wraps(func)
     async def wrapper(request: Request, *args, **kwargs):
@@ -261,7 +280,7 @@ def login_required(func):
                     '<a href="javascript:history.back()">Назад</a></div>',
                     status_code=403,
                 )
-        return await func(request, *args, **kwargs)
+        return await _call_handler(func, request, *args, **kwargs)
     return wrapper
 
 
@@ -292,6 +311,6 @@ def role_required(min_role: str = "viewer"):
                         '<a href="javascript:history.back()">Назад</a></div>',
                         status_code=403,
                     )
-            return await func(request, *args, **kwargs)
+            return await _call_handler(func, request, *args, **kwargs)
         return wrapper
     return decorator

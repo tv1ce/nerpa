@@ -18,7 +18,7 @@ sync_receiving_tasks_from_1c (см. app/services/onec_client.py) пуллит т
 """
 from datetime import date, datetime
 
-from fastapi import APIRouter, Request, Depends, Form
+from fastapi import APIRouter, Request, Depends, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -28,7 +28,7 @@ from app.database import get_db
 from app.auth import login_required
 from app.models import Receipt, ReceiptLine, StockMovement, Notification, User
 from app.services.onec_client import confirm_receipt, sync_receiving_tasks_from_1c
-from app.services.telegram_send import notify_warehouse_group
+from app.services.telegram_send import notify_warehouse_group_bg
 from app.utils import log_action
 
 router = APIRouter(prefix="/warehouse/receiving", tags=["warehouse_receiving"])
@@ -86,7 +86,10 @@ def _read_actual_qtys(form, receipt: Receipt) -> dict[int, float]:
 
 @router.post("/{receipt_id}/confirm")
 @login_required
-async def confirm(request: Request, receipt_id: int, db: Session = Depends(get_db)):
+async def confirm(request: Request, receipt_id: int, background: BackgroundTasks,
+                  db: Session = Depends(get_db)):
+    # Остаётся async: ниже нужен await request.form(). Сетевой вызов в Telegram
+    # при этом вынесен в BackgroundTasks, чтобы не занимать event loop.
     receipt = db.query(Receipt).filter(Receipt.id == receipt_id).first()
     if not receipt:
         return RedirectResponse(url="/warehouse/receiving/", status_code=302)
@@ -148,8 +151,8 @@ async def confirm(request: Request, receipt_id: int, db: Session = Depends(get_d
         f"  • {ln.product.name if ln.product else '—'} — {ln.actual_qty:g} {ln.product.unit if ln.product else ''}"
         for ln in receipt.lines if ln.product_id
     )
-    notify_warehouse_group(
-        db, "receiving",
+    background.add_task(
+        notify_warehouse_group_bg, "receiving",
         f"✅ Приход №{receipt.id} принят\n"
         f"Поставщик: {receipt.supplier.name if receipt.supplier else '—'}\n"
         f"Склад: {receipt.warehouse.name if receipt.warehouse else '—'}\n"

@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta
-from fastapi import APIRouter, Request, Depends, Form
+from fastapi import APIRouter, Request, Depends, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -9,7 +9,7 @@ from app.database import get_db
 from app.auth import login_required, role_required
 from app.models import Product, StockMovement, Order, StockAdjustment, StockAdjustmentLine, CompanySettings, User
 from app.utils import maybe_notify_low_stock, log_action
-from app.services.telegram_send import notify_warehouse_group
+from app.services.telegram_send import notify_warehouse_group_bg
 
 # Статусы заказа, считающиеся «в работе» (не черновик и не завершён/отменён)
 ACTIVE_ORDER_STATUSES = ["confirmed", "paid", "assembled", "handed", "delivered"]
@@ -163,7 +163,12 @@ async def warehouse_assembly(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/orders/{order_id}/assemble")
 @login_required
-async def mark_assembled(request: Request, order_id: int, db: Session = Depends(get_db)):
+def mark_assembled(request: Request, order_id: int, background: BackgroundTasks,
+                   db: Session = Depends(get_db)):
+    # Обычный def, не async: обработчик пишет в SQLite, а синхронный SQLAlchemy на
+    # event loop подвешивал бы весь сайт на время ожидания блокировки записи.
+    # Декоратор login_required уводит такие обработчики в threadpool —
+    # см. auth._call_handler.
     order = db.query(Order).filter(Order.id == order_id).first()
     if order and order.ready_for_assembly:
         old = order.status
@@ -185,8 +190,10 @@ async def mark_assembled(request: Request, order_id: int, db: Session = Depends(
             for i in order.items if i.product_id
         )
         cp = order.counterparty
-        notify_warehouse_group(
-            db, "assembled",
+        # Уведомление уходит после ответа: Telegram ходит через SOCKS-прокси,
+        # и его недоступность не должна задерживать редирект кладовщику.
+        background.add_task(
+            notify_warehouse_group_bg, "assembled",
             f"📦 Заказ №{order.number} собран\n"
             f"Клиент: {(cp.trade_name or cp.name) if cp else '—'}\n"
             f"Кладовщик: {user.full_name if user else '—'}\n"

@@ -13,7 +13,7 @@
 """
 from datetime import datetime
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -22,7 +22,7 @@ from app.database import get_db
 from app.auth import login_required
 from app.models import Order, User
 from app.utils import log_action
-from app.services.telegram_send import notify_warehouse_group
+from app.services.telegram_send import notify_warehouse_group_bg
 
 router = APIRouter(prefix="/warehouse/shipping", tags=["warehouse_shipping"])
 templates = Jinja2Templates(directory="app/templates")
@@ -49,7 +49,10 @@ async def shipping_list(request: Request, db: Session = Depends(get_db)):
 
 @router.post("/{order_id}/ship")
 @login_required
-async def mark_shipped(request: Request, order_id: int, db: Session = Depends(get_db)):
+def mark_shipped(request: Request, order_id: int, background: BackgroundTasks,
+                 db: Session = Depends(get_db)):
+    # Обычный def — см. комментарий в warehouse.mark_assembled: запись в SQLite
+    # не должна занимать event loop.
     order = db.query(Order).filter(Order.id == order_id).with_for_update().first()
     if order and order.status == "assembled":
         old_status = order.status
@@ -64,8 +67,8 @@ async def mark_shipped(request: Request, order_id: int, db: Session = Depends(ge
 
         user = db.query(User).filter(User.id == request.session.get("user_id")).first()
         cp = order.counterparty
-        notify_warehouse_group(
-            db, "shipped",
+        background.add_task(
+            notify_warehouse_group_bg, "shipped",
             f"🚚 Заказ №{order.number} передан поставщику\n"
             f"Клиент: {(cp.trade_name or cp.name) if cp else '—'}\n"
             f"Мест: {order.cargo_places if order.cargo_places else len(order.items)}\n"
